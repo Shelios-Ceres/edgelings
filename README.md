@@ -45,20 +45,14 @@ See what every run is doing. Step away, and Agent Island calls you back when it 
 
 ## Quick Start
 
-Choose your platform and install the current release directly:
-
-> `v2.1.2` ships **both platforms from the same tag** — the same five providers, the same live session state, the same report cards on macOS and Windows.
-
-| Platform | Recommended download | Requirement |
+| Platform | Download | Requirement |
 |---|---|---|
-| macOS | [AgentIsland-2.1.2.dmg](https://github.com/tristan666666/agent-island/releases/download/v2.1.2/AgentIsland-2.1.2.dmg) | macOS 13+, Apple silicon or Intel |
+| macOS | [AgentIsland-2.1.2.dmg](https://github.com/tristan666666/agent-island/releases/download/v2.1.2/AgentIsland-2.1.2.dmg) | macOS 13+ |
 | Windows | [AgentIsland-2.1.2-win-x64.zip](https://github.com/tristan666666/agent-island/releases/download/v2.1.2/AgentIsland-2.1.2-win-x64.zip) | Windows 10/11 x64 |
 
-On macOS, drag Agent Island into Applications. The app is ad-hoc signed rather than notarized, so the first launch requires right-clicking the app in Finder and choosing **Open**.
+**macOS** — drag into Applications. On first launch, right-click the app and choose **Open** ([why?](#faq)).
 
-On Windows, unzip the archive and run `AgentIsland.exe`.
-
-> **First launch on macOS** (manual download only): Gatekeeper shows "Apple could not verify AgentIsland" because the app ships without a paid Apple Developer certificate — it is ad-hoc signed, and update integrity is handled by Sparkle's own EdDSA signatures instead. Right-click the app and choose Open, or approve it under System Settings → Privacy & Security → Open Anyway. Homebrew installs skip this entirely.
+**Windows** — unzip and run `AgentIsland.exe`.
 
 <details>
 <summary>Package managers and source builds</summary>
@@ -107,7 +101,7 @@ Windows build and test instructions are tracked in [issue #10](https://github.co
 - [FAQ](#faq)
 - [Contributing](#contributing)
 - [Roadmap and releases](#roadmap-and-releases)
-- [Credits and license](#credits-and-license)
+- [License](#license)
 
 ## Features
 
@@ -277,13 +271,6 @@ Session state, cost calculations, and reports are derived locally. Agent Island 
 
 </details>
 
-<details>
-<summary><strong>How is this different from codex-island?</strong></summary>
-
-codex-island is where the usage-island idea started, and Agent Island began there in 2026. What ships today is a different product and a rewritten codebase: live session state for five providers, your-turn and out-of-quota alarms, a local cost ledger with shareable report cards, and a native Windows app alongside macOS.
-
-</details>
-
 ## Contributing
 
 Contributions are welcome across macOS, Windows, documentation, tests, and localization. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -302,8 +289,6 @@ Run `./scripts/verify.sh` before opening a macOS pull request. Windows changes a
 - [Roadmap](docs/roadmap.md)
 - [Open issues](https://github.com/tristan666666/agent-island/issues)
 
-## Credits and license
-
-Agent Island began in 2026 from **[codex-island](https://github.com/ericjypark/codex-island)** by **Eric Park**, which first put a usage island on the notch. The codebase has since been rewritten around live session state across five providers, your-turn alerts, the cost ledger and report cards, and a native Windows app.
+## License
 
 MIT licensed. See [LICENSE](LICENSE).

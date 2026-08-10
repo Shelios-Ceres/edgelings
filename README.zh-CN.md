@@ -44,20 +44,14 @@
 
 ## 快速开始
 
-选择你的平台，直接安装当前版本：
-
-> `v2.1.2` **两个平台从同一个 tag 发布**——macOS 与 Windows 是同样的五家服务、同样的实时会话状态、同样的报告卡。
-
-| 平台 | 推荐下载 | 系统要求 |
+| 平台 | 下载 | 系统要求 |
 |---|---|---|
-| macOS | [AgentIsland-2.1.2.dmg](https://github.com/tristan666666/agent-island/releases/download/v2.1.2/AgentIsland-2.1.2.dmg) | macOS 13+，Apple silicon 或 Intel |
+| macOS | [AgentIsland-2.1.2.dmg](https://github.com/tristan666666/agent-island/releases/download/v2.1.2/AgentIsland-2.1.2.dmg) | macOS 13+ |
 | Windows | [AgentIsland-2.1.2-win-x64.zip](https://github.com/tristan666666/agent-island/releases/download/v2.1.2/AgentIsland-2.1.2-win-x64.zip) | Windows 10/11 x64 |
 
-macOS：把 Agent Island 拖入 Applications。应用目前是 ad-hoc 签名而非 notarize，首次启动需要在 Finder 中右键应用并选择 **打开**。
+**macOS** — 拖入 Applications。首次启动右键点应用选 **打开**（[为什么？](#常见问题)）
 
-Windows：解压下载包，运行 `AgentIsland.exe`。
-
-> **macOS 首次打开**（仅手动下载）：Gatekeeper 会提示「Apple 无法验证 AgentIsland」——应用没有购买 Apple 开发者证书，使用 ad-hoc 签名，更新完整性由 Sparkle 自己的 EdDSA 签名保障。右键点按应用选「打开」，或到 系统设置 → 隐私与安全性 → 点「仍要打开」。用 Homebrew 安装则完全没有这一步。
+**Windows** — 解压后运行 `AgentIsland.exe`
 
 <details>
 <summary>包管理器与源码构建</summary>
@@ -106,7 +100,7 @@ Windows 构建与测试文档正在 [issue #10](https://github.com/tristan666666
 - [常见问题](#常见问题)
 - [参与贡献](#参与贡献)
 - [路线图与版本](#路线图与版本)
-- [致谢与许可证](#致谢与许可证)
+- [许可证](#许可证)
 
 ## 功能
 
@@ -275,13 +269,6 @@ Agent Island 会读取实现这些页面所需的本地文件和凭据。与其�
 
 </details>
 
-<details>
-<summary><strong>它和 codex-island 有什么区别？</strong></summary>
-
-codex-island 是用量岛这个想法的起点，Agent Island 2026 年也从那里起步。今天交付的是另一个产品、另一套代码：五家服务的实时会话状态、轮到你与额度用完提醒、带可分享报告卡的本地成本账本，以及与 macOS 并行的原生 Windows 应用。
-
-</details>
-
 ## 参与贡献
 
 欢迎贡献 macOS、Windows、文档、测试和本地化。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [Code of Conduct](CODE_OF_CONDUCT.md)。
@@ -300,8 +287,6 @@ codex-island 是用量岛这个想法的起点，Agent Island 2026 年也从那�
 - [路线图](docs/roadmap.md)
 - [开放 Issues](https://github.com/tristan666666/agent-island/issues)
 
-## 致谢与许可证
-
-Agent Island 于 2026 年起步自 **Eric Park** 的 **[codex-island](https://github.com/ericjypark/codex-island)**——把用量岛放上刘海的最初想法来自那里。此后代码库已围绕五家服务的实时会话状态、轮到你与额度用完提醒、本地成本账本与报告卡，以及原生 Windows 应用重写。
+## 许可证
 
 项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
