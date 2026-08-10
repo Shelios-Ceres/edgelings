@@ -292,6 +292,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Headless marketing/release-notes renders: writes both alarm cards as
         // PNGs (in-process ImageRenderer, no screen-recording permission
         // needed) into the given directory, then quits.
+        if let path = ProcessInfo.processInfo.environment["AGENTISLAND_SETTINGS_SNAPSHOT"] {
+            Task { @MainActor in
+                SettingsWindowController.shared.show()
+                // Two beats: one for the window to lay out, one for the
+                // stores the page observes to publish their first values.
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                Self.writeSettingsSnapshot(to: path)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if let dir = ProcessInfo.processInfo.environment["AGENTISLAND_DEMO_ALARM_SNAPSHOT"] {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 400_000_000)
@@ -365,6 +376,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    /// Settings-page snapshot for docs and QA — the Windows sweep's twin.
+    /// `-Settings.activeTab display` picks the page. Renders the REAL
+    /// window's view tree: an off-screen ImageRenderer never runs the
+    /// scroll content's layout pass and writes an empty column.
+    private static func writeSettingsSnapshot(to path: String) {
+        guard let view = SettingsWindowController.shared.window?.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        else {
+            NSLog("AgentIsland: settings snapshot has no window for %@", path)
+            return
+        }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: path))
+    }
+
     private static func writeAlarmSnapshot(_ view: TurnAlarmView, to path: String) {
         let card = view
             .frame(width: 520, height: 520)

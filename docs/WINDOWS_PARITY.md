@@ -1,9 +1,26 @@
 # Windows port — parity audit vs macOS
 
-A working inventory of where `windows/` stands against the macOS app.
-Kept as a living doc so contributors can pick gaps off the list.
-Last full alignment pass: macOS `main` @ `e0c16e1` (2026-07-16, post-v1.6.1
-sweep).
+## Status: parity reached at 2.1.2 (2026-08-09)
+
+Windows and macOS ship from the **same tag** with the same five providers,
+the same live session state, the same alarms, cost ledger, and report
+cards. One difference is intentional and stays: Windows adds a
+**floating-bar position** setting, because no Windows display has a notch
+to dock to.
+
+Verification for that release: unit suites on a `windows-latest` CI
+runner, plus every settings tab, island page, report window, and alarm
+rendered from the shipping build and reviewed frame by frame. Quota
+rendering was exercised with injected demo data — live per-account quota
+still depends on each provider's own local sign-in.
+
+---
+
+The sections below are the historical record of the gap-closing work, kept
+so contributors can see how each behavior was matched. Last full
+alignment pass documented here: macOS `main` @ `e0c16e1` (2026-07-16,
+post-v1.6.1 sweep) — details predating 2.1.2 describe that era, not the
+current release.
 
 ## Aligned to e0c16e1 (2026-07-16 pass, P23)
 
