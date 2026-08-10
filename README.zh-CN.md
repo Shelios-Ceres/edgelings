@@ -4,7 +4,7 @@
 
 # Agent Island
 
-**Claude Code、Codex 的实时状态，Gemini、Grok 的额度，一起看。**
+**AI 编程 Agent 的状态伴侣——Claude Code、Codex、Antigravity、Grok、Cursor。**
 
 随时看清每个任务正在做什么。你可以离开终端，轮到你时 Agent Island 会叫你回来。本地优先、无需 Agent Island 账号、无产品遥测。
 
@@ -112,7 +112,7 @@ Windows 构建与测试文档正在 [issue #10](https://github.com/tristan666666
 
 ### 状态监视
 
-Agent Island 把本机 Claude Code、Claude Desktop 和 Codex 的会话活动显示在紧凑的顶部条中。无需把每个会话切到前台，也能快速判断当前状态——下面两种状态，悬停一下就能对比：
+Agent Island 把本机 Claude Code、Claude Desktop、Codex、Grok、Antigravity 和 Cursor 的会话活动显示在紧凑的顶部条中。无需把每个会话切到前台，也能快速判断当前状态——下面两种状态，悬停一下就能对比：
 
 <img src="Assets/agent-island-bar-working.png" alt="macOS 顶部条中正在运行的 Claude 会话状态" width="760">
 
@@ -126,7 +126,7 @@ Agent Island 把本机 Claude Code、Claude Desktop 和 Codex 的会话活动显
 
 ### 用量
 
-可从 Claude、Codex、Gemini、Grok、Cursor 中选择最多两个常驻小岛。实时会话状态（工作中 / 卡住 / 轮到你）覆盖 Claude、Codex、Grok、Gemini；被选中的每一家都保留完整用量行，悬停看模型或产品明细，点击直达官方页面。需要本地已登录对应工具；未检测到登录就不会出现对应槽位或行
+可从 Claude、Codex、Antigravity、Grok、Cursor 中选择最多两个常驻小岛。实时会话状态（工作中 / 卡住 / 轮到你）五家全覆盖；被选中的每一家都保留完整用量行，悬停看模型或产品明细，点击直达官方页面。需要本地已登录对应工具；未检测到登录就不会出现对应槽位或行
 
 成本、日历和报告由本机会话记录计算。各服务的额度与重置数据通过本地凭据存储访问服务方自有端点。
 
@@ -145,7 +145,7 @@ Codex 多账号的机器可以把每个登录存成命名档案，在服务菜�
 <table>
   <tr>
     <td align="center"><img src="Assets/report-weekly-en.webp" alt="英文周报卡（演示数据）——本周 Claude 夺冠" width="420"><br><sub>English · 本周 Claude 胜</sub></td>
-    <td align="center"><img src="Assets/report-monthly-zh.webp" alt="中文月报卡（演示数据）——本月 Codex 夺冠" width="420"><br><sub>简体中文 · 本月 Codex 胜</sub></td>
+    <td align="center"><img src="Assets/report-monthly-zh.webp" alt="中文月报卡（演示数据）——本月 Claude 夺冠" width="420"><br><sub>简体中文 · 本月 Claude 胜</sub></td>
   </tr>
 </table>
 
@@ -155,8 +155,8 @@ Codex 多账号的机器可以把每个登录存成命名档案，在服务菜�
 
 <table>
   <tr>
-    <td align="center"><img src="Assets/agent-island-turn-alarm-claude-zh.png" alt="Claude 会话完成后的轮到你提醒" width="420"></td>
-    <td align="center"><img src="Assets/agent-island-turn-alarm-codex.png" alt="Codex 会话完成后的轮到你提醒" width="420"></td>
+    <td align="center"><img src="Assets/agent-island-turn-alarm-claude-zh.png" alt="会话完成后的轮到你提醒" width="420"></td>
+    <td align="center"><img src="Assets/agent-island-turn-alarm-codex.png" alt="额度用完提醒，附重置时间" width="420"></td>
   </tr>
 </table>
 
@@ -211,11 +211,11 @@ flowchart LR
     B --> C[顶部条与提醒]
     B --> D[本地成本与报告页面]
     E[服务方自有用量端点] --> D
-    F[兼容的 Gemini / Grok / Cursor 登录] --> G[实时会话状态与完整用量行]
+    F[兼容的 Antigravity / Grok / Cursor 登录] --> G[实时会话状态与完整用量行]
     E --> G
 ```
 
-- **会话状态**只来自 Claude Code、Claude Desktop 和 Codex 已经写入磁盘的记录与活动文件。本地文件事件和轮次标记驱动工作中与轮到你的状态；Gemini 和 Grok 不提供会话状态。
+- **会话状态**只来自 Claude Code、Claude Desktop、Codex、Grok、Antigravity 和 Cursor 已经写入磁盘的记录与活动文件。本地文件事件和轮次标记驱动五家的工作中与轮到你状态，每一家都读自己的记录，不靠彼此推测。
 - **用量与重置数据**来自各服务方自有的用量端点，并通过本地凭据存储访问——对每一家检测到兼容本地登录的服务都是如此
 - **成本、模型和报告汇总**根据本机会话记录在本地计算。
 
@@ -223,10 +223,10 @@ flowchart LR
 
 ## 为什么选 Agent Island
 
-运行耗时较长的 Claude Code 和 Codex 任务时，不应该一直把每个终端留在眼前。Agent Island 为这些会话提供持续可见的实时状态，在任务需要处理时提示你，并在下一步轮到你时把你叫回来——覆盖 Claude Code、Codex、Gemini、Grok 与 Cursor
+运行耗时较长的 Claude Code 和 Codex 任务时，不应该一直把每个终端留在眼前。Agent Island 为这些会话提供持续可见的实时状态，在任务需要处理时提示你，并在下一步轮到你时把你叫回来——覆盖 Claude Code、Codex、Antigravity、Grok 与 Cursor
 它适合这些开发者：
 
-- 并行运行多个 Agent——Claude Code、Codex、Grok、Gemini——并把每一家的额度收进同一座小岛；
+- 并行运行多个 Agent——Claude Code、Codex、Grok、Antigravity、Cursor——并把每一家的额度收进同一座小岛；
 - 让长任务在后台运行；
 - 希望查看状态、提醒、用量和可分享的战绩卡，又不想把会话数据交给另一个服务；
 - 在乎桌面的样子——岛的光效、布局和卡片是按产品调的，不是调试悬浮窗。
@@ -238,8 +238,8 @@ flowchart LR
 | 价格与源码 | 免费 · MIT | 一次性买断 · 闭源 | 免费 · MIT | 免费 · MIT | 免费 · MIT | 免费 · MIT | 免费 · MIT |
 | 形态 | 菜单栏应用 | 刘海应用 | 菜单栏应用 | 命令行工具 | 终端仪表盘 | 菜单栏应用 | 菜单栏应用 |
 | 平台 | macOS 13+ · Windows 10/11 | macOS 14+ | macOS 14+（CLI 版另支持 Linux） | 任何能跑 Node 的环境 | 任何能跑 Python 的环境 | macOS | macOS |
-| 支持的 Agent | Claude Code · Codex· Grok · Gemini（实时会话）· Cursor（用量） | Claude Code、Codex、Gemini CLI、Cursor 等十余家 | 59 家 provider（限额） | Claude Code（+ Codex） | Claude Code | Claude Code | Codex（+ Claude 用量） |
-| 实时会话状态 | ✓ Claude · Codex · Grok · Gemini | ✓ | —（服务商故障徽章） | — | — | — | —（被动用量表） |
+| 支持的 Agent | Claude Code · Codex · Grok · Antigravity · Cursor（全部实时会话） | Claude Code、Codex、Gemini CLI、Cursor 等十余家 | 59 家 provider（限额） | Claude Code（+ Codex） | Claude Code | Claude Code | Codex（+ Claude 用量） |
+| 实时会话状态 | ✓ Claude · Codex · Grok · Antigravity · Cursor | ✓ | —（服务商故障徽章） | — | — | — | —（被动用量表） |
 | 轮到你闹钟（弹窗+声音+队列） | ✓ | 完成提示，点击跳回 | — | — | — | — | — |
 | 额度耗尽闹钟 | ✓ | — | — | — | 终端预警 | 70%/90% 阈值通知 | — |
 | 刘海内权限审批 | — | ✓ | — | — | — | — | — |
@@ -278,7 +278,7 @@ Agent Island 会读取实现这些页面所需的本地文件和凭据。与其�
 <details>
 <summary><strong>它和 codex-island 有什么区别？</strong></summary>
 
-[codex-island](https://github.com/ericjypark/codex-island) 建立了用量岛与成本跟踪的基础。Agent Island 在此之上加入实时会话状态、轮到你提醒、Windows 支持和更完整的桌面工作流。
+codex-island 是用量岛这个想法的起点，Agent Island 2026 年也从那里起步。今天交付的是另一个产品、另一套代码：五家服务的实时会话状态、轮到你与额度用完提醒、带可分享报告卡的本地成本账本，以及与 macOS 并行的原生 Windows 应用。
 
 </details>
 
@@ -302,6 +302,6 @@ Agent Island 会读取实现这些页面所需的本地文件和凭据。与其�
 
 ## 致谢与许可证
 
-Agent Island fork 自 **Eric Park** 的 **[codex-island](https://github.com/ericjypark/codex-island)**。原项目奠定了用量岛与成本跟踪基础；Agent Island 在此之上加入实时会话状态、轮到你提醒、跨平台支持和独立的产品方向。
+Agent Island 于 2026 年起步自 **Eric Park** 的 **[codex-island](https://github.com/ericjypark/codex-island)**——把用量岛放上刘海的最初想法来自那里。此后代码库已围绕五家服务的实时会话状态、轮到你与额度用完提醒、本地成本账本与报告卡，以及原生 Windows 应用重写。
 
-项目采用 MIT 许可证。Copyright 2026 Eric Park。本 fork 保留原始版权声明，详见 [LICENSE](LICENSE)。
+项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。

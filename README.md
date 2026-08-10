@@ -146,7 +146,7 @@ Shareable cards rendered locally: total tokens with an ≈ API value line (an es
 <table>
   <tr>
     <td align="center"><img src="Assets/report-weekly-en.webp" alt="Weekly report card in English with demo data — Claude takes the crown" width="420"><br><sub>English · Claude wins the week</sub></td>
-    <td align="center"><img src="Assets/report-monthly-zh.webp" alt="Monthly report card in Simplified Chinese with demo data — Codex takes the crown" width="420"><br><sub>简体中文 · Codex wins the month</sub></td>
+    <td align="center"><img src="Assets/report-monthly-zh.webp" alt="Monthly report card in Simplified Chinese with demo data — Claude takes the crown" width="420"><br><sub>简体中文 · Claude wins the month</sub></td>
   </tr>
 </table>
 
@@ -156,8 +156,8 @@ When a background turn finishes, Agent Island can show an alarm window, send a s
 
 <table>
   <tr>
-    <td align="center"><img src="Assets/agent-island-turn-alarm-claude.png" alt="Your-turn alert for a completed Claude session" width="420"></td>
-    <td align="center"><img src="Assets/agent-island-turn-alarm-codex.png" alt="Your-turn alert for a completed Codex session" width="420"></td>
+    <td align="center"><img src="Assets/agent-island-turn-alarm-claude.png" alt="Out-of-quota alarm for Claude with the reset time" width="420"></td>
+    <td align="center"><img src="Assets/agent-island-turn-alarm-codex.png" alt="Your-turn alarm for a finished Codex session" width="420"></td>
   </tr>
 </table>
 
@@ -280,7 +280,7 @@ Session state, cost calculations, and reports are derived locally. Agent Island 
 <details>
 <summary><strong>How is this different from codex-island?</strong></summary>
 
-[codex-island](https://github.com/ericjypark/codex-island) established the usage-island and cost-tracking foundation. Agent Island builds on it with live session state, your-turn alerts, Windows support, and a broader desktop workflow.
+codex-island is where the usage-island idea started, and Agent Island began there in 2026. What ships today is a different product and a rewritten codebase: live session state for five providers, your-turn and out-of-quota alarms, a local cost ledger with shareable report cards, and a native Windows app alongside macOS.
 
 </details>
 
@@ -304,6 +304,6 @@ Run `./scripts/verify.sh` before opening a macOS pull request. Windows changes a
 
 ## Credits and license
 
-Agent Island is a fork of **[codex-island](https://github.com/ericjypark/codex-island)** by **Eric Park**. The original usage-island and cost-tracking foundation are his work. Agent Island adds live session-state views, your-turn alerts, cross-platform support, and its own product direction.
+Agent Island began in 2026 from **[codex-island](https://github.com/ericjypark/codex-island)** by **Eric Park**, which first put a usage island on the notch. The codebase has since been rewritten around live session state across five providers, your-turn alerts, the cost ledger and report cards, and a native Windows app.
 
-MIT licensed. Copyright 2026 Eric Park. This fork retains the original notice. See [LICENSE](LICENSE).
+MIT licensed. See [LICENSE](LICENSE).
