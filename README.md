@@ -16,14 +16,18 @@ See what every run is doing. Step away, and Agent Island calls you back when it 
 [![Build](https://img.shields.io/github/actions/workflow/status/tristan666666/agent-island/macos-ci.yml?branch=main&style=flat-square&label=build)](https://github.com/tristan666666/agent-island/actions)
 [![License](https://img.shields.io/github/license/tristan666666/agent-island?style=flat-square&color=8b5cf6)](LICENSE)
 
-[![Listed in awesome-mac](https://img.shields.io/badge/listed%20in-awesome--mac-0969da?style=flat-square)](https://github.com/jaywcjlove/awesome-mac/blob/master/README.md#menu-bar-tools)
-[![Listed in awesome-swift-macos-apps](https://img.shields.io/badge/listed%20in-awesome--swift--macOS-f97316?style=flat-square)](https://github.com/jaywcjlove/awesome-swift-macos-apps/blob/main/README.md#ai)
-[![Listed in awesome-codex-cli](https://img.shields.io/badge/listed%20in-awesome--codex--cli-10b981?style=flat-square)](https://github.com/milisp/awesome-codex-cli)
-[![Listed in awesome-coding-agents](https://img.shields.io/badge/listed%20in-awesome--coding--agents-7c3aed?style=flat-square)](https://github.com/kailiu42/awesome-coding-agents)
-[![Listed in awesome-claude-code-and-skills](https://img.shields.io/badge/listed%20in-awesome--claude--code--and--skills-8b5cf6?style=flat-square)](https://github.com/GetBindu/awesome-claude-code-and-skills)
-[![Listed in awesome-vibe-coding-resources](https://img.shields.io/badge/listed%20in-awesome--vibe--coding--resources-ec4899?style=flat-square)](https://github.com/acvnace/awesome-vibe-coding-resources#desktop-apps)
-[![Listed in awesome-vibecoding](https://img.shields.io/badge/listed%20in-awesome--vibecoding-0ea5e9?style=flat-square)](https://github.com/roboco-io/awesome-vibecoding#projects-platforms--tools)
-[![Listed in Chinese Independent Developer Projects](https://img.shields.io/badge/listed%20in-Chinese%20Independent%20Developer%20Projects-c2410c?style=flat-square)](https://github.com/1c7/chinese-independent-developer/pull/1085/files)
+[![Listed in awesome-mac](https://img.shields.io/badge/listed%20in-awesome--mac-24292f?style=flat-square)](https://github.com/jaywcjlove/awesome-mac/blob/master/README.md#menu-bar-tools)
+[![Listed in chinese-independent-developer](https://img.shields.io/badge/listed%20in-chinese--independent--developer-24292f?style=flat-square)](https://github.com/1c7/chinese-independent-developer#readme)
+[![Listed in awesome-free-apps](https://img.shields.io/badge/listed%20in-awesome--free--apps-24292f?style=flat-square)](https://github.com/Axorax/awesome-free-apps#developer-tools)
+[![Listed in awesome-opensource-ai](https://img.shields.io/badge/listed%20in-awesome--opensource--ai-24292f?style=flat-square)](https://github.com/alvinreal/awesome-opensource-ai#ai-native-ides--development-environments)
+[![Listed in favorite-link](https://img.shields.io/badge/listed%20in-favorite--link-24292f?style=flat-square)](https://github.com/guanguans/favorite-link#readme)
+[![Listed in mac-apps](https://img.shields.io/badge/listed%20in-mac--apps-24292f?style=flat-square)](https://github.com/jeffreyjackson/mac-apps#for-developers)
+[![Listed in awesome-swift-macOS](https://img.shields.io/badge/listed%20in-awesome--swift--macOS-24292f?style=flat-square)](https://github.com/jaywcjlove/awesome-swift-macos-apps/blob/main/README.md#ai)
+[![Listed in dev-resources](https://img.shields.io/badge/listed%20in-dev--resources-24292f?style=flat-square)](https://github.com/marcelscruz/dev-resources#open-source)
+[![Listed in awesome-cli-coding-agents](https://img.shields.io/badge/listed%20in-awesome--cli--coding--agents-24292f?style=flat-square)](https://github.com/bradAGI/awesome-cli-coding-agents#agent-infrastructure)
+[![Listed in awesome-AI-driven-development](https://img.shields.io/badge/listed%20in-awesome--AI--driven--development-24292f?style=flat-square)](https://github.com/eltociear/awesome-AI-driven-development#code-analysis--search)
+[![Listed in awesome-ai-agents-2026](https://img.shields.io/badge/listed%20in-awesome--ai--agents--2026-24292f?style=flat-square)](https://github.com/ARUNAGIRINATHAN-K/awesome-ai-agents-2026#agent-tooling-and-infrastructure)
+[![Listed in awesome-claude](https://img.shields.io/badge/listed%20in-awesome--claude-24292f?style=flat-square)](https://github.com/JSONbored/awesome-claude#readme)
 
 <a href="https://www.producthunt.com/products/agent-island-2?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-agent-island-2">
   <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1175477&theme=light" alt="Agent Island - live status and quota companion | Product Hunt" width="250" height="54">
