@@ -10,6 +10,7 @@ public partial class App : System.Windows.Application
     public static App Instance => (App)Current;
 
     private IslandWindow? _island;
+    private UI.Drawer.DrawerWindow? _drawer;
     private TrayIcon? _tray;
     private System.Threading.Mutex? _singleInstance;
 
@@ -62,30 +63,11 @@ public partial class App : System.Windows.Application
         }
 
         _island = new IslandWindow();
-        _island.Show();
+        ApplyPlacementSurface();
+        Model.IslandPositionStore.Shared.PropertyChanged +=
+            (_, _) => Dispatcher.BeginInvoke(ApplyPlacementSurface);
 
-        _tray = new TrayIcon(
-            showIsland: () => _island?.PopUp(),
-            toggleIsland: () =>
-            {
-                if (_island is null) return;
-                if (_island.IsVisible)
-                {
-                    _island.DeliberatelyHidden = true;
-                    _island.Hide();
-                }
-                else
-                {
-                    _island.DeliberatelyHidden = false;
-                    _island.Show();
-                }
-            },
-            openSettings: UI.SettingsWindow.Open,
-            exit: () =>
-            {
-                _tray?.Dispose();
-                Shutdown();
-            });
+        _tray = CreateTray();
         TrayIcon.Current = _tray;
 
         ActivityMonitor.Shared.Start();
@@ -240,24 +222,83 @@ public partial class App : System.Windows.Application
         var wasVisible = _island?.IsVisible ?? true;
         _island?.Close();
         _island = new IslandWindow();
-        if (wasVisible) _island.Show();
+        if (DrawerMode)
+        {
+            // The drawer's menus and card labels are built in the old
+            // language too; recreate it rather than the hidden island.
+            _drawer?.Close();
+            _drawer = null;
+            ApplyPlacementSurface();
+        }
+        else if (wasVisible)
+        {
+            _island.Show();
+        }
 
         _tray?.Dispose();
-        _tray = new TrayIcon(
-            showIsland: () => _island?.PopUp(),
-            toggleIsland: () =>
-            {
-                if (_island is null) return;
-                if (_island.IsVisible) _island.Hide(); else _island.Show();
-            },
-            openSettings: UI.SettingsWindow.Open,
-            exit: () =>
-            {
-                _tray?.Dispose();
-                Shutdown();
-            });
+        _tray = CreateTray();
         TrayIcon.Current = _tray;
     }
+
+    private static bool DrawerMode =>
+        Model.IslandPositionStore.Shared.Placement == Model.IslandPlacement.SideDrawer;
+
+    /// The side drawer replaces the island rather than joining it. The
+    /// island's watchdog re-shows it unless it is deliberately hidden, so the
+    /// flag doubles as "another surface owns the screen".
+    private void ApplyPlacementSurface()
+    {
+        if (_island is null) return;
+        if (DrawerMode)
+        {
+            _island.DeliberatelyHidden = true;
+            _island.Hide();
+            if (_drawer is null)
+            {
+                _drawer = new UI.Drawer.DrawerWindow();
+                _drawer.Show();
+            }
+        }
+        else
+        {
+            _drawer?.Close();
+            _drawer = null;
+            _island.DeliberatelyHidden = false;
+            _island.Show();
+        }
+    }
+
+    private TrayIcon CreateTray() => new(
+        showIsland: () =>
+        {
+            if (_drawer is not null) _drawer.Reveal();
+            else _island?.PopUp();
+        },
+        toggleIsland: () =>
+        {
+            if (_drawer is not null)
+            {
+                _drawer.ToggleDeliberately();
+                return;
+            }
+            if (_island is null) return;
+            if (_island.IsVisible)
+            {
+                _island.DeliberatelyHidden = true;
+                _island.Hide();
+            }
+            else
+            {
+                _island.DeliberatelyHidden = false;
+                _island.Show();
+            }
+        },
+        openSettings: UI.SettingsWindow.Open,
+        exit: () =>
+        {
+            _tray?.Dispose();
+            Shutdown();
+        });
 
     protected override void OnExit(ExitEventArgs e)
     {

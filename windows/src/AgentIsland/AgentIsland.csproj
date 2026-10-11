@@ -26,6 +26,14 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
 
+  <!-- Side drawer characters: embedded V8 runs a locally supplied Grok Bot
+       engine copy (never shipped; see UI/Drawer/GrokEngine.cs). Without
+       one, the drawer draws simple native characters instead. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1" />
+  </ItemGroup>
+
   <!-- Let the console test suite reach internal validation/parse helpers. -->
   <ItemGroup>
     <InternalsVisibleTo Include="AgentIsland.Tests" />

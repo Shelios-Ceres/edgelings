@@ -1145,7 +1145,7 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(SectionLabel("Position"));
         var position = IslandPositionStore.Shared;
 
-        var placements = new[] { IslandPlacement.TopBar, IslandPlacement.Floating };
+        var placements = new[] { IslandPlacement.TopBar, IslandPlacement.Floating, IslandPlacement.SideDrawer };
         var placementBox = DarkComboStyle.Apply(new ComboBox { Width = 180, VerticalAlignment = VerticalAlignment.Center });
         foreach (var mode in placements) placementBox.Items.Add(PlacementLabel(mode));
         placementBox.SelectedIndex = Math.Max(0, Array.IndexOf(placements, position.Placement));
@@ -1158,7 +1158,7 @@ public sealed class SettingsWindow : Window
         };
         stack.Children.Add(new SettingsRowControl(
             "Island position",
-            "A bar at the top of the screen, or a floating widget you drag anywhere.",
+            "A bar at the top of the screen, a floating widget you drag anywhere, or characters along a side edge.",
             placementBox));
 
         // The old "center when solo" toggle is gone: a lone subscription now
@@ -1172,6 +1172,7 @@ public sealed class SettingsWindow : Window
     {
         IslandPlacement.TopBar => L10n.Tr("Top bar"),
         IslandPlacement.Floating => L10n.Tr("Floating window"),
+        IslandPlacement.SideDrawer => L10n.Tr("Side drawer"),
         _ => mode.ToString(),
     };
 

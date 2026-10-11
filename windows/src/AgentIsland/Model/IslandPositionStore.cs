@@ -12,6 +12,10 @@ public enum IslandPlacement
     TopBar,
     /// A free-floating widget the user drags anywhere; its position sticks.
     Floating,
+    /// A transparent column of characters on a side edge, one per provider
+    /// (UI.Drawer.DrawerWindow) — off the top edge Windows keeps for title
+    /// bars and tabs. Older builds read the unknown value as TopBar.
+    SideDrawer,
 }
 
 /// Persisted island placement. Windows-only concept, hence the AgentIsland.
