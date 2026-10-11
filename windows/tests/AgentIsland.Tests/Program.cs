@@ -76,6 +76,7 @@ public static class Program
         try
         {
             SessionTurnStateTests.RunAll();
+            AgentPhaseTests.RunAll();
             SubagentFilterTests.RunAll();
             GrokTurnStateTests.RunAll();
             ProviderSelectionTests.RunAll();
