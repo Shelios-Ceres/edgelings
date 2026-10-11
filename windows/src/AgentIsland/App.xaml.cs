@@ -9,7 +9,6 @@ public partial class App : System.Windows.Application
 {
     public static App Instance => (App)Current;
 
-    private IslandWindow? _island;
     private UI.Drawer.DrawerWindow? _drawer;
     private TrayIcon? _tray;
     private System.Threading.Mutex? _singleInstance;
@@ -62,25 +61,16 @@ public partial class App : System.Windows.Application
             ActivityMonitor.Shared.Demo(ActivityState.Working);
         }
 
-        _island = new IslandWindow();
-        ApplyPlacementSurface();
-        Model.IslandPositionStore.Shared.PropertyChanged +=
-            (_, _) => Dispatcher.BeginInvoke(ApplyPlacementSurface);
-
+        _drawer = new UI.Drawer.DrawerWindow();
+        _drawer.Show();
         _tray = CreateTray();
-        TrayIcon.Current = _tray;
 
         ActivityMonitor.Shared.Start();
         UsageStore.Shared.StartAutoRefresh();
-        Alarm.UsageExhaustionAlarm.Shared.Start();
-        Update.UpdateInstaller.CleanupAtStartup();
-        Update.UpdateChecker.Shared.Start();
         Cost.CostStore.Shared.StartAutoRefresh();
-        Model.AlertEngine.Shared.Start();
 
-        // Release card: once per version, shortly after the island lands
-        // (macOS 2.1.2 parity — WhatsNewGate is its own suppressor for
-        // demo/snapshot runs).
+        // Release card: once per version, shortly after the drawer lands
+        // (WhatsNewGate is its own suppressor for demo/snapshot runs).
         var whatsNewTimer = new System.Windows.Threading.DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1.2),
@@ -92,15 +82,8 @@ public partial class App : System.Windows.Application
         };
         whatsNewTimer.Start();
 
-        // Weekly report moment: once per ISO week, surface the card shortly
-        // after launch. Suppressed for demo/debug/snapshot runs.
         var reportSnapshot = Environment.GetEnvironmentVariable("AGENTISLAND_REPORT_SNAPSHOT");
         var monthlySnapshot = Environment.GetEnvironmentVariable("AGENTISLAND_MONTHLY_SNAPSHOT");
-        if (AppEnvironment.Current == AppMode.Normal
-            && reportSnapshot is null && monthlySnapshot is null)
-        {
-            UI.Report.ReportWindow.ArmWeeklyMoment();
-        }
 
         // Headless card renders for tooling/screenshots, mirroring macOS.
         // Data-driven, not a fixed delay: a cache-version bump forces a full
@@ -149,53 +132,9 @@ public partial class App : System.Windows.Application
         {
             UI.SettingsWindow.Open();
         }
-        // Render the island's live glow/sweep to a PNG for parity checks —
-        // AGENTISLAND_DEBUG_ISLAND_STATE (working/stalled/needsYou/…) forces
-        // the state first. Immune to the window occlusion a screen grab hits.
-        var islandPng = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_ISLAND_PNG");
-        if (!string.IsNullOrEmpty(islandPng))
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_OPEN_COST") == "1")
         {
-            var stateName = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_ISLAND_STATE");
-            if (Enum.TryParse<ActivityState>(stateName, ignoreCase: true, out var forced))
-            {
-                ActivityMonitor.Shared.Demo(forced);
-            }
-            // _EXPANDED=1 renders the open panel (header chip, tiles, footer)
-            // instead of the compact bar; _SCREEN picks the carousel page
-            // without persisting it over the user's parked choice.
-            if (Enum.TryParse<UI.IslandScreen>(
-                    Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_ISLAND_SCREEN"),
-                    ignoreCase: true, out var screen))
-            {
-                UI.ScreenPref.Shared.ForceForVerification(screen);
-            }
-            if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_ISLAND_EXPANDED") == "1")
-            {
-                _island?.PopUp();
-            }
-            _island?.SaveVisualSnapshot(islandPng);
-        }
-        // "1" pops the Sparkle-style up-to-date card; any other value is a
-        // PNG path the card renders itself into (works across virtual
-        // desktops, where a screen grab can't see it).
-        var updateDialogPreview = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_UPDATE_DIALOG");
-        if (!string.IsNullOrEmpty(updateDialogPreview))
-        {
-            var dialog = IslandDialog.ShowUpdate(
-                Localization.L10n.Tr("You're up to date!"),
-                Localization.L10n.TrFormat(
-                    "AgentIsland {0} is currently the newest version available.",
-                    Update.UpdateChecker.CurrentVersionDisplay),
-                primaryLabel: Localization.L10n.Tr("OK"),
-                secondaryLabel: Localization.L10n.Tr("Version History"));
-            if (updateDialogPreview != "1") dialog.SaveSnapshot(updateDialogPreview);
-        }
-        // Full-surface CI sweep: renders reports + island + every settings
-        // tab into the directory, then exits (see UI.SnapshotSweep).
-        var snapshotDir = Environment.GetEnvironmentVariable("AGENTISLAND_SNAPSHOT_DIR");
-        if (!string.IsNullOrEmpty(snapshotDir) && _island is not null)
-        {
-            UI.SnapshotSweep.Run(this, _island, snapshotDir!);
+            UI.CostWindow.Open();
         }
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DIALOG") == "1")
         {
@@ -214,85 +153,22 @@ public partial class App : System.Windows.Application
         }
     }
 
-    /// Rebuild the island (and its expanded chrome / tray menu) so a language
-    /// change lands everywhere immediately — the stores and monitors keep
-    /// running untouched, only the labels are re-created in the new language.
+    /// Rebuild the drawer and tray menu so a language change lands
+    /// everywhere immediately — the stores and monitors keep running
+    /// untouched, only the labels are re-created in the new language.
     public void RebuildForLanguageChange()
     {
-        var wasVisible = _island?.IsVisible ?? true;
-        _island?.Close();
-        _island = new IslandWindow();
-        if (DrawerMode)
-        {
-            // The drawer's menus and card labels are built in the old
-            // language too; recreate it rather than the hidden island.
-            _drawer?.Close();
-            _drawer = null;
-            ApplyPlacementSurface();
-        }
-        else if (wasVisible)
-        {
-            _island.Show();
-        }
-
+        _drawer?.Close();
+        _drawer = new UI.Drawer.DrawerWindow();
+        _drawer.Show();
         _tray?.Dispose();
         _tray = CreateTray();
-        TrayIcon.Current = _tray;
-    }
-
-    private static bool DrawerMode =>
-        Model.IslandPositionStore.Shared.Placement == Model.IslandPlacement.SideDrawer;
-
-    /// The side drawer replaces the island rather than joining it. The
-    /// island's watchdog re-shows it unless it is deliberately hidden, so the
-    /// flag doubles as "another surface owns the screen".
-    private void ApplyPlacementSurface()
-    {
-        if (_island is null) return;
-        if (DrawerMode)
-        {
-            _island.DeliberatelyHidden = true;
-            _island.Hide();
-            if (_drawer is null)
-            {
-                _drawer = new UI.Drawer.DrawerWindow();
-                _drawer.Show();
-            }
-        }
-        else
-        {
-            _drawer?.Close();
-            _drawer = null;
-            _island.DeliberatelyHidden = false;
-            _island.Show();
-        }
     }
 
     private TrayIcon CreateTray() => new(
-        showIsland: () =>
-        {
-            if (_drawer is not null) _drawer.Reveal();
-            else _island?.PopUp();
-        },
-        toggleIsland: () =>
-        {
-            if (_drawer is not null)
-            {
-                _drawer.ToggleDeliberately();
-                return;
-            }
-            if (_island is null) return;
-            if (_island.IsVisible)
-            {
-                _island.DeliberatelyHidden = true;
-                _island.Hide();
-            }
-            else
-            {
-                _island.DeliberatelyHidden = false;
-                _island.Show();
-            }
-        },
+        showDrawer: () => _drawer?.Reveal(),
+        toggleDrawer: () => _drawer?.ToggleDeliberately(),
+        openCost: UI.CostWindow.Open,
         openSettings: UI.SettingsWindow.Open,
         exit: () =>
         {

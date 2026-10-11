@@ -3,7 +3,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using AgentIsland.Alarm;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
@@ -14,9 +13,8 @@ using AgentIsland.Usage;
 
 namespace AgentIsland.UI;
 
-/// Settings window — a faithful port of the macOS layout: brand header on
-/// top, pill tab bar (General / Display / Providers / Status),
-/// hairlines, scrolling row content, and the GitHub/License/Quit footer.
+/// Settings window: a sidebar rail (Providers / Display / General), scrolling
+/// row content, and a footer with the cost and report shortcuts.
 public sealed class SettingsWindow : Window
 {
     private static SettingsWindow? _open;
@@ -80,107 +78,6 @@ public sealed class SettingsWindow : Window
         settle.Start();
     }
 
-    /// Snapshot-sweep entry: open the window, walk every tab, render the
-    /// WHOLE window (sidebar + content) per tab, then hand control back.
-    public static void SnapshotAllTabs(string dir, Action done)
-    {
-        Open();
-        if (_open is not { } window)
-        {
-            done();
-            return;
-        }
-        window.SnapshotTabs(dir, done);
-    }
-
-    private void SnapshotTabs(string dir, Action done)
-    {
-        var tabs = Enum.GetValues<Tab>();
-        var index = 0;
-        void Next()
-        {
-            if (index >= tabs.Length)
-            {
-                done();
-                return;
-            }
-            var tab = tabs[index];
-            index++;
-            Select(tab);
-            var settle = new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(600),
-            };
-            settle.Tick += (_, _) =>
-            {
-                settle.Stop();
-                var stem = $"settings-{index}-{tab}".ToLowerInvariant();
-                try
-                {
-                    RenderWindow(System.IO.Path.Combine(dir, stem + ".png"));
-                    // Full content height too — the window view crops at the
-                    // viewport, and the fold is where sins hide.
-                    RenderFullContent(System.IO.Path.Combine(dir, stem + "-full.png"));
-                }
-                catch
-                {
-                }
-                Next();
-            };
-            settle.Start();
-        }
-        Next();
-    }
-
-    /// The scroll viewer's content at its FULL laid-out height (the same
-    /// framing AGENTISLAND_DEBUG_SETTINGS_PNG uses), so below-the-fold rows
-    /// are part of the sweep.
-    private void RenderFullContent(string path)
-    {
-        if (_scroll.Content is not FrameworkElement content) return;
-        var w = (int)Math.Ceiling(content.ActualWidth);
-        var h = (int)Math.Ceiling(content.ActualHeight);
-        if (w <= 0 || h <= 0) return;
-        var visual = new System.Windows.Media.DrawingVisual();
-        using (var dc = visual.RenderOpen())
-        {
-            dc.DrawRectangle(
-                IslandColors.Brush(IslandColors.AlarmBackground), null, new Rect(0, 0, w, h));
-            dc.DrawRectangle(
-                new System.Windows.Media.VisualBrush(content), null, new Rect(0, 0, w, h));
-        }
-        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
-            w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-        bitmap.Render(visual);
-        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
-        using var stream = System.IO.File.Create(path);
-        encoder.Save(stream);
-    }
-
-    private void RenderWindow(string path)
-    {
-        if (Content is not FrameworkElement root) return;
-        var w = (int)Math.Ceiling(root.ActualWidth);
-        var h = (int)Math.Ceiling(root.ActualHeight);
-        if (w <= 0 || h <= 0) return;
-        // The window's own Background lives on the Window, not the content
-        // tree — composite it first or the sweep PNG reads white-on-white.
-        var visual = new System.Windows.Media.DrawingVisual();
-        using (var dc = visual.RenderOpen())
-        {
-            dc.DrawRectangle(Background, null, new Rect(0, 0, w, h));
-            dc.DrawRectangle(new System.Windows.Media.VisualBrush(root), null, new Rect(0, 0, w, h));
-        }
-        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
-            w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-        bitmap.Render(visual);
-        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
-        using var stream = System.IO.File.Create(path);
-        encoder.Save(stream);
-    }
-
     /// Declaration order IS the sidebar order (macOS 2.1.1 IA): the
     /// providers page leads because it is what the app is about; alerts
     /// stand alone instead of hiding at the bottom of General.
@@ -188,22 +85,14 @@ public sealed class SettingsWindow : Window
     {
         Providers,
         Display,
-        Alerts,
         General,
-        Status,
-        Notes,
-        About,
     }
 
     private static (string Label, string Glyph) TabFace(Tab tab) => tab switch
     {
         Tab.Providers => ("Providers", "\uE8A9"),
         Tab.Display => ("Display", "\uE7F4"),
-        Tab.Alerts => ("Alerts", "\uEA8F"),
         Tab.General => ("General", "\uE713"),
-        Tab.Status => ("Status", "\uE890"),
-        Tab.Notes => ("Notes", "\uE70B"),
-        Tab.About => ("About", "\uE946"),
         _ => (tab.ToString(), "\uE713"),
     };
 
@@ -220,7 +109,6 @@ public sealed class SettingsWindow : Window
     // out from under the cursor. The list belongs to whichever tab built it;
     // the store subscriptions live for the window's lifetime and just walk it.
     private readonly List<Action> _providerRefreshers = new();
-    private TextBlock? _slotNotice;
 
     private SettingsWindow()
     {
@@ -491,32 +379,11 @@ public sealed class SettingsWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var github = new DottedLink("GitHub", "https://github.com/tristan666666/agent-island");
-        github.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(github, 0);
-        grid.Children.Add(github);
-
-        var guide = new TextBlock
-        {
-            Text = L10n.Tr("Guide"),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11.5,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
-            TextDecorations = null,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(14, 0, 0, 0),
-            Cursor = System.Windows.Input.Cursors.Hand,
-            ToolTip = L10n.Tr("How Agent Island works"),
-        };
-        guide.MouseLeftButtonUp += (_, args) =>
-        {
-            args.Handled = true;
-            WhatsNewWindow.OpenGuide();
-        };
-        Grid.SetColumn(guide, 1);
-        grid.Children.Add(guide);
-
         var share = new StackPanel { Orientation = Orientation.Horizontal };
+        var cost = new PillButtonControl(L10n.Tr("Cost")) { ToolTip = L10n.Tr("Cost…") };
+        cost.Clicked += CostWindow.Open;
+        cost.Margin = new Thickness(0, 0, 8, 0);
+        share.Children.Add(cost);
         var weekly = new PillButtonControl(L10n.Tr("Weekly")) { ToolTip = L10n.Tr("Share weekly report") };
         weekly.Clicked += () => Report.ReportWindow.Show(Report.ReportWindow.Kind.Weekly);
         weekly.Margin = new Thickness(0, 0, 8, 0);
@@ -545,10 +412,9 @@ public sealed class SettingsWindow : Window
     private void Select(Tab tab)
     {
         _active = tab;
-        // The refreshers (and the slot notice) belong to the tab that built
-        // them — anything still in the list points at discarded visuals.
+        // The refreshers belong to the tab that built them — anything still
+        // in the list points at discarded visuals.
         _providerRefreshers.Clear();
-        _slotNotice = null;
         Preferences.Set("Settings.activeTab", tab.ToString());
         foreach (var (cellTab, cell, glyph, label) in _navItems)
         {
@@ -563,11 +429,7 @@ public sealed class SettingsWindow : Window
         {
             Tab.Providers => BuildProviders(),
             Tab.Display => BuildDisplay(),
-            Tab.Alerts => BuildAlerts(),
             Tab.General => BuildGeneral(),
-            Tab.Status => BuildStatus(),
-            Tab.Notes => BuildNotes(),
-            Tab.About => BuildAbout(),
             _ => (UIElement)new StackPanel(),
         };
         var pageColumn = new StackPanel();
@@ -601,62 +463,6 @@ public sealed class SettingsWindow : Window
         Foreground = IslandColors.Brush(IslandColors.White(0.34)),
         Margin = new Thickness(10, 14, 10, 6),
     };
-
-    /// Four 13px color dots (macOS glowColorSwatches): white ring + soft
-    /// self-colored halo mark the pick; the ring alone isn't enough at 13px.
-    private static UIElement GlowSwatches()
-    {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var dots = new List<(GlowColorStore.Choice Choice, System.Windows.Shapes.Ellipse Dot)>();
-        void Restyle()
-        {
-            foreach (var (choice, dot) in dots)
-            {
-                var selected = GlowColorStore.Shared.Value == choice;
-                dot.Stroke = IslandColors.Brush(IslandColors.White(selected ? 0.92 : 0.16));
-                dot.StrokeThickness = selected ? 1.5 : 0.5;
-                dot.Effect = selected
-                    ? new System.Windows.Media.Effects.DropShadowEffect
-                    {
-                        ShadowDepth = 0,
-                        BlurRadius = 8,
-                        Color = GlowColorStore.ColorOf(choice),
-                        Opacity = 0.55,
-                    }
-                    : null;
-            }
-        }
-        foreach (var choice in GlowColorStore.All)
-        {
-            var dot = new System.Windows.Shapes.Ellipse
-            {
-                Width = 13,
-                Height = 13,
-                Fill = IslandColors.Brush(GlowColorStore.ColorOf(choice)),
-            };
-            // padding(2) + inset(-3) hit area: a 19px transparent puck.
-            var puck = new Border
-            {
-                Background = Brushes.Transparent,
-                Padding = new Thickness(3),
-                Margin = new Thickness(0, 0, 7, 0),
-                Child = dot,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                ToolTip = L10n.Tr(GlowColorStore.LabelKey(choice)),
-            };
-            var captured = choice;
-            puck.MouseLeftButtonDown += (_, e) =>
-            {
-                GlowColorStore.Shared.Value = captured;
-                Restyle();
-                e.Handled = true;
-            };
-            dots.Add((choice, dot));
-            row.Children.Add(puck);
-        }
-        Restyle();
-        return row;
-    }
 
     // MARK: - General
 
@@ -703,287 +509,7 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(new SettingsRowControl(
             "Language", null, language));
 
-        stack.Children.Add(SectionLabel("Updates"));
-        var autoCheck = new CobaltToggle(Preferences.Get<bool?>("AgentIsland.autoCheckUpdates") ?? true);
-        autoCheck.Toggled += enabled => Preferences.Set("AgentIsland.autoCheckUpdates", enabled);
-        stack.Children.Add(new SettingsRowControl(
-            "Check for updates automatically",
-            null,
-            autoCheck));
-
-        var check = new PillButtonControl(L10n.Tr("Check"));
-        check.Clicked += () => _ = Update.UpdateChecker.Shared.CheckAsync(userInitiated: true);
-        stack.Children.Add(new SettingsRowControl(
-            "Check now", null, check));
-
         return stack;
-    }
-
-    /// Alerts get their own page in the 2.1.1 IA — they were buried at the
-    /// bottom of General, which is where nobody looks for "why did the
-    /// island flash amber".
-    private UIElement BuildAlerts()
-    {
-        var stack = TabStack();
-        var alertsHost = new StackPanel();
-        var alerts = new CobaltToggle(AlertThresholdStore.Shared.Enabled);
-        stack.Children.Add(new SettingsRowControl(
-            "Approaching-limit alerts",
-            null,
-            alerts));
-
-        alertsHost.Children.Add(ThresholdLine(IslandColors.AlertAmber, "Warning",
-            () => AlertThresholdStore.Shared.WarningPercent,
-            value => AlertThresholdStore.Shared.WarningPercent = value));
-        alertsHost.Children.Add(ThresholdLine(IslandColors.AlertRed, "Critical",
-            () => AlertThresholdStore.Shared.CriticalPercent,
-            value => AlertThresholdStore.Shared.CriticalPercent = value));
-        alertsHost.Margin = new Thickness(10, 8, 10, 8);
-        alertsHost.Opacity = AlertThresholdStore.Shared.Enabled ? 1.0 : 0.40;
-        alertsHost.IsEnabled = AlertThresholdStore.Shared.Enabled;
-        alerts.Toggled += enabled =>
-        {
-            AlertThresholdStore.Shared.Enabled = enabled;
-            alertsHost.Opacity = enabled ? 1.0 : 0.40;
-            alertsHost.IsEnabled = enabled;
-        };
-        stack.Children.Add(alertsHost);
-        return stack;
-    }
-
-    private UIElement BuildNotes()
-    {
-        var stack = TabStack();
-        var view = new PillButtonControl(L10n.Tr("View"));
-        view.Clicked += WhatsNewWindow.Open;
-        stack.Children.Add(new SettingsRowControl("What's new in this version", null, view));
-
-        var guide = new PillButtonControl(L10n.Tr("Open"));
-        guide.Clicked += WhatsNewWindow.OpenGuide;
-        stack.Children.Add(new SettingsRowControl("Product guide", null, guide));
-
-        var changelog = new PillButtonControl(L10n.Tr("Open"));
-        changelog.Clicked += () => OpenUrl("https://agent-island.dev/changelog/");
-        stack.Children.Add(new SettingsRowControl("Full changelog on the website", null, changelog));
-        return stack;
-    }
-
-    /// The 关于 page — serif manifesto prose plus the open-source facts,
-    /// with the ghosted brand mark low-right (macOS 2.1.1 spec).
-    private UIElement BuildAbout()
-    {
-        var host = new Grid { MinHeight = 395, ClipToBounds = true };
-
-        try
-        {
-            var ghost = new Image
-            {
-                Source = new BitmapImage(new Uri(
-                    "pack://application:,,,/Assets/agentisland_logo.png")),
-                Width = 205,
-                Opacity = 0.07,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, -30, -60),
-                RenderTransform = new RotateTransform(-9),
-                RenderTransformOrigin = new Point(0.5, 0.5),
-                Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 2.5 },
-                IsHitTestVisible = false,
-            };
-            host.Children.Add(ghost);
-        }
-        catch
-        {
-        }
-
-        var stack = new StackPanel { Margin = new Thickness(24, 8, 24, 12) };
-        stack.Children.Add(new TextBlock
-        {
-            Text = "Agent Island",
-            FontFamily = IslandFonts.Ui,
-            FontSize = 26,
-            FontWeight = FontWeights.Bold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.95)),
-            Margin = new Thickness(0, 0, 0, 16),
-        });
-        foreach (var paragraph in new[]
-        {
-            "Agents are part of every builder's day now — Claude Code, Codex, Gemini, Grok, Cursor… and whatever ships next month. They run, you wait, and nobody tells you when it is your turn again",
-            "Agent Island 2.0 puts them all on one island. Who is working, whose turn it is, how much quota is left, what it cost — one glance at the notch, no window switching, no terminal tabs to hunt through",
-            "Every number is computed on your own computer — Mac or Windows — from logs the agents already write. No account, no telemetry, nothing uploaded",
-            "If Agent Island helps you, a star on GitHub and a share with a friend are the two things that keep it going",
-        })
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = L10n.Tr(paragraph),
-                FontFamily = IslandFonts.Ui,
-                FontSize = 12.5,
-                Foreground = IslandColors.Brush(IslandColors.White(0.74)),
-                TextWrapping = TextWrapping.Wrap,
-                LineHeight = 20,
-                Margin = new Thickness(0, 0, 0, 12),
-            });
-        }
-        stack.Children.Add(new Border
-        {
-            Height = 0.5,
-            Background = IslandColors.Brush(IslandColors.White(0.07)),
-            Margin = new Thickness(0, 8, 0, 12),
-        });
-        stack.Children.Add(AboutFact(L10n.Tr("Made by"), "Tristan Tang", "https://tristan.media"));
-        stack.Children.Add(AboutFact(
-            L10n.Tr("Sponsor"), L10n.Tr("Star on GitHub"),
-            "https://github.com/tristan666666/agent-island"));
-        host.Children.Add(stack);
-        return host;
-    }
-
-    private static UIElement AboutFact(string label, string value, string url)
-    {
-        var row = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 10),
-            Cursor = System.Windows.Input.Cursors.Hand,
-        };
-        row.Children.Add(new TextBlock
-        {
-            Text = label,
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11.5,
-            Foreground = IslandColors.Brush(IslandColors.White(0.40)),
-            Width = 74,
-        });
-        row.Children.Add(new TextBlock
-        {
-            Text = value,
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11.5,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.80)),
-        });
-        row.Children.Add(new TextBlock
-        {
-            Text = " \uE8A7",
-            FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            FontSize = 8,
-            Foreground = IslandColors.Brush(IslandColors.White(0.30)),
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        row.MouseLeftButtonUp += (_, args) =>
-        {
-            args.Handled = true;
-            OpenUrl(url);
-        };
-        return row;
-    }
-
-    private static void OpenUrl(string url)
-    {
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
-            {
-                UseShellExecute = true,
-            });
-        }
-        catch
-        {
-        }
-    }
-
-    /// Threshold row: glowing severity dot, label, numeric %-field. The
-    /// stores clamp so warning stays below critical.
-    private UIElement ThresholdLine(Color color, string label, Func<int> get, Action<int> set)
-    {
-        var grid = new Grid { Margin = new Thickness(0, 5, 0, 5) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var dot = new System.Windows.Shapes.Ellipse
-        {
-            Width = 7,
-            Height = 7,
-            Fill = IslandColors.Brush(color),
-            Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                ShadowDepth = 0, BlurRadius = 4, Color = color, Opacity = 0.7,
-            },
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
-        };
-        Grid.SetColumn(dot, 0);
-        grid.Children.Add(dot);
-
-        var text = new TextBlock
-        {
-            Text = L10n.Tr(label),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 13,
-            FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(text, 1);
-        grid.Children.Add(text);
-
-        var fieldHost = new Border
-        {
-            CornerRadius = new CornerRadius(7),
-            Background = IslandColors.Brush(IslandColors.White(0.05)),
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.10)),
-            BorderThickness = new Thickness(0.5),
-            Width = 64,
-            Height = 28,
-        };
-        var fieldRow = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var field = new TextBox
-        {
-            Text = get().ToString(),
-            FontFamily = IslandFonts.Mono,
-            FontSize = 11,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.95)),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Width = 26,
-            TextAlignment = TextAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            CaretBrush = Brushes.White,
-        };
-        field.LostFocus += (_, _) =>
-        {
-            if (int.TryParse(field.Text, out var value)) set(value);
-            field.Text = get().ToString();
-        };
-        field.KeyDown += (_, args) =>
-        {
-            if (args.Key == System.Windows.Input.Key.Enter)
-            {
-                if (int.TryParse(field.Text, out var value)) set(value);
-                field.Text = get().ToString();
-            }
-        };
-        fieldRow.Children.Add(field);
-        fieldRow.Children.Add(new TextBlock
-        {
-            Text = "%",
-            FontFamily = IslandFonts.Mono,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        fieldHost.Child = fieldRow;
-        Grid.SetColumn(fieldHost, 2);
-        grid.Children.Add(fieldHost);
-        return grid;
     }
 
     // MARK: - Display
@@ -992,25 +518,7 @@ public sealed class SettingsWindow : Window
     {
         var stack = TabStack();
 
-        // 用量显示 — the five visual preview tiles, "click to switch" hint.
-        var usageHeader = new Grid { Margin = new Thickness(10, 14, 10, 6) };
-        usageHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        usageHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var usageLabel = SectionLabel("Usage display");
-        usageLabel.Margin = new Thickness(0);
-        Grid.SetColumn(usageLabel, 0);
-        usageHeader.Children.Add(usageLabel);
-        stack.Children.Add(usageHeader);
-
-        var stylePicker = new ChartStylePickerControl(StylePreferenceStore.Shared.Style)
-        {
-            Margin = new Thickness(10, 2, 2, 8),
-        };
-        stylePicker.StyleSelected += style => StylePreferenceStore.Shared.Style = style;
-        stack.Children.Add(stylePicker);
-
-        // 成本显示 — toggle first; the picker tiles appear only when the
-        // cost page is on, matching the macOS conditional.
+        // Quota percent as used or remaining (drawer card, tray tooltip).
         // macOS SegmentedControl order: items [false, true] → 已用 then 剩余.
         var quotaMode = Model.QuotaDisplayModeStore.Shared;
         var quotaSeg = new Segmented(
@@ -1022,101 +530,16 @@ public sealed class SettingsWindow : Window
             null,
             quotaSeg));
 
-        // 成本显示 — the enable toggle rides the section header itself
-        // (macOS, 1.7.2 planning): OFF removes the cost page from the panel
-        // pager and hides the style tiles entirely.
-        var costHeader = new Grid { Margin = new Thickness(10, 14, 10, 6) };
-        costHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        costHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var costLabel = SectionLabel("Cost display");
-        costLabel.Margin = new Thickness(0);
-        Grid.SetColumn(costLabel, 0);
-        costHeader.Children.Add(costLabel);
-        var costPickerHost = new ContentControl { Margin = new Thickness(10, 2, 2, 8) };
-        void RefreshCostPicker()
+        // 成本显示 — how the cost window's hero numbers read.
+        stack.Children.Add(SectionLabel("Cost display"));
+        var costPicker = new CostStylePickerControl(CostStylePreferenceStore.Shared.Style)
         {
-            if (ScreenPref.Shared.ShowCostPage)
-            {
-                var picker = new CostStylePickerControl(CostStylePreferenceStore.Shared.Style);
-                picker.StyleSelected += style => CostStylePreferenceStore.Shared.Style = style;
-                costPickerHost.Content = picker;
-            }
-            else
-            {
-                costPickerHost.Content = null;
-            }
-        }
-        var costToggle = new CobaltToggle(ScreenPref.Shared.ShowCostPage);
-        costToggle.Toggled += enabled =>
-        {
-            ScreenPref.Shared.ShowCostPage = enabled;
-            RefreshCostPicker();
+            Margin = new Thickness(10, 2, 2, 8),
         };
-        Grid.SetColumn(costToggle, 1);
-        costHeader.Children.Add(costToggle);
-        stack.Children.Add(costHeader);
-        RefreshCostPicker();
-        stack.Children.Add(costPickerHost);
+        costPicker.StyleSelected += style => CostStylePreferenceStore.Shared.Style = style;
+        stack.Children.Add(costPicker);
 
-        // 顶部条.
-        stack.Children.Add(SectionLabel("Top bar"));
-        // Visual mode lives with the island-appearance controls, title +
-        // picker only — no sentence (macOS design review).
-        var effects = DarkComboStyle.Apply(new ComboBox { Width = 130, VerticalAlignment = VerticalAlignment.Center });
-        effects.Items.Add(L10n.Tr("Calm"));
-        effects.Items.Add(L10n.Tr("Vivid"));
-        effects.SelectedIndex = LowPowerModeStore.Shared.Enabled ? 0 : 1;
-        stack.Children.Add(new SettingsRowControl(
-            "Visual mode",
-            null,
-            effects));
-
-        // Glow color rides under Vivid only — Calm has no ambient light for
-        // it to style. Row visibility keys on the USER choice, not the
-        // battery-saver override, so the saver never hides a setting.
-        var glowRow = new SettingsRowControl("Glow color", null, GlowSwatches());
-        glowRow.Visibility = LowPowerModeStore.Shared.Enabled
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        stack.Children.Add(glowRow);
-        effects.SelectionChanged += (_, _) =>
-        {
-            LowPowerModeStore.Shared.Enabled = effects.SelectedIndex == 0;
-            glowRow.Visibility = effects.SelectedIndex == 0
-                ? Visibility.Collapsed
-                : Visibility.Visible;
-        };
-
-        // Interface scale (macOS row order: Visual mode → Glow color →
-        // Interface scale). Every Windows screen is notchless, so it just
-        // applies — no "notchless only" caveat needed.
-        var scaleBox = DarkComboStyle.Apply(new ComboBox { Width = 90, VerticalAlignment = VerticalAlignment.Center });
-        var scaleSteps = new[] { 1.0, 1.15, 1.3, 1.5 };
-        foreach (var step in scaleSteps) scaleBox.Items.Add($"{Math.Round(step * 100)}%");
-        var currentScale = IslandScaleStore.Shared.Scale;
-        var scaleIndex = Array.FindIndex(scaleSteps, s => Math.Abs(s - currentScale) < 0.01);
-        scaleBox.SelectedIndex = scaleIndex < 0 ? 0 : scaleIndex;
-        scaleBox.SelectionChanged += (_, _) =>
-        {
-            if (scaleBox.SelectedIndex >= 0)
-                IslandScaleStore.Shared.Scale = scaleSteps[scaleBox.SelectedIndex];
-        };
-        stack.Children.Add(new SettingsRowControl(
-            "Interface scale",
-            null,
-            scaleBox));
-
-        var alwaysShow = new CobaltToggle(AlwaysShowUsageStore.Shared.Enabled);
-        alwaysShow.Toggled += enabled => AlwaysShowUsageStore.Shared.Enabled = enabled;
-        stack.Children.Add(new SettingsRowControl(
-            "Always show usage in top bar",
-            null,
-            alwaysShow));
-
-
-        // 屏幕. (The macOS bar-style choice — Compact vs Notched Mac — is
-        // meaningless on Windows, where no display has a notch; the bar is
-        // always the wide layout.)
+        // 屏幕 — which display the side drawer docks to.
         stack.Children.Add(SectionLabel("Screen"));
         var screens = System.Windows.Forms.Screen.AllScreens;
         var display = DarkComboStyle.Apply(new ComboBox { Width = 180, VerticalAlignment = VerticalAlignment.Center });
@@ -1140,48 +563,14 @@ public sealed class SettingsWindow : Window
                 : L10n.Tr("Pinned to a specific display. Falls back to Auto if unplugged."),
             display));
 
-        // 位置 — no notch reserves the top-center on Windows, so placement is
-        // a user choice: the Mac-style top bar or a draggable floating widget.
-        stack.Children.Add(SectionLabel("Position"));
-        var position = IslandPositionStore.Shared;
-
-        var placements = new[] { IslandPlacement.TopBar, IslandPlacement.Floating, IslandPlacement.SideDrawer };
-        var placementBox = DarkComboStyle.Apply(new ComboBox { Width = 180, VerticalAlignment = VerticalAlignment.Center });
-        foreach (var mode in placements) placementBox.Items.Add(PlacementLabel(mode));
-        placementBox.SelectedIndex = Math.Max(0, Array.IndexOf(placements, position.Placement));
-        placementBox.SelectionChanged += (_, _) =>
-        {
-            if (placementBox.SelectedIndex >= 0)
-            {
-                position.Placement = placements[placementBox.SelectedIndex];
-            }
-        };
-        stack.Children.Add(new SettingsRowControl(
-            "Island position",
-            "A bar at the top of the screen, a floating widget you drag anywhere, or characters along a side edge.",
-            placementBox));
-
-        // The old "center when solo" toggle is gone: a lone subscription now
-        // always splits the flanks (logo one side, number the other), the
-        // macOS solo layout — no setting to hunt for.
-
         return stack;
     }
-
-    private static string PlacementLabel(IslandPlacement mode) => mode switch
-    {
-        IslandPlacement.TopBar => L10n.Tr("Top bar"),
-        IslandPlacement.Floating => L10n.Tr("Floating window"),
-        IslandPlacement.SideDrawer => L10n.Tr("Side drawer"),
-        _ => mode.ToString(),
-    };
 
     // MARK: - Providers
 
     private UIElement BuildProviders()
     {
         var stack = TabStack();
-        stack.Children.Add(BuildSlotHeader());
 
         // The "Open threads via" pickers are retired (macOS 1.6.1): threads
         // always land back where the session lives — desktop sessions in the
@@ -1232,96 +621,25 @@ public sealed class SettingsWindow : Window
         };
         costCaption.Text = Cost.CostStore.Shared.LastUpdated is { } updated
             ? L10n.TrFormat("last scan {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
-            : L10n.Tr("swipe panel to view");
+            : "—";
         Grid.SetColumn(costCaption, 1);
         costRow.Children.Add(costCaption);
         var costRefresh = new PillButtonControl(L10n.Tr("Refresh"));
         costRefresh.Clicked += () => Cost.CostStore.Shared.Refresh();
-        Grid.SetColumn(costRefresh, 2);
-        costRow.Children.Add(costRefresh);
+        var costView = new PillButtonControl(L10n.Tr("Cost…")) { Margin = new Thickness(0, 0, 8, 0) };
+        costView.Clicked += CostWindow.Open;
+        var costActions = new StackPanel { Orientation = Orientation.Horizontal };
+        costActions.Children.Add(costView);
+        costActions.Children.Add(costRefresh);
+        Grid.SetColumn(costActions, 2);
+        costRow.Children.Add(costActions);
         stack.Children.Add(costRow);
 
         return stack;
     }
 
-    /// Slot occupancy spoken by structure instead of a caption sentence: the
-    /// enabled brand marks plus "N / 2". A refused third pick parks its one
-    /// line of explanation on the same row.
-    private UIElement BuildSlotHeader()
-    {
-        var row = new Grid { Margin = new Thickness(10, 0, 10, 4) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        _slotNotice = new TextBlock
-        {
-            Text = L10n.Tr("Pick at most two — turn one off first"),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.AlertAmber),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 10, 0),
-            Visibility = Visibility.Collapsed,
-        };
-        Grid.SetColumn(_slotNotice, 0);
-        row.Children.Add(_slotNotice);
-
-        var marks = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var count = new TextBlock
-        {
-            FontFamily = IslandFonts.Mono,
-            FontSize = 11,
-            FontWeight = FontWeights.SemiBold,
-            // White capsule voice (macOS chrome) — the enabled marks carry
-            // the only color on this row.
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var capsuleBody = new StackPanel { Orientation = Orientation.Horizontal };
-        capsuleBody.Children.Add(marks);
-        capsuleBody.Children.Add(count);
-        var capsule = new Border
-        {
-            Child = capsuleBody,
-            CornerRadius = new CornerRadius(11),
-            Background = IslandColors.Brush(IslandColors.White(0.10)),
-            Padding = new Thickness(10, 5, 10, 5),
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        Grid.SetColumn(capsule, 1);
-        row.Children.Add(capsule);
-
-        void Refresh()
-        {
-            marks.Children.Clear();
-            foreach (var provider in ProviderVisibilityStore.Shared.Enabled)
-            {
-                // Real brand marks at 12px (macOS ProviderMark).
-                var mark = ProviderMarks.Mark(provider, 12, tintOpacity: 0.9);
-                ((FrameworkElement)mark).Margin = new Thickness(0, 0, 7, 0);
-                marks.Children.Add(mark);
-            }
-            count.Text = $"{ProviderVisibilityStore.Shared.SelectedCount} / {ProviderSelection.MaxEnabled}";
-        }
-
-        _providerRefreshers.Add(Refresh);
-        Refresh();
-        return row;
-    }
-
-    private void ShowSlotLimit(bool refused)
-    {
-        if (_slotNotice is null) return;
-        _slotNotice.Visibility = refused ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     /// One provider row: a brand-tinted rule marks the leading edge, the name
-    /// carries the plan/tier chip, the status line is live, and the slot
+    /// carries the plan/tier chip, the status line is live, and the drawer
     /// toggle sits on the trailing edge behind whatever actions the provider
     /// offers. Guests carry no action buttons — their only recovery is signing
     /// in with their own tool. No card chrome: separation is a hairline plus
@@ -1427,7 +745,7 @@ public sealed class SettingsWindow : Window
             reauth.Clicked += () => ReauthFlow.Run(tool);
             trailing.Children.Add(reauth);
         }
-        var toggle = new CobaltToggle(ProviderVisibilityStore.Shared.IsEnabled(provider))
+        var toggle = new CobaltToggle(ProviderVisibilityStore.Shared.IsShown(provider))
         {
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -1483,7 +801,7 @@ public sealed class SettingsWindow : Window
         var hovered = false;
         void Paint()
         {
-            var enabledNow = ProviderVisibilityStore.Shared.IsEnabled(provider);
+            var enabledNow = ProviderVisibilityStore.Shared.IsShown(provider);
             var ruleOpacity = enabledNow ? (hovered ? 1.0 : 0.85) : (hovered ? 0.45 : 0.22);
             rule.Background = ProviderIdentity.BrandGradient(
                 provider, 1, new Point(0, 0), new Point(0, 1));
@@ -1512,24 +830,14 @@ public sealed class SettingsWindow : Window
 
         toggle.Toggled += enabled =>
         {
-            // A third pick is REFUSED, never a silent eviction of an earlier
-            // one. The switch snaps back to what the store actually holds
-            // instead of sitting there showing a state nobody accepted, and
-            // the header says why in one line.
-            if (!ProviderVisibilityStore.Shared.SetEnabled(provider, enabled))
-            {
-                toggle.IsOn = ProviderVisibilityStore.Shared.IsEnabled(provider);
-                ShowSlotLimit(true);
-                return;
-            }
-            ShowSlotLimit(false);
+            ProviderVisibilityStore.Shared.SetShown(provider, enabled);
             if (enabled) KickGuestRefresh(provider);
             RefreshProviderRows();
         };
 
         void Refresh()
         {
-            toggle.IsOn = ProviderVisibilityStore.Shared.IsEnabled(provider);
+            toggle.IsOn = ProviderVisibilityStore.Shared.IsShown(provider);
             status.Text = ProviderStatus(provider);
             var badge = ProviderChip(provider);
             chipText.Text = badge ?? string.Empty;
@@ -2139,418 +1447,7 @@ public sealed class SettingsWindow : Window
 
     // MARK: - Status
 
-    private UIElement BuildStatus()
-    {
-        var stack = TabStack();
-        stack.Children.Add(new TextBlock
-        {
-            Text = L10n.Tr("What the island's two logos are telling you."),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.5)),
-            Margin = new Thickness(10, 0, 10, 12),
-            TextWrapping = TextWrapping.Wrap,
-        });
-
-        // One glyph language (macOS StatePreviewLogo): the symmetric mark
-        // spinning / steady with a bell badge / pulsing red — no more
-        // bell-in-a-box. Stalled drives the pulse demo; the real authRequired
-        // is a steady red since P22.
-        stack.Children.Add(SectionLabel("Logo states"));
-        stack.Children.Add(LegendRow(ActivityState.Working, "Working",
-            "The logo rotates while a session is running."));
-        stack.Children.Add(BellLegendRow("Your turn",
-            "A thread finished — Agent Island opens an alarm window so you can reply."));
-        stack.Children.Add(LegendRow(ActivityState.Stalled, "Needs attention",
-            "Limits, login, network, or provider errors make the logo pulse red."));
-
-        stack.Children.Add(SectionLabel("Reminders"));
-        var enabled = new CobaltToggle(AgentReminderStore.Shared.Enabled);
-        enabled.Toggled += value => AgentReminderStore.Shared.Enabled = value;
-        var alarmWhenFront = new CobaltToggle(AgentReminderStore.Shared.AlarmWhenFrontmost);
-        alarmWhenFront.Toggled += enabled => AgentReminderStore.Shared.AlarmWhenFrontmost = enabled;
-        var frontChime = new CobaltToggle(AgentReminderStore.Shared.FrontmostSoundOnly);
-        frontChime.Toggled += enabled => AgentReminderStore.Shared.FrontmostSoundOnly = enabled;
-        stack.Children.Add(new SettingsRowControl(
-            "Turn alarm",
-            "Pop up a foreground alarm and system notification when a background run needs you.",
-            enabled));
-
-        stack.Children.Add(new SettingsRowControl(
-            "Alarm even when in front",
-            "Alarm on a finished turn even while that session's own app is frontmost",
-            alarmWhenFront));
-
-        stack.Children.Add(new SettingsRowControl(
-            "Frontmost chime",
-            "Chime instead of staying silent when the session's app is frontmost",
-            frontChime));
-
-        var details = new CobaltToggle(AgentReminderStore.Shared.ShowSessionDetails);
-        details.Toggled += value => AgentReminderStore.Shared.ShowSessionDetails = value;
-        stack.Children.Add(new SettingsRowControl(
-            "Show thread details",
-            "Show session and project names in alarms and notifications.",
-            details));
-
-        // The subagent-alarm toggle is gone: orchestrated subagents and child
-        // threads are now skipped by the scanner outright, so there is no
-        // setting left to expose.
-
-        // The exhaustion-alarm opt-out: some people only want auto-resume and
-        // treat the "out of quota" popup as noise. Subtitle nil, matching mac.
-        var quotaAlarm = new CobaltToggle(Model.QuotaAlarmStore.Shared.Enabled);
-        quotaAlarm.Toggled += value => Model.QuotaAlarmStore.Shared.Enabled = value;
-        stack.Children.Add(new SettingsRowControl(
-            "Out-of-quota alarm",
-            null,
-            quotaAlarm));
-
-        var soundHost = new StackPanel();
-        var sound = new CobaltToggle(AgentReminderStore.Shared.SoundEnabled);
-        stack.Children.Add(new SettingsRowControl(
-            "Alarm sound",
-            null,
-            sound));
-
-        BuildSoundControls(soundHost);
-        soundHost.Visibility = AgentReminderStore.Shared.SoundEnabled ? Visibility.Visible : Visibility.Collapsed;
-        sound.Toggled += value =>
-        {
-            AgentReminderStore.Shared.SoundEnabled = value;
-            soundHost.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-        };
-        stack.Children.Add(soundHost);
-
-        // Demo buttons — force a state on the island. Visible in demo/debug
-        // launches, exactly like macOS.
-        if (AppEnvironment.IsDemo || AppEnvironment.IsDebug)
-        {
-            stack.Children.Add(SectionLabel("Demo — force a state on the island"));
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 10, 8) };
-            row.Children.Add(DemoButton("Working", ActivityState.Working));
-            row.Children.Add(DemoButton("Your turn", ActivityState.NeedsYou));
-            row.Children.Add(DemoButton("Auth", ActivityState.AuthRequired));
-            row.Children.Add(DemoButton("Rate", ActivityState.RateLimited));
-            row.Children.Add(DemoButton("Live", null));
-            stack.Children.Add(row);
-        }
-
-        return stack;
-    }
-
-    private static UIElement DemoButton(string label, ActivityState? state)
-    {
-        var button = new PillButtonControl(L10n.Tr(label)) { Margin = new Thickness(0, 0, 8, 0) };
-        button.Clicked += () => ActivityMonitor.Shared.Demo(state);
-        return button;
-    }
-
-    /// Expandable sound list with the selected checkmark and the custom-file
-    /// row, plus the volume slider — the macOS SoundPicker.
-    private void BuildSoundControls(StackPanel host)
-    {
-        var list = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(10, 0, 10, 8) };
-
-        var headerLabel = new TextBlock
-        {
-            Text = CurrentSoundLabel(),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.58)),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var chevron = new TextBlock
-        {
-            Text = "⌄",
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.42)),
-            Margin = new Thickness(8, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var headerRow = new Grid();
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var soundTitle = new TextBlock
-        {
-            Text = L10n.Tr("Sound"),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 13,
-            FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
-        };
-        Grid.SetColumn(soundTitle, 0);
-        headerRow.Children.Add(soundTitle);
-        var headerRight = new StackPanel { Orientation = Orientation.Horizontal };
-        headerRight.Children.Add(headerLabel);
-        headerRight.Children.Add(chevron);
-        Grid.SetColumn(headerRight, 1);
-        headerRow.Children.Add(headerRight);
-        var header = new Border
-        {
-            Child = headerRow,
-            CornerRadius = new CornerRadius(7),
-            Background = IslandColors.Brush(IslandColors.White(0.015)),
-            Padding = new Thickness(10, 8, 10, 8),
-            Margin = new Thickness(10, 0, 10, 6),
-            Cursor = System.Windows.Input.Cursors.Hand,
-        };
-        header.MouseLeftButtonUp += (_, args) =>
-        {
-            list.Visibility = list.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-            chevron.Text = list.Visibility == Visibility.Visible ? "⌃" : "⌄";
-            args.Handled = true;
-        };
-        host.Children.Add(header);
-
-        void RebuildList()
-        {
-            list.Children.Clear();
-            foreach (var tone in AgentReminderStore.SystemTones.Available)
-            {
-                list.Children.Add(SoundChoiceRow(
-                    AgentReminderStore.SystemTones.StoragePrefix + tone.Key,
-                    isCustom: false, RebuildList, headerLabel));
-            }
-            foreach (var preset in AgentReminderStore.SoundPresets)
-            {
-                list.Children.Add(SoundChoiceRow(preset, isCustom: false, RebuildList, headerLabel));
-            }
-            list.Children.Add(SoundChoiceRow(
-                AgentReminderStore.CustomSoundChoice, isCustom: true, RebuildList, headerLabel));
-        }
-        RebuildList();
-        host.Children.Add(list);
-
-        var volume = new Slider
-        {
-            Width = 120,
-            Minimum = 0,
-            Maximum = 1,
-            Value = AgentReminderStore.Shared.Volume,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        volume.ValueChanged += (_, _) => AgentReminderStore.Shared.Volume = volume.Value;
-        host.Children.Add(new SettingsRowControl(
-            "Volume", null, volume));
-    }
-
-    /// The "your reply is up" legend: the symmetric mark, steady, with a
-    /// small bell badge riding its bottom-trailing corner — the macOS
-    /// StatePreviewLogo needsYou glyph (the mark stays put because the turn
-    /// is DONE; the badge says why the island wants you).
-    private UIElement BellLegendRow(string name, string caption)
-    {
-        var mark = new System.Windows.Shapes.Path
-        {
-            Data = Geometry.Parse("F1 " + BrandGeometry.OpenAiPath),
-            Fill = IslandColors.Brush(IslandColors.Codex),
-            Width = 20,
-            Height = 20,
-            Stretch = Stretch.Uniform,
-        };
-        var badge = new Border
-        {
-            Width = 11,
-            Height = 11,
-            CornerRadius = new CornerRadius(5.5),
-            Background = IslandColors.Brush(Color.FromRgb(0x13, 0x16, 0x1C)),
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.18)),
-            BorderThickness = new Thickness(0.5),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, -3, -2),
-            Child = new TextBlock
-            {
-                Text = "",   // Segoe Fluent Ringer bell
-                FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-                FontSize = 5.5,
-                FontWeight = FontWeights.Bold,
-                // White bell (macOS chrome) — the app's own chrome carries
-                // no accent color.
-                Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
-        };
-        var bellHost = new Grid
-        {
-            Width = 24,
-            Height = 22,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        bellHost.Children.Add(mark);
-        bellHost.Children.Add(badge);
-        return LegendRowShell(bellHost, name, caption);
-    }
-
-    private static string CurrentSoundLabel()
-    {
-        var store = AgentReminderStore.Shared;
-        if (store.SoundChoice == AgentReminderStore.CustomSoundChoice)
-        {
-            return store.CustomSoundPath.Length > 0
-                ? System.IO.Path.GetFileName(store.CustomSoundPath)
-                : L10n.Tr("Custom file");
-        }
-        return AgentReminderStore.PresetLabel(store.SoundChoice);
-    }
-
-    private UIElement SoundChoiceRow(string choice, bool isCustom, Action rebuild, TextBlock headerLabel)
-    {
-        var store = AgentReminderStore.Shared;
-        var isSelected = store.SoundChoice == choice;
-        var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var label = new TextBlock
-        {
-            Text = isCustom ? L10n.Tr("Custom file") : AgentReminderStore.PresetLabel(choice),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(isSelected ? 0.95 : 0.72)),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(label, 0);
-        row.Children.Add(label);
-        if (isCustom)
-        {
-            var action = new TextBlock
-            {
-                Text = store.CustomSoundPath.Length == 0 ? L10n.Tr("Choose") : L10n.Tr("Change"),
-                FontFamily = IslandFonts.Ui,
-                FontSize = 10,
-                Foreground = IslandColors.Brush(IslandColors.White(0.55)),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
-            };
-            Grid.SetColumn(action, 1);
-            row.Children.Add(action);
-        }
-        if (isSelected)
-        {
-            var check = new TextBlock
-            {
-                Text = "✓",
-                FontFamily = IslandFonts.Ui,
-                FontSize = 12,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = IslandColors.Brush(IslandColors.Cobalt),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            Grid.SetColumn(check, 2);
-            row.Children.Add(check);
-        }
-
-        var host = new Border
-        {
-            Child = row,
-            Height = 34,
-            Padding = new Thickness(12, 0, 12, 0),
-            Background = isSelected ? IslandColors.Brush(IslandColors.White(0.055)) : Brushes.Transparent,
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.045)),
-            BorderThickness = new Thickness(0, 0, 0, 0.5),
-            Cursor = System.Windows.Input.Cursors.Hand,
-        };
-        host.MouseLeftButtonUp += (_, args) =>
-        {
-            if (isCustom)
-            {
-                var dialog = new Microsoft.Win32.OpenFileDialog
-                {
-                    Filter = "Audio|*.wav;*.mp3;*.wma;*.m4a|All files|*.*",
-                };
-                if (dialog.ShowDialog(this) == true)
-                {
-                    store.CustomSoundPath = dialog.FileName;
-                    store.SoundChoice = AgentReminderStore.CustomSoundChoice;
-                }
-            }
-            else
-            {
-                store.SoundChoice = choice;
-                PreviewSound();
-            }
-            headerLabel.Text = CurrentSoundLabel();
-            rebuild();
-            args.Handled = true;
-        };
-        return host;
-    }
-
     // Held in a field: a local MediaPlayer can be collected mid-playback,
     // making the preview intermittently silent or clipped.
-    private static MediaPlayer? _previewPlayer;
 
-    private static void PreviewSound()
-    {
-        try
-        {
-            if (AgentReminderStore.Shared.ResolveSoundFile() is not { } file) return;
-            _previewPlayer ??= new MediaPlayer();
-            _previewPlayer.Stop();
-            _previewPlayer.Volume = AgentReminderStore.Shared.Volume;
-            _previewPlayer.Open(new Uri(file));
-            _previewPlayer.Play();
-        }
-        catch
-        {
-        }
-    }
-
-    private UIElement LegendRow(ActivityState state, string name, string caption)
-    {
-        // The symmetric mark: rotationally uniform, so the spinning demo
-        // doesn't wobble the way the starburst would (macOS StatePreviewLogo).
-        var logo = new ProviderLogo { Tool = TriggerTool.Codex, Width = 30, Height = 26 };
-        logo.SetState(state);
-        return LegendRowShell(logo, name, caption);
-    }
-
-    /// One legend row skeleton — a FIXED 30x26 icon slot + 14 gap (macOS
-    /// StatusGuideView), so all three text blocks share one left edge no
-    /// matter how each state's icon renders.
-    private static UIElement LegendRowShell(UIElement icon, string name, string caption)
-    {
-        var host = new Grid();
-        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
-        host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var iconHost = new Grid
-        {
-            Width = 30,
-            Height = 26,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        iconHost.Children.Add(icon);
-        Grid.SetColumn(iconHost, 0);
-        host.Children.Add(iconHost);
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
-        text.Children.Add(new TextBlock
-        {
-            Text = L10n.Tr(name),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 13,
-            FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
-        });
-        text.Children.Add(new TextBlock
-        {
-            Text = L10n.Tr(caption),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11.5,
-            Foreground = IslandColors.Brush(IslandColors.White(0.62)),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 2, 0, 0),
-        });
-        Grid.SetColumn(text, 1);
-        host.Children.Add(text);
-        return new Border
-        {
-            Child = host,
-            Padding = new Thickness(10, 9, 10, 9),
-        };
-    }
 }

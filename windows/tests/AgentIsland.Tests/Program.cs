@@ -54,40 +54,15 @@ public static class Program
                 challenge, state, "http://localhost:54545/callback"));
             return 0;
         }
-        if (args.Length > 0 && args[0] == "update-check")
-        {
-            // Live diagnostic: what would the updater see right now?
-            // Honors AGENTISLAND_UPDATE_FEED the same way the app does.
-            var info = Update.UpdateChecker.FetchLatestAsync().GetAwaiter().GetResult();
-            Console.WriteLine($"current  {Update.UpdateChecker.CurrentVersion}");
-            Console.WriteLine($"runtime  {Update.UpdateChecker.RuntimeSuffix}");
-            if (info is null)
-            {
-                Console.WriteLine("feed     unreachable (or unparsable)");
-                return 1;
-            }
-            Console.WriteLine($"latest   {info.Tag} -> {info.Version}");
-            Console.WriteLine($"asset    {info.AssetName ?? "(none for this runtime)"}" +
-                (info.AssetSize > 0 ? $" {info.AssetSize / 1_000_000.0:F1}MB" : ""));
-            Console.WriteLine(
-                $"verdict  {(info.Version > Update.UpdateChecker.CurrentVersion ? "update available" : "up to date")}");
-            return 0;
-        }
         try
         {
             SessionTurnStateTests.RunAll();
             AgentPhaseTests.RunAll();
             SubagentFilterTests.RunAll();
             GrokTurnStateTests.RunAll();
-            ProviderSelectionTests.RunAll();
-            UsageExhaustionAlarmTests.RunAll();
-            SoloCenterLayoutTests.RunAll();
             CodexReplayGuardTests.RunAll();
-            UpdateCheckerTests.RunAll();
             UsageCachePolicyTests.RunAll();
-            ReminderDeliveryKeyTests.RunAll();
             SecurityGuardTests.RunAll();
-            TurnAlarmNavigatorTests.RunAll();
             FormattingTests.RunAll();
             ScannerCwdTests.RunAll();
             Console.WriteLine("ALL GREEN");

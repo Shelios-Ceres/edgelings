@@ -213,58 +213,6 @@ public sealed class PillButtonControl : Border
     }
 }
 
-/// Dotted-underline external link ("GitHub ↗").
-public sealed class DottedLink : StackPanel
-{
-    public DottedLink(string title, string url)
-    {
-        Orientation = Orientation.Horizontal;
-        Cursor = System.Windows.Input.Cursors.Hand;
-        var text = new TextBlock
-        {
-            Text = Localization.L10n.Tr(title),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
-            TextDecorations = null,
-        };
-        var arrow = new TextBlock
-        {
-            Text = " ↗",
-            FontFamily = IslandFonts.Ui,
-            FontSize = 10,
-            Foreground = IslandColors.Brush(IslandColors.White(0.3)),
-        };
-        Children.Add(text);
-        Children.Add(arrow);
-        MouseEnter += (_, _) =>
-        {
-            text.Foreground = IslandColors.Brush(IslandColors.White(0.92));
-            arrow.Foreground = IslandColors.Brush(IslandColors.White(0.6));
-        };
-        MouseLeave += (_, _) =>
-        {
-            text.Foreground = IslandColors.Brush(IslandColors.White(0.55));
-            arrow.Foreground = IslandColors.Brush(IslandColors.White(0.3));
-        };
-        MouseLeftButtonUp += (_, args) =>
-        {
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = url,
-                    UseShellExecute = true,
-                });
-            }
-            catch
-            {
-            }
-            args.Handled = true;
-        };
-    }
-}
-
 /// A single Settings list row: title (+ optional brand dot and plan chip),
 /// subtitle, trailing control. Hover lifts the background to a faint wash.
 public sealed class SettingsRowControl : Border

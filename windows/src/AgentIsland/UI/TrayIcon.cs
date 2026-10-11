@@ -5,26 +5,23 @@ using AgentIsland.Usage;
 
 namespace AgentIsland.UI;
 
-/// System tray entry point — the Windows-native home for the island's ambient
-/// signal. The icon itself visualizes status (a usage ring that turns amber /
-/// red for approaching-limit and attention states), a left click pops the
-/// island open, and the menu holds show/hide, settings, and quit.
+/// System tray entry point. The icon visualizes status (a usage ring tinted
+/// by the most urgent state of the providers the drawer shows), a left click
+/// reveals the drawer with everyone's status, and the menu holds show/hide,
+/// cost, reports, settings and quit.
 public sealed class TrayIcon : IDisposable
 {
-    /// Set by App at startup; the reminder center routes its system
-    /// notification (balloon) through here.
-    public static TrayIcon? Current { get; set; }
-
     private readonly System.Windows.Forms.NotifyIcon _icon;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private System.Drawing.Icon? _rendered;
 
-    public TrayIcon(Action showIsland, Action toggleIsland, Action openSettings, Action exit)
+    public TrayIcon(Action showDrawer, Action toggleDrawer, Action openCost, Action openSettings, Action exit)
     {
         _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add(Localization.L10n.Tr("Show / Hide island"), null, (_, _) => toggleIsland());
+        menu.Items.Add(Localization.L10n.Tr("Show / Hide drawer"), null, (_, _) => toggleDrawer());
+        menu.Items.Add(Localization.L10n.Tr("Cost…"), null, (_, _) => openCost());
         menu.Items.Add(Localization.L10n.Tr("Share weekly report…"), null,
             (_, _) => Report.ReportWindow.Show(Report.ReportWindow.Kind.Weekly));
         menu.Items.Add(Localization.L10n.Tr("Share monthly report…"), null,
@@ -38,10 +35,9 @@ public sealed class TrayIcon : IDisposable
             Text = "Agent Island",
             ContextMenuStrip = menu,
         };
-        // Left click pops the island up; right-click opens the menu.
         _icon.MouseClick += (_, e) =>
         {
-            if (e.Button == System.Windows.Forms.MouseButtons.Left) showIsland();
+            if (e.Button == System.Windows.Forms.MouseButtons.Left) showDrawer();
         };
 
         UsageStore.Shared.PropertyChanged += OnDataChanged;
@@ -54,60 +50,39 @@ public sealed class TrayIcon : IDisposable
     private void OnDataChanged(object? sender, PropertyChangedEventArgs e) =>
         _dispatcher.BeginInvoke(Update);
 
-    /// Windows banner ("toast") in the tray corner — the system-notification
-    /// half of an alarm, next to the foreground alarm window. On Win 10/11 a
-    /// balloon tip renders as a native toast and lands in the Action Center.
-    public void ShowBanner(string title, string message)
-    {
-        try
-        {
-            _icon.BalloonTipTitle = title;
-            _icon.BalloonTipText = string.IsNullOrWhiteSpace(message) ? title : message;
-            _icon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.None;
-            _icon.ShowBalloonTip(5000);
-        }
-        catch
-        {
-        }
-    }
-
     private void Update()
     {
-        var visibility = ProviderVisibilityStore.Shared;
-        var usage = UsageStore.Shared;
         var monitor = ActivityMonitor.Shared;
-
-        double usage5h = 0;
+        double used = 0;
         var worst = ActivityState.Idle;
-        string? claudeText = null, codexText = null;
-        if (visibility.ClaudeShown)
+        var parts = new List<string>();
+        foreach (var provider in DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsShown))
         {
-            usage5h = Math.Max(usage5h, usage.Claude.FiveHour.UsedPercent);
-            if (monitor.Claude > worst) worst = monitor.Claude;
-            claudeText = "Claude " + Percent(usage.Claude.FiveHour.UsedPercent);
-        }
-        if (visibility.CodexShown)
-        {
-            usage5h = Math.Max(usage5h, usage.Codex.FiveHour.UsedPercent);
-            if (monitor.Codex > worst) worst = monitor.Codex;
-            codexText = "Codex " + Percent(usage.Codex.FiveHour.UsedPercent);
+            var window = ProviderUsage.For(provider).FiveHour;
+            if (!window.HasError)
+            {
+                used = Math.Max(used, window.UsedPercent);
+                parts.Add($"{ProviderIdentity.DisplayName(provider)} {Percent(window.UsedPercent)}");
+            }
+            var state = monitor.StateFor(provider.ToTriggerTool());
+            if (state > worst) worst = state;
         }
 
-        var next = TrayIconRenderer.Render(usage5h, worst);
+        var next = TrayIconRenderer.Render(used, worst);
         _icon.Icon = next;
         _rendered?.Dispose();
         _rendered = next;
 
-        var parts = new[] { claudeText, codexText }.Where(p => p is not null);
+        // NotifyIcon.Text is capped at 127 characters.
         var joined = string.Join(" · ", parts);
         var status = StatusWord(worst);
-        // NotifyIcon.Text is capped (~127 chars) — this line is always short.
-        _icon.Text = status is null
-            ? (joined.Length == 0 ? "Agent Island" : "Agent Island · " + joined)
-            : $"Agent Island · {status}" + (joined.Length == 0 ? "" : " · " + joined);
+        var text = "Agent Island"
+            + (status is null ? "" : " · " + status)
+            + (joined.Length == 0 ? "" : " · " + joined);
+        _icon.Text = text.Length <= 127 ? text : text[..126] + "…";
     }
 
-    private static string Percent(double fraction) => $"{Core.Formatting.PercentInt(fraction)}%";
+    private static string Percent(double fraction) => $"{Formatting.PercentInt(fraction)}%";
 
     private static string? StatusWord(ActivityState state) => state switch
     {
@@ -119,21 +94,8 @@ public sealed class TrayIcon : IDisposable
         _ => null,
     };
 
-    /// Windows toast-equivalent for the turn alarm's system notification.
-    public void ShowBalloon(string title, string body)
-    {
-        try
-        {
-            _icon.ShowBalloonTip(5000, title, body, System.Windows.Forms.ToolTipIcon.None);
-        }
-        catch
-        {
-        }
-    }
-
     public void Dispose()
     {
-        if (ReferenceEquals(Current, this)) Current = null;
         UsageStore.Shared.PropertyChanged -= OnDataChanged;
         ActivityMonitor.Shared.PropertyChanged -= OnDataChanged;
         ProviderVisibilityStore.Shared.PropertyChanged -= OnDataChanged;

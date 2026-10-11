@@ -429,6 +429,11 @@ public static class L10n
 
         // Side drawer: placement, live phases, character menu.
         ["Side drawer"] = "侧边抽屉",
+        ["Show / Hide drawer"] = "显示 / 隐藏抽屉",
+        ["Cost…"] = "成本…",
+        ["No local usage log"] = "没有本地使用记录",
+        ["{0} {1}% left"] = "{0} 剩 {1}%",
+        ["{0} reset cards"] = "重置卡 {0} 张",
         ["Thinking"] = "思考中",
         ["Replying"] = "回复中",
         ["Reading files"] = "读文件",

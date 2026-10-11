@@ -326,12 +326,12 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     private static string? WarningFor(bool codexFailed, bool claudeFailed)
     {
-        // A provider the user removed from the slots cannot nag from the
+        // A provider the user hid from the drawer cannot nag from the
         // footer — "Claude stale" while only Grok + Cursor are selected reads
         // as a bug, because it was one (owner report, 2026-08-08).
         var visibility = Model.ProviderVisibilityStore.Shared;
-        var claude = claudeFailed && visibility.ClaudeVisible;
-        var codex = codexFailed && visibility.CodexVisible;
+        var claude = claudeFailed && visibility.IsShown(Model.DisplayProvider.Claude);
+        var codex = codexFailed && visibility.IsShown(Model.DisplayProvider.Codex);
         return (claude, codex) switch
         {
             // Both down says nothing about WHY — two expired logins look
@@ -495,7 +495,7 @@ public sealed class UsageStore : INotifyPropertyChanged
             var merged = MergedUsage(Codex, fetched);
             Codex = merged;
             SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: true);
-            RefreshWarning = IsErrorOnly(fetched) && Model.ProviderVisibilityStore.Shared.CodexVisible
+            RefreshWarning = IsErrorOnly(fetched) && Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex)
                 ? L10n.Tr("Codex stale")
                 : null;
             if (!IsErrorOnly(fetched)) LastUpdated = DateTimeOffset.Now;

@@ -1,18 +1,15 @@
-using AgentIsland.Alarm;
 using AgentIsland.Usage;
 
 namespace AgentIsland.Tests;
 
-/// Pins the shell-safety guards that stand between attacker-plantable
-/// on-disk session metadata and cmd.exe: a bad session id or resume message
-/// must be rejected, never executed or silently mangled.
+/// Pins the guard that keeps a saved Codex account label from escaping the
+/// account store directory or naming a reserved DOS device.
 public static class SecurityGuardTests
 {
     public static void RunAll()
     {
         var tests = new (string Name, Action Test)[]
         {
-            ("navigator sanitize rejects, never strips", TestSanitizeRejectsRatherThanStrips),
             ("account labels cannot escape the store directory", TestAccountLabelSanitizing),
         };
         foreach (var (name, test) in tests)
@@ -27,18 +24,6 @@ public static class SecurityGuardTests
     {
         if (!condition) throw new Exception(message);
     }
-
-
-
-    private static void TestSanitizeRejectsRatherThanStrips()
-    {
-        // Stripping would resume a DIFFERENT, plausible id — Sanitize must
-        // return empty for anything impure, not a cleaned-up variant.
-        Expect(TurnAlarmNavigator.Sanitize("x&calc&") == "", "Sanitize must reject, not strip");
-        Expect(TurnAlarmNavigator.Sanitize("good-id_123") == "good-id_123", "clean id must pass through");
-    }
-
-
 
     /// A saved-account label becomes a FILENAME holding a live credential
     /// pair, so it must never carry a separator, a traversal segment, or a

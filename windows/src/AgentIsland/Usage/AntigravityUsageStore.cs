@@ -106,7 +106,7 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
     {
         if (AppEnvironment.IsDemo) return;
         if (!Detected) return;
-        if (!ProviderVisibilityStore.Shared.AntigravityPanelShown) return;
+        if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Antigravity)) return;
         if (Loading) return;
         if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
 

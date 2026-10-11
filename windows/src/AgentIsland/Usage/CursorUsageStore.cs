@@ -120,7 +120,7 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     public void KickRefresh()
     {
         if (AppEnvironment.IsDemo) return;
-        if (!ProviderVisibilityStore.Shared.CursorPanelShown) return;
+        if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Cursor)) return;
         if (Loading) return;
         if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
         _lastAttempt = DateTimeOffset.Now;

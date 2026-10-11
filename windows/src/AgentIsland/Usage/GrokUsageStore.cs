@@ -46,7 +46,7 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
         {
             // The recording rig pins its own island via AGENTISLAND_DEMO_PROVIDERS;
             // only dress the Grok row when Grok is one of the pinned slots.
-            if (!ProviderVisibilityStore.Shared.GrokPanelShown) return;
+            if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
             var now = DateTimeOffset.Now;
             _snapshot = new GrokBillingSnapshot(
                 0.37,
@@ -115,7 +115,7 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
     public void KickRefresh()
     {
         if (AppEnvironment.IsDemo) return;
-        if (!ProviderVisibilityStore.Shared.GrokPanelShown) return;
+        if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
         if (Loading) return;
         if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
 

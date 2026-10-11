@@ -70,6 +70,7 @@ public sealed class DrawerWindow : Window
     private bool _coveredByFullscreen;
     private bool _deliberatelyHidden;
     private int _topmostCountdown = TopmostEverySeconds;
+    private Bot? _cardBot;
     private Bot? _pressed;
     private bool _dragging;
     private double _pressY;
@@ -128,7 +129,8 @@ public sealed class DrawerWindow : Window
             Child = _cardRows,
         };
         _cardRows.Width = CardWidth;
-        _cardRows.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 6, ShadowDepth = 0, Opacity = 0.9 };
+        // White text needs a firm dark halo to stay legible over white pages.
+        _cardRows.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 8, ShadowDepth = 0, Opacity = 1 };
         _cardClose.Tick += (_, _) =>
         {
             _cardClose.Stop();
@@ -166,12 +168,13 @@ public sealed class DrawerWindow : Window
         ApplyVisibility();
     }
 
-    /// Tray "show island": bring the drawer back and show the status card.
+    /// Tray "show island": bring the drawer back and briefly show every
+    /// character's status at once — the one place the rows appear together.
     public void Reveal()
     {
         _deliberatelyHidden = false;
         ApplyVisibility();
-        OpenCard();
+        OpenCard(null);
         _cardClose.Interval = TimeSpan.FromSeconds(4);
         _cardClose.Start();
     }
@@ -188,6 +191,7 @@ public sealed class DrawerWindow : Window
         Watch(DrawerStore.Shared, Layout);
         Watch(IslandTargetDisplayStore.Shared, Layout);
         Watch(UsageStore.Shared, RefreshCard);
+        Watch(QuotaDisplayModeStore.Shared, RefreshCard);
         EventHandler onDisplay = (_, _) => Dispatcher.BeginInvoke(Layout);
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += onDisplay;
         _teardown.Add(() => Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= onDisplay);
@@ -357,7 +361,7 @@ public sealed class DrawerWindow : Window
     /// for every character itself.
     private static bool QuotaExhausted(DisplayProvider provider)
     {
-        var usage = UsagePage.UsageFor(provider);
+        var usage = ProviderUsage.For(provider);
         return (!usage.FiveHour.HasError && usage.FiveHour.UsedPercent >= 1)
             || (!usage.Weekly.HasError && usage.Weekly.UsedPercent >= 1);
     }
@@ -480,22 +484,24 @@ public sealed class DrawerWindow : Window
 
     // MARK: - Status card
 
-    private void OpenCard()
+    /// Hovering a character shows only its own row; null shows them all.
+    private void OpenCard(Bot? only)
     {
         _cardClose.Stop();
         _cardClose.Interval = TimeSpan.FromMilliseconds(250);
+        _cardBot = only;
         RefreshCard();
         _card.IsOpen = true;
     }
 
-    /// One row per character, level with it, so the eye can match them up:
+    /// Rows sit level with their characters so the eye can match them up:
     /// provider and phase on top, quota underneath.
     private void RefreshCard()
     {
         _cardRows.Children.Clear();
         _cardRows.Height = Height;
         var right = DrawerStore.Shared.Side == DrawerSide.Right;
-        foreach (var bot in _bots.Where(b => b.Visible))
+        foreach (var bot in _bots.Where(b => b.Visible && (_cardBot is null || b == _cardBot)))
         {
             var detail = bot.Detail is { } d ? $" ({d})" : "";
             var row = new StackPanel { Width = CardWidth - 12 };
@@ -510,6 +516,7 @@ public sealed class DrawerWindow : Window
             row.Children.Add(new TextBlock
             {
                 Text = QuotaLine(bot.Provider),
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = new SolidColorBrush(Color.FromArgb(0xD8, 0xFF, 0xFF, 0xFF)),
                 FontSize = 11,
                 TextAlignment = right ? TextAlignment.Right : TextAlignment.Left,
@@ -520,12 +527,22 @@ public sealed class DrawerWindow : Window
         }
     }
 
+    /// Quota in the user's Used/Remaining mode. Codex adds its banked reset
+    /// cards and the account the auto-switcher last rotated to — both used
+    /// to live in the island panel.
     private static string QuotaLine(DisplayProvider provider)
     {
-        var usage = UsagePage.UsageFor(provider);
-        string Window(WindowUsage window, string label) =>
-            window.HasError ? $"{L10n.Tr(label)} —" : $"{L10n.Tr(label)} {Math.Round(window.UsedPercent * 100)}%";
-        return provider switch
+        var usage = ProviderUsage.For(provider);
+        var mode = QuotaDisplayModeStore.Shared;
+        string Window(WindowUsage window, string label)
+        {
+            if (window.HasError) return $"{L10n.Tr(label)} —";
+            var value = Math.Round(mode.DisplayValue(window.UsedPercent));
+            return mode.ShowsRemaining
+                ? L10n.TrFormat("{0} {1}% left", L10n.Tr(label), value)
+                : $"{L10n.Tr(label)} {value}%";
+        }
+        var line = provider switch
         {
             DisplayProvider.Claude => $"{Window(usage.FiveHour, "5h")} · {Window(usage.Weekly, "week")}",
             DisplayProvider.Codex when usage.SecondaryMissing => Window(usage.FiveHour, "week"),
@@ -533,6 +550,10 @@ public sealed class DrawerWindow : Window
             DisplayProvider.Cursor => Window(usage.FiveHour, "30d"),
             _ => Window(usage.FiveHour, "week"),
         };
+        if (provider != DisplayProvider.Codex) return line;
+        if (usage.ResetCards is > 0 and var cards) line += " · " + L10n.TrFormat("{0} reset cards", cards);
+        if (UsageStore.Shared.CodexAutoSwitched is { } account) line += " · " + L10n.TrFormat("Auto-switched to {0}", account);
+        return line;
     }
 
     // MARK: - Interaction
@@ -540,7 +561,7 @@ public sealed class DrawerWindow : Window
     private void Wire(Bot bot)
     {
         var surface = bot.Surface;
-        surface.MouseEnter += (_, _) => OpenCard();
+        surface.MouseEnter += (_, _) => OpenCard(bot);
         surface.MouseLeave += (_, _) => _cardClose.Start();
         surface.MouseLeftButtonDown += (_, e) =>
         {
@@ -630,6 +651,9 @@ public sealed class DrawerWindow : Window
         flip.Click += (_, _) => DrawerStore.Shared.Side = right ? DrawerSide.Left : DrawerSide.Right;
         menu.Items.Add(flip);
         menu.Items.Add(new Separator());
+        var cost = new MenuItem { Header = L10n.Tr("Cost…") };
+        cost.Click += (_, _) => CostWindow.Open();
+        menu.Items.Add(cost);
         var settings = new MenuItem { Header = L10n.Tr("Settings…") };
         settings.Click += (_, _) => SettingsWindow.Open();
         menu.Items.Add(settings);

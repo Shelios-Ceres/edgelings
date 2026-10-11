@@ -59,7 +59,7 @@ public static class GrokTurnStateTests
         {
             """{"timestamp":1754640000,"params":{"update":{"sessionUpdate":"turn_completed"}}}""",
         });
-        // The key feeds alarm dedup through ReminderDeliveryKey; the shape is
+        // The key identifies the finished turn; the shape is
         // "<unix seconds>:<kind>", byte-identical to the macOS builder.
         Expect(state.Key == "1754640000:turn_completed", $"unexpected turn key: {state.Key}");
     }

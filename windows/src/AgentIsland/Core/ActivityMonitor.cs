@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Windows.Threading;
-using AgentIsland.Alarm;
 using AgentIsland.Usage;
 
 namespace AgentIsland.Core;
@@ -216,14 +215,12 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         var nextThreads = new Dictionary<TriggerTool, ActiveThread>();
         foreach (var tool in MonitoredProviders)
         {
-            var result = BestSession(sessions, tool,
-                thread => AgentReminderCenter.Shared.HasAcknowledged(tool, thread));
+            var result = BestSession(sessions, tool);
             nextRaw[tool] = result.State;
             if (result.Thread is { } thread) nextThreads[tool] = thread;
             nextStates[tool] = visibility.IsVisible(tool)
                 ? OverlayUsageAttention(result.State, UsageFor(tool))
                 : result.State;
-            AgentReminderCenter.Shared.Handle(tool, NeedsYouThreads(sessions, tool));
         }
         _rawStates = nextRaw;
         _threads = nextThreads;
@@ -302,28 +299,26 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         || message.Contains("ssl")
         || message.Contains("tls");
 
-    /// A turn still waiting on the user outranks everything. But once the
-    /// user acknowledged it, the turn is old news: it must not pin the logo
-    /// in a static needsYou (masking a genuinely running sibling). Stalled
-    /// stays above working so real anomalies surface; below unacked needsYou
-    /// so it can't eat an actionable alarm.
-    private static int SelectionPriority(ScannedSession session, Func<ActiveThread, bool> isAcknowledged) =>
+    /// A running session outranks a finished one: with the turn alarms gone
+    /// nothing acknowledges a finished turn, so a needsYou ranked first would
+    /// mask a genuinely running sibling until it ages out. Stalled stays
+    /// above working so real anomalies surface.
+    private static int SelectionPriority(ScannedSession session) =>
         session.Status switch
         {
-            ActivityState.NeedsYou => isAcknowledged(MakeThread(session)) ? 1 : 4,
             ActivityState.Stalled => 3,
             ActivityState.Working => 2,
+            ActivityState.NeedsYou => 1,
             _ => 0,
         };
 
     private static (ActivityState State, ActiveThread? Thread) BestSession(
         List<ScannedSession> sessions,
-        TriggerTool tool,
-        Func<ActiveThread, bool> isAcknowledged)
+        TriggerTool tool)
     {
         var ranked = sessions
             .Where(s => s.Tool == tool)
-            .Select(s => (Session: s, Priority: SelectionPriority(s, isAcknowledged)))
+            .Select(s => (Session: s, Priority: SelectionPriority(s)))
             .OrderByDescending(x => x.Priority)
             .ThenByDescending(x => x.Session.Modified)
             .ToList();
@@ -332,16 +327,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         var thread = top.Status == ActivityState.Idle ? null : MakeThread(top);
         return (top.Status, thread);
     }
-
-    /// Every needsYou session, newest first. The reminder center tracks each
-    /// finished turn separately, so one thread's alarm can never cancel or
-    /// mask another's.
-    private static List<ActiveThread> NeedsYouThreads(List<ScannedSession> sessions, TriggerTool tool) =>
-        sessions
-            .Where(s => s.Tool == tool && s.Status == ActivityState.NeedsYou)
-            .OrderByDescending(s => s.Modified)
-            .Select(MakeThread)
-            .ToList();
 
     private static ActiveThread MakeThread(ScannedSession session) => new(
         session.SessionId,
