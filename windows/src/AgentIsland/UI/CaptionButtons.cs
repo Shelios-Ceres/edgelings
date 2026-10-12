@@ -8,10 +8,10 @@ namespace AgentIsland.UI;
 
 /// Minimize / maximize-restore / close, embedded in a window's top-right
 /// corner — the in-page caption strip used instead of a system title bar
-/// (settings window, turn alarm).
+/// (settings window).
 public static class CaptionButtons
 {
-    /// onClose lets an alarm route its close through Acknowledge();
+    /// onClose lets a window route its close through its own teardown;
     /// defaults to Window.Close().
     public static UIElement Build(Window window, Action? onClose = null)
     {
@@ -29,7 +29,7 @@ public static class CaptionButtons
                 Text = glyph,
                 FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
                 FontSize = 9.5,
-                Foreground = IslandColors.Brush(IslandColors.White(0.55)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -45,13 +45,13 @@ public static class CaptionButtons
             {
                 host.Background = destructive
                     ? IslandColors.Brush(Color.FromRgb(0xC4, 0x2B, 0x1C))
-                    : IslandColors.Brush(IslandColors.White(0.08));
-                glyphText.Foreground = Brushes.White;
+                    : GrokTheme.InkBrush(GrokTheme.Tertiary);
+                glyphText.Foreground = destructive ? Brushes.White : GrokTheme.InkBrush(GrokTheme.TextPrimary);
             };
             host.MouseLeave += (_, _) =>
             {
                 host.Background = Brushes.Transparent;
-                glyphText.Foreground = IslandColors.Brush(IslandColors.White(0.55));
+                glyphText.Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary);
             };
             host.MouseLeftButtonUp += (_, args) =>
             {

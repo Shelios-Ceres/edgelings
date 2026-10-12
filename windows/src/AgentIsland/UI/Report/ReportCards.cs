@@ -309,8 +309,8 @@ public static class ReportCards
             TryAddDuelArt(canvas, pose, artX);
         }
 
-        var leftAccent = ProviderIdentity.Accent(left.Provider);
-        var rightAccent = ProviderIdentity.Accent(right.Provider);
+        var leftAccent = Theme.ProviderColors.Accent(left.Provider);
+        var rightAccent = Theme.ProviderColors.Accent(right.Provider);
 
         var leftMark = ProviderMark(left.Provider);
         Canvas.SetLeft(leftMark, 0);
@@ -368,7 +368,7 @@ public static class ReportCards
         StackPanel stack, Canvas canvas, ProviderPeriodSlice solo,
         double contentWidth, double beamX0, double beamWidth, double beamY)
     {
-        var accent = ProviderIdentity.Accent(solo.Provider);
+        var accent = Theme.ProviderColors.Accent(solo.Provider);
 
         var mark = ProviderMark(solo.Provider, DuelSoloMarkSide);
         Canvas.SetLeft(mark, contentWidth / 2 - DuelSoloMarkSide / 2);
@@ -427,7 +427,7 @@ public static class ReportCards
     {
         DisplayProvider.Claude => Color.FromRgb(0xE0, 0x8A, 0x63),
         DisplayProvider.Codex => Color.FromRgb(0x7F, 0xBC, 0xF5),
-        _ => Lighten(ProviderIdentity.Accent(provider), 0.28),
+        _ => Lighten(Theme.ProviderColors.Accent(provider), 0.28),
     };
 
     private static Color Lighten(Color c, double t) => Color.FromRgb(

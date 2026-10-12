@@ -48,26 +48,38 @@ public sealed class CostWindow : Window
         Topmost = true;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
 
-        var close = new TextBlock
+        var closeGlyph = new TextBlock
         {
             Text = "",
             FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-            FontSize = 12,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
+            FontSize = 10,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var close = new Border
+        {
+            Child = closeGlyph,
+            Width = 26,
+            Height = 26,
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = Cursors.Hand,
-            Padding = new Thickness(6),
         };
+        close.MouseEnter += (_, _) => close.Background = GrokTheme.InkBrush(GrokTheme.Tertiary);
+        close.MouseLeave += (_, _) => close.Background = Brushes.Transparent;
+        close.MouseLeftButtonDown += (_, e) => e.Handled = true;
         close.MouseLeftButtonUp += (_, _) => Close();
-        var header = new Grid { Margin = new Thickness(12, 0, 4, 14) };
+        var header = new Grid { Margin = new Thickness(4, 0, 0, 12) };
         header.Children.Add(new TextBlock
         {
             Text = L10n.Tr("Cost"),
             FontFamily = IslandFonts.Ui,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.White,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             VerticalAlignment = VerticalAlignment.Center,
         });
         header.Children.Add(close);
@@ -77,11 +89,13 @@ public sealed class CostWindow : Window
         body.Children.Add(_grid);
         Content = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x0F, 0x12)),
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.08)),
+            Background = GrokTheme.Brush(GrokTheme.Elevated),
+            BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(18),
-            Padding = new Thickness(14, 14, 14, 18),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14, 12, 8, 8),
+            Margin = new Thickness(18),
+            Effect = GrokTheme.Float(0.16),
             Child = body,
         };
 
@@ -108,8 +122,10 @@ public sealed class CostWindow : Window
         Rebuild();
     }
 
+    /// One Grok card per provider: brand mark and name, then the block.
     /// Antigravity keeps no local token ledger, so it gets a note instead of
-    /// a fabricated $0; Cursor logs tokens without a model, so no dollars.
+    /// a fabricated $0; token-only providers (Cursor, Kimi Code, DeepSeek)
+    /// show no dollars.
     private void Rebuild()
     {
         _grid.Children.Clear();
@@ -118,16 +134,25 @@ public sealed class CostWindow : Window
         _grid.Columns = Math.Clamp(shown.Count, 1, 3);
         foreach (var provider in shown)
         {
-            var section = new StackPanel { Width = 220, Margin = new Thickness(0, 0, 0, 16) };
-            section.Children.Add(new TextBlock
+            var section = new StackPanel();
+            var title = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 12, 8) };
+            title.Children.Add(new Grid
+            {
+                Width = 16,
+                Height = 16,
+                Margin = new Thickness(0, 0, 7, 0),
+                Children = { ProviderMarks.Mark(provider, 15, tintOpacity: 1, tint: GrokTheme.Brand(provider)) },
+            });
+            title.Children.Add(new TextBlock
             {
                 Text = ProviderIdentity.DisplayName(provider),
                 FontFamily = IslandFonts.Ui,
-                FontSize = 12,
+                FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = ProviderIdentity.AccentBrush(provider),
-                Margin = new Thickness(12, 0, 12, 6),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
+                VerticalAlignment = VerticalAlignment.Center,
             });
+            section.Children.Add(title);
             if (provider == DisplayProvider.Antigravity)
             {
                 section.Children.Add(new TextBlock
@@ -135,17 +160,27 @@ public sealed class CostWindow : Window
                     Text = L10n.Tr("No local usage log"),
                     FontFamily = IslandFonts.Ui,
                     FontSize = 11,
-                    Foreground = IslandColors.Brush(IslandColors.White(0.45)),
+                    Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
                     Margin = new Thickness(12, 0, 12, 0),
                 });
             }
             else
             {
-                var block = new CostBlock(ProviderIdentity.Accent(provider), showsDollars: provider != DisplayProvider.Cursor);
+                var block = new CostBlock(GrokTheme.Brand(provider), showsDollars: Report.ReportFormat.ProvidesDollars(provider));
                 _blocks[provider] = block;
                 section.Children.Add(block);
             }
-            _grid.Children.Add(section);
+            _grid.Children.Add(new Border
+            {
+                Child = section,
+                Width = 236,
+                Background = GrokTheme.InkBrush(GrokTheme.Field),
+                BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeTertiary),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(0, 12, 0, 12),
+                Margin = new Thickness(0, 0, 6, 6),
+            });
         }
         Update();
     }

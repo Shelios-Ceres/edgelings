@@ -9,7 +9,7 @@ public partial class App : System.Windows.Application
 {
     public static App Instance => (App)Current;
 
-    private UI.Drawer.DrawerWindow? _drawer;
+    private UI.Drawer.DrawerHost? _drawer;
     private TrayIcon? _tray;
     private System.Threading.Mutex? _singleInstance;
 
@@ -51,6 +51,8 @@ public partial class App : System.Windows.Application
             return;
         }
         InstallCrashLogger();
+        // Stores raise their changes on the thread captured here.
+        UiThread.Capture();
         // Before any store singleton reads a key: settings written by pre-1.7
         // builds carry the MacIsland.* prefix and must land on AgentIsland.*.
         Core.Preferences.MigrateLegacyPrefix();
@@ -61,8 +63,7 @@ public partial class App : System.Windows.Application
             ActivityMonitor.Shared.Demo(ActivityState.Working);
         }
 
-        _drawer = new UI.Drawer.DrawerWindow();
-        _drawer.Show();
+        _drawer = new UI.Drawer.DrawerHost(LogCrash);
         _tray = CreateTray();
 
         ActivityMonitor.Shared.Start();
@@ -136,6 +137,14 @@ public partial class App : System.Windows.Application
         {
             UI.CostWindow.Open();
         }
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_OPEN_WHATSNEW") == "1")
+        {
+            UI.WhatsNewWindow.Open();
+        }
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_OPEN_REPORT") == "1")
+        {
+            UI.Report.ReportWindow.Show(UI.Report.ReportWindow.Kind.Weekly);
+        }
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DIALOG") == "1")
         {
             IslandDialog.Show(
@@ -158,9 +167,7 @@ public partial class App : System.Windows.Application
     /// untouched, only the labels are re-created in the new language.
     public void RebuildForLanguageChange()
     {
-        _drawer?.Close();
-        _drawer = new UI.Drawer.DrawerWindow();
-        _drawer.Show();
+        _drawer?.Rebuild();
         _tray?.Dispose();
         _tray = CreateTray();
     }
@@ -179,6 +186,7 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         _tray?.Dispose();
+        _drawer?.Shutdown();
         base.OnExit(e);
     }
 
@@ -195,7 +203,7 @@ public partial class App : System.Windows.Application
         };
     }
 
-    private static void LogCrash(Exception? error, string source)
+    internal static void LogCrash(Exception? error, string source)
     {
         try
         {

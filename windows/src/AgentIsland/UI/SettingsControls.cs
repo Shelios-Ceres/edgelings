@@ -1,17 +1,15 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using AgentIsland.UI.Charts;
 using AgentIsland.UI.Theme;
 
 namespace AgentIsland.UI;
 
-/// The on/off switch shared by every Settings row. White-on-black material
-/// only — the 2026-08-09 de-branding stripped every accent color from the
-/// app's own chrome, so the ON state speaks a white track wash + solid
-/// white knob (macOS SettingsToggle: 34x19 track, 15pt knob).
+/// The on/off switch shared by every Settings row, in Grok's light dress:
+/// an accent track with a white knob when on, a faint ink track when off
+/// (macOS SettingsToggle geometry: 34x19 track, 15pt knob).
 public sealed class CobaltToggle : Border
 {
     // Track 34, knob 15, 2pt inset → the knob travels 15pt between rests.
@@ -38,17 +36,30 @@ public sealed class CobaltToggle : Border
         Background = _track;
         BorderBrush = _rim;
         Cursor = System.Windows.Input.Cursors.Hand;
-        _dot = new Ellipse
+        // The knob's lift is a drawn shadow, not a DropShadowEffect: an effect
+        // re-renders on every frame the page scrolls, and eight of them cost
+        // the Settings page a fifth of its frame rate.
+        _dot = new Ellipse { Width = 15, Height = 15, Fill = _knob };
+        Child = new Grid
         {
             Width = 15,
             Height = 15,
-            Fill = _knob,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(2, 0, 2, 0),
             RenderTransform = _slide,
+            Children =
+            {
+                new Ellipse
+                {
+                    Width = 15,
+                    Height = 15,
+                    Fill = GrokTheme.InkBrush(0.16),
+                    RenderTransform = new TranslateTransform(0, 0.8),
+                },
+                _dot,
+            },
         };
-        Child = _dot;
         MouseLeftButtonUp += (_, args) =>
         {
             _isOn = !_isOn;
@@ -76,13 +87,12 @@ public sealed class CobaltToggle : Border
     /// settings page doesn't ripple with settling toggles.
     private void Render()
     {
-        var track = IslandColors.White(_isOn ? 0.34 : 0.07);
-        var rim = IslandColors.White(_isOn ? (_hovered ? 0.55 : 0.35) : (_hovered ? 0.22 : 0.13));
-        var knob = _isOn ? Colors.White : IslandColors.White(0.55);
+        var track = _isOn
+            ? (_hovered ? GrokTheme.AccentHover : GrokTheme.Accent)
+            : GrokTheme.InkA(_hovered ? GrokTheme.Active : GrokTheme.Secondary);
+        var rim = _isOn ? Colors.Transparent : GrokTheme.InkA(GrokTheme.StrokeTertiary);
+        var knob = Colors.White;
         var offset = _isOn ? KnobTravel : 0;
-        _dot.Effect = _isOn
-            ? new DropShadowEffect { ShadowDepth = 0, BlurRadius = 5, Color = Colors.White, Opacity = 0.32 }
-            : new DropShadowEffect { ShadowDepth = 0.5, BlurRadius = 1.5, Color = Colors.Black, Opacity = 0.35 };
         if (!_seeded)
         {
             _seeded = true;
@@ -121,11 +131,9 @@ public sealed class Segmented : Border
     public Segmented(IReadOnlyList<string> labels, int selected)
     {
         _selected = selected;
-        CornerRadius = new CornerRadius(14);
-        Background = IslandColors.Brush(IslandColors.White(0.05));
-        BorderBrush = IslandColors.Brush(IslandColors.White(0.05));
-        BorderThickness = new Thickness(1);
-        Padding = new Thickness(3);
+        CornerRadius = new CornerRadius(9);
+        Background = GrokTheme.InkBrush(GrokTheme.Quaternary);
+        Padding = new Thickness(2);
         Child = _items;
         for (var i = 0; i < labels.Count; i++)
         {
@@ -133,15 +141,16 @@ public sealed class Segmented : Border
             var text = new TextBlock
             {
                 Text = labels[i],
-                FontFamily = IslandFonts.Mono,
-                FontSize = 11,
+                FontFamily = IslandFonts.Ui,
+                FontSize = 11.5,
                 FontWeight = FontWeights.Medium,
             };
             var cell = new Border
             {
                 Child = text,
-                CornerRadius = new CornerRadius(11),
-                Padding = new Thickness(11, 5, 11, 5),
+                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(0.5, 0.5, 0.5, 1),
+                Padding = new Thickness(11, 4, 11, 4),
                 Cursor = System.Windows.Input.Cursors.Hand,
             };
             cell.MouseLeftButtonUp += (_, args) =>
@@ -156,32 +165,33 @@ public sealed class Segmented : Border
         Select(selected);
     }
 
-    /// macOS SegmentedControl: near-white thumb, BLACK selected label,
-    /// ghost-white unselected labels on a faint capsule track.
+    /// A white thumb lifted off a faint ink track by a hairline with a heavier
+    /// bottom edge (a drawn lift: effects are too costly while scrolling); the
+    /// selected label goes full ink, the rest stay tertiary.
     public void Select(int index)
     {
         _selected = Math.Clamp(index, 0, _cells.Count - 1);
         for (var i = 0; i < _cells.Count; i++)
         {
             var isOn = i == _selected;
-            _cells[i].Background = isOn ? IslandColors.Brush(IslandColors.White(0.92)) : Brushes.Transparent;
+            _cells[i].Background = isOn ? GrokTheme.Brush(GrokTheme.Elevated) : Brushes.Transparent;
+            _cells[i].BorderBrush = isOn ? GrokTheme.InkBrush(GrokTheme.StrokeSecondary) : Brushes.Transparent;
             var label = (TextBlock)_cells[i].Child!;
-            label.Foreground = isOn
-                ? IslandColors.Brush(Color.FromArgb(0xD9, 0x00, 0x00, 0x00))
-                : IslandColors.Brush(IslandColors.White(0.55));
+            label.Foreground = GrokTheme.InkBrush(isOn ? GrokTheme.TextPrimary : GrokTheme.TextTertiary);
             label.FontWeight = isOn ? FontWeights.SemiBold : FontWeights.Medium;
         }
     }
 }
 
-/// Plain pill action button ("Refresh", "Check").
+/// Grok's buttons ("Refresh", "Cost…"): secondary is an ink wash that deepens
+/// on hover; primary is the accent fill with a white label.
 public sealed class PillButtonControl : Border
 {
     private readonly TextBlock _label;
 
     public event Action? Clicked;
 
-    public PillButtonControl(string label)
+    public PillButtonControl(string label, bool primary = false)
     {
         _label = new TextBlock
         {
@@ -189,16 +199,18 @@ public sealed class PillButtonControl : Border
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.9)),
+            Foreground = primary ? Brushes.White : GrokTheme.InkBrush(GrokTheme.TextPrimary),
         };
         Child = _label;
         CornerRadius = new CornerRadius(6);
-        Background = IslandColors.Brush(IslandColors.White(0.10));
-        BorderBrush = IslandColors.Brush(IslandColors.White(0.08));
-        BorderThickness = new Thickness(0.5);
+        var rest = primary ? GrokTheme.Brush(GrokTheme.Accent) : GrokTheme.InkBrush(GrokTheme.Tertiary);
+        var hover = primary ? GrokTheme.Brush(GrokTheme.AccentHover) : GrokTheme.InkBrush(GrokTheme.Secondary);
+        Background = rest;
         Padding = new Thickness(12, 5, 12, 5);
         Cursor = System.Windows.Input.Cursors.Hand;
         VerticalAlignment = VerticalAlignment.Center;
+        MouseEnter += (_, _) => Background = hover;
+        MouseLeave += (_, _) => Background = rest;
         MouseLeftButtonUp += (_, args) =>
         {
             Clicked?.Invoke();
@@ -228,7 +240,7 @@ public sealed class SettingsRowControl : Border
         CornerRadius = new CornerRadius(8);
         Padding = new Thickness(10, 11, 10, 11);
         Background = Brushes.Transparent;
-        MouseEnter += (_, _) => Background = IslandColors.Brush(IslandColors.White(0.030));
+        MouseEnter += (_, _) => Background = GrokTheme.InkBrush(GrokTheme.Field);
         MouseLeave += (_, _) => Background = Brushes.Transparent;
 
         var grid = new Grid();
@@ -245,7 +257,6 @@ public sealed class SettingsRowControl : Border
                 Width = 7,
                 Height = 7,
                 Fill = IslandColors.Brush(dotColor),
-                Effect = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 4, Color = dotColor, Opacity = 0.7 },
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 0),
             });
@@ -256,7 +267,7 @@ public sealed class SettingsRowControl : Border
             FontFamily = monospaceTitle ? IslandFonts.Mono : IslandFonts.Ui,
             FontSize = monospaceTitle ? 10 : 13,
             FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 300,
@@ -271,10 +282,10 @@ public sealed class SettingsRowControl : Border
                     FontFamily = IslandFonts.Ui,
                     FontSize = 9,
                     FontWeight = FontWeights.Bold,
-                    Foreground = IslandColors.Brush(IslandColors.White(0.6)),
+                    Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
                 },
-                CornerRadius = new CornerRadius(3),
-                Background = IslandColors.Brush(IslandColors.White(0.06)),
+                CornerRadius = new CornerRadius(4),
+                Background = GrokTheme.InkBrush(GrokTheme.Quaternary),
                 Padding = new Thickness(5, 2, 5, 2),
                 Margin = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -288,7 +299,7 @@ public sealed class SettingsRowControl : Border
                 Text = Localization.L10n.Tr(subtitle!),
                 FontFamily = IslandFonts.Ui,
                 FontSize = 11,
-                Foreground = IslandColors.Brush(IslandColors.White(0.55)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
                 Margin = new Thickness(0, 2, 0, 0),
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth = 380,
@@ -311,11 +322,11 @@ public sealed class SettingsRowControl : Border
     }
 }
 
-/// WPF's default ComboBox is a light-theme control — white face, grey
-/// chrome — and it read as exactly that on the dark settings page (owner
-/// review, 2026-08-09: 质感太差). One dark template, parsed once, shared
+/// WPF's default ComboBox chrome read as cheap next to the rest of the page
+/// (owner review, 2026-08-09: 质感太差). One Grok-style template — white
+/// face, hairline ink stroke, floating white list — parsed once and shared
 /// by every picker.
-public static class DarkComboStyle
+public static class GrokComboStyle
 {
     private const string TemplateXaml = """
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -326,8 +337,8 @@ public static class DarkComboStyle
                   IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
       <ToggleButton.Template>
         <ControlTemplate TargetType="ToggleButton">
-          <Border x:Name="Face" CornerRadius="7" Background="#0DFFFFFF"
-                  BorderBrush="#1AFFFFFF" BorderThickness="1">
+          <Border x:Name="Face" CornerRadius="6" Background="#FFFFFFFF"
+                  BorderBrush="#1F141414" BorderThickness="1">
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -336,12 +347,12 @@ public static class DarkComboStyle
               <ContentPresenter Grid.Column="0" Margin="10,0,4,0"
                                 HorizontalAlignment="Left" VerticalAlignment="Center"/>
               <Path Grid.Column="1" Margin="0,0,9,0" VerticalAlignment="Center"
-                    Data="M 0 0 L 3.5 3.5 L 7 0" Stroke="#8CFFFFFF" StrokeThickness="1.4"/>
+                    Data="M 0 0 L 3.5 3.5 L 7 0" Stroke="#8A141414" StrokeThickness="1.4"/>
             </Grid>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Face" Property="Background" Value="#1AFFFFFF"/>
+              <Setter TargetName="Face" Property="Background" Value="#FFF4F4F3"/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -351,13 +362,16 @@ public static class DarkComboStyle
                       ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                       Margin="10,0,24,0" HorizontalAlignment="Left"
                       VerticalAlignment="Center" IsHitTestVisible="False"
-                      TextBlock.Foreground="#F2FFFFFF"/>
+                      TextBlock.Foreground="#EB141414"/>
     <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-           VerticalOffset="4" AllowsTransparency="True" Focusable="False"
-           PopupAnimation="Fade">
-      <Border Background="#FF15171C" CornerRadius="8" BorderBrush="#21FFFFFF"
+           HorizontalOffset="-10" VerticalOffset="-6" AllowsTransparency="True"
+           Focusable="False" PopupAnimation="Fade">
+      <Border Background="#FFFFFFFF" CornerRadius="8" BorderBrush="#1F141414"
               BorderThickness="1" MinWidth="{TemplateBinding ActualWidth}"
-              MaxHeight="{TemplateBinding MaxDropDownHeight}" Padding="4">
+              MaxHeight="{TemplateBinding MaxDropDownHeight}" Padding="4" Margin="10">
+        <Border.Effect>
+          <DropShadowEffect ShadowDepth="3" Direction="270" BlurRadius="14" Opacity="0.14" Color="#141414"/>
+        </Border.Effect>
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
           <ItemsPresenter/>
@@ -373,14 +387,14 @@ public static class DarkComboStyle
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  TargetType="ComboBoxItem">
   <Border x:Name="Row" CornerRadius="5" Padding="8,5,8,5" Background="Transparent">
-    <ContentPresenter TextBlock.Foreground="#DEFFFFFF"/>
+    <ContentPresenter TextBlock.Foreground="#EB141414"/>
   </Border>
   <ControlTemplate.Triggers>
     <Trigger Property="IsHighlighted" Value="True">
-      <Setter TargetName="Row" Property="Background" Value="#1FFFFFFF"/>
+      <Setter TargetName="Row" Property="Background" Value="#0F141414"/>
     </Trigger>
     <Trigger Property="IsSelected" Value="True">
-      <Setter TargetName="Row" Property="Background" Value="#26FFFFFF"/>
+      <Setter TargetName="Row" Property="Background" Value="#24599CE7"/>
     </Trigger>
   </ControlTemplate.Triggers>
 </ControlTemplate>
@@ -394,7 +408,7 @@ public static class DarkComboStyle
         _template ??= (ControlTemplate)System.Windows.Markup.XamlReader.Parse(TemplateXaml);
         _itemTemplate ??= (ControlTemplate)System.Windows.Markup.XamlReader.Parse(ItemXaml);
         box.Template = _template;
-        box.Foreground = IslandColors.Brush(IslandColors.White(0.95));
+        box.Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary);
         box.FontFamily = Charts.IslandFonts.Ui;
         box.FontSize = 12;
         box.Height = 28;
@@ -404,5 +418,45 @@ public static class DarkComboStyle
         itemStyle.Setters.Add(new Setter(Control.FontSizeProperty, 12.0));
         box.ItemContainerStyle = itemStyle;
         return box;
+    }
+}
+
+/// Grok's text buttons for dialogs and cards: primary is the accent fill
+/// with a white label, secondary an ink wash; both deepen on hover.
+public static class GrokButton
+{
+    public static Button Create(string label, bool primary, double fontSize = 13)
+    {
+        var rest = primary ? GrokTheme.Brush(GrokTheme.Accent) : GrokTheme.InkBrush(GrokTheme.Tertiary);
+        var hover = primary ? GrokTheme.Brush(GrokTheme.AccentHover) : GrokTheme.InkBrush(GrokTheme.Secondary);
+        var button = new Button
+        {
+            Content = label,
+            FontFamily = IslandFonts.Ui,
+            FontSize = fontSize,
+            FontWeight = primary ? FontWeights.SemiBold : FontWeights.Medium,
+            Foreground = primary ? Brushes.White : GrokTheme.InkBrush(GrokTheme.TextPrimary),
+            Background = rest,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(16, 7, 16, 7),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        // Own template so the default WPF chrome (and its blue hover) never
+        // shows through.
+        var face = new FrameworkElementFactory(typeof(Border));
+        face.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        face.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(FrameworkElement.MarginProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        face.AppendChild(presenter);
+        button.Template = new ControlTemplate(typeof(Button)) { VisualTree = face };
+        button.MouseEnter += (_, _) => button.Background = hover;
+        button.MouseLeave += (_, _) => button.Background = rest;
+        IslandMotion.AttachPressFeedback(button);
+        return button;
     }
 }

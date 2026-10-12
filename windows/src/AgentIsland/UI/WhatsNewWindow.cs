@@ -134,12 +134,14 @@ public sealed class WhatsNewWindow : Window
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-        _back = Pill(L10n.Tr("Back"), primary: false, (_, _) => Flip(_page - 1));
-        _next = Pill(L10n.Tr("Next"), primary: true, (_, _) =>
+        _back = GrokButton.Create(L10n.Tr("Back"), primary: false, fontSize: 12.5);
+        _back.Click += (_, _) => Flip(_page - 1);
+        _next = GrokButton.Create(L10n.Tr("Next"), primary: true, fontSize: 12.5);
+        _next.Click += (_, _) =>
         {
             if (_page >= _pages.Length - 1) Close();
             else Flip(_page + 1);
-        });
+        };
 
         var column = new StackPanel { Width = 470 - 48 };
         column.Children.Add(Header(showChip));
@@ -148,18 +150,15 @@ public sealed class WhatsNewWindow : Window
 
         var card = new Border
         {
-            CornerRadius = new CornerRadius(26),
-            Background = IslandColors.Brush(Color.FromRgb(0x0E, 0x0F, 0x13)),
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.06)),
+            CornerRadius = new CornerRadius(14),
+            Background = GrokTheme.Brush(GrokTheme.Elevated),
+            BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(24),
             Child = column,
+            Effect = GrokTheme.Float(0.18),
         };
-        Content = new Border { Padding = new Thickness(16), Child = card };
-        Effect = new System.Windows.Media.Effects.DropShadowEffect
-        {
-            BlurRadius = 24, ShadowDepth = 8, Opacity = 0.35, Color = Colors.Black,
-        };
+        Content = new Border { Padding = new Thickness(18), Child = card };
 
         MouseLeftButtonDown += (_, args) =>
         {
@@ -199,8 +198,8 @@ public sealed class WhatsNewWindow : Window
             Text = string.Join(' ', "AGENT ISLAND".ToCharArray()),
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
-            FontWeight = FontWeights.ExtraBold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.88)),
+            FontWeight = FontWeights.Bold,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             VerticalAlignment = VerticalAlignment.Center,
         });
         DockPanel.SetDock(brand, Dock.Left);
@@ -209,7 +208,7 @@ public sealed class WhatsNewWindow : Window
         var chip = new Border
         {
             CornerRadius = new CornerRadius(9),
-            Background = IslandColors.Brush(IslandColors.White(0.10)),
+            Background = GrokTheme.InkBrush(GrokTheme.Quaternary),
             Padding = new Thickness(8, 2, 8, 2),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
@@ -217,8 +216,8 @@ public sealed class WhatsNewWindow : Window
                 Text = "v" + WhatsNewGate.CurrentVersion,
                 FontFamily = IslandFonts.Ui,
                 FontSize = 10.5,
-                FontWeight = FontWeights.Bold,
-                Foreground = IslandColors.Brush(Colors.White),
+                FontWeight = FontWeights.SemiBold,
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
             },
         };
         if (showChip)
@@ -243,8 +242,8 @@ public sealed class WhatsNewWindow : Window
             Text = L10n.Tr(page.Title),
             FontFamily = IslandFonts.Ui,
             FontSize = 20,
-            FontWeight = FontWeights.Black,
-            Foreground = IslandColors.Brush(Colors.White),
+            FontWeight = FontWeights.Bold,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             Margin = new Thickness(0, 16, 0, 8),
         });
         stack.Children.Add(new TextBlock
@@ -252,8 +251,8 @@ public sealed class WhatsNewWindow : Window
             Text = L10n.Tr(page.Body),
             FontFamily = IslandFonts.Ui,
             FontSize = 12.5,
-            FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.62)),
+            FontWeight = FontWeights.Normal,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 19,
             MinHeight = 76,
@@ -270,7 +269,7 @@ public sealed class WhatsNewWindow : Window
                 Width = active ? 16 : 6,
                 Height = 6,
                 CornerRadius = new CornerRadius(3),
-                Background = IslandColors.Brush(active ? Colors.White : IslandColors.White(0.16)),
+                Background = active ? GrokTheme.Brush(GrokTheme.Accent) : GrokTheme.InkBrush(GrokTheme.Active),
                 Margin = new Thickness(0, 0, 5, 0),
                 Cursor = Cursors.Hand,
             };
@@ -283,7 +282,7 @@ public sealed class WhatsNewWindow : Window
         }
 
         _back.Visibility = _page > 0 ? Visibility.Visible : Visibility.Collapsed;
-        ((TextBlock)_next.Content).Text = _pages[_page].IsClosing
+        _next.Content = _pages[_page].IsClosing
             ? L10n.Tr("Get started")
             : L10n.Tr("Next");
     }
@@ -303,8 +302,8 @@ public sealed class WhatsNewWindow : Window
             {
                 CornerRadius = new CornerRadius(14),
                 Height = 226,
-                Background = IslandColors.Brush(IslandColors.White(0.03)),
-                BorderBrush = IslandColors.Brush(IslandColors.White(0.07)),
+                Background = GrokTheme.InkBrush(GrokTheme.Field),
+                BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeTertiary),
                 BorderThickness = new Thickness(1),
                 Child = image,
                 ClipToBounds = true,
@@ -398,38 +397,5 @@ public sealed class WhatsNewWindow : Window
         DockPanel.SetDock(buttons, Dock.Right);
         row.Children.Add(buttons);
         return row;
-    }
-
-    private static Button Pill(string label, bool primary, RoutedEventHandler onClick)
-    {
-        var button = new Button
-        {
-            Content = new TextBlock
-            {
-                Text = label,
-                FontFamily = IslandFonts.Ui,
-                FontSize = 12.5,
-                FontWeight = primary ? FontWeights.ExtraBold : FontWeights.Bold,
-                Foreground = primary
-                    ? IslandColors.Brush(Color.FromRgb(0x17, 0x17, 0x17))
-                    : IslandColors.Brush(IslandColors.White(0.55)),
-            },
-            Background = primary
-                ? IslandColors.Brush(Colors.White)
-                : IslandColors.Brush(IslandColors.White(0.05)),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(16, 7, 16, 7),
-            Cursor = Cursors.Hand,
-        };
-        button.Resources.Add(typeof(Border), PillBorderStyle());
-        button.Click += onClick;
-        return button;
-    }
-
-    private static Style PillBorderStyle()
-    {
-        var style = new Style(typeof(Border));
-        style.Setters.Add(new Setter(Border.CornerRadiusProperty, new CornerRadius(10)));
-        return style;
     }
 }

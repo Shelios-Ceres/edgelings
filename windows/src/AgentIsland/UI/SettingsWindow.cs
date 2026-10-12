@@ -59,7 +59,7 @@ public sealed class SettingsWindow : Window
                 using (var dc = visual.RenderOpen())
                 {
                     dc.DrawRectangle(
-                        IslandColors.Brush(IslandColors.AlarmBackground), null, new Rect(0, 0, w, h));
+                        GrokTheme.Brush(GrokTheme.Paper), null, new Rect(0, 0, w, h));
                     dc.DrawRectangle(
                         new System.Windows.Media.VisualBrush(content), null, new Rect(0, 0, w, h));
                 }
@@ -117,7 +117,7 @@ public sealed class SettingsWindow : Window
         Height = 560;
         MinWidth = 640;
         MinHeight = 460;
-        Background = IslandColors.Brush(IslandColors.AlarmBackground);
+        Background = GrokTheme.Brush(GrokTheme.Paper);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         // Pixel-snapped glyphs: the 10-13px settings copy is blurry in WPF's
         // default Ideal mode.
@@ -148,7 +148,7 @@ public sealed class SettingsWindow : Window
         Grid.SetColumn(sidebar, 0);
         main.Children.Add(sidebar);
 
-        var divider = new Border { Background = IslandColors.Brush(IslandColors.White(0.05)) };
+        var divider = new Border { Background = GrokTheme.InkBrush(GrokTheme.Quaternary) };
         Grid.SetColumn(divider, 1);
         main.Children.Add(divider);
 
@@ -210,7 +210,7 @@ public sealed class SettingsWindow : Window
     /// in the page footer — macOS 2.1.1).
     private UIElement BuildSidebar()
     {
-        var rail = new DockPanel { Background = IslandColors.Brush(IslandColors.White(0.016)) };
+        var rail = new DockPanel { Background = GrokTheme.Brush(GrokTheme.Chrome) };
 
         var top = new StackPanel();
         top.Children.Add(new Border { Height = 30 });
@@ -242,7 +242,7 @@ public sealed class SettingsWindow : Window
             FontFamily = IslandFonts.Ui,
             FontSize = 12.5,
             FontWeight = FontWeights.SemiBold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             VerticalAlignment = VerticalAlignment.Center,
         });
         top.Children.Add(brand);
@@ -286,16 +286,16 @@ public sealed class SettingsWindow : Window
                 FontFamily = IslandFonts.Ui,
                 FontSize = 10.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = IslandColors.Brush(IslandColors.White(0.45)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
             },
             CornerRadius = new CornerRadius(10),
-            Background = IslandColors.Brush(IslandColors.White(0.05)),
+            Background = GrokTheme.InkBrush(GrokTheme.Quaternary),
             Padding = new Thickness(9, 4, 9, 4),
             Cursor = System.Windows.Input.Cursors.Hand,
             ToolTip = help,
         };
-        pill.MouseEnter += (_, _) => pill.Background = IslandColors.Brush(IslandColors.White(0.10));
-        pill.MouseLeave += (_, _) => pill.Background = IslandColors.Brush(IslandColors.White(0.05));
+        pill.MouseEnter += (_, _) => pill.Background = GrokTheme.InkBrush(GrokTheme.Secondary);
+        pill.MouseLeave += (_, _) => pill.Background = GrokTheme.InkBrush(GrokTheme.Quaternary);
         pill.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
@@ -332,7 +332,7 @@ public sealed class SettingsWindow : Window
         var cell = new Border
         {
             Child = row,
-            CornerRadius = new CornerRadius(7),
+            CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 7, 10, 7),
             Margin = new Thickness(8, 1, 8, 1),
             Background = Brushes.Transparent,
@@ -346,7 +346,7 @@ public sealed class SettingsWindow : Window
         };
         cell.MouseEnter += (_, _) =>
         {
-            if (_active != captured) cell.Background = IslandColors.Brush(IslandColors.White(0.04));
+            if (_active != captured) cell.Background = GrokTheme.InkBrush(GrokTheme.Quinary);
         };
         cell.MouseLeave += (_, _) =>
         {
@@ -363,8 +363,8 @@ public sealed class SettingsWindow : Window
             new GradientStopCollection
             {
                 new GradientStop(Colors.Transparent, 0),
-                new GradientStop(IslandColors.White(0.055), 0.25),
-                new GradientStop(IslandColors.White(0.055), 0.75),
+                new GradientStop(GrokTheme.InkA(GrokTheme.StrokeTertiary), 0.25),
+                new GradientStop(GrokTheme.InkA(GrokTheme.StrokeTertiary), 0.75),
                 new GradientStop(Colors.Transparent, 1),
             },
             new Point(0, 0),
@@ -420,10 +420,10 @@ public sealed class SettingsWindow : Window
         {
             var isOn = cellTab == tab;
             cell.Background = isOn
-                ? IslandColors.Brush(IslandColors.White(0.13))
+                ? GrokTheme.InkBrush(GrokTheme.Tertiary)
                 : Brushes.Transparent;
-            glyph.Foreground = IslandColors.Brush(IslandColors.White(isOn ? 0.95 : 0.48));
-            label.Foreground = IslandColors.Brush(IslandColors.White(isOn ? 0.95 : 0.55));
+            glyph.Foreground = GrokTheme.InkBrush(isOn ? GrokTheme.TextPrimary : GrokTheme.TextTertiary);
+            label.Foreground = GrokTheme.InkBrush(isOn ? GrokTheme.TextPrimary : GrokTheme.TextSecondary);
         }
         var body = tab switch
         {
@@ -438,8 +438,8 @@ public sealed class SettingsWindow : Window
             Text = L10n.Tr(TabFace(tab).Label),
             FontFamily = IslandFonts.Ui,
             FontSize = 19,
-            FontWeight = FontWeights.Bold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.94)),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             Margin = new Thickness(24, 6, 24, 2),
         });
         pageColumn.Children.Add(body);
@@ -460,7 +460,7 @@ public sealed class SettingsWindow : Window
         FontFamily = IslandFonts.Ui,
         FontSize = 10,
         FontWeight = FontWeights.SemiBold,
-        Foreground = IslandColors.Brush(IslandColors.White(0.34)),
+        Foreground = GrokTheme.InkBrush(GrokTheme.TextQuaternary),
         Margin = new Thickness(10, 14, 10, 6),
     };
 
@@ -475,7 +475,7 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(new SettingsRowControl(
             "Launch at Login", null, launch));
 
-        var language = DarkComboStyle.Apply(new ComboBox { Width = 130, VerticalAlignment = VerticalAlignment.Center });
+        var language = GrokComboStyle.Apply(new ComboBox { Width = 130, VerticalAlignment = VerticalAlignment.Center });
         language.Items.Add(L10n.Tr("Auto (system)"));
         language.Items.Add("English");
         language.Items.Add("简体中文");
@@ -542,7 +542,7 @@ public sealed class SettingsWindow : Window
         // 屏幕 — which display the side drawer docks to.
         stack.Children.Add(SectionLabel("Screen"));
         var screens = System.Windows.Forms.Screen.AllScreens;
-        var display = DarkComboStyle.Apply(new ComboBox { Width = 180, VerticalAlignment = VerticalAlignment.Center });
+        var display = GrokComboStyle.Apply(new ComboBox { Width = 180, VerticalAlignment = VerticalAlignment.Center });
         display.Items.Add(L10n.Tr("Auto"));
         foreach (var screen in screens)
         {
@@ -614,7 +614,7 @@ public sealed class SettingsWindow : Window
         {
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.42)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 8, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -661,7 +661,7 @@ public sealed class SettingsWindow : Window
             Margin = new Thickness(0, 0, 12, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        markHost.Children.Add(ProviderMarks.Mark(provider, 20));
+        markHost.Children.Add(ProviderMarks.Mark(provider, 20, tint: GrokTheme.Brand(provider)));
         Grid.SetColumn(markHost, 0);
         grid.Children.Add(markHost);
 
@@ -672,7 +672,7 @@ public sealed class SettingsWindow : Window
             FontFamily = IslandFonts.Ui,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.95)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             VerticalAlignment = VerticalAlignment.Center,
         });
         var chipText = new TextBlock
@@ -680,13 +680,13 @@ public sealed class SettingsWindow : Window
             FontFamily = IslandFonts.Ui,
             FontSize = 9,
             FontWeight = FontWeights.Bold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.62)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
         };
         var chip = new Border
         {
             Child = chipText,
-            CornerRadius = new CornerRadius(3),
-            Background = IslandColors.Brush(IslandColors.White(0.07)),
+            CornerRadius = new CornerRadius(4),
+            Background = GrokTheme.InkBrush(GrokTheme.Quaternary),
             Padding = new Thickness(5, 2, 5, 2),
             Margin = new Thickness(8, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
@@ -698,7 +698,7 @@ public sealed class SettingsWindow : Window
         {
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
-            Foreground = IslandColors.Brush(IslandColors.White(0.66)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
             Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
@@ -764,11 +764,11 @@ public sealed class SettingsWindow : Window
             Background = Brushes.Transparent,
         };
         var washStops = new GradientStopCollection();
-        var stops = ProviderIdentity.BrandStops(provider);
+        var stops = GrokTheme.BrandStops(provider);
         for (var i = 0; i < stops.Count; i++)
         {
             washStops.Add(new GradientStop(
-                IslandColors.Alpha(stops[i], 0.05), 0.7 * i / Math.Max(1, stops.Count - 1)));
+                IslandColors.Alpha(stops[i], 0.07), 0.7 * i / Math.Max(1, stops.Count - 1)));
         }
         washStops.Add(new GradientStop(Colors.Transparent, 1));
         var wash = new Border
@@ -788,7 +788,7 @@ public sealed class SettingsWindow : Window
         var hairline = new Border
         {
             Height = 1,
-            Background = IslandColors.Brush(IslandColors.White(0.05)),
+            Background = GrokTheme.InkBrush(GrokTheme.Quaternary),
             VerticalAlignment = VerticalAlignment.Bottom,
             IsHitTestVisible = false,
         };
@@ -803,8 +803,7 @@ public sealed class SettingsWindow : Window
         {
             var enabledNow = ProviderVisibilityStore.Shared.IsShown(provider);
             var ruleOpacity = enabledNow ? (hovered ? 1.0 : 0.85) : (hovered ? 0.45 : 0.22);
-            rule.Background = ProviderIdentity.BrandGradient(
-                provider, 1, new Point(0, 0), new Point(0, 1));
+            rule.Background = GrokTheme.BrandGradient(provider, new Point(0, 0), new Point(0, 1));
             var ease = new System.Windows.Media.Animation.QuadraticEase
             {
                 EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut,
@@ -897,6 +896,8 @@ public sealed class SettingsWindow : Window
         DisplayProvider.Antigravity => AntigravityStatus(),
         DisplayProvider.Grok => GrokStatus(),
         DisplayProvider.Cursor => CursorStatus(),
+        DisplayProvider.Kimi => LocalOnlyStatus(DisplayProvider.Kimi, "Not detected — open Kimi Code once"),
+        DisplayProvider.DeepSeek => LocalOnlyStatus(DisplayProvider.DeepSeek, "Not detected — open DeepSeek Harness once"),
         _ => string.Empty,
     };
 
@@ -1030,6 +1031,18 @@ public sealed class SettingsWindow : Window
         return string.Join(" · ", parts);
     }
 
+    /// Kimi Code and DeepSeek publish no quota: their row reports today's
+    /// tokens from the local logs instead.
+    private static string LocalOnlyStatus(DisplayProvider provider, string missing)
+    {
+        if (!ProviderVisibilityStore.Shared.IsDetected(provider)) return L10n.Tr(missing);
+        var summary = Cost.CostStore.Shared.Summary(provider);
+        var tokens = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable
+            ? summary.TodayBillableTokens
+            : summary.TodayTokens;
+        return L10n.TrFormat("local sessions · {0} tokens today", Formatting.CompactTokens(tokens));
+    }
+
     private static string GuestSync(DateTimeOffset? updated) => updated is { } stamp
         ? L10n.TrFormat("synced {0}", Formatting.RelativeAgo(DateTimeOffset.Now - stamp, L10n.IsChinese))
         : L10n.Tr("idle");
@@ -1093,12 +1106,14 @@ public sealed class SettingsWindow : Window
         {
             Child = label,
             CornerRadius = new CornerRadius(6),
-            Background = IslandColors.Brush(IslandColors.White(0.09)),
+            Background = GrokTheme.InkBrush(GrokTheme.Tertiary),
             Padding = new Thickness(10, 5, 10, 5),
             Margin = new Thickness(0, 0, 8, 0),
             Cursor = System.Windows.Input.Cursors.Hand,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        button.MouseEnter += (_, _) => button.Background = GrokTheme.InkBrush(GrokTheme.Secondary);
+        button.MouseLeave += (_, _) => button.Background = GrokTheme.InkBrush(GrokTheme.Tertiary);
         button.MouseLeftButtonUp += (_, args) =>
         {
             OpenCodexAccountMenu(button);
@@ -1109,8 +1124,8 @@ public sealed class SettingsWindow : Window
         {
             var switched = UsageStore.Shared.CodexAutoSwitched;
             label.Foreground = IslandColors.Brush(switched is null
-                ? IslandColors.White(0.85)
-                : IslandColors.Alpha(IslandColors.AlertAmber, 0.9));
+                ? GrokTheme.InkA(GrokTheme.TextPrimary)
+                : GrokTheme.Amber);
             button.ToolTip = switched is null
                 ? L10n.Tr("Switch Codex account")
                 : L10n.TrFormat("Auto-switched to {0}", switched);
@@ -1123,17 +1138,9 @@ public sealed class SettingsWindow : Window
 
     private void OpenCodexAccountMenu(FrameworkElement anchor)
     {
-        var menu = new ContextMenu
-        {
-            PlacementTarget = anchor,
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
-            Background = IslandColors.Brush(Color.FromRgb(0x12, 0x12, 0x16)),
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.10)),
-            BorderThickness = new Thickness(1),
-            Foreground = IslandColors.Brush(IslandColors.White(0.90)),
-            FontFamily = IslandFonts.Ui,
-            FontSize = 12,
-        };
+        var menu = GrokMenu.Create();
+        menu.PlacementTarget = anchor;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
 
         var accounts = CodexAccountSwitcher.Accounts();
         var active = CodexAccountSwitcher.ActiveLabel();
@@ -1306,19 +1313,12 @@ public sealed class SettingsWindow : Window
 
             var card = new Border
             {
-                CornerRadius = new CornerRadius(18),
-                Background = IslandColors.Brush(IslandColors.AlarmBackground),
-                BorderBrush = IslandColors.Brush(IslandColors.White(0.07)),
+                CornerRadius = new CornerRadius(12),
+                Background = GrokTheme.Brush(GrokTheme.Elevated),
+                BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary),
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(12),
-                Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    ShadowDepth = 4,
-                    Direction = 270,
-                    BlurRadius = 18,
-                    Color = Colors.Black,
-                    Opacity = 0.55,
-                },
+                Margin = new Thickness(16),
+                Effect = GrokTheme.Float(0.18),
             };
             Content = card;
 
@@ -1330,14 +1330,14 @@ public sealed class SettingsWindow : Window
                 FontFamily = IslandFonts.Ui,
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = IslandColors.Brush(IslandColors.White(0.95)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             });
             stack.Children.Add(new TextBlock
             {
                 Text = message,
                 FontFamily = IslandFonts.Ui,
                 FontSize = 12,
-                Foreground = IslandColors.Brush(IslandColors.White(0.60)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
                 Margin = new Thickness(0, 6, 0, 14),
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -1346,8 +1346,8 @@ public sealed class SettingsWindow : Window
             {
                 FontFamily = IslandFonts.Ui,
                 FontSize = 13,
-                Foreground = IslandColors.Brush(IslandColors.White(0.95)),
-                CaretBrush = IslandColors.Brush(IslandColors.White(0.80)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
+                CaretBrush = GrokTheme.InkBrush(GrokTheme.TextPrimary),
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 // The switcher caps stored labels at 40 characters anyway;
@@ -1355,13 +1355,14 @@ public sealed class SettingsWindow : Window
                 // they get back in the menu. An OAuth code is far longer, so
                 // the cap is per-prompt rather than a constant.
                 MaxLength = maxLength,
+                ContextMenu = GrokMenu.TextEditing(),
             };
             var hint = new TextBlock
             {
                 Text = placeholder,
                 FontFamily = IslandFonts.Ui,
                 FontSize = 13,
-                Foreground = IslandColors.Brush(IslandColors.White(0.28)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextQuaternary),
                 IsHitTestVisible = false,
             };
             _field.TextChanged += (_, _) =>
@@ -1372,9 +1373,9 @@ public sealed class SettingsWindow : Window
             stack.Children.Add(new Border
             {
                 Child = fieldLayer,
-                CornerRadius = new CornerRadius(8),
-                Background = IslandColors.Brush(IslandColors.White(0.06)),
-                BorderBrush = IslandColors.Brush(IslandColors.White(0.10)),
+                CornerRadius = new CornerRadius(6),
+                Background = GrokTheme.InkBrush(GrokTheme.Field),
+                BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(10, 8, 10, 8),
             });
@@ -1396,7 +1397,7 @@ public sealed class SettingsWindow : Window
             }
             var cancel = new PillButtonControl(L10n.Tr("Cancel")) { Margin = new Thickness(0, 0, 8, 0) };
             cancel.Clicked += Close;
-            var confirm = new PillButtonControl(confirmLabel);
+            var confirm = new PillButtonControl(confirmLabel, primary: true);
             confirm.Clicked += Accept;
             buttons.Children.Add(cancel);
             buttons.Children.Add(confirm);
@@ -1444,10 +1445,4 @@ public sealed class SettingsWindow : Window
             return value.Length == 0 ? null : value;
         }
     }
-
-    // MARK: - Status
-
-    // Held in a field: a local MediaPlayer can be collected mid-playback,
-    // making the preview intermittently silent or clipped.
-
 }

@@ -6,7 +6,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AgentIsland.Core;
@@ -30,7 +29,6 @@ public sealed class DrawerWindow : Window
     private const double GazeRange = 480;
     private const double MinDwellSeconds = 2;
     private const double DragThreshold = 4;
-    private const double CardWidth = 240;
     private const int TopmostEverySeconds = 10;
 
     private sealed class Bot
@@ -58,7 +56,7 @@ public sealed class DrawerWindow : Window
     private readonly List<Bot> _due = new();
     private readonly Canvas _root = new();
     private readonly Popup _card;
-    private readonly Canvas _cardRows = new();
+    private readonly PointerCard _bubble = new();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _guard = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _cardClose = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -117,7 +115,7 @@ public sealed class DrawerWindow : Window
             Wire(bot);
         }
 
-        // The status card is its own popup: the drawer window stays exactly
+        // The hover card is its own popup: the drawer window stays exactly
         // as large as the character column, since a layered window
         // re-composes its whole surface every frame.
         _card = new Popup
@@ -125,12 +123,9 @@ public sealed class DrawerWindow : Window
             AllowsTransparency = true,
             StaysOpen = true,
             IsHitTestVisible = false,
-            PlacementTarget = _root,
-            Child = _cardRows,
+            Placement = PlacementMode.Absolute,
+            Child = _bubble,
         };
-        _cardRows.Width = CardWidth;
-        // White text needs a firm dark halo to stay legible over white pages.
-        _cardRows.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 8, ShadowDepth = 0, Opacity = 1 };
         _cardClose.Tick += (_, _) =>
         {
             _cardClose.Stop();
@@ -203,6 +198,27 @@ public sealed class DrawerWindow : Window
         Poll();
         StartRendering();
 
+        // AGENTISLAND_DEBUG_BUBBLE=all|<n>: open the hover card at startup for verification.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_BUBBLE") is { Length: > 0 } bubble)
+        {
+            var visible = _bots.Where(b => b.Visible).ToList();
+            OpenCard(int.TryParse(bubble, out var n) && n < visible.Count ? visible[n] : null);
+        }
+        // AGENTISLAND_DEBUG_MENU=1: open the first character's menu with its Color submenu expanded.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_MENU") == "1"
+            && _bots.FirstOrDefault(b => b.Visible) is { Surface.ContextMenu: { } menu } first)
+        {
+            FillMenu(menu, first);
+            menu.PlacementTarget = first.Surface;
+            menu.IsOpen = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+            {
+                if (menu.Items.OfType<MenuItem>().FirstOrDefault(i => Equals(i.Header, L10n.Tr("Color"))) is { } colors)
+                {
+                    colors.IsSubmenuOpen = true;
+                }
+            });
+        }
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_PNG") is { Length: > 0 } png)
         {
             var capture = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -244,7 +260,7 @@ public sealed class DrawerWindow : Window
         foreach (var bot in _bots) bot.Surface.Visibility = bot.Visible ? Visibility.Visible : Visibility.Collapsed;
         if (_engine is null)
         {
-            foreach (var bot in visible) bot.Surface.PresentFallback(DrawerLooks.Swatch(bot.Color), bot.Phase);
+            foreach (var bot in visible) bot.Surface.PresentFallback(DrawerSwatch.Of(bot.Color), bot.Phase);
         }
         Position();
         RefreshCard();
@@ -255,7 +271,6 @@ public sealed class DrawerWindow : Window
         var area = WorkAreaDip(IslandTargetDisplayStore.Shared.Resolve());
         Left = DrawerStore.Shared.Side == DrawerSide.Right ? area.Right - Width : area.Left;
         Top = area.Top + DrawerStore.Shared.Offset * Math.Max(0, area.Height - Height);
-        _card.Placement = DrawerStore.Shared.Side == DrawerSide.Right ? PlacementMode.Left : PlacementMode.Right;
     }
 
     private Rect WorkAreaDip(System.Windows.Forms.Screen screen)
@@ -386,7 +401,7 @@ public sealed class DrawerWindow : Window
         bot.Detail = detail;
         bot.PhaseSince = now;
         if (_engine is not null) _engine.SetState(bot.Index, DrawerLooks.Entry(phase));
-        else bot.Surface.PresentFallback(DrawerLooks.Swatch(bot.Color), phase);
+        else bot.Surface.PresentFallback(DrawerSwatch.Of(bot.Color), phase);
         RefreshCard();
         if (_phaseLog is not null)
         {
@@ -418,21 +433,27 @@ public sealed class DrawerWindow : Window
         if (_due.Count > 0) Step(now);
     }
 
-    /// Calm characters step at half rate; active ones, and all of them while
-    /// the pointer is near (so their eyes follow it), at full rate.
+    /// Working characters step on every frame WPF composes — the display's
+    /// refresh rate, up to WPF's own ceiling (~120 Hz on a 240 Hz panel).
+    /// Calm ones whose eyes are following a nearby pointer run at 60 fps and
+    /// the rest breathe at 30: WPF composes every window of the process on one
+    /// render thread, and this layered window re-uploads on each step, so idle
+    /// characters at full rate would cost the Settings page frames. Reduced
+    /// motion keeps 12 / 6.
     private void Step(double now)
     {
         var engine = _engine!;
         var pointerNear = !ReducedMotion && UpdateGaze();
-        var activeFps = ReducedMotion ? 12 : 30;
-        var calmFps = ReducedMotion ? 6 : 15;
+        var activeFps = ReducedMotion ? 12 : double.PositiveInfinity;
+        var gazeFps = ReducedMotion ? 12 : 60;
+        var calmFps = ReducedMotion ? 6 : 30;
         var dts = new double[_bots.Count];
         Array.Fill(dts, double.NaN);
         foreach (var bot in _due)
         {
             dts[bot.Index] = Math.Min(now - bot.LastStep, 0.1);
             bot.LastStep = now;
-            var fps = pointerNear || !DrawerLooks.CalmStates.Contains(bot.EngineState) ? activeFps : calmFps;
+            var fps = !DrawerLooks.CalmStates.Contains(bot.EngineState) ? activeFps : pointerNear ? gazeFps : calmFps;
             var interval = 1.0 / fps;
             bot.NextStep = now - bot.NextStep > interval ? now + interval : bot.NextStep + interval;
         }
@@ -482,78 +503,107 @@ public sealed class DrawerWindow : Window
         return anyNear;
     }
 
-    // MARK: - Status card
+    // MARK: - Hover card
 
-    /// Hovering a character shows only its own row; null shows them all.
+    /// Hovering a character opens a card pointing at it; null (the tray's
+    /// show action) stacks every character's status in one card.
     private void OpenCard(Bot? only)
     {
         _cardClose.Stop();
         _cardClose.Interval = TimeSpan.FromMilliseconds(250);
+        var popping = !_card.IsOpen || _cardBot != only;
         _cardBot = only;
         RefreshCard();
         _card.IsOpen = true;
+        if (popping) _bubble.PlayIn(ReducedMotion);
     }
 
-    /// Rows sit level with their characters so the eye can match them up:
-    /// provider and phase on top, quota underneath.
+    /// The pointer's tip sits just off the character, on the screen side; the
+    /// card centres on it and slides along the edge to stay inside the work
+    /// area, the pointer following the character.
     private void RefreshCard()
     {
-        _cardRows.Children.Clear();
-        _cardRows.Height = Height;
         var right = DrawerStore.Shared.Side == DrawerSide.Right;
-        foreach (var bot in _bots.Where(b => b.Visible && (_cardBot is null || b == _cardBot)))
-        {
-            var detail = bot.Detail is { } d ? $" ({d})" : "";
-            var row = new StackPanel { Width = CardWidth - 12 };
-            row.Children.Add(new TextBlock
-            {
-                Text = $"{ProviderIdentity.DisplayName(bot.Provider)} · {DrawerLooks.PhaseLabel(bot.Phase)}{detail}",
-                Foreground = Brushes.White,
-                FontSize = 13,
-                TextAlignment = right ? TextAlignment.Right : TextAlignment.Left,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            row.Children.Add(new TextBlock
-            {
-                Text = QuotaLine(bot.Provider),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = new SolidColorBrush(Color.FromArgb(0xD8, 0xFF, 0xFF, 0xFF)),
-                FontSize = 11,
-                TextAlignment = right ? TextAlignment.Right : TextAlignment.Left,
-            });
-            Canvas.SetLeft(row, right ? 0 : 12);
-            Canvas.SetTop(row, bot.Bounds.Top + bot.Bounds.Height / 2 - 17);
-            _cardRows.Children.Add(row);
-        }
+        var sections = _bots
+            .Where(b => b.Visible && (_cardBot is null || b == _cardBot))
+            .Select(bot => new CardSection(
+                ProviderIdentity.DisplayName(bot.Provider),
+                DrawerLooks.PhaseLabel(bot.Phase),
+                bot.Detail,
+                DrawerSwatch.Of(bot.Color),
+                Meters(bot.Provider),
+                TokenCounts(bot.Provider),
+                QuotaNote(bot.Provider)))
+            .ToList();
+        _bubble.SetContent(sections, pointRight: right);
+        _bubble.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var card = _bubble.CardSize;
+        var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, Height / 2 - BotSize / 2, BotSize, BotSize);
+        var area = WorkAreaDip(IslandTargetDisplayStore.Shared.Resolve());
+        // Absolute screen DIPs: relative placement against the drawer's canvas
+        // landed a whole card-width too far from the character.
+        var aim = Top + anchor.Top + anchor.Height / 2;
+        var top = Math.Clamp(aim - card.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - card.Height));
+        _bubble.AimAt(aim - top);
+        var tip = _bubble.TipOffset;
+        var tipX = right ? Left + anchor.Left - 4 : Left + anchor.Right + 4;
+        _card.HorizontalOffset = tipX - tip.X;
+        _card.VerticalOffset = top - PointerCard.Room;
     }
 
-    /// Quota in the user's Used/Remaining mode. Codex adds its banked reset
-    /// cards and the account the auto-switcher last rotated to — both used
-    /// to live in the island panel.
-    private static string QuotaLine(DisplayProvider provider)
+    /// Quota windows in the user's Used/Remaining mode: the bar fills with
+    /// the shown share, the warning tint follows actual use.
+    private static IReadOnlyList<CardMeter> Meters(DisplayProvider provider)
     {
         var usage = ProviderUsage.For(provider);
         var mode = QuotaDisplayModeStore.Shared;
-        string Window(WindowUsage window, string label)
+        CardMeter Meter(WindowUsage window, string label)
         {
-            if (window.HasError) return $"{L10n.Tr(label)} —";
-            var value = Math.Round(mode.DisplayValue(window.UsedPercent));
-            return mode.ShowsRemaining
-                ? L10n.TrFormat("{0} {1}% left", L10n.Tr(label), value)
-                : $"{L10n.Tr(label)} {value}%";
+            if (window.HasError) return new CardMeter(L10n.Tr(label), "—", null, null);
+            var shown = mode.DisplayValue(window.UsedPercent);
+            var value = Math.Round(shown);
+            return new CardMeter(
+                L10n.Tr(label),
+                mode.ShowsRemaining ? L10n.TrFormat("{0}% left", value) : $"{value}%",
+                shown / 100,
+                window.UsedPercent);
         }
-        var line = provider switch
+        return provider switch
         {
-            DisplayProvider.Claude => $"{Window(usage.FiveHour, "5h")} · {Window(usage.Weekly, "week")}",
-            DisplayProvider.Codex when usage.SecondaryMissing => Window(usage.FiveHour, "week"),
-            DisplayProvider.Codex => $"{Window(usage.FiveHour, "5h")} · {Window(usage.Weekly, "week")}",
-            DisplayProvider.Cursor => Window(usage.FiveHour, "30d"),
-            _ => Window(usage.FiveHour, "week"),
+            DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "week") },
+            DisplayProvider.Codex when usage.SecondaryMissing => new[] { Meter(usage.FiveHour, "week") },
+            DisplayProvider.Codex => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "week") },
+            DisplayProvider.Cursor => new[] { Meter(usage.FiveHour, "30d") },
+            // No quota source: the card shows phases and tokens only.
+            DisplayProvider.Kimi or DisplayProvider.DeepSeek => Array.Empty<CardMeter>(),
+            _ => new[] { Meter(usage.FiveHour, "week") },
         };
-        if (provider != DisplayProvider.Codex) return line;
-        if (usage.ResetCards is > 0 and var cards) line += " · " + L10n.TrFormat("{0} reset cards", cards);
-        if (UsageStore.Shared.CodexAutoSwitched is { } account) line += " · " + L10n.TrFormat("Auto-switched to {0}", account);
-        return line;
+    }
+
+    /// Today's and this month's tokens from the local logs, counted the way
+    /// the Token counting setting says. Antigravity keeps no local log.
+    private static CardTokens? TokenCounts(DisplayProvider provider)
+    {
+        if (provider == DisplayProvider.Antigravity) return null;
+        var summary = Cost.CostStore.Shared.Summary(provider);
+        var billable = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable;
+        var today = Formatting.CompactTokens(billable ? summary.TodayBillableTokens : summary.TodayTokens);
+        var month = Formatting.CompactTokens(billable ? summary.MonthBillableTokens : summary.MonthTokens);
+        return new CardTokens(
+            L10n.Tr("Tokens"),
+            $"{L10n.Tr("today")} {today}", today,
+            L10n.TrFormat("{0} this month", month), month);
+    }
+
+    /// Codex's banked reset cards and the account the auto-switcher last
+    /// rotated to — both used to live in the island panel.
+    private static string? QuotaNote(DisplayProvider provider)
+    {
+        if (provider != DisplayProvider.Codex) return null;
+        var parts = new List<string>();
+        if (ProviderUsage.For(provider).ResetCards is > 0 and var cards) parts.Add(L10n.TrFormat("{0} reset cards", cards));
+        if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(L10n.TrFormat("Auto-switched to {0}", account));
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
     }
 
     // MARK: - Interaction
@@ -600,7 +650,7 @@ public sealed class DrawerWindow : Window
         };
         // One menu instance, refilled on each opening so the checkmarks and
         // the shown-provider list are current.
-        var menu = new ContextMenu();
+        var menu = Theme.GrokMenu.Create();
         surface.ContextMenu = menu;
         FillMenu(menu, bot);
         surface.ContextMenuOpening += (_, _) => FillMenu(menu, bot);
@@ -609,7 +659,7 @@ public sealed class DrawerWindow : Window
     private void FillMenu(ContextMenu menu, Bot bot)
     {
         menu.Items.Clear();
-        menu.Items.Add(new MenuItem { Header = ProviderIdentity.DisplayName(bot.Provider), IsEnabled = false });
+        menu.Items.Add(Theme.GrokMenu.Title(ProviderIdentity.DisplayName(bot.Provider), DrawerSwatch.Of(bot.Color)));
         menu.Items.Add(new Separator());
         if (_engine is not null)
         {
@@ -624,7 +674,19 @@ public sealed class DrawerWindow : Window
             var colors = new MenuItem { Header = L10n.Tr("Color") };
             foreach (var option in _engine.Colors)
             {
-                var item = new MenuItem { Header = DrawerLooks.ColorLabel(option), IsCheckable = true, IsChecked = option == color };
+                var swatch = new StackPanel { Orientation = Orientation.Horizontal };
+                swatch.Children.Add(new System.Windows.Shapes.Ellipse
+                {
+                    Width = 9,
+                    Height = 9,
+                    Fill = new SolidColorBrush(DrawerSwatch.Of(option)),
+                    Stroke = Theme.GrokTheme.InkBrush(Theme.GrokTheme.StrokeSecondary),
+                    StrokeThickness = 1,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0),
+                });
+                swatch.Children.Add(new TextBlock { Text = DrawerLooks.ColorLabel(option), VerticalAlignment = VerticalAlignment.Center });
+                var item = new MenuItem { Header = swatch, IsCheckable = true, IsChecked = option == color };
                 item.Click += (_, _) => ChangeLook(bot, shape, option);
                 colors.Items.Add(item);
             }
@@ -651,11 +713,13 @@ public sealed class DrawerWindow : Window
         flip.Click += (_, _) => DrawerStore.Shared.Side = right ? DrawerSide.Left : DrawerSide.Right;
         menu.Items.Add(flip);
         menu.Items.Add(new Separator());
+        // The drawer has a UI thread of its own; app windows live on the app's.
+        var app = Application.Current.Dispatcher;
         var cost = new MenuItem { Header = L10n.Tr("Cost…") };
-        cost.Click += (_, _) => CostWindow.Open();
+        cost.Click += (_, _) => app.BeginInvoke(CostWindow.Open);
         menu.Items.Add(cost);
         var settings = new MenuItem { Header = L10n.Tr("Settings…") };
-        settings.Click += (_, _) => SettingsWindow.Open();
+        settings.Click += (_, _) => app.BeginInvoke(SettingsWindow.Open);
         menu.Items.Add(settings);
     }
 
@@ -670,7 +734,7 @@ public sealed class DrawerWindow : Window
         }
         else
         {
-            bot.Surface.PresentFallback(DrawerLooks.Swatch(color), bot.Phase);
+            bot.Surface.PresentFallback(DrawerSwatch.Of(color), bot.Phase);
         }
     }
 

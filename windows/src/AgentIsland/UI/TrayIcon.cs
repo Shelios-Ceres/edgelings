@@ -5,46 +5,99 @@ using AgentIsland.Usage;
 
 namespace AgentIsland.UI;
 
-/// System tray entry point. The icon visualizes status (a usage ring tinted
-/// by the most urgent state of the providers the drawer shows), a left click
-/// reveals the drawer with everyone's status, and the menu holds show/hide,
-/// cost, reports, settings and quit.
+/// System tray entry point. The icon is the plain mark; the tooltip carries
+/// the most urgent state of the providers the drawer shows and their 5-hour
+/// usage. A left click reveals the drawer with everyone's status; a right
+/// click opens the same Grok menu the drawer's characters use (show/hide,
+/// cost, reports, settings, quit) rather than a WinForms menu that could
+/// never quite match it.
 public sealed class TrayIcon : IDisposable
 {
     private readonly System.Windows.Forms.NotifyIcon _icon;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
-    private System.Drawing.Icon? _rendered;
+    private readonly System.Drawing.Icon _rendered;
+    private readonly Action _toggleDrawer;
+    private readonly Action _openCost;
+    private readonly Action _openSettings;
+    private readonly Action _exit;
+    private System.Windows.Window? _menuHost;
 
     public TrayIcon(Action showDrawer, Action toggleDrawer, Action openCost, Action openSettings, Action exit)
     {
         _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        _toggleDrawer = toggleDrawer;
+        _openCost = openCost;
+        _openSettings = openSettings;
+        _exit = exit;
 
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add(Localization.L10n.Tr("Show / Hide drawer"), null, (_, _) => toggleDrawer());
-        menu.Items.Add(Localization.L10n.Tr("Cost…"), null, (_, _) => openCost());
-        menu.Items.Add(Localization.L10n.Tr("Share weekly report…"), null,
-            (_, _) => Report.ReportWindow.Show(Report.ReportWindow.Kind.Weekly));
-        menu.Items.Add(Localization.L10n.Tr("Share monthly report…"), null,
-            (_, _) => Report.ReportWindow.Show(Report.ReportWindow.Kind.Monthly));
-        menu.Items.Add(Localization.L10n.Tr("Settings…"), null, (_, _) => openSettings());
-        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add(Localization.L10n.Tr("Quit Agent Island"), null, (_, _) => exit());
-
+        _rendered = TrayIconRenderer.Render();
         _icon = new System.Windows.Forms.NotifyIcon
         {
             Text = "Agent Island",
-            ContextMenuStrip = menu,
+            Icon = _rendered,
         };
         _icon.MouseClick += (_, e) =>
         {
             if (e.Button == System.Windows.Forms.MouseButtons.Left) showDrawer();
+            else if (e.Button == System.Windows.Forms.MouseButtons.Right) ShowMenu();
         };
 
         UsageStore.Shared.PropertyChanged += OnDataChanged;
         ActivityMonitor.Shared.PropertyChanged += OnDataChanged;
         ProviderVisibilityStore.Shared.PropertyChanged += OnDataChanged;
-        Update();               // paints the first icon
+        Update();               // writes the first tooltip
         _icon.Visible = true;   // then show it
+
+        // AGENTISLAND_DEBUG_MENU=tray: show the menu at the cursor for verification.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_MENU") == "tray")
+        {
+            _dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () => ShowMenu(keepOpen: true));
+        }
+    }
+
+    /// A WPF menu only dismisses on an outside click when its window is the
+    /// foreground one, so it opens from an invisible host window that is
+    /// activated first — the WPF form of the SetForegroundWindow rule every
+    /// tray menu follows.
+    /// keepOpen is for the verification hook, which has no click to grant
+    /// the host window the foreground.
+    private void ShowMenu(bool keepOpen = false)
+    {
+        _menuHost ??= new System.Windows.Window
+        {
+            WindowStyle = System.Windows.WindowStyle.None,
+            AllowsTransparency = true,
+            Background = System.Windows.Media.Brushes.Transparent,
+            ShowInTaskbar = false,
+            Topmost = true,
+            Width = 1,
+            Height = 1,
+        };
+        var cursor = System.Windows.Forms.Cursor.Position;
+        _menuHost.Left = cursor.X;
+        _menuHost.Top = cursor.Y;
+        _menuHost.Show();
+        _menuHost.Activate();
+
+        var menu = Theme.GrokMenu.Create();
+        void Add(string label, Action action)
+        {
+            var item = new System.Windows.Controls.MenuItem { Header = Localization.L10n.Tr(label) };
+            item.Click += (_, _) => action();
+            menu.Items.Add(item);
+        }
+        Add("Show / Hide drawer", _toggleDrawer);
+        Add("Cost…", _openCost);
+        Add("Share weekly report…", () => Report.ReportWindow.Show(Report.ReportWindow.Kind.Weekly));
+        Add("Share monthly report…", () => Report.ReportWindow.Show(Report.ReportWindow.Kind.Monthly));
+        Add("Settings…", _openSettings);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        Add("Quit Agent Island", _exit);
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        menu.PlacementTarget = _menuHost;
+        menu.StaysOpen = keepOpen;
+        menu.Closed += (_, _) => _menuHost?.Hide();
+        menu.IsOpen = true;
     }
 
     private void OnDataChanged(object? sender, PropertyChangedEventArgs e) =>
@@ -53,7 +106,6 @@ public sealed class TrayIcon : IDisposable
     private void Update()
     {
         var monitor = ActivityMonitor.Shared;
-        double used = 0;
         var worst = ActivityState.Idle;
         var parts = new List<string>();
         foreach (var provider in DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsShown))
@@ -61,17 +113,11 @@ public sealed class TrayIcon : IDisposable
             var window = ProviderUsage.For(provider).FiveHour;
             if (!window.HasError)
             {
-                used = Math.Max(used, window.UsedPercent);
                 parts.Add($"{ProviderIdentity.DisplayName(provider)} {Percent(window.UsedPercent)}");
             }
             var state = monitor.StateFor(provider.ToTriggerTool());
             if (state > worst) worst = state;
         }
-
-        var next = TrayIconRenderer.Render(used, worst);
-        _icon.Icon = next;
-        _rendered?.Dispose();
-        _rendered = next;
 
         // NotifyIcon.Text is capped at 127 characters.
         var joined = string.Join(" · ", parts);
@@ -101,6 +147,7 @@ public sealed class TrayIcon : IDisposable
         ProviderVisibilityStore.Shared.PropertyChanged -= OnDataChanged;
         _icon.Visible = false;
         _icon.Dispose();
-        _rendered?.Dispose();
+        _rendered.Dispose();
+        _menuHost?.Close();
     }
 }

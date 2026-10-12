@@ -4,7 +4,7 @@
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <!-- macOS-style overlay scrollbar: a thin rounded thumb floating on
-             the content, no track, no arrows. Implicit, so every scroll
+             the content, no track, no arrows; ink on paper. Implicit, so every scroll
              surface in the app (settings, island pages, dropdowns) gets it. -->
         <Style TargetType="{x:Type ScrollBar}">
             <Setter Property="Background" Value="Transparent"/>
@@ -24,7 +24,7 @@
                                     <Thumb>
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="{x:Type Thumb}">
-                                                <Border Background="#66FFFFFF" CornerRadius="3" Margin="2,1,1,1"/>
+                                                <Border Background="#5C141414" CornerRadius="3" Margin="2,1,1,1"/>
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -58,7 +58,7 @@
                                             <Thumb>
                                                 <Thumb.Template>
                                                     <ControlTemplate TargetType="{x:Type Thumb}">
-                                                        <Border Background="#66FFFFFF" CornerRadius="3" Margin="1,2,1,1"/>
+                                                        <Border Background="#5C141414" CornerRadius="3" Margin="1,2,1,1"/>
                                                     </ControlTemplate>
                                                 </Thumb.Template>
                                             </Thumb>

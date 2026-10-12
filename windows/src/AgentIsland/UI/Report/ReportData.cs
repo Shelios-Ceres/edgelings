@@ -266,16 +266,18 @@ public static class ReportFormat
             .Take(top)
             .Select(m => new ModelShare(
                 m.Spend.Model, m.Tokens, m.Spend.Dollars, m.Percent,
-                Model.ProviderIdentity.Accent(m.Provider), m.Provider))
+                Theme.ProviderColors.Accent(m.Provider), m.Provider))
             .ToList();
     }
 
     /// Whether a provider can state a dollar figure: Claude/Codex are
-    /// table-priced and Grok self-reports; Cursor logs tokens with no model
-    /// (no price) and Gemini ships no ledger. Mirrors CostPage.FaceOf so the
+    /// table-priced and Grok self-reports; Cursor logs tokens with no model,
+    /// Kimi Code and DeepSeek are plan-billed (no per-token price), and
+    /// Antigravity ships no ledger. Mirrors CostPage.FaceOf so the
     /// overview shows "—" for Cursor, never a coined $0.
     public static bool ProvidesDollars(Model.DisplayProvider provider) =>
-        provider is not (Model.DisplayProvider.Cursor or Model.DisplayProvider.Antigravity);
+        provider is not (Model.DisplayProvider.Cursor or Model.DisplayProvider.Antigravity
+            or Model.DisplayProvider.Kimi or Model.DisplayProvider.DeepSeek);
 
     public static string CompactString(long n, bool zh)
     {

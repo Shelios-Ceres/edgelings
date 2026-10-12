@@ -19,11 +19,10 @@
     <Resource Include="Assets\*.ico" />
   </ItemGroup>
 
-  <!-- Antigravity's conversation_summaries.db (generated titles +
-       workspaces). The bundled native sqlite rides the single-file
-       publish via IncludeNativeLibrariesForSelfExtract. -->
+  <!-- Session scanning, usage, cost and the settings stores live in the
+       UI-free core library shared with the WinUI app. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <ProjectReference Include="..\AgentIsland.Core\AgentIsland.Core.csproj" />
   </ItemGroup>
 
   <!-- Side drawer characters: embedded V8 runs a locally supplied Grok Bot

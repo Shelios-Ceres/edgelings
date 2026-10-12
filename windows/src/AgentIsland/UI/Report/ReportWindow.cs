@@ -12,8 +12,9 @@ using AgentIsland.UI.Theme;
 
 namespace AgentIsland.UI.Report;
 
-/// Hosts a share card (weekly or monthly) in a borderless window: the card
-/// paints its own shadow, Esc closes, drag anywhere moves. A ← period →
+/// Hosts a share card (weekly or monthly) on a light Grok panel: the dark
+/// card is the exported artwork, the panel is chrome. Esc closes, drag
+/// anywhere moves. A ← period →
 /// pager plus an any-date calendar anchor ride above the card (macOS
 /// report sheets); Copy image and Save PNG below, both served from a warm
 /// 3x render of exactly the page on screen. Sharing is always the USER
@@ -88,8 +89,8 @@ public sealed class ReportWindow : Window
         {
             FontFamily = IslandFonts.Ui,
             FontSize = 11.5,
-            FontWeight = FontWeights.Bold,
-            Foreground = Brushes.White,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             MinWidth = 150,
             TextAlignment = TextAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
@@ -110,7 +111,7 @@ public sealed class ReportWindow : Window
         _calendarButton.Margin = new Thickness(10, 0, 0, 0);
         pager.Children.Add(_calendarButton);
 
-        _copy = ActionButton(Localization.L10n.Tr("Copy image"), prominent: true);
+        _copy = GrokButton.Create(Localization.L10n.Tr("Copy image"), primary: true, fontSize: 12);
         _copy.Click += (_, _) =>
         {
             if (!CopyImage()) return;
@@ -124,7 +125,7 @@ public sealed class ReportWindow : Window
             };
             reset.Start();
         };
-        var save = ActionButton(Localization.L10n.Tr("Save PNG"), prominent: false);
+        var save = GrokButton.Create(Localization.L10n.Tr("Save PNG"), primary: false, fontSize: 12);
         save.Click += (_, _) => SavePng();
 
         _actions = new StackPanel
@@ -143,8 +144,8 @@ public sealed class ReportWindow : Window
             Text = " ",
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
-            FontWeight = FontWeights.Bold,
-            Foreground = IslandColors.Brush(Color.FromRgb(0x8C, 0xD9, 0x9E)),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = GrokTheme.Brush(GrokTheme.Green),
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 10, 0, 0),
             Opacity = 0,
@@ -156,12 +157,21 @@ public sealed class ReportWindow : Window
         _cardHost = new Grid();
         RebuildCard();
 
-        var stack = new StackPanel { Margin = new Thickness(26, 22, 26, 12) };
+        var stack = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
         stack.Children.Add(pager);
         stack.Children.Add(_cardHost);
         stack.Children.Add(_actions);
         stack.Children.Add(_coach);
-        Content = stack;
+        Content = new Border
+        {
+            Background = GrokTheme.Brush(GrokTheme.Elevated),
+            BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(18),
+            Effect = GrokTheme.Float(0.16),
+            Child = stack,
+        };
 
         KeyDown += (_, e) =>
         {
@@ -211,14 +221,7 @@ public sealed class ReportWindow : Window
     {
         _rendered = null;
         var card = CardFor(_display, rounded: true);
-        card.Effect = new System.Windows.Media.Effects.DropShadowEffect
-        {
-            ShadowDepth = 4,
-            Direction = 270,
-            BlurRadius = 30,
-            Color = Colors.Black,
-            Opacity = 0.30,
-        };
+        card.Effect = GrokTheme.Float(0.22);
         _cardHost.Children.Clear();
         _cardHost.Children.Add(card);
         _cardHost.Children.Add(CloseDisc());
@@ -236,7 +239,7 @@ public sealed class ReportWindow : Window
         _back.Enabled = !_loading && ReportPeriods.HasData(interval.Start, ReportPeriods.EarliestDataDay());
         _forward.Enabled = (_pageOffset > 0 || _anchorDate is not null) && !_loading;
         _calendarButton.Enabled = !_loading && !Core.AppEnvironment.IsDemo;
-        _calendarButton.Tint = _anchorDate is null ? IslandColors.White(0.6) : IslandColors.White(0.95);
+        _calendarButton.Tint = _anchorDate is null ? GrokTheme.InkA(GrokTheme.TextSecondary) : GrokTheme.Accent;
         // While a past page is still assembling, the card shows the previous
         // period — exporting would ship the wrong week.
         _actions.IsEnabled = !_loading;
@@ -469,56 +472,10 @@ public sealed class ReportWindow : Window
         }
     }
 
-    /// Weekly report moment: once per ISO week, surface the card shortly
-    /// after launch (the cost scan needs a beat). Sharing needs a moment put
-    /// in front of people, not a buried menu item.
-    public static void ArmWeeklyMoment()
-    {
-        var delay = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-        delay.Tick += (_, _) =>
-        {
-            delay.Stop();
-            var now = DateTime.Now;
-            var weekKey = $"{ISOWeek.GetYear(now)}-W{ISOWeek.GetWeekOfYear(now)}";
-            const string shownKey = "AgentIsland.weeklyReportShownForWeek";
-            if (Core.Preferences.Get<string?>(shownKey) == weekKey) return;
-            Core.Preferences.Set(shownKey, weekKey);
-            Show(Kind.Weekly);
-        };
-        delay.Start();
-    }
-
-    private static Button ActionButton(string title, bool prominent)
-    {
-        var button = new Button
-        {
-            Content = title,
-            FontFamily = IslandFonts.Ui,
-            FontSize = 12,
-            FontWeight = FontWeights.Bold,
-            Foreground = prominent ? Brushes.Black : IslandColors.Brush(IslandColors.White(0.85)),
-            Height = 30,
-            Padding = new Thickness(16, 0, 16, 0),
-            BorderThickness = new Thickness(0),
-            Cursor = Cursors.Hand,
-        };
-        var face = prominent ? Brushes.White : IslandColors.Brush(IslandColors.White(0.12));
-        var factory = new FrameworkElementFactory(typeof(Border));
-        factory.SetValue(Border.CornerRadiusProperty, new CornerRadius(15));
-        factory.SetValue(Border.BackgroundProperty, face);
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-        presenter.SetValue(MarginProperty, new Thickness(16, 0, 16, 0));
-        factory.AppendChild(presenter);
-        button.Template = new ControlTemplate(typeof(Button)) { VisualTree = factory };
-        IslandMotion.AttachPressFeedback(button);
-        return button;
-    }
 }
 
-/// The pager's 26pt circular icon button (macOS ReportPagerArrow): white
-/// glyph on a faint disc, both dimmed when disabled.
+/// The pager's 26pt circular icon button (macOS ReportPagerArrow): ink
+/// glyph on a faint ink disc, both dimmed when disabled.
 internal sealed class PagerCircle : Border
 {
     private readonly TextBlock _glyph;
@@ -578,9 +535,9 @@ internal sealed class PagerCircle : Border
 
     private void Render()
     {
-        Background = IslandColors.Brush(IslandColors.White(_enabled ? 0.10 : 0.04));
+        Background = GrokTheme.InkBrush(_enabled ? GrokTheme.Tertiary : GrokTheme.Quinary);
         _glyph.Foreground = IslandColors.Brush(
-            _enabled ? (_tintOverride ?? IslandColors.White(0.85)) : IslandColors.White(0.22));
+            _enabled ? (_tintOverride ?? GrokTheme.InkA(GrokTheme.TextPrimary)) : GrokTheme.InkA(GrokTheme.TextQuaternary));
         Cursor = _enabled ? Cursors.Hand : Cursors.Arrow;
     }
 }

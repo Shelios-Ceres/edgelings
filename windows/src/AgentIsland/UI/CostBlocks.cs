@@ -13,11 +13,6 @@ namespace AgentIsland.UI;
 /// One provider's cost column.
 public sealed class CostBlock : StackPanel
 {
-    /// Stands in for a dollar figure a tokens-only provider (Cursor) cannot
-    /// price. Matches the em dash the rest of the UI uses for "no value"
-    /// (ResetCardChip, TurnAlarmWindow).
-    private const string NoDollar = "—";
-
     private readonly TextBlock _hero;
     private readonly TextBlock _heroCaption;
     private readonly Sparkline _sparkline;
@@ -33,21 +28,14 @@ public sealed class CostBlock : StackPanel
         Margin = new Thickness(12, 0, 12, 0);
 
         var heroRow = new StackPanel { Orientation = Orientation.Horizontal };
-        // Brand-tinted hero with a spend-scaled glow and count-up — the
-        // macOS CostBlock centerpiece.
+        // Ink hero with a count-up; the brand colour lives in the sparkline.
+        // The dark island's spend glow has no light-surface equivalent.
         _hero = new TextBlock
         {
             FontFamily = IslandFonts.Mono,
-            FontSize = 34,
+            FontSize = 30,
             FontWeight = FontWeights.SemiBold,
-            Foreground = IslandColors.Brush(tint),
-            Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                ShadowDepth = 0,
-                BlurRadius = 10,
-                Color = tint,
-                Opacity = 0,
-            },
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
         };
         _countUp = new CountUp(_hero);
         _heroCaption = new TextBlock
@@ -55,7 +43,7 @@ public sealed class CostBlock : StackPanel
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
             FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(8, 0, 0, 6),
             Text = Localization.L10n.Tr("today"),
@@ -76,7 +64,7 @@ public sealed class CostBlock : StackPanel
             FontFamily = IslandFonts.Ui,
             FontSize = 11,
             FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
         };
         Children.Add(_monthLine);
 
@@ -84,7 +72,7 @@ public sealed class CostBlock : StackPanel
         {
             FontFamily = IslandFonts.Mono,
             FontSize = 10,
-            Foreground = IslandColors.Brush(IslandColors.White(0.4)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
             Margin = new Thickness(0, 3, 0, 0),
         };
         Children.Add(_tokenLine);
@@ -92,8 +80,9 @@ public sealed class CostBlock : StackPanel
 
     public void Update(ProviderCostSummary summary)
     {
-        // Tokens-only provider (Cursor): no model → no price, so the tile
-        // leads with the token count and every dollar slot reads "—". This
+        // Tokens-only providers (Cursor, Kimi Code, DeepSeek): no price, so
+        // the tile leads with the token count, the month line counts tokens
+        // too, and no dollar figure appears anywhere. This
         // ignores the cost-style preference because the dollar/trend styles
         // have nothing to show here, and a "$0.00" would be a fabricated
         // number the publish gate forbids. The cumulative series is dollars
@@ -102,10 +91,10 @@ public sealed class CostBlock : StackPanel
         {
             _countUp.Animate(summary.TodayTokens, "tokens",
                 v => Core.Formatting.CompactTokens((long)Math.Round(v)));
-            ApplyGlow(0);
             _heroCaption.Text = Localization.L10n.Tr("tokens today");
             _sparkline.SetSeries(summary.TodayCumulativeDollars);
-            _monthLine.Text = Localization.L10n.TrFormat("{0} this month", NoDollar);
+            _monthLine.Text = Localization.L10n.TrFormat(
+                "{0} tokens this month", Core.Formatting.CompactTokens(summary.MonthTokens));
             _tokenLine.Text = Localization.L10n.TrFormat(
                 "{0} tokens · {1} billable",
                 Core.Formatting.CompactTokens(summary.TodayTokens),
@@ -117,7 +106,6 @@ public sealed class CostBlock : StackPanel
             case CostStyle.Tokens:
                 _countUp.Animate(summary.TodayTokens, "tokens",
                     v => Core.Formatting.CompactTokens((long)Math.Round(v)));
-                ApplyGlow(summary.TodayDollars);
                 _heroCaption.Text = Localization.L10n.Tr("tokens today");
                 _sparkline.SetSeries(summary.TodayCumulativeDollars);
                 _monthLine.Text = Localization.L10n.TrFormat(
@@ -127,7 +115,6 @@ public sealed class CostBlock : StackPanel
                 break;
             case CostStyle.Trend:
                 _countUp.Animate(summary.MonthDollars, "money", Core.Formatting.Money);
-                ApplyGlow(summary.MonthDollars);
                 _heroCaption.Text = Localization.L10n.Tr("this month");
                 _sparkline.SetSeries(summary.MonthCumulativeDollars);
                 _monthLine.Text = Localization.L10n.TrFormat(
@@ -139,7 +126,6 @@ public sealed class CostBlock : StackPanel
                 break;
             case CostStyle.Multi:
                 _countUp.Animate(summary.TodayDollars, "money", Core.Formatting.Money);
-                ApplyGlow(summary.TodayDollars);
                 _heroCaption.Text = Localization.L10n.Tr("today");
                 _sparkline.SetSeries(summary.TodayCumulativeDollars);
                 _monthLine.Text = Localization.L10n.TrFormat(
@@ -154,7 +140,6 @@ public sealed class CostBlock : StackPanel
             case CostStyle.Dollar:
             default:
                 _countUp.Animate(summary.TodayDollars, "money", Core.Formatting.Money);
-                ApplyGlow(summary.TodayDollars);
                 _heroCaption.Text = Localization.L10n.Tr("today");
                 _sparkline.SetSeries(summary.TodayCumulativeDollars);
                 _monthLine.Text = Localization.L10n.TrFormat(
@@ -165,16 +150,6 @@ public sealed class CostBlock : StackPanel
                     Core.Formatting.CompactTokens(summary.TodayBillableTokens));
                 break;
         }
-    }
-
-    /// Glow scales logarithmically with spend, capped at 0.85 (macOS rule):
-    /// a $0 day is calm, a heavy day radiates.
-    private void ApplyGlow(double dollars)
-    {
-        var glow = (System.Windows.Media.Effects.DropShadowEffect)_hero.Effect;
-        glow.Opacity = dollars <= 0
-            ? 0
-            : Math.Min(0.85, 0.30 + 0.16 * Math.Log10(1 + dollars));
     }
 }
 
@@ -264,7 +239,7 @@ public sealed class Sparkline : Grid
         _fill = new Polygon
         {
             Fill = new LinearGradientBrush(
-                IslandColors.Alpha(tint, 0.45),
+                IslandColors.Alpha(tint, 0.22),
                 IslandColors.Alpha(tint, 0),
                 90),
         };
@@ -273,13 +248,6 @@ public sealed class Sparkline : Grid
             Stroke = IslandColors.Brush(tint),
             StrokeThickness = 1.5,
             StrokeLineJoin = PenLineJoin.Round,
-            Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                ShadowDepth = 0,
-                BlurRadius = 3,
-                Color = tint,
-                Opacity = 0.7,
-            },
         };
         Children.Add(_fill);
         Children.Add(_line);

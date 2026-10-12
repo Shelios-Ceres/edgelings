@@ -7,18 +7,18 @@ using AgentIsland.UI.Theme;
 
 namespace AgentIsland.UI;
 
-/// The shared tile chrome for both style pickers — macOS StyleTile: selected
-/// = white 0.12 fill + white 0.6 hairline + white 0.95 semibold label;
-/// unselected = white 0.025 fill, invisible border, white 0.55 label; hover
-/// lifts an unselected tile to 0.05 fill + 0.10 border.
+/// The style-picker tile chrome in Grok's light dress: selected = accent
+/// wash + accent hairline + ink semibold label; unselected = white card,
+/// faint ink hairline, tertiary label; hover lifts an unselected tile to a
+/// faint ink wash and a firmer hairline.
 internal static class StyleTileChrome
 {
     public static void Paint(Border tile, TextBlock label, bool isOn)
     {
         tile.Tag = isOn;
-        tile.Background = IslandColors.Brush(IslandColors.White(isOn ? 0.12 : 0.025));
-        tile.BorderBrush = isOn ? IslandColors.Brush(IslandColors.White(0.6)) : Brushes.Transparent;
-        label.Foreground = IslandColors.Brush(IslandColors.White(isOn ? 0.95 : 0.55));
+        tile.Background = isOn ? IslandColors.Brush(IslandColors.Alpha(GrokTheme.Accent, 0.08)) : GrokTheme.Brush(GrokTheme.Elevated);
+        tile.BorderBrush = isOn ? IslandColors.Brush(IslandColors.Alpha(GrokTheme.Accent, 0.56)) : GrokTheme.InkBrush(GrokTheme.StrokeTertiary);
+        label.Foreground = GrokTheme.InkBrush(isOn ? GrokTheme.TextPrimary : GrokTheme.TextTertiary);
         label.FontWeight = isOn ? FontWeights.SemiBold : FontWeights.Medium;
     }
 
@@ -46,22 +46,22 @@ internal static class StyleTileChrome
         tile.MouseEnter += (_, _) =>
         {
             if (tile.Tag is true) return;
-            tile.Background = IslandColors.Brush(IslandColors.White(0.05));
-            tile.BorderBrush = IslandColors.Brush(IslandColors.White(0.10));
+            tile.Background = GrokTheme.InkBrush(GrokTheme.Field);
+            tile.BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary);
             Ease(1.02);
         };
         tile.MouseLeave += (_, _) =>
         {
             Ease(1.0);
             if (tile.Tag is true) return;
-            tile.Background = IslandColors.Brush(IslandColors.White(0.025));
-            tile.BorderBrush = Brushes.Transparent;
+            tile.Background = GrokTheme.Brush(GrokTheme.Elevated);
+            tile.BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeTertiary);
         };
     }
 }
 
-/// Cost display picker: USD / VALUE / TOKENS / TREND preview tiles, the
-/// same white-only voice as the usage picker.
+/// Cost display picker: USD / VALUE / TOKENS / TREND preview tiles, drawn
+/// in ink.
 public sealed class CostStylePickerControl : Grid
 {
     private readonly List<Border> _tiles = new();
@@ -104,7 +104,7 @@ public sealed class CostStylePickerControl : Grid
             FontFamily = IslandFonts.Ui,
             FontSize = 12,
             FontWeight = FontWeights.Medium,
-            Foreground = IslandColors.Brush(IslandColors.White(0.55)),
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         _labels.Add(label);
@@ -113,10 +113,10 @@ public sealed class CostStylePickerControl : Grid
         {
             Child = stack,
             Height = 100,
-            CornerRadius = new CornerRadius(9),
-            Background = IslandColors.Brush(IslandColors.White(0.025)),
+            CornerRadius = new CornerRadius(8),
+            Background = GrokTheme.Brush(GrokTheme.Elevated),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brushes.Transparent,
+            BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeTertiary),
             Margin = new Thickness(0, 0, 6, 0),
             Cursor = System.Windows.Input.Cursors.Hand,
         };
@@ -142,8 +142,8 @@ public sealed class CostStylePickerControl : Grid
     /// Drawn previews, not typed-out strings — "◞◠◞◠" rendered as tofu-ish
     /// glyph soup on Windows fonts, and the value tile reads as a chart on
     /// macOS, not a dollar string.
-    /// macOS CostStylePicker previews — active elements pure white (the
-    /// value capsule and spark carry a soft white glow), suffixes at 0.5.
+    /// macOS CostStylePicker previews, inverted for paper: active elements
+    /// in ink, suffixes at half strength.
     private static UIElement MakePreview(CostStyle style)
     {
         switch (style)
@@ -159,20 +159,20 @@ public sealed class CostStylePickerControl : Grid
                 text.Inlines.Add(new System.Windows.Documents.Run("$")
                 {
                     FontSize = 11.5,
-                    Foreground = IslandColors.Brush(IslandColors.White(0.5)),
+                    Foreground = GrokTheme.InkBrush(0.5),
                 });
                 text.Inlines.Add(new System.Windows.Documents.Run("87")
                 {
                     FontSize = 15,
                     FontWeight = FontWeights.Bold,
-                    Foreground = Brushes.White,
+                    Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
                 });
                 return text;
             }
             case CostStyle.Multi:
             {
                 // The value view sketch: a dim short capsule beside a tall
-                // white one with a soft glow.
+                // ink one.
                 var row = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -185,7 +185,7 @@ public sealed class CostStylePickerControl : Grid
                     Width = 8,
                     Height = 6,
                     CornerRadius = new CornerRadius(4),
-                    Background = IslandColors.Brush(IslandColors.White(0.20)),
+                    Background = GrokTheme.InkBrush(GrokTheme.Active),
                     VerticalAlignment = VerticalAlignment.Bottom,
                     Margin = new Thickness(0, 0, 4, 0),
                 });
@@ -194,15 +194,8 @@ public sealed class CostStylePickerControl : Grid
                     Width = 8,
                     Height = 18,
                     CornerRadius = new CornerRadius(4),
-                    Background = Brushes.White,
+                    Background = GrokTheme.InkBrush(GrokTheme.TextPrimary),
                     VerticalAlignment = VerticalAlignment.Bottom,
-                    Effect = new System.Windows.Media.Effects.DropShadowEffect
-                    {
-                        ShadowDepth = 0,
-                        BlurRadius = 6,
-                        Color = Colors.White,
-                        Opacity = 0.6,
-                    },
                 });
                 return row;
             }
@@ -218,36 +211,28 @@ public sealed class CostStylePickerControl : Grid
                 {
                     FontSize = 15,
                     FontWeight = FontWeights.Bold,
-                    Foreground = Brushes.White,
+                    Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
                 });
                 text.Inlines.Add(new System.Windows.Documents.Run("M")
                 {
                     FontSize = 11,
-                    Foreground = IslandColors.Brush(IslandColors.White(0.5)),
+                    Foreground = GrokTheme.InkBrush(0.5),
                 });
                 return text;
             }
             case CostStyle.Trend:
             default:
             {
-                // The macOS spark path, normalized to a 32x16 box, white
-                // with a soft white glow.
+                // The macOS spark path, normalized to a 32x16 box, in ink.
                 var line = new Polyline
                 {
-                    Stroke = Brushes.White,
+                    Stroke = GrokTheme.InkBrush(GrokTheme.TextPrimary),
                     StrokeThickness = 1.5,
                     StrokeStartLineCap = PenLineCap.Round,
                     StrokeEndLineCap = PenLineCap.Round,
                     StrokeLineJoin = PenLineJoin.Round,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Effect = new System.Windows.Media.Effects.DropShadowEffect
-                    {
-                        ShadowDepth = 0,
-                        BlurRadius = 4,
-                        Color = Colors.White,
-                        Opacity = 0.6,
-                    },
                 };
                 var points = new (double X, double Y)[]
                 {

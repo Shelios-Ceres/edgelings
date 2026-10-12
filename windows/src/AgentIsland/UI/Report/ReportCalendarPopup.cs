@@ -9,11 +9,10 @@ using AgentIsland.UI.Theme;
 
 namespace AgentIsland.UI.Report;
 
-/// A real month calendar in a dark popover — click any day and the report
-/// window re-anchors to it (macOS: graphical DatePicker; WPF's stock
-/// Calendar is a light-theme control that would sit on the dark card like
-/// a sticker, so the grid is drawn by hand). Days outside
-/// [earliest scanned day, today] are dimmed and inert.
+/// A real month calendar in a light Grok popover — click any day and the
+/// report window re-anchors to it (macOS: graphical DatePicker; WPF's stock
+/// Calendar chrome would not match, so the grid is drawn by hand). Days
+/// outside [earliest scanned day, today] are dimmed and inert.
 public sealed class ReportCalendarPopup : Popup
 {
     private readonly DateTime _minDay;
@@ -31,7 +30,8 @@ public sealed class ReportCalendarPopup : Popup
         StaysOpen = false;
         AllowsTransparency = true;
         Placement = PlacementMode.Bottom;
-        VerticalOffset = 6;
+        VerticalOffset = -4;
+        HorizontalOffset = -10;
         PopupAnimation = PopupAnimation.Fade;
         Child = Build();
     }
@@ -41,12 +41,14 @@ public sealed class ReportCalendarPopup : Popup
         var body = new StackPanel { Margin = new Thickness(12) };
         var host = new Border
         {
-            Background = IslandColors.Brush(Color.FromRgb(0x15, 0x17, 0x1C)),
-            BorderBrush = IslandColors.Brush(IslandColors.White(0.13)),
+            Background = GrokTheme.Brush(GrokTheme.Elevated),
+            BorderBrush = GrokTheme.InkBrush(GrokTheme.StrokeSecondary),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Child = body,
             Width = 252,
+            Margin = new Thickness(10),
+            Effect = GrokTheme.Float(0.16),
         };
 
         var header = new Grid { Margin = new Thickness(2, 0, 2, 8) };
@@ -57,8 +59,8 @@ public sealed class ReportCalendarPopup : Popup
         {
             FontFamily = IslandFonts.Ui,
             FontSize = 12,
-            FontWeight = FontWeights.Bold,
-            Foreground = IslandColors.Brush(IslandColors.White(0.92)),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = GrokTheme.InkBrush(GrokTheme.TextPrimary),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -103,7 +105,7 @@ public sealed class ReportCalendarPopup : Popup
                 FontFamily = IslandFonts.Ui,
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = IslandColors.Brush(IslandColors.White(0.4)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextTertiary),
                 HorizontalAlignment = HorizontalAlignment.Center,
             });
         }
@@ -135,7 +137,7 @@ public sealed class ReportCalendarPopup : Popup
                 FontFamily = IslandFonts.Mono,
                 FontSize = 11,
                 FontWeight = isToday ? FontWeights.Bold : FontWeights.Medium,
-                Foreground = IslandColors.Brush(IslandColors.White(inRange ? 0.9 : 0.22)),
+                Foreground = isToday ? GrokTheme.Brush(GrokTheme.Accent) : GrokTheme.InkBrush(inRange ? GrokTheme.TextPrimary : 0.22),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -143,15 +145,15 @@ public sealed class ReportCalendarPopup : Popup
             {
                 Height = 28,
                 CornerRadius = new CornerRadius(6),
-                Background = isToday ? IslandColors.Brush(IslandColors.White(0.12)) : Brushes.Transparent,
+                Background = isToday ? IslandColors.Brush(IslandColors.Alpha(GrokTheme.Accent, 0.12)) : Brushes.Transparent,
                 Child = label,
                 Cursor = inRange ? Cursors.Hand : Cursors.Arrow,
             };
             if (inRange)
             {
-                cell.MouseEnter += (_, _) => cell.Background = IslandColors.Brush(IslandColors.White(0.16));
+                cell.MouseEnter += (_, _) => cell.Background = GrokTheme.InkBrush(GrokTheme.Tertiary);
                 cell.MouseLeave += (_, _) => cell.Background = isToday
-                    ? IslandColors.Brush(IslandColors.White(0.12))
+                    ? IslandColors.Brush(IslandColors.Alpha(GrokTheme.Accent, 0.12))
                     : Brushes.Transparent;
                 cell.MouseLeftButtonUp += (_, args) =>
                 {
@@ -171,20 +173,20 @@ public sealed class ReportCalendarPopup : Popup
             Width = 24,
             Height = 24,
             CornerRadius = new CornerRadius(12),
-            Background = IslandColors.Brush(IslandColors.White(0.08)),
+            Background = GrokTheme.InkBrush(GrokTheme.Quaternary),
             Cursor = Cursors.Hand,
             Child = new TextBlock
             {
                 Text = glyph,
                 FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
                 FontSize = 9,
-                Foreground = IslandColors.Brush(IslandColors.White(0.8)),
+                Foreground = GrokTheme.InkBrush(GrokTheme.TextSecondary),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
-        face.MouseEnter += (_, _) => face.Background = IslandColors.Brush(IslandColors.White(0.14));
-        face.MouseLeave += (_, _) => face.Background = IslandColors.Brush(IslandColors.White(0.08));
+        face.MouseEnter += (_, _) => face.Background = GrokTheme.InkBrush(GrokTheme.Secondary);
+        face.MouseLeave += (_, _) => face.Background = GrokTheme.InkBrush(GrokTheme.Quaternary);
         face.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;

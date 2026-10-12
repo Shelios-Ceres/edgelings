@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything below the UI: session scanning and live phases, usage and
+       cost, settings stores, localisation. No UI framework: the stores post
+       their changes to whichever UI thread the app captures (UiThread), so
+       the WPF and WinUI apps share this library unchanged. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AgentIsland</RootNamespace>
+    <AssemblyName>AgentIsland.Core</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Antigravity's conversation_summaries.db. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <!-- DeepSeek Harness appends its session log as zstd frames; .NET 8 has
+         no zstd codec, so a pure managed one (MIT) reads them. -->
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+    <!-- Session unlock / resume refreshes. -->
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentIsland.Tests" />
+    <InternalsVisibleTo Include="AgentIsland" />
+    <InternalsVisibleTo Include="AgentIsland.WinUI" />
+  </ItemGroup>
+
+</Project>

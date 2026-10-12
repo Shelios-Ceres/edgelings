@@ -98,6 +98,8 @@ public static class ReportPeriods
                 [DisplayProvider.Antigravity] = Slice(AntigravityLogReader.Scan(lookback)),
                 [DisplayProvider.Grok] = Slice(GrokLogReader.Scan(lookback)),
                 [DisplayProvider.Cursor] = Slice(CursorLogReader.Scan(lookback)),
+                [DisplayProvider.Kimi] = Slice(KimiLogReader.Scan(lookback)),
+                [DisplayProvider.DeepSeek] = Slice(DeepSeekLogReader.Scan(lookback)),
             };
         });
     }

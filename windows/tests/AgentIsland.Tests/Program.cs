@@ -58,8 +58,11 @@ public static class Program
         {
             SessionTurnStateTests.RunAll();
             AgentPhaseTests.RunAll();
+            KimiDeepSeekTests.RunAll();
             SubagentFilterTests.RunAll();
             GrokTurnStateTests.RunAll();
+            GrokPhaseTests.RunAll();
+            KimiUsageTests.RunAll();
             CodexReplayGuardTests.RunAll();
             UsageCachePolicyTests.RunAll();
             SecurityGuardTests.RunAll();
