@@ -1,0 +1,172 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace AgentIsland.Core;
+
+/// Claude Code writes nothing to its transcript while a permission prompt is
+/// open, so from the transcript alone a session waiting for approval looks
+/// like a long-running tool. An opt-in Notification hook in
+/// ~/.claude/settings.json fills that gap: on a permission prompt or an MCP
+/// input dialog it records the session id, transcript path, prompt type and
+/// time — never the prompt text — in AppSupportDir/claude-hooks. A
+/// Notification hook has no say over permissions; it only observes.
+public static class ClaudeHooks
+{
+    public const string PermissionPrompt = "permission_prompt";
+    public const string ElicitationDialog = "elicitation_dialog";
+
+    /// The marker that identifies our matcher group in settings.json.
+    private const string Marker = "AgentIsland\\claude-hooks";
+    private const string Matcher = PermissionPrompt + "|" + ElicitationDialog;
+    private static readonly TimeSpan PromptLifetime = TimeSpan.FromHours(2);
+
+    /// Async, so Claude Code never waits on it; PowerShell, so it runs on
+    /// machines without Git Bash.
+    internal const string Command =
+        "$e = [Console]::In.ReadToEnd() | ConvertFrom-Json; " +
+        "$d = Join-Path $env:APPDATA '" + Marker + "'; " +
+        "New-Item -ItemType Directory -Force -Path $d | Out-Null; " +
+        "$id = ($e.session_id -replace '[^A-Za-z0-9-]', ''); " +
+        "if ($id) { [ordered]@{ session_id = $id; transcript_path = $e.transcript_path; type = $e.notification_type; " +
+        "at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress | " +
+        "Set-Content -Encoding UTF8 -Path (Join-Path $d ($id + '.json')) }";
+
+    public static string SettingsPath => Path.Combine(IslandPaths.Home, ".claude", "settings.json");
+
+    /// Where the hook drops its markers; tests point it elsewhere.
+    internal static string SignalDirectory { get; set; } = Path.Combine(IslandPaths.AppSupportDir, "claude-hooks");
+
+    // MARK: - Install
+
+    public static bool IsInstalled()
+    {
+        try
+        {
+            return File.Exists(SettingsPath) && Contains(JsonNode.Parse(File.ReadAllText(SettingsPath)));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// Adds or removes the hook, keeping everything else in the file. The
+    /// first change leaves a backup beside it. Returns an error message, or
+    /// null on success. A file that is not plain JSON is left alone.
+    public static string? SetInstalled(bool installed)
+    {
+        try
+        {
+            var path = SettingsPath;
+            JsonNode? root = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : new JsonObject();
+            if (root is not JsonObject settings) return "settings.json is not a JSON object";
+            var changed = installed ? Install(settings) : Uninstall(settings);
+            if (!changed) return null;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var backup = path + ".agentisland.bak";
+            if (File.Exists(path) && !File.Exists(backup)) File.Copy(path, backup);
+            var temp = path + ".agentisland.tmp";
+            // Relaxed escaping keeps quotes and non-ASCII text in the user's
+            // file readable instead of turning them into escape sequences.
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            };
+            File.WriteAllText(temp, settings.ToJsonString(options) + Environment.NewLine);
+            File.Move(temp, path, overwrite: true);
+            return null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return error.Message;
+        }
+    }
+
+    internal static bool Contains(JsonNode? root) =>
+        root?["hooks"]?["Notification"] is JsonArray groups && groups.Any(IsOurs);
+
+    internal static bool Install(JsonObject settings)
+    {
+        if (Contains(settings)) return false;
+        if (settings["hooks"] is not JsonObject hooks)
+        {
+            hooks = new JsonObject();
+            settings["hooks"] = hooks;
+        }
+        if (hooks["Notification"] is not JsonArray groups)
+        {
+            groups = new JsonArray();
+            hooks["Notification"] = groups;
+        }
+        groups.Add(new JsonObject
+        {
+            ["matcher"] = Matcher,
+            ["hooks"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "command",
+                    ["shell"] = "powershell",
+                    ["command"] = Command,
+                    ["async"] = true,
+                    ["timeout"] = 30,
+                },
+            },
+        });
+        return true;
+    }
+
+    internal static bool Uninstall(JsonObject settings)
+    {
+        if (settings["hooks"] is not JsonObject hooks || hooks["Notification"] is not JsonArray groups) return false;
+        var ours = groups.Where(IsOurs).ToList();
+        if (ours.Count == 0) return false;
+        foreach (var group in ours) groups.Remove(group);
+        if (groups.Count == 0) hooks.Remove("Notification");
+        if (hooks.Count == 0) settings.Remove("hooks");
+        return true;
+    }
+
+    private static bool IsOurs(JsonNode? group) =>
+        group?["hooks"] is JsonArray handlers
+        && handlers.Any(h => h?["command"]?.GetValueKind() == JsonValueKind.String
+            && h["command"]!.GetValue<string>().Contains(Marker, StringComparison.Ordinal));
+
+    // MARK: - Signals
+
+    /// The open prompt for a transcript: the latest marker for it that is
+    /// newer than the transcript's last write. Answering the prompt writes
+    /// the tool's result to the transcript, which retires the marker.
+    public static (string Type, DateTimeOffset At)? Pending(string transcriptPath, DateTimeOffset now)
+    {
+        try
+        {
+            if (!Directory.Exists(SignalDirectory) || !File.Exists(transcriptPath)) return null;
+            var written = new DateTimeOffset(File.GetLastWriteTimeUtc(transcriptPath), TimeSpan.Zero);
+            var target = Normalize(transcriptPath);
+            (string, DateTimeOffset)? latest = null;
+            foreach (var file in Directory.EnumerateFiles(SignalDirectory, "*.json"))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                var root = doc.RootElement;
+                if (Jsonl.GetString(root, "transcript_path") is not { } path || Normalize(path) != target) continue;
+                var type = Jsonl.GetString(root, "type");
+                if (type is not (PermissionPrompt or ElicitationDialog)) continue;
+                var ms = Jsonl.GetDouble(root, "at") ?? 0;
+                if (ms is <= 0 or > 253_402_300_799_999) continue;
+                var at = DateTimeOffset.FromUnixTimeMilliseconds((long)ms);
+                if (now - at > PromptLifetime || at < written) continue;
+                if (latest is null || at > latest.Value.Item2) latest = (type, at);
+            }
+            return latest;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string Normalize(string path) =>
+        path.Replace('/', '\\').TrimEnd('\\').ToLowerInvariant();
+}

@@ -432,9 +432,10 @@ internal sealed class DrawerWindow : Window
                 .Where(b => b.Visible)
                 .Select(b => (Bot: b, State: monitor.StateFor(b.Tool), Path: monitor.ThreadFor(b.Tool)?.TranscriptPath))
                 .ToList();
-            // Tail reads stay off the UI thread; only working sessions are read.
+            // Tail reads stay off the UI thread; only working (or seemingly
+            // stalled, maybe waiting on a prompt) sessions are read.
             var readings = await Task.Run(() => jobs
-                .Select(job => job.State == ActivityState.Working && job.Path is { } path
+                .Select(job => job.State is ActivityState.Working or ActivityState.Stalled && job.Path is { } path
                     ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
                     : null)
                 .ToList());

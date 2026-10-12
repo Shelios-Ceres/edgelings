@@ -63,6 +63,7 @@ public static class Program
             GrokTurnStateTests.RunAll();
             GrokPhaseTests.RunAll();
             KimiUsageTests.RunAll();
+            ClaudeHooksTests.RunAll();
             CodexReplayGuardTests.RunAll();
             UsageCachePolicyTests.RunAll();
             SecurityGuardTests.RunAll();

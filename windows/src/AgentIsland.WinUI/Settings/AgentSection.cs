@@ -97,6 +97,7 @@ internal sealed class AgentSection
             _signIn.Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { _signInRing, _signInButton } };
         }
         Expander.Items.Add(_signIn);
+        if (provider == DisplayProvider.Claude) Expander.Items.Add(PromptHookCard(root));
 
         if (App.Current.Drawer is { Shapes: { } shapes, Colors: { } colors } drawer)
         {
@@ -200,6 +201,36 @@ internal sealed class AgentSection
         _ when label == L10n.Tr("month") => L10n.Tr("Monthly window"),
         _ => label,
     };
+
+    /// Opt-in: the Notification hook that lets the drawer show an open
+    /// permission prompt instead of a long-running tool.
+    private static SettingsCard PromptHookCard(Func<XamlRoot?> root)
+    {
+        var toggle = new ToggleSwitch { IsOn = ClaudeHooks.IsInstalled(), OnContent = L10n.Tr("On"), OffContent = L10n.Tr("Off") };
+        var settling = false;
+        toggle.Toggled += async (_, _) =>
+        {
+            if (settling) return;
+            var wanted = toggle.IsOn;
+            var error = await Task.Run(() => ClaudeHooks.SetInstalled(wanted));
+            if (error is null) return;
+            settling = true;
+            toggle.IsOn = !wanted;
+            settling = false;
+            if (root() is { } xamlRoot) await Alert(xamlRoot, L10n.Tr("Couldn't change Claude Code's settings"), error);
+        };
+        return new SettingsCard
+        {
+            Header = L10n.Tr("Permission prompts"),
+            Description = new TextBlock
+            {
+                Text = L10n.Tr("Shows when Claude Code waits for you to approve a tool. Adds a small hook to ~/.claude/settings.json that records only the session and the prompt type; sessions started afterwards pick it up."),
+                TextWrapping = TextWrapping.Wrap,
+            },
+            HeaderIcon = Icon("\uE8D7"),
+            Content = toggle,
+        };
+    }
 
     private SettingsCard LookCard(Drawer.DrawerWindow drawer, IReadOnlyList<string> shapes, IReadOnlyList<string> colors)
     {

@@ -31,7 +31,7 @@ public static class AgentPhaseClassifier
         {
             return tool switch
             {
-                TriggerTool.Claude when IsJsonl(transcriptPath) => Claude(ReadTail(transcriptPath), now),
+                TriggerTool.Claude when IsJsonl(transcriptPath) => ClaudePrompt(transcriptPath, now) ?? Claude(ReadTail(transcriptPath), now),
                 TriggerTool.Codex when IsJsonl(transcriptPath) => Codex(ReadTail(transcriptPath), now),
                 TriggerTool.Kimi when IsJsonl(transcriptPath) => Kimi(ReadTail(transcriptPath), now),
                 TriggerTool.Grok when IsJsonl(transcriptPath) => Grok(ReadTail(transcriptPath), now),
@@ -290,6 +290,12 @@ public static class AgentPhaseClassifier
         }
         return resultAt is not null ? Aged(new(AgentPhase.Thinking, null, resultAt), now) : new(AgentPhase.Idle, null, null);
     }
+
+    /// A permission prompt or MCP input dialog the opt-in hook saw open.
+    private static PhaseReading? ClaudePrompt(string transcriptPath, DateTimeOffset now) =>
+        ClaudeHooks.Pending(transcriptPath, now) is { } prompt
+            ? new PhaseReading(prompt.Type == ClaudeHooks.PermissionPrompt ? AgentPhase.Approving : AgentPhase.Asking, null, prompt.At)
+            : null;
 
     /// Grok's updates.jsonl carries ACP session/update frames: tool_call
     /// (the tool's name and kind under _meta["x.ai/tool"]) and

@@ -26,6 +26,7 @@ public enum AgentPhase
     Stalled,
     RateLimited,
     AuthRequired,
+    Approving,
 }
 
 /// One classification of a transcript tail. Detail is a tool name — never
@@ -38,7 +39,7 @@ public static class AgentPhases
     /// minimum dwell; with several sessions the most urgent one is shown.
     public static int Priority(AgentPhase phase) => phase switch
     {
-        AgentPhase.Asking => 0,
+        AgentPhase.Asking or AgentPhase.Approving => 0,
         AgentPhase.Failed or AgentPhase.AuthRequired => 1,
         AgentPhase.Finished or AgentPhase.RateLimited or AgentPhase.Stalled => 2,
         AgentPhase.Idle => 4,
@@ -58,6 +59,9 @@ public static class AgentPhases
             ActivityState.AuthRequired => AgentPhase.AuthRequired,
             ActivityState.RateLimited => AgentPhase.RateLimited,
             _ when quotaExhausted => AgentPhase.RateLimited,
+            // An open permission prompt writes nothing, so the scan calls it
+            // stalled after a few minutes; the hook knows better.
+            ActivityState.Stalled when transcript is { Phase: AgentPhase.Approving or AgentPhase.Asking } reading => reading.Phase,
             ActivityState.Stalled => AgentPhase.Stalled,
             ActivityState.NeedsYou => AgentPhase.Finished,
             ActivityState.Working when transcript is { } reading && IsWork(reading.Phase) => reading.Phase,
