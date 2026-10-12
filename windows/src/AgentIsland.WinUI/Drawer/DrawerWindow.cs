@@ -53,6 +53,7 @@ internal sealed class DrawerWindow : Window
         public bool Visible { get; set; }
         public AgentPhase Phase { get; set; }
         public string? Detail { get; set; }
+        public int Running { get; set; }
         public double PhaseSince { get; set; } = double.NegativeInfinity;
         public SpeechBubble? Bubble { get; set; }
         public double LastSpoke { get; set; } = double.NegativeInfinity;
@@ -450,7 +451,7 @@ internal sealed class DrawerWindow : Window
             var monitor = ActivityMonitor.Shared;
             var jobs = _bots
                 .Where(b => b.Visible)
-                .Select(b => (Bot: b, State: monitor.StateFor(b.Tool), Path: monitor.ThreadFor(b.Tool)?.TranscriptPath))
+                .Select(b => (Bot: b, State: monitor.StateFor(b.Tool), Path: monitor.ThreadFor(b.Tool)?.TranscriptPath, Running: monitor.RunningFor(b.Tool)))
                 .ToList();
             // Tail reads stay off the UI thread; only working (or seemingly
             // stalled, maybe waiting on a prompt) sessions are read.
@@ -461,13 +462,18 @@ internal sealed class DrawerWindow : Window
                 .ToList());
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
+            var recounted = false;
             for (var i = 0; i < jobs.Count; i++)
             {
-                var (bot, state, _) = jobs[i];
+                var (bot, state, _, running) = jobs[i];
+                recounted |= bot.Running != running;
+                bot.Running = running;
                 var reading = readings[i];
                 var phase = AgentPhases.Combine(state, reading, QuotaExhausted(bot.Provider));
                 Offer(bot, phase, reading is { } r && r.Phase == phase ? r.Detail : null, seconds);
             }
+            // A task can start or end without the shown phase changing.
+            if (recounted) RefreshCard();
         }
         catch (Exception error)
         {
@@ -734,7 +740,7 @@ internal sealed class DrawerWindow : Window
         var dark = Brand.IsDark();
         var sections = _bots
             .Where(b => b.Visible && (_cardBot is null || b == _cardBot))
-            .Select(b => (StatusCards.For(b.Provider, b.Phase, b.Detail), Brand.Readable(DrawerLooks.Swatch(b.Color), dark)))
+            .Select(b => (StatusCards.For(b.Provider, b.Phase, b.Detail, b.Running), Brand.Readable(DrawerLooks.Swatch(b.Color), dark)))
             .ToList();
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
         var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, height / 2 - BotSize / 2, BotSize, BotSize);

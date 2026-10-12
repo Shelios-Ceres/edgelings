@@ -1,3 +1,4 @@
+using System.Globalization;
 using AgentIsland.Core;
 using AgentIsland.Cost;
 using AgentIsland.Localization;
@@ -13,27 +14,44 @@ public sealed record StatusMeter(string Label, string Value, double? Shown, doub
 /// Local token counts; each Number is the part of its phrase to emphasise.
 public sealed record StatusTokens(string Label, string Today, string TodayNumber, string Month, string MonthNumber);
 
-/// What a character's hover card says: who, what it is doing, its quota
-/// windows, its tokens, and any provider-specific note.
+/// How many of the agent's threads are mid-turn; Number is the part of Text
+/// to emphasise.
+public sealed record StatusTasks(string Label, string Text, string Number);
+
+/// One phrase of a card's note and the numbers in it to emphasise.
+public sealed record StatusPhrase(string Text, IReadOnlyList<string> Numbers);
+
+/// What a character's hover card says: who, what it is doing, how many of
+/// its tasks are running, its quota windows, its tokens, and any
+/// provider-specific note.
 public sealed record StatusCard(
     DisplayProvider Provider,
     string Name,
     string Phase,
     string? Detail,
+    StatusTasks? Tasks,
     IReadOnlyList<StatusMeter> Meters,
     StatusTokens? Tokens,
-    string? Note);
+    IReadOnlyList<StatusPhrase> Note);
 
 public static class StatusCards
 {
-    public static StatusCard For(DisplayProvider provider, AgentPhase phase, string? detail) => new(
+    public static StatusCard For(DisplayProvider provider, AgentPhase phase, string? detail, int running) => new(
         provider,
         ProviderIdentity.DisplayName(provider),
         DrawerLooks.PhaseLabel(phase),
         detail,
+        Tasks(running),
         Meters(provider),
         Tokens(provider),
-        Note(provider));
+        NoteParts(provider));
+
+    public static StatusTasks? Tasks(int running)
+    {
+        if (running <= 0) return null;
+        var count = running.ToString(CultureInfo.InvariantCulture);
+        return new StatusTasks(L10n.Tr("Tasks"), L10n.TrFormat("{0} running", count), count);
+    }
 
     /// Quota windows in the user's Used/Remaining mode: the bar fills with
     /// the shown share, the warning tint follows actual use.
@@ -108,32 +126,45 @@ public static class StatusCards
     /// Codex's banked reset cards and the account the auto-switcher last
     /// rotated to; Kimi Code's part of the monthly total it shares with the
     /// Kimi app, and its booster balance.
-    public static string? Note(DisplayProvider provider)
+    public static IReadOnlyList<StatusPhrase> NoteParts(DisplayProvider provider)
     {
         if (provider == DisplayProvider.Kimi) return KimiNote();
-        if (provider != DisplayProvider.Codex) return null;
-        var parts = new List<string>();
-        if (ProviderUsage.For(provider).ResetCards is > 0 and var cards) parts.Add(L10n.TrFormat("{0} reset cards", cards));
-        if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(L10n.TrFormat("Auto-switched to {0}", account));
-        return parts.Count == 0 ? null : string.Join(" · ", parts);
+        if (provider != DisplayProvider.Codex) return Array.Empty<StatusPhrase>();
+        var parts = new List<StatusPhrase>();
+        if (ProviderUsage.For(provider).ResetCards is > 0 and var cards)
+        {
+            var count = cards.ToString(CultureInfo.InvariantCulture);
+            parts.Add(Phrase(L10n.TrFormat("{0} reset cards", count), count));
+        }
+        if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(Phrase(L10n.TrFormat("Auto-switched to {0}", account)));
+        return parts;
     }
 
-    private static string? KimiNote()
+    /// The note on one line, where it shows as plain text.
+    public static string? Note(DisplayProvider provider) =>
+        NoteParts(provider) is { Count: > 0 } parts ? string.Join(" · ", parts.Select(p => p.Text)) : null;
+
+    private static IReadOnlyList<StatusPhrase> KimiNote()
     {
-        if (KimiUsageStore.Shared.Snapshot is not { } snapshot) return null;
-        var parts = new List<string>();
+        if (KimiUsageStore.Shared.Snapshot is not { } snapshot) return Array.Empty<StatusPhrase>();
+        var parts = new List<StatusPhrase>();
         if (snapshot.MonthCode is { } code && snapshot.Month is { } total && total.UsedPercent > 0)
         {
             var codeShare = Math.Min(code.UsedPercent, total.UsedPercent);
-            parts.Add(L10n.TrFormat("Month: Kimi Code {0}% · Kimi app {1}%",
-                Formatting.PercentInt(codeShare), Formatting.PercentInt(total.UsedPercent - codeShare)));
+            var codePercent = Formatting.PercentInt(codeShare);
+            var appPercent = Formatting.PercentInt(total.UsedPercent - codeShare);
+            parts.Add(Phrase(L10n.TrFormat("Month: Kimi Code {0}% · Kimi app {1}%", codePercent, appPercent),
+                $"{codePercent}%", $"{appPercent}%"));
         }
         if (snapshot.BoosterCents is > 0 and var cents)
         {
-            parts.Add(L10n.TrFormat("Booster balance {0}", Money(cents, snapshot.BoosterCurrency)));
+            var balance = Money(cents, snapshot.BoosterCurrency);
+            parts.Add(Phrase(L10n.TrFormat("Booster balance {0}", balance), balance));
         }
-        return parts.Count == 0 ? null : string.Join(" · ", parts);
+        return parts;
     }
+
+    private static StatusPhrase Phrase(string text, params string[] numbers) => new(text, numbers);
 
     private static string Money(long cents, string? currency) => (currency ?? "USD").ToUpperInvariant() switch
     {

@@ -49,6 +49,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     private Dictionary<TriggerTool, ActivityState> _states = new();
     private Dictionary<TriggerTool, ActivityState> _rawStates = new();
     private Dictionary<TriggerTool, ActiveThread> _threads = new();
+    private Dictionary<TriggerTool, int> _running = new();
     private Dictionary<TriggerTool, ActivityState> _demoStates = new();
     private Dictionary<string, DateTimeOffset> _lastWorking = new();
 
@@ -73,6 +74,10 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     public ActiveThread? ThreadFor(TriggerTool provider) =>
         _threads.TryGetValue(provider, out var thread) ? thread : null;
+
+    /// Threads mid-turn, stalled ones included: they have not finished.
+    public int RunningFor(TriggerTool provider) =>
+        _running.TryGetValue(provider, out var count) ? count : 0;
 
     // The island and tray bind to these two by name; they stay as thin views
     // over the maps so those bindings keep working unchanged.
@@ -210,8 +215,10 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         var nextStates = new Dictionary<TriggerTool, ActivityState>();
         var nextRaw = new Dictionary<TriggerTool, ActivityState>();
         var nextThreads = new Dictionary<TriggerTool, ActiveThread>();
+        var nextRunning = new Dictionary<TriggerTool, int>();
         foreach (var tool in MonitoredProviders)
         {
+            nextRunning[tool] = RunningCount(sessions, tool);
             var result = BestSession(sessions, tool);
             nextRaw[tool] = result.State;
             if (result.Thread is { } thread) nextThreads[tool] = thread;
@@ -221,6 +228,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         }
         _rawStates = nextRaw;
         _threads = nextThreads;
+        _running = nextRunning;
         _states = nextStates;
         RaiseAll();
     }
@@ -308,6 +316,15 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             ActivityState.NeedsYou => 1,
             _ => 0,
         };
+
+    /// Codex can spread one thread over several rollout files, so threads
+    /// are counted by id, not by file.
+    internal static int RunningCount(IEnumerable<ScannedSession> sessions, TriggerTool tool) =>
+        sessions
+            .Where(s => s.Tool == tool && s.Status is ActivityState.Working or ActivityState.Stalled)
+            .Select(s => s.SessionId)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
 
     private static (ActivityState State, ActiveThread? Thread) BestSession(
         List<ScannedSession> sessions,

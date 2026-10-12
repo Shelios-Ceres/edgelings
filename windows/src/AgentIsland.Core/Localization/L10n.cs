@@ -592,6 +592,8 @@ public static class L10n
         ["Permission prompts"] = "权限确认",
         ["Shows when Claude Code waits for you to approve a tool. Adds a small hook to ~/.claude/settings.json that records only the session and the prompt type; sessions started afterwards pick it up."] = "Claude Code 等你批准工具时，角色会显示出来。会在 ~/.claude/settings.json 加一个小 hook，只记录会话和提示类型；之后新开的会话生效。",
         ["Couldn't change Claude Code's settings"] = "无法修改 Claude Code 的设置",
+        ["Tasks"] = "任务",
+        ["{0} running"] = "{0} 个运行中",
         ["Character lines"] = "角色台词",
         ["When an agent needs you — done, waiting for approval, an error — its character says so in a bubble beside it"] = "需要你注意时（做完了、等你批准、出错了……），角色会在旁边冒个气泡说一句",
         ["Done — your turn!"] = "做完啦，该你了！",

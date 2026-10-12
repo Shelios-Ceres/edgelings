@@ -214,8 +214,17 @@ internal sealed class HoverCard
             panel.Children.Add(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(13, 1, 0, 0)));
         }
 
-        // Fixed label and value columns line the bars up across sections.
-        var meters = new Grid { Margin = new Thickness(13, 7, 0, 0), RowSpacing = 4, ColumnSpacing = 8 };
+        // Fixed label and value columns line the rows up across sections.
+        var top = 7.0;
+        if (card.Tasks is { } tasks)
+        {
+            var line = Line(top);
+            Place(line, Caption(tasks.Label, "TextFillColorSecondaryBrush"), 0, 0);
+            Place(line, Emphasised(tasks.Text, tasks.Number), 0, 1);
+            panel.Children.Add(line);
+            top = 4;
+        }
+        var meters = new Grid { Margin = new Thickness(13, top, 0, 0), RowSpacing = 4, ColumnSpacing = 8 };
         meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
         meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ValueWidth) });
@@ -233,13 +242,14 @@ internal sealed class HoverCard
             Place(meters, value, row, 2);
             row++;
         }
-        if (row > 0) panel.Children.Add(meters);
+        if (row > 0)
+        {
+            panel.Children.Add(meters);
+            top = 4;
+        }
         if (card.Tokens is { } tokens)
         {
-            var line = new Grid { Margin = new Thickness(13, row > 0 ? 4 : 7, 0, 0), ColumnSpacing = 8 };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var line = Line(top);
             Place(line, Caption(tokens.Label, "TextFillColorSecondaryBrush"), 0, 0);
             Place(line, Emphasised(tokens.Today, tokens.TodayNumber), 0, 1);
             var month = Emphasised(tokens.Month, tokens.MonthNumber);
@@ -247,11 +257,33 @@ internal sealed class HoverCard
             Place(line, month, 0, 2);
             panel.Children.Add(line);
         }
-        if (card.Note is { } note)
+        if (card.Note.Count > 0)
         {
-            panel.Children.Add(Caption(note, "TextFillColorTertiaryBrush", new Thickness(13, 5, 0, 0)));
+            var note = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
+                Margin = new Thickness(13, 5, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            for (var i = 0; i < card.Note.Count; i++)
+            {
+                if (i > 0) note.Inlines.Add(new Run { Text = " · " });
+                Append(note, card.Note[i].Text, card.Note[i].Numbers);
+            }
+            panel.Children.Add(note);
         }
         return panel;
+    }
+
+    /// A label column, a stretching value and an end-aligned value.
+    private static Grid Line(double top)
+    {
+        var line = new Grid { Margin = new Thickness(13, top, 0, 0), ColumnSpacing = 8 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        return line;
     }
 
     private static void Place(Grid grid, FrameworkElement element, int row, int column)
@@ -270,25 +302,32 @@ internal sealed class HoverCard
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    /// A tertiary phrase whose number is lifted to primary ink.
-    private static TextBlock Emphasised(string phrase, string number)
+    /// A tertiary phrase whose numbers are lifted to primary ink.
+    private static TextBlock Emphasised(string phrase, params string[] numbers)
     {
         var text = new TextBlock { FontSize = 12, Foreground = Res<Brush>("TextFillColorTertiaryBrush") };
-        var at = phrase.IndexOf(number, StringComparison.Ordinal);
-        if (at < 0)
-        {
-            text.Text = phrase;
-            return text;
-        }
-        if (at > 0) text.Inlines.Add(new Run { Text = phrase[..at] });
-        text.Inlines.Add(new Run
-        {
-            Text = number,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = Res<Brush>("TextFillColorPrimaryBrush"),
-        });
-        if (at + number.Length < phrase.Length) text.Inlines.Add(new Run { Text = phrase[(at + number.Length)..] });
+        Append(text, phrase, numbers);
         return text;
+    }
+
+    /// Adds phrase to text, lifting each number, found in order, to primary ink.
+    private static void Append(TextBlock text, string phrase, IReadOnlyList<string> numbers)
+    {
+        var from = 0;
+        foreach (var number in numbers)
+        {
+            var at = phrase.IndexOf(number, from, StringComparison.Ordinal);
+            if (at < 0 || number.Length == 0) continue;
+            if (at > from) text.Inlines.Add(new Run { Text = phrase[from..at] });
+            text.Inlines.Add(new Run
+            {
+                Text = number,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = Res<Brush>("TextFillColorPrimaryBrush"),
+            });
+            from = at + number.Length;
+        }
+        if (from < phrase.Length) text.Inlines.Add(new Run { Text = phrase[from..] });
     }
 
     /// Grows out of the pointer's tip and settles from its drift; reduced
