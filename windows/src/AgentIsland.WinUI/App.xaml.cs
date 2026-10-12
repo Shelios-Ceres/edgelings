@@ -33,6 +33,10 @@ public sealed partial class App : Application
         UiThread.Capture();
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();
+#if !DEBUG
+        // Debug runs stay out of the Run key.
+        LaunchAtLogin.Repoint();
+#endif
 
         _drawer = new DrawerWindow();
         _tray = new TrayIcon();

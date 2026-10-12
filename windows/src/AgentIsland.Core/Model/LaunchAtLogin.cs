@@ -44,4 +44,22 @@ public static class LaunchAtLogin
         {
         }
     }
+
+    /// An enabled registration that starts another executable — the WPF app
+    /// this one replaces, or a build that moved — moves to this one.
+    public static void Repoint()
+    {
+        if (Environment.ProcessPath is not { Length: > 0 } exe) return;
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey);
+            if (key?.GetValue(ValueName) is not string registered) return;
+            if (string.Equals(registered.Trim().Trim('"'), exe, StringComparison.OrdinalIgnoreCase)) return;
+        }
+        catch
+        {
+            return;
+        }
+        SetEnabled(true);
+    }
 }
