@@ -244,6 +244,10 @@ internal sealed class SettingsWindow : Window
             Combo(new[] { L10n.Tr("Used"), L10n.Tr("Remaining") }, quota.ShowsRemaining ? 1 : 0,
                 index => quota.ShowsRemaining = index == 1)));
 
+        body.Children.Add(Card(L10n.Tr("Character lines"),
+            L10n.Tr("When an agent needs you — done, waiting for approval, an error — its character says so in a bubble beside it"),
+            "\uE8BD", Toggle(store.SpeechBubbles, on => store.SpeechBubbles = on)));
+
         body.Children.Add(Section(L10n.Tr("Motion")));
         var rates = new[] { 0, 120, 60 };
         body.Children.Add(Card(L10n.Tr("Frame rate while an agent works"), L10n.Tr("Calm characters always breathe at 30 fps"), "\uE916",

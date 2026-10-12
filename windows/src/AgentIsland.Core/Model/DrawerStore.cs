@@ -22,6 +22,7 @@ public sealed class DrawerStore : INotifyPropertyChanged
     private const string LookKeyPrefix = "AgentIsland.drawer.look.";
     private const string FrameRateKey = "AgentIsland.drawer.fps";
     private const string SaveBatteryKey = "AgentIsland.drawer.saveBattery";
+    private const string SpeechKey = "AgentIsland.drawer.speech";
 
     public static DrawerStore Shared { get; } = new();
 
@@ -113,6 +114,18 @@ public sealed class DrawerStore : INotifyPropertyChanged
             if (SaveBattery == value) return;
             Preferences.Set(SaveBatteryKey, value);
             Raise(nameof(SaveBattery));
+        }
+    }
+
+    /// Characters say a line when their agent needs you.
+    public bool SpeechBubbles
+    {
+        get => Preferences.Get<bool?>(SpeechKey) ?? true;
+        set
+        {
+            if (SpeechBubbles == value) return;
+            Preferences.Set(SpeechKey, value);
+            Raise(nameof(SpeechBubbles));
         }
     }
 

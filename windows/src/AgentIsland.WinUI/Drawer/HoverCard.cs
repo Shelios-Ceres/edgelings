@@ -1,36 +1,50 @@
 using System.Numerics;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
+using Microsoft.UI.Composition;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// The drawer's hover card: a Fluent flyout-style card whose pointer aims at
-/// the character it describes, each quota window as a thin bar in that
-/// character's colour. It is a windowed popup, so it can extend past the
-/// drawer's narrow window.
+/// The drawer's hover card: a pane of frosted glass beside the character it
+/// describes, each quota window as a filled bar in that character's colour.
+/// It is a windowed popup, so it can extend past the drawer's narrow window,
+/// and the glass is the system's own acrylic, blurring whatever is behind.
 internal sealed class HoverCard
 {
     private const double CardWidth = 252;
-    private const double Tip = 7;
-    private const double Gap = 4;
+    private const double Gap = 10;
     private const double LabelWidth = 44;
     private const double ValueWidth = 64;
+
+    // Motion: the card grows out of the side facing the character and drifts
+    // in from it on an ease-out cubic — no overshoot, and gentle enough that
+    // the growth reads instead of popping in the first few frames.
+    private const float StartScale = 0.95f;
+    private const float Drift = 8;
+    private static readonly TimeSpan EnterDuration = TimeSpan.FromMilliseconds(280);
+    private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(180);
+    private static readonly TimeSpan ExitDuration = TimeSpan.FromMilliseconds(120);
 
     private readonly Popup _popup;
     private readonly Grid _host = new();
     private readonly Border _card;
     private readonly StackPanel _body = new();
-    private readonly Polygon _tip = new() { StrokeThickness = 1 };
-    private readonly ScaleTransform _scale = new();
     private readonly Panel _root;
+    private readonly Compositor _compositor;
+    private readonly CompositionEasingFunction _easeOut;
+    private readonly DispatcherQueueTimer _closeTimer;
+    private int _generation;
+    private bool _closing;
+    private bool _reduced;
+    private bool? _glassDark;
     private static bool _dark;
 
     public HoverCard(Panel root)
@@ -40,15 +54,17 @@ internal sealed class HoverCard
         {
             Child = _body,
             Width = CardWidth,
-            Padding = new Thickness(12, 10, 12, 11),
+            Padding = new Thickness(14, 12, 14, 13),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            Translation = new Vector3(0, 0, 24),
+            Translation = new Vector3(0, 0, 16),
             Shadow = new ThemeShadow(),
         };
-        _host.Children.Add(_tip);
         _host.Children.Add(_card);
-        _host.RenderTransform = _scale;
+        // The element's own Scale/Translation/Opacity are animated, so its
+        // composition visual must not be handed off; any compositor will do.
+        _compositor = CompositionTarget.GetCompositorForCurrentThread();
+        _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 1f), new Vector2(0.68f, 1f));
         _popup = new Popup
         {
             Child = _host,
@@ -56,52 +72,101 @@ internal sealed class HoverCard
             IsHitTestVisible = false,
         };
         root.Children.Add(_popup);
+        _closeTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _closeTimer.IsRepeating = false;
+        _closeTimer.Tick += (_, _) =>
+        {
+            if (!_closing) return;
+            _closing = false;
+            _popup.IsOpen = false;
+        };
     }
 
-    public bool IsOpen => _popup.IsOpen;
+    /// Open and not on its way out.
+    public bool IsOpen => _popup.IsOpen && !_closing;
 
     /// The card's content, for the verification snapshot.
     public UIElement Visual => _host;
 
-    /// anchor and area are in the drawer window's DIPs; pointRight means the
-    /// character is to the card's right (drawer on the right edge). A card
-    /// for every character points at none of them.
-    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pointRight, bool pointing, Rect anchor, Rect area, bool reducedMotion)
+    /// anchor and area are in the drawer window's DIPs; characterRight means
+    /// the character is to the card's right (drawer on the right edge).
+    /// retarget means an open card now describes another character: it swaps
+    /// in place.
+    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool characterRight, Rect anchor, Rect area, bool reducedMotion, bool retarget = false)
     {
         // Before the drawer's content loads there is no root to open into.
         if (_root.XamlRoot is not { } xamlRoot) return;
         _popup.XamlRoot = xamlRoot;
-        // Solid, not acrylic: in-app acrylic has nothing to sample in a
-        // windowed popup, and the pointer must match the card exactly.
         var dark = Brand.IsDark();
-        var background = Brand.Brush(dark ? 0x2C2C2Cu : 0xFCFCFCu);
-        var stroke = Brand.Brush(0x000000, (byte)(dark ? 0x59 : 0x17));
         _dark = dark;
-        _card.Background = background;
-        _card.BorderBrush = stroke;
-        _tip.Fill = background;
-        _tip.Stroke = stroke;
+        if (_glassDark != dark)
+        {
+            // The glass follows the system theme; a new backdrop per theme.
+            _glassDark = dark;
+            _popup.SystemBackdrop = new GlassBackdrop(dark);
+        }
+        // No fill — the glass shows through. A faint light hairline gives the
+        // pane a lit edge on dark backgrounds, never a dark outline.
+        _card.Background = null;
+        _card.BorderBrush = Brand.Brush(0xFFFFFF, (byte)(dark ? 0x1F : 0x8C));
         Build(sections);
 
-        _card.Margin = pointRight ? new Thickness(0, 0, Tip, 0) : new Thickness(Tip, 0, 0, 0);
         _host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _host.DesiredSize;
         var aim = anchor.Y + anchor.Height / 2;
         var top = Math.Clamp(aim - size.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - size.Height));
-        var tipY = Math.Clamp(aim - top, 14, Math.Max(14, size.Height - 14));
-        var edge = pointRight ? CardWidth - 1 : Tip + 1;
-        var point = pointRight ? CardWidth + Tip : 0;
-        _tip.Points = new PointCollection { new(edge, tipY - Tip), new(point, tipY), new(edge, tipY + Tip) };
-        _tip.Visibility = pointing ? Visibility.Visible : Visibility.Collapsed;
-        _popup.HorizontalOffset = pointRight ? anchor.Left - Gap - (CardWidth + Tip) : anchor.Right + Gap;
+        _popup.HorizontalOffset = characterRight ? anchor.Left - Gap - CardWidth : anchor.Right + Gap;
         _popup.VerticalOffset = top;
 
-        var opening = !_popup.IsOpen;
-        _popup.IsOpen = true;
-        if (opening) PlayIn(new Point(pointRight ? (CardWidth + Tip) : 0, tipY), reducedMotion);
+        // Grows from the edge that faces the character, level with it.
+        var faceY = Math.Clamp(aim - top, 0, size.Height);
+        _host.CenterPoint = new Vector3((float)(characterRight ? CardWidth : 0), (float)faceY, 0);
+        _reduced = reducedMotion;
+        var fresh = !_popup.IsOpen;
+        var returning = _closing;
+        _generation++;
+        _closing = false;
+        _closeTimer.Stop();
+        if (fresh)
+        {
+            // The first frame must already be the starting pose: opening at
+            // full size and only then shrinking to grow is the jump.
+            _host.Opacity = 0;
+            _host.Scale = reducedMotion ? Vector3.One : new Vector3(StartScale, StartScale, 1);
+            _host.Translation = reducedMotion ? Vector3.Zero : new Vector3(characterRight ? Drift : -Drift, 0, 0);
+            _popup.IsOpen = true;
+            AfterFirstFrame(_generation, Enter);
+        }
+        else if (returning)
+        {
+            Enter();
+        }
+        else if (retarget)
+        {
+            _host.Opacity = 0.35;
+            Fade(1, FadeDuration);
+        }
     }
 
-    public void Hide() => _popup.IsOpen = false;
+    /// animated fades the card out; otherwise it goes at once (drags, menus,
+    /// the drawer hiding).
+    public void Hide(bool animated = false)
+    {
+        if (!_popup.IsOpen) return;
+        _generation++;
+        if (!animated || _closing)
+        {
+            _closeTimer.Stop();
+            _closing = false;
+            _popup.IsOpen = false;
+            return;
+        }
+        _closing = true;
+        Fade(0, ExitDuration);
+        if (!_reduced) Move("Scale", new Vector3(0.97f, 0.97f, 1), ExitDuration);
+        _closeTimer.Interval = ExitDuration + TimeSpan.FromMilliseconds(20);
+        _closeTimer.Start();
+    }
 
     private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections)
     {
@@ -226,28 +291,47 @@ internal sealed class HoverCard
         return text;
     }
 
-    /// Grows out of the pointer's tip; reduced motion keeps only the fade.
-    private void PlayIn(Point origin, bool reducedMotion)
+    /// Grows out of the pointer's tip and settles from its drift; reduced
+    /// motion keeps only the fade. Runs on the compositor, not the UI thread.
+    private void Enter()
     {
-        _scale.CenterX = origin.X;
-        _scale.CenterY = origin.Y;
-        var story = new Storyboard();
-        Add(story, _host, "Opacity", 0, 1, 140, null);
-        if (!reducedMotion)
-        {
-            var ease = new BackEase { Amplitude = 0.3, EasingMode = EasingMode.EaseOut };
-            Add(story, _scale, "ScaleX", 0.88, 1, 220, ease);
-            Add(story, _scale, "ScaleY", 0.88, 1, 220, ease);
-        }
-        story.Begin();
+        Fade(1, FadeDuration);
+        if (_reduced) return;
+        Move("Scale", Vector3.One, EnterDuration);
+        Move("Translation", Vector3.Zero, EnterDuration);
     }
 
-    private static void Add(Storyboard story, DependencyObject target, string property, double from, double to, int ms, EasingFunctionBase? ease)
+    private void Fade(float to, TimeSpan duration)
     {
-        var animation = new DoubleAnimation { From = from, To = to, Duration = TimeSpan.FromMilliseconds(ms), EasingFunction = ease };
-        Storyboard.SetTarget(animation, target);
-        Storyboard.SetTargetProperty(animation, property);
-        story.Children.Add(animation);
+        var fade = _compositor.CreateScalarKeyFrameAnimation();
+        fade.Target = "Opacity";
+        fade.InsertKeyFrame(1, to, _easeOut);
+        fade.Duration = duration;
+        _host.StartAnimation(fade);
+    }
+
+    private void Move(string property, Vector3 to, TimeSpan duration)
+    {
+        var move = _compositor.CreateVector3KeyFrameAnimation();
+        move.Target = property;
+        move.InsertKeyFrame(1, to, _easeOut);
+        move.Duration = duration;
+        _host.StartAnimation(move);
+    }
+
+    /// Runs once the popup has put a frame on screen at the starting pose,
+    /// unless the card was shown or hidden again meanwhile.
+    private void AfterFirstFrame(int generation, Action action)
+    {
+        var frames = 0;
+        EventHandler<object>? tick = null;
+        tick = (_, _) =>
+        {
+            if (++frames < 2) return;
+            CompositionTarget.Rendering -= tick;
+            if (generation == _generation) action();
+        };
+        CompositionTarget.Rendering += tick;
     }
 
     private static T Res<T>(string key) => Fluent.Resource<T>(key, _dark);

@@ -57,6 +57,7 @@ internal static class DebugHooks
         }
         // AGENTISLAND_DEBUG_DRAWER_HIDDEN=1: measure without the drawer.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_HIDDEN") == "1") drawer.ToggleDeliberately();
+        if (Enum.TryParse<AgentIsland.Core.AgentPhase>(Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_SAY"), out var say)) drawer.DebugSay(say);
         // AGENTISLAND_DEBUG_BUBBLE=all|<n>: open the hover card.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_BUBBLE") is { Length: > 0 } bubble)
         {

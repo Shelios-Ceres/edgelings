@@ -38,6 +38,9 @@ internal sealed class DrawerWindow : Window
     private const double MinDwellSeconds = 2;
     private const double DragThreshold = 4;
     private const int TopmostEverySeconds = 10;
+    private const double SpeechGapSeconds = 20;
+    // Sessions found at launch are not news: no lines for the first scans.
+    private const double SpeechQuietAtStartSeconds = 8;
 
     private sealed class Bot
     {
@@ -51,6 +54,8 @@ internal sealed class DrawerWindow : Window
         public AgentPhase Phase { get; set; }
         public string? Detail { get; set; }
         public double PhaseSince { get; set; } = double.NegativeInfinity;
+        public SpeechBubble? Bubble { get; set; }
+        public double LastSpoke { get; set; } = double.NegativeInfinity;
     }
 
     /// A character's animation state, owned by the game loop.
@@ -79,6 +84,7 @@ internal sealed class DrawerWindow : Window
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     private readonly CanvasAnimatedControl _canvas;
     private readonly HoverCard _card;
+    private readonly Random _random = new();
     private readonly DispatcherQueue _queue;
     private readonly DispatcherQueueTimer _poll;
     private readonly DispatcherQueueTimer _guard;
@@ -229,6 +235,7 @@ internal sealed class DrawerWindow : Window
         _guard.Stop();
         _cardClose.Stop();
         _card.Hide();
+        Hush();
         foreach (var teardown in _teardown) teardown();
         _canvas.Paused = true;
         _canvas.RemoveFromVisualTree();
@@ -264,6 +271,15 @@ internal sealed class DrawerWindow : Window
         await Task.Delay(1500);
         Directory.CreateDirectory(snapshot);
         await Snapshot.SaveAsync(_card.Visual, Path.Combine(snapshot, $"card-{index?.ToString() ?? "all"}.png"));
+    }
+
+    /// AGENTISLAND_DEBUG_SAY=<phase>: the first character says that phase's
+    /// line, past the launch quiet period.
+    public void DebugSay(AgentPhase phase)
+    {
+        if (_bots.FirstOrDefault(b => b.Visible) is not { } bot) return;
+        bot.LastSpoke = double.NegativeInfinity;
+        Speak(bot, phase, Math.Max(_clock.Elapsed.TotalSeconds, SpeechQuietAtStartSeconds));
     }
 
     public void DebugMenu()
@@ -346,7 +362,10 @@ internal sealed class DrawerWindow : Window
         }
         Win32.SetWindowRgn(_hwnd, region, true);
 
+        var before = _scene;
         Publish(x, y, scale);
+        // A bubble beside a character that moved would point at nothing.
+        if (before.Left != x || before.Top != y || !before.Shown.SequenceEqual(_scene.Shown)) Hush();
         RefreshCard();
     }
 
@@ -413,6 +432,7 @@ internal sealed class DrawerWindow : Window
         else
         {
             _card.Hide();
+            Hush();
             _canvas.Paused = true;
             AppWindow.Hide();
         }
@@ -487,6 +507,7 @@ internal sealed class DrawerWindow : Window
         bot.Phase = phase;
         bot.Detail = detail;
         bot.PhaseSince = now;
+        Speak(bot, phase, now);
         var index = bot.Index;
         var entry = DrawerLooks.Entry(phase);
         var hold = phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(phase);
@@ -499,6 +520,29 @@ internal sealed class DrawerWindow : Window
             slot.NextStep = 0;
         });
         if (_card.IsOpen) RefreshCard();
+    }
+
+    /// A line in a bubble when the agent needs you; a line that no longer
+    /// holds (the agent went back to work) is taken back.
+    private void Speak(Bot bot, AgentPhase phase, double now)
+    {
+        if (!BotLines.Speaks(phase))
+        {
+            bot.Bubble?.Hide(animated: true);
+            return;
+        }
+        if (!DrawerStore.Shared.SpeechBubbles || !_shown || !bot.Visible) return;
+        if (now < SpeechQuietAtStartSeconds || now - bot.LastSpoke < SpeechGapSeconds) return;
+        if (_card.IsOpen && (_cardBot is null || _cardBot == bot)) return;
+        if (BotLines.For(phase, _random) is not { } line) return;
+        bot.LastSpoke = now;
+        bot.Bubble ??= new SpeechBubble(_root);
+        bot.Bubble.Say(line, DrawerStore.Shared.Side == DrawerSide.Right, bot.Bounds, WorkAreaDip(), _reducedMotion);
+    }
+
+    private void Hush()
+    {
+        foreach (var bot in _bots) bot.Bubble?.Hide(animated: false);
     }
 
     // MARK: - Game loop
@@ -672,10 +716,11 @@ internal sealed class DrawerWindow : Window
     {
         _cardClose.Stop();
         _cardClose.Interval = TimeSpan.FromMilliseconds(250);
-        var reopening = _card.IsOpen && _cardBot != only;
+        var retarget = _card.IsOpen && _cardBot != only;
         _cardBot = only;
-        if (reopening) _card.Hide();
-        ShowCard();
+        if (only is null) Hush();
+        else only.Bubble?.Hide(animated: false);
+        ShowCard(retarget);
     }
 
     private void RefreshCard()
@@ -683,7 +728,7 @@ internal sealed class DrawerWindow : Window
         if (_card.IsOpen) ShowCard();
     }
 
-    private void ShowCard()
+    private void ShowCard(bool retarget = false)
     {
         if (!_shown) return;
         var dark = Brand.IsDark();
@@ -693,7 +738,7 @@ internal sealed class DrawerWindow : Window
             .ToList();
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
         var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, height / 2 - BotSize / 2, BotSize, BotSize);
-        _card.Show(sections, DrawerStore.Shared.Side == DrawerSide.Right, _cardBot is not null, anchor, WorkAreaDip(), _reducedMotion);
+        _card.Show(sections, DrawerStore.Shared.Side == DrawerSide.Right, anchor, WorkAreaDip(), _reducedMotion, retarget);
     }
 
     /// Closes the card once the pointer is off every character; the region
@@ -706,7 +751,7 @@ internal sealed class DrawerWindow : Window
             if (bot != _cardBot) OpenCard(bot);
             return;
         }
-        _card.Hide();
+        _card.Hide(animated: true);
         _cardBot = null;
     }
 
@@ -804,6 +849,7 @@ internal sealed class DrawerWindow : Window
         {
             _dragging = true;
             _card.Hide();
+            Hush();
         }
         var work = _screen!.Work;
         var height = AppWindow.Size.Height;
