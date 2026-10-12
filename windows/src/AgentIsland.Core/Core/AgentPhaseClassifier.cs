@@ -445,7 +445,14 @@ public static class AgentPhaseClassifier
         return parts.Length >= 3 ? parts[^1] : name;
     }
 
-    private static bool IsInterrupt(JsonElement root)
+    internal static bool IsInterrupt(JsonElement root) => UserTextStarts(root, "[Request interrupted");
+
+    /// The output of a local slash command (/compact, /model), which never
+    /// reaches the model.
+    internal static bool IsLocalCommandOutput(JsonElement root) =>
+        UserTextStarts(root, "<local-command-stdout>") || UserTextStarts(root, "<local-command-stderr>");
+
+    private static bool UserTextStarts(JsonElement root, string prefix)
     {
         if (Jsonl.GetObject(root, "message") is not { } message
             || !message.TryGetProperty("content", out var content))
@@ -453,14 +460,14 @@ public static class AgentPhaseClassifier
             return false;
         }
         if (content.ValueKind == JsonValueKind.String)
-            return content.GetString()!.StartsWith("[Request interrupted", StringComparison.Ordinal);
+            return content.GetString()!.TrimStart().StartsWith(prefix, StringComparison.Ordinal);
         if (content.ValueKind != JsonValueKind.Array) return false;
         foreach (var block in content.EnumerateArray())
         {
             if (block.ValueKind == JsonValueKind.Object
                 && Jsonl.GetString(block, "type") == "text"
                 && Jsonl.GetString(block, "text") is { } text
-                && text.StartsWith("[Request interrupted", StringComparison.Ordinal))
+                && text.TrimStart().StartsWith(prefix, StringComparison.Ordinal))
             {
                 return true;
             }
@@ -487,7 +494,7 @@ public static class AgentPhaseClassifier
         return ids;
     }
 
-    private static JsonElement? LastBlock(JsonElement message)
+    internal static JsonElement? LastBlock(JsonElement message)
     {
         if (!message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return null;
         JsonElement? last = null;

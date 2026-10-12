@@ -57,6 +57,8 @@ public static class Program
         try
         {
             SessionTurnStateTests.RunAll();
+            CodexStallTests.RunAll();
+            ClaudeStallTests.RunAll();
             AgentPhaseTests.RunAll();
             KimiDeepSeekTests.RunAll();
             SubagentFilterTests.RunAll();

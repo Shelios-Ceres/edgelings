@@ -3,7 +3,11 @@ using System.Text.Json;
 
 namespace AgentIsland.Core;
 
-public readonly record struct SessionTurnStatus(bool IsDone, string? Key, DateTimeOffset? ActivityDate);
+/// Idle: the turn is over with nothing waiting on the user — it was
+/// interrupted, or a local command answered itself. AwaitingModel: the model
+/// owes the next line, so a long silence is most likely thinking.
+public readonly record struct SessionTurnStatus(
+    bool IsDone, string? Key, DateTimeOffset? ActivityDate, bool Idle = false, bool AwaitingModel = false);
 
 /// Classifies the tail of a transcript: is the latest turn finished (the user
 /// is "up"), and which event identifies that turn. Direct port of the macOS
@@ -35,8 +39,12 @@ public static class SessionTurnState
                 case "assistant":
                 {
                     string? stop = null;
+                    string? lastBlock = null;
                     if (Jsonl.GetObject(root, "message") is { } message)
+                    {
                         stop = Jsonl.GetString(message, "stop_reason");
+                        lastBlock = AgentPhaseClassifier.LastBlock(message) is { } block ? Jsonl.GetString(block, "type") : null;
+                    }
                     // Claude Code writes rate-limit / API-error lines with the
                     // SAME envelope as a finished turn (type:assistant,
                     // stop_reason:"stop_sequence") but flags them
@@ -46,7 +54,9 @@ public static class SessionTurnState
                     // rate-limit — mirror the macOS fix and never mark them done.
                     var isApiError = Jsonl.GetBool(root, "isApiErrorMessage") == true;
                     var isDone = !isApiError && stop is "end_turn" or "stop_sequence" or "stop";
-                    return new SessionTurnStatus(isDone, Key(root, lines[i]), Date(root));
+                    // Thinking or text not yet followed by its tool calls.
+                    var awaitingModel = !isDone && !isApiError && lastBlock != "tool_use";
+                    return new SessionTurnStatus(isDone, Key(root, lines[i]), Date(root), AwaitingModel: awaitingModel);
                 }
                 case "user":
                     // Agent runs usually end on the final tool result (marked
@@ -54,7 +64,15 @@ public static class SessionTurnState
                     // this a finished agent never reads as done.
                     if (sidechainIsTheConversation && Jsonl.GetBool(root, "toolEndsTurn") == true)
                         return new SessionTurnStatus(true, Key(root, lines[i]), Date(root));
-                    return new SessionTurnStatus(false, Key(root, lines[i]), Date(root));
+                    // Image captions, command caveats and compaction summaries
+                    // are not prompts.
+                    if (Jsonl.GetBool(root, "isMeta") == true || Jsonl.GetBool(root, "isCompactSummary") == true) continue;
+                    // An interrupt, or a local command answering itself
+                    // (/compact, /model): over, and the model owes nothing.
+                    if (AgentPhaseClassifier.IsInterrupt(root) || AgentPhaseClassifier.IsLocalCommandOutput(root))
+                        return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), Idle: true);
+                    // A prompt or a tool result: the model owes the next line.
+                    return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), AwaitingModel: true);
                 default:
                     continue;
             }
@@ -62,32 +80,41 @@ public static class SessionTurnState
         return new SessionTurnStatus(false, null, null);
     }
 
+    /// An open turn is dated by its newest line, not by its start, or every
+    /// turn longer than the stall threshold would read as stalled. Codex
+    /// stamps every line; the file's write time is no substitute, since Codex
+    /// Desktop keeps the rollout open and Windows leaves that time at creation
+    /// until the handle closes.
     public static SessionTurnStatus Codex(IReadOnlyList<string> lines)
     {
+        DateTimeOffset? newest = null;
         for (var i = lines.Count - 1; i >= 0; i--)
         {
             using var doc = Jsonl.TryParseLine(lines[i]);
             if (doc is null) continue;
             var root = doc.RootElement;
+            newest ??= Date(root);
             var type = Jsonl.GetString(root, "type");
             var payload = Jsonl.GetObject(root, "payload");
             var payloadType = payload is { } p ? Jsonl.GetString(p, "type") : null;
             if (type == "event_msg")
             {
                 if (IsCodexUserOrStart(payloadType))
-                    return new SessionTurnStatus(false, Key(root, lines[i]), Date(root));
+                    return new SessionTurnStatus(false, Key(root, lines[i]), newest);
                 if (payloadType is "task_complete" or "turn/completed")
                     return new SessionTurnStatus(true, Key(root, lines[i]), Date(root));
+                if (payloadType == "turn_aborted")
+                    return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), Idle: true);
             }
             if (type == "response_item"
                 && payloadType == "message"
                 && payload is { } pm
                 && Jsonl.GetString(pm, "role") == "user")
             {
-                return new SessionTurnStatus(false, Key(root, lines[i]), Date(root));
+                return new SessionTurnStatus(false, Key(root, lines[i]), newest);
             }
         }
-        return new SessionTurnStatus(false, null, null);
+        return new SessionTurnStatus(false, null, newest);
     }
 
     /// Grok appends one JSON object per session event to `updates.jsonl` with

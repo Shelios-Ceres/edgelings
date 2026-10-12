@@ -16,6 +16,10 @@ public static class SessionScanner
     private static readonly TimeSpan ActiveWindow = TimeSpan.FromSeconds(18);
     private static readonly TimeSpan StallAfter = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StallCap = TimeSpan.FromMinutes(15);
+    /// Thinking writes nothing until its block completes and can run past ten
+    /// minutes, so while the model owes the next line, silence takes this
+    /// long to read as stalled.
+    private static readonly TimeSpan ModelStallAfter = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan NeedsYouCap = TimeSpan.FromMinutes(20);
     /// How long a guest transcript must sit unchanged, after visible
     /// activity, before quiet counts as turn-done.
@@ -978,13 +982,15 @@ public static class SessionScanner
         var externalIsNewer = IsLater(externalActivityDate, externalReference);
         var age = now - effectiveModified;
 
-        if (age > AttentionWindow) return (ActivityState.Idle, turn.Key, effectiveModified);
+        if (age > AttentionWindow || turn.Idle) return (ActivityState.Idle, turn.Key, effectiveModified);
+        var stallAfter = turn.AwaitingModel ? ModelStallAfter : StallAfter;
+        var stallCap = turn.AwaitingModel ? AttentionWindow : StallCap;
         if (externalIsNewer)
         {
-            if (age < StallAfter) return (ActivityState.Working, turn.Key, effectiveModified);
+            if (age < stallAfter) return (ActivityState.Working, turn.Key, effectiveModified);
             if (lastWorking.TryGetValue(path, out var seen)
-                && now - seen < StallCap
-                && age < StallCap)
+                && now - seen < stallCap
+                && age < stallCap)
             {
                 return (ActivityState.Stalled, turn.Key, effectiveModified);
             }
@@ -993,10 +999,10 @@ public static class SessionScanner
         if (turn.IsDone)
             return (age < NeedsYouCap ? ActivityState.NeedsYou : ActivityState.Idle, turn.Key, effectiveModified);
         if (age < ActiveWindow) return (ActivityState.Working, turn.Key, effectiveModified);
-        if (age < StallAfter) return (ActivityState.Working, turn.Key, effectiveModified);
+        if (age < stallAfter) return (ActivityState.Working, turn.Key, effectiveModified);
         if (lastWorking.TryGetValue(path, out var seenAgain)
-            && now - seenAgain < StallCap
-            && age < StallCap)
+            && now - seenAgain < stallCap
+            && age < stallCap)
         {
             return (ActivityState.Stalled, turn.Key, effectiveModified);
         }
