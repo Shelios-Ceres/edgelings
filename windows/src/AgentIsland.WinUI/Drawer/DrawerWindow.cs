@@ -40,6 +40,9 @@ internal sealed class DrawerWindow : Window
     private const double DragThreshold = 4;
     private const int TopmostEverySeconds = 10;
     private const double SpeechGapSeconds = 20;
+    // Idle characters fidget every 25-75 s, the first one within a minute.
+    private const double FidgetGap = 50;
+    private const double FirstFidgetAfter = 12;
     // Sessions found at launch are not news: no lines for the first scans.
     private const double SpeechQuietAtStartSeconds = 8;
 
@@ -72,6 +75,10 @@ internal sealed class DrawerWindow : Window
         public double LastStep;
         public double NextStep;
         public uint Swatch;
+        public string[] Fidgets = Array.Empty<string>();
+        public string? Fidget;
+        public double FidgetUntil;
+        public double NextFidget;
     }
 
     /// What the game loop draws: the shown slots at their DIP offsets, and
@@ -141,12 +148,18 @@ internal sealed class DrawerWindow : Window
             {
                 Provider = provider,
                 Tool = provider.ToTriggerTool(),
-                Index = _engine?.AddBot(shape, color, "idle") ?? _bots.Count,
+                Index = _engine?.AddBot(shape, color, "idle", DrawerLooks.PersonalityOf(provider).Tempo, Random.Shared.Next(1, 1_000_000))
+                    ?? _bots.Count,
                 Shape = shape,
                 Color = color,
             });
         }
-        _slots = _bots.Select(b => new Slot { Swatch = DrawerLooks.Swatch(b.Color) }).ToArray();
+        _slots = _bots.Select(b => new Slot
+        {
+            Swatch = DrawerLooks.Swatch(b.Color),
+            Fidgets = DrawerLooks.PersonalityOf(b.Provider).Fidgets,
+            NextFidget = FirstFidgetAfter + Random.Shared.NextDouble() * FidgetGap,
+        }).ToArray();
 
         SystemBackdrop = new TransparentBackdrop();
         _canvas = new CanvasAnimatedControl
@@ -527,7 +540,9 @@ internal sealed class DrawerWindow : Window
         {
             var slot = _slots[index];
             slot.Hold = hold;
-            if (_engine is not null) _engine.SetState(index, entry);
+            slot.Fidget = null;
+            slot.NextFidget = _clock.Elapsed.TotalSeconds + FidgetGap * (0.5 + Random.Shared.NextDouble());
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.OneShotStates.Contains(entry) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
@@ -608,10 +623,29 @@ internal sealed class DrawerWindow : Window
             var slot = _slots[index];
             // Self-completing entries (finished, spawning…) fall back to
             // idle; keep playing the agent's phase instead.
-            if (engineState == "idle" && slot.Hold != "idle") _engine.SetState(index, slot.Hold);
+            if (engineState == "idle" && slot.Hold != "idle") _engine.SetState(index, slot.Hold, -1);
             slot.EngineState = engineState;
             slot.Svg = svg;
+            Fidget(index, slot, now, reduced);
         }
+    }
+
+    /// Now and then an idle character does one of its own little things, on
+    /// its own clock, and settles back.
+    private void Fidget(int index, Slot slot, double now, bool reduced)
+    {
+        if (slot.Fidget is not null)
+        {
+            if (now < slot.FidgetUntil) return;
+            slot.Fidget = null;
+            slot.NextFidget = now + FidgetGap * (0.5 + Random.Shared.NextDouble());
+            if (slot.Hold == "idle") _engine!.SetState(index, "idle", -1);
+            return;
+        }
+        if (reduced || slot.Fidgets.Length == 0 || slot.Hold != "idle" || slot.EngineState != "idle" || now < slot.NextFidget) return;
+        slot.Fidget = slot.Fidgets[Random.Shared.Next(slot.Fidgets.Length)];
+        slot.FidgetUntil = now + 2.5 + Random.Shared.NextDouble() * 2;
+        _engine!.SetState(index, slot.Fidget, -1);
     }
 
     /// Feeds the pointer to the due characters; true when it is near any.

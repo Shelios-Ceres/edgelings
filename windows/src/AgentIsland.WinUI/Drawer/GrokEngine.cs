@@ -28,20 +28,23 @@ public sealed class GrokEngine : IDisposable
     private const string HostModule = """
         import * as lib from './study-engine.mjs';
         const bots = [];
-        const playlist = (engine, state, seed) =>
-            lib.A(engine, state, { seed, firstPhase: 0, isCompact: true });
+        // Every entry reseeds, so a bot never repeats its clip order or start
+        // point; a negative phase lets the engine pick where the loop begins.
+        const playlist = (b, state, phase) => lib.A(b.engine, state,
+            { seed: b.seed + 7919 * b.entries++, firstPhase: phase >= 0 ? phase : undefined, isCompact: true });
         globalThis.agentIslandDrawer = {
             shapes: () => lib.O.join(','),
             colors: () => lib.I.map(c => c.id).join(','),
-            add(shape, color, state) {
+            add(shape, color, state, tempo, seed) {
                 const engine = lib.o({ body: lib.h(shape), isGazeAlways: true });
-                const seed = bots.length + 1;
-                bots.push({ engine, seed, palette: lib.p(lib.S(color), '#fff'), playlist: playlist(engine, state, seed) });
+                const b = { engine, seed, tempo, entries: 0, palette: lib.p(lib.S(color), '#fff') };
+                b.playlist = playlist(b, state, -1);
+                bots.push(b);
                 return bots.length - 1;
             },
-            setState(i, state) {
+            setState(i, state, phase) {
                 const b = bots[i];
-                b.playlist = playlist(b.engine, state, b.seed);
+                b.playlist = playlist(b, state, phase);
             },
             setLook(i, shape, color) {
                 const b = bots[i];
@@ -59,7 +62,7 @@ public sealed class GrokEngine : IDisposable
                 const parts = [];
                 for (let i = 0; i < bots.length; i++) {
                     if (dts[i] === '') { parts.push(''); continue; }
-                    const b = bots[i], dt = +dts[i];
+                    const b = bots[i], dt = +dts[i] * b.tempo;
                     b.playlist.advance(dt);
                     b.engine.advance(dt);
                     parts.push(b.playlist.state + '\u0002' + lib.C(b.engine.frame(), b.palette, size, 'b' + i));
@@ -96,10 +99,13 @@ public sealed class GrokEngine : IDisposable
 
     public IReadOnlyList<string> Colors { get; }
 
-    public int AddBot(string shape, string color, string state) =>
-        Convert.ToInt32(_host.InvokeMethod("add", shape, color, state));
+    /// tempo scales the bot's clock; seed makes its clip choices its own.
+    public int AddBot(string shape, string color, string state, double tempo, int seed) =>
+        Convert.ToInt32(_host.InvokeMethod("add", shape, color, state, tempo, seed));
 
-    public void SetState(int bot, string state) => _host.InvokeMethod("setState", bot, state);
+    /// phase is where in its cycle the state starts (0-1); negative lets the
+    /// engine pick, so characters entering a state together never move as one.
+    public void SetState(int bot, string state, double phase) => _host.InvokeMethod("setState", bot, state, phase);
 
     public void SetLook(int bot, string shape, string color) => _host.InvokeMethod("setLook", bot, shape, color);
 

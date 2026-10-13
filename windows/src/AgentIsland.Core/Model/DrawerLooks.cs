@@ -56,6 +56,27 @@ public static class DrawerLooks
 
     public static readonly HashSet<string> CalmStates = new() { "idle", "listening", "sleeping", "blocked", "drowsy", "bored" };
 
+    /// Entries that play once from their start (measured in the engine);
+    /// every other state loops and may begin anywhere in its cycle.
+    public static readonly HashSet<string> OneShotStates = new(StringComparer.Ordinal) { "finished", "failed", "approving", "waking" };
+
+    /// A character's own pace and idle habits, so the drawer never moves in
+    /// lockstep: the speed its engine runs at, and the little things it does
+    /// now and then while its agent has nothing on.
+    public sealed record Personality(double Tempo, string[] Fidgets);
+
+    public static Personality PersonalityOf(DisplayProvider provider) => provider switch
+    {
+        DisplayProvider.Claude => new(0.93, new[] { "curious", "humming" }),
+        DisplayProvider.Codex => new(1.07, new[] { "playful", "bouncing" }),
+        DisplayProvider.Grok => new(1.12, new[] { "suspicious", "laughing" }),
+        DisplayProvider.Kimi => new(0.97, new[] { "shy", "happy" }),
+        DisplayProvider.DeepSeek => new(0.9, new[] { "drowsy", "curious" }),
+        DisplayProvider.Cursor => new(1.03, new[] { "proud", "excited" }),
+        DisplayProvider.Antigravity => new(1.0, new[] { "bored", "playful" }),
+        _ => new(1.0, new[] { "curious" }),
+    };
+
     public static string PhaseLabel(AgentPhase phase) => L10n.Tr(phase switch
     {
         AgentPhase.Thinking => "Thinking",

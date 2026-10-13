@@ -61,6 +61,7 @@ public static class Program
             ClaudeStallTests.RunAll();
             RunningTasksTests.RunAll();
             EvidenceTests.RunAll();
+            PersonalityTests.RunAll();
             AgentPhaseTests.RunAll();
             KimiDeepSeekTests.RunAll();
             SubagentFilterTests.RunAll();
