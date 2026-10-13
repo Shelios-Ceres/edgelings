@@ -72,6 +72,7 @@ public static class Program
             UsageCachePolicyTests.RunAll();
             SecurityGuardTests.RunAll();
             FormattingTests.RunAll();
+            LaunchAtLoginTests.RunAll();
             ScannerCwdTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
