@@ -86,7 +86,7 @@ internal sealed class HoverCardPreview : Window
         actions.Children.Add(ActionButton("气泡检查", () =>
         {
             _bubble ??= new SpeechBubble(_surface);
-            _bubble.Say("Synthetic bubble", Swatches[0], true, Anchor(0), Area, false);
+            _bubble.Say("Synthetic bubble", Swatches[0], pixel: false, characterRight: true, Anchor(0), Area, false);
         }));
         Place(actions, 24, 85);
 
@@ -233,7 +233,7 @@ internal sealed class HoverCardPreview : Window
         var retarget = _card.IsOpen && _hasTarget && _target != target;
         _target = target;
         _hasTarget = true;
-        _card.Show(new[] { (Card(target), Swatches[target]) }, characterRight: true,
+        _card.Show(new[] { (Card(target), Swatches[target]) }, pixel: false, characterRight: true,
             Anchor(target), Area, reducedMotion: _reduced.IsChecked == true, retarget: retarget);
     }
 

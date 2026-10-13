@@ -9,6 +9,15 @@ public enum DrawerSide
     Left,
 }
 
+/// The drawer's character set: the bundled pixel bots, one per agent, or the
+/// classic shapes that can be recoloured (drawn by the local Grok Bot engine
+/// copy, discs without it).
+public enum CharacterTheme
+{
+    Pixel,
+    Classic,
+}
+
 /// Persisted side-drawer layout: which edge, where along it, which providers
 /// it shows and how each provider's character looks. Visibility defaults to
 /// detection, so a provider with no footprint on this machine stays out
@@ -23,6 +32,7 @@ public sealed class DrawerStore : INotifyPropertyChanged
     private const string FrameRateKey = "AgentIsland.drawer.fps";
     private const string SaveBatteryKey = "AgentIsland.drawer.saveBattery";
     private const string SpeechKey = "AgentIsland.drawer.speech";
+    private const string ThemeKey = "AgentIsland.drawer.theme";
 
     public static DrawerStore Shared { get; } = new();
 
@@ -126,6 +136,18 @@ public sealed class DrawerStore : INotifyPropertyChanged
             if (SpeechBubbles == value) return;
             Preferences.Set(SpeechKey, value);
             Raise(nameof(SpeechBubbles));
+        }
+    }
+
+    /// Which character set the drawer shows; the pixel bots unless chosen otherwise.
+    public CharacterTheme Theme
+    {
+        get => Enum.TryParse<CharacterTheme>(Preferences.Get<string?>(ThemeKey), out var theme) ? theme : CharacterTheme.Pixel;
+        set
+        {
+            if (Theme == value) return;
+            Preferences.Set(ThemeKey, value.ToString());
+            Raise(nameof(Theme));
         }
     }
 

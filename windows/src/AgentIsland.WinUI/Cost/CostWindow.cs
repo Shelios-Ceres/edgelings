@@ -325,8 +325,9 @@ internal sealed class CostWindow : Window
         panel.Children.Add(head);
 
         // Bars wear the agent's character colour, as in the drawer.
-        var look = App.Current.Drawer?.LookOf(slice.Provider) ?? DrawerLooks.For(slice.Provider);
-        var accent = Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(look.Color), Brand.IsDark()));
+        var swatch = App.Current.Drawer?.SwatchOf(slice.Provider)
+            ?? DrawerLooks.Swatch(slice.Provider, DrawerLooks.For(slice.Provider).Color, DrawerStore.Shared.Theme);
+        var accent = Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
         if (slice.AsOf is not null && slice.Bars.Count > 0) panel.Children.Add(Chart(slice, accent));
 
         var models = slice.Models.Take(3).ToList();

@@ -1,0 +1,3 @@
+# The approved pixel engine ships byte-identical (sha256 7fe41c54...), so
+# its line endings are never converted.
+characters.mjs -text

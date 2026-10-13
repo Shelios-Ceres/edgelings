@@ -215,8 +215,13 @@ internal sealed class SettingsWindow : Window
     {
         body.Children.Add(PageTitle(L10n.Tr("Drawer")));
         body.Children.Add(PageIntro(L10n.Tr("The column of characters on the edge of your screen. Hover one for its status, drag it to move the drawer, right-click it for options.")));
-        body.Children.Add(Section(L10n.Tr("Placement")));
         var store = DrawerStore.Shared;
+        body.Children.Add(Section(L10n.Tr("Characters")));
+        body.Children.Add(Card(L10n.Tr("Character style"),
+            L10n.Tr("Pixel bots drawn for each agent, or the classic shapes you can recolour"), "\uE771",
+            Combo(new[] { L10n.Tr("Pixel"), L10n.Tr("Classic") }, store.Theme == CharacterTheme.Pixel ? 0 : 1,
+                index => store.Theme = index == 0 ? CharacterTheme.Pixel : CharacterTheme.Classic)));
+        body.Children.Add(Section(L10n.Tr("Placement")));
         body.Children.Add(Card(L10n.Tr("Edge"), L10n.Tr("Which side of the screen the drawer docks to"), "\uE8AB",
             Combo(new[] { L10n.Tr("Right edge"), L10n.Tr("Left edge") }, store.Side == DrawerSide.Right ? 0 : 1,
                 index => store.Side = index == 0 ? DrawerSide.Right : DrawerSide.Left)));

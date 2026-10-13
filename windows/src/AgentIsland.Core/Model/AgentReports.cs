@@ -125,7 +125,9 @@ public static class AgentReports
             DisplayProvider.Kimi => KimiUsageStore.Shared.ErrorCaption,
             _ => null,
         };
-        return raw is null ? null : ErrorDisplay.Localize(raw);
+        // Some stores localize their caption when they set it; the pixel
+        // panels read in English, so it is relocalized as it is shown.
+        return raw is null ? null : L10n.Relocalize(ErrorDisplay.Localize(raw));
     }
 
     /// A failed refresh still needs an explanation when old numbers survive.

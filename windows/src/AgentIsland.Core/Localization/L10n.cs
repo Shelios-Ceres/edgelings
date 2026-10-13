@@ -16,7 +16,23 @@ public static class L10n
 
     public static Language Current { get; set; } = Language.Auto;
 
-    public static bool IsChinese => Current switch
+    [ThreadStatic] private static bool _english;
+
+    /// Within the returned scope this thread localizes to English, whatever
+    /// the app language: the pixel panels set their text in a Latin pixel face.
+    public static IDisposable English()
+    {
+        var scope = new EnglishScope(_english);
+        _english = true;
+        return scope;
+    }
+
+    private sealed class EnglishScope(bool previous) : IDisposable
+    {
+        public void Dispose() => _english = previous;
+    }
+
+    public static bool IsChinese => !_english && Current switch
     {
         Language.SimplifiedChinese => true,
         Language.English => false,
@@ -30,6 +46,20 @@ public static class L10n
         // call sites never churn, while display copy evolves (trailing full
         // stops stripped, Thread→Session, AgentIsland→Agent Island).
         return EnglishTable.TryGetValue(key, out var english) ? english : key;
+    }
+
+    private static Dictionary<string, string>? _keysByChinese;
+
+    /// Text some store localized when it was set, as it reads now: a Chinese
+    /// caption shown inside English() turns back into its English key's copy.
+    /// Text that was not a table entry comes back unchanged.
+    public static string Relocalize(string text)
+    {
+        if (IsChinese) return text;
+        var keys = _keysByChinese ??= ChineseTable
+            .GroupBy(entry => entry.Value)
+            .ToDictionary(group => group.Key, group => group.First().Key);
+        return keys.TryGetValue(text, out var key) ? Tr(key) : text;
     }
 
     /// Composite-format lookup: the key is an English format string with
@@ -441,6 +471,7 @@ public static class L10n
         ["No local usage log"] = "没有本地使用记录",
         ["{0}% left"] = "剩 {0}%",
         ["{0} reset cards"] = "重置卡 {0} 张",
+        ["{0} reset card"] = "重置卡 {0} 张",
         ["Thinking"] = "思考中",
         ["Replying"] = "回复中",
         ["Reading files"] = "读文件",
@@ -574,6 +605,11 @@ public static class L10n
         ["Local logs"] = "本机日志",
         ["Last scanned {0}"] = "上次扫描：{0}",
         ["Not scanned yet"] = "还没扫描",
+        ["Characters"] = "角色",
+        ["Character style"] = "角色风格",
+        ["Pixel bots drawn for each agent, or the classic shapes you can recolour"] = "为每个智能体设计的像素小人，或可以换色的经典形状",
+        ["Pixel"] = "像素",
+        ["Classic"] = "经典",
         ["Quota updated {0}"] = "额度更新于 {0}",
         ["Scan now"] = "立即扫描",
         ["Open cost"] = "打开成本",

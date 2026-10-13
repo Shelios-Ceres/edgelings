@@ -27,7 +27,8 @@ namespace AgentIsland.WinUI.Drawer;
 /// The drawer: a transparent column of characters on a side edge, one per
 /// provider, each playing its agent's live phase. Win2D draws them on its
 /// own game-loop thread, at the display's refresh rate while any of them is
-/// busy; only the characters' circles take clicks.
+/// busy; only the characters' circles take clicks. The character set is a
+/// theme: the bundled pixel bots, or the classic recolourable shapes.
 internal sealed class DrawerWindow : Window
 {
     private const double BotSize = 44;
@@ -86,7 +87,15 @@ internal sealed class DrawerWindow : Window
     private sealed record Scene((int Index, float X, float Y)[] Shown, int Left, int Top, double Scale);
 
     private readonly IntPtr _hwnd;
-    private readonly GrokEngine? _engine;
+    // Built on the UI thread, then owned by the game loop: a theme switch
+    // hands the new engine over through _commands.
+    private ICharacterEngine? _engine;
+    private CharacterTheme _theme;
+    private volatile CharacterTheme _loopTheme;
+    // The classic engine's shapes and colours for the look picker; null in
+    // the pixel theme, which hides the picker.
+    private IReadOnlyList<string>? _shapes;
+    private IReadOnlyList<string>? _colors;
     private readonly SvgCanvas _svg = new();
     private readonly List<Bot> _bots = new();
     private readonly Slot[] _slots;
@@ -131,35 +140,26 @@ internal sealed class DrawerWindow : Window
         _reducedMotion = !_uiSettings.AnimationsEnabled;
         UpdateCap();
 
-        try
-        {
-            if (GrokEngineLocator.Find() is { } directory) _engine = new GrokEngine(directory);
-        }
-        catch (Exception error)
-        {
-            // Native V8 failed to load or the engine copy is unusable: the
-            // fallback characters keep the drawer working.
-            CrashLog.Write(error, "Grok engine");
-            _engine = null;
-        }
-
+        _theme = _loopTheme = DrawerStore.Shared.Theme;
+        _engine = CreateEngine(_theme);
         foreach (var provider in DisplayProviders.All)
         {
             var (shape, color) = ValidLook(DrawerLooks.For(provider));
-            _bots.Add(new Bot
+            var bot = new Bot
             {
                 Provider = provider,
                 Tool = provider.ToTriggerTool(),
-                Index = _engine?.AddBot(shape, color, "idle", DrawerLooks.PersonalityOf(provider).Tempo, Random.Shared.Next(1, 1_000_000))
-                    ?? _bots.Count,
+                Index = _bots.Count,
                 Shape = shape,
                 Color = color,
-            });
+            };
+            AddBot(_engine, bot);
+            _bots.Add(bot);
         }
         _slots = _bots.Select(b => new Slot
         {
-            Swatch = DrawerLooks.Swatch(b.Color),
-            Fidgets = DrawerLooks.PersonalityOf(b.Provider).Fidgets,
+            Swatch = SwatchOf(b),
+            Fidgets = _engine?.Fidgets(b.Provider) ?? Array.Empty<string>(),
             NextFidget = FirstFidgetAfter + Random.Shared.NextDouble() * FidgetGap,
         }).ToArray();
 
@@ -204,6 +204,7 @@ internal sealed class DrawerWindow : Window
         Watch(ProviderVisibilityStore.Shared, Layout);
         Watch(DrawerStore.Shared, () =>
         {
+            ApplyTheme();
             UpdateCap();
             Layout();
         });
@@ -262,10 +263,16 @@ internal sealed class DrawerWindow : Window
         Close();
     }
 
-    /// The engine's shapes and colours; null without the engine.
-    public IReadOnlyList<string>? Shapes => _engine?.Shapes;
+    /// The classic engine's shapes and colours; null without it or in the
+    /// pixel theme, where each bot has its one look.
+    public IReadOnlyList<string>? Shapes => _shapes;
 
-    public IReadOnlyList<string>? Colors => _engine?.Colors;
+    public IReadOnlyList<string>? Colors => _colors;
+
+    /// The provider's colour in the current theme, for cards and charts.
+    public uint SwatchOf(DisplayProvider provider) => SwatchOf(_bots.First(b => b.Provider == provider));
+
+    private uint SwatchOf(Bot bot) => DrawerLooks.Swatch(bot.Provider, bot.Color, _theme);
 
     public (string Shape, string Color) LookOf(DisplayProvider provider)
     {
@@ -290,7 +297,7 @@ internal sealed class DrawerWindow : Window
         if (snapshot is null) return;
         await Task.Delay(1500);
         Directory.CreateDirectory(snapshot);
-        await Snapshot.SaveAsync(_card.Visual, Path.Combine(snapshot, $"card-{index?.ToString() ?? "all"}.png"));
+        await _card.SnapshotAsync(Path.Combine(snapshot, $"card-{index?.ToString() ?? "all"}.png"));
     }
 
     /// AGENTISLAND_DEBUG_SAY=<phase>: the first character says that phase's
@@ -329,9 +336,78 @@ internal sealed class DrawerWindow : Window
 
     private (string Shape, string Color) ValidLook((string Shape, string Color) look)
     {
-        if (_engine is null) return look;
-        return (_engine.Shapes.Contains(look.Shape) ? look.Shape : "blob",
-            _engine.Colors.Contains(look.Color) ? look.Color : "blue");
+        if (_shapes is null || _colors is null) return look;
+        return (_shapes.Contains(look.Shape) ? look.Shape : "blob",
+            _colors.Contains(look.Color) ? look.Color : "blue");
+    }
+
+    // MARK: - Theme
+
+    /// The theme's engine, or null when it cannot run: the classic look needs
+    /// the local Grok Bot engine copy, and either can fail to load V8. Without
+    /// one the drawer draws its fallback discs.
+    private ICharacterEngine? CreateEngine(CharacterTheme theme)
+    {
+        ICharacterEngine? engine = null;
+        try
+        {
+            if (theme == CharacterTheme.Pixel) engine = new PixelEngine(PixelEngine.Directory);
+            else if (GrokEngineLocator.Find() is { } directory) engine = new GrokEngine(directory);
+        }
+        catch (Exception error)
+        {
+            CrashLog.Write(error, theme == CharacterTheme.Pixel ? "Pixel engine" : "Grok engine");
+        }
+        _shapes = (engine as GrokEngine)?.Shapes;
+        _colors = (engine as GrokEngine)?.Colors;
+        return engine;
+    }
+
+    private static void AddBot(ICharacterEngine? engine, Bot bot)
+    {
+        if (engine is null) return;
+        var index = engine.AddBot(bot.Provider, bot.Shape, bot.Color,
+            DrawerLooks.PersonalityOf(bot.Provider).Tempo, Random.Shared.Next(1, 1_000_000));
+        if (index != bot.Index) throw new InvalidOperationException($"engine index {index} for drawer bot {bot.Index}");
+    }
+
+    /// Swaps the character set live: a new engine gets every bot, resting in
+    /// its agent's current phase, and the game loop takes it over.
+    private void ApplyTheme()
+    {
+        var theme = DrawerStore.Shared.Theme;
+        if (theme == _theme) return;
+        _theme = theme;
+        var engine = CreateEngine(theme);
+        var rest = new List<(int Index, string Hold, uint Swatch, string[] Fidgets)>();
+        foreach (var bot in _bots)
+        {
+            (bot.Shape, bot.Color) = ValidLook((bot.Shape, bot.Color));
+            AddBot(engine, bot);
+            var hold = bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme);
+            rest.Add((bot.Index, hold, SwatchOf(bot), engine?.Fidgets(bot.Provider) ?? Array.Empty<string>()));
+        }
+        _commands.Enqueue(() =>
+        {
+            var old = _engine;
+            _engine = engine;
+            _loopTheme = theme;
+            foreach (var (index, hold, swatch, fidgets) in rest)
+            {
+                var slot = _slots[index];
+                slot.Hold = slot.EngineState = hold;
+                slot.Swatch = swatch;
+                slot.Fidgets = fidgets;
+                slot.Fidget = null;
+                slot.Gazing = false;
+                slot.Svg = null;
+                slot.NextStep = 0;
+                engine?.SetState(index, hold, -1);
+            }
+            old?.Dispose();
+        });
+        Hush();
+        RefreshCard();
     }
 
     private static Win32.Screen ResolveScreen()
@@ -493,13 +569,21 @@ internal sealed class DrawerWindow : Window
                 .ToList();
             // Tail reads stay off the UI thread. Working sessions are read for
             // how they work, network trouble for a prompt that may be open, and
-            // finished turns for whether they ended on an error.
-            var readings = await Task.Run(() => jobs
-                .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
-                    && job.Path is { } path
-                    ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
-                    : null))
-                .ToList());
+            // finished turns for whether they ended on an error. The pixel
+            // panels read in English, details included.
+            var english = _theme == CharacterTheme.Pixel;
+            var readings = await Task.Run(() =>
+            {
+                using (english ? L10n.English() : null)
+                {
+                    return jobs
+                        .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
+                            && job.Path is { } path
+                            ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
+                            : null))
+                        .ToList();
+                }
+            });
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
             var recounted = false;
@@ -512,7 +596,9 @@ internal sealed class DrawerWindow : Window
                 var phase = AgentPhases.Combine(state, reading, QuotaExhausted(bot.Provider));
                 var detail = reading is { } r && r.Phase == phase ? r.Detail : null;
                 if (phase == AgentPhase.NetworkTrouble && detail is null && monitor.IsOffline)
-                    detail = L10n.Tr("No internet connection");
+                {
+                    using (english ? L10n.English() : null) detail = L10n.Tr("No internet connection");
+                }
                 Offer(bot, phase, detail, seconds);
             }
             // A task can start or end without the shown phase changing.
@@ -559,15 +645,16 @@ internal sealed class DrawerWindow : Window
         bot.PhaseSince = now;
         Speak(bot, phase, now);
         var index = bot.Index;
-        var entry = DrawerLooks.Entry(phase);
-        var hold = phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(phase);
+        var theme = _theme;
+        var entry = DrawerLooks.Entry(phase, theme);
+        var hold = phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(phase, theme);
         _commands.Enqueue(() =>
         {
             var slot = _slots[index];
             slot.Hold = hold;
             slot.Fidget = null;
             slot.NextFidget = _clock.Elapsed.TotalSeconds + FidgetGap * (0.5 + Random.Shared.NextDouble());
-            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.OneShotStates.Contains(entry) ? 0 : -1);
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
@@ -586,11 +673,15 @@ internal sealed class DrawerWindow : Window
         if (!DrawerStore.Shared.SpeechBubbles || !_shown || !bot.Visible) return;
         if (now < SpeechQuietAtStartSeconds || now - bot.LastSpoke < SpeechGapSeconds) return;
         if (_card.IsOpen && (_cardBot is null || _cardBot == bot)) return;
-        if (BotLines.For(phase, _random) is not { } line) return;
+        var pixel = _theme == CharacterTheme.Pixel;
+        string? line;
+        using (pixel ? L10n.English() : null) line = BotLines.For(phase, _random);
+        if (line is null) return;
         bot.LastSpoke = now;
         bot.Bubble ??= new SpeechBubble(_root);
-        var swatch = Brand.Readable(DrawerLooks.Swatch(bot.Color), Brand.IsDark());
-        bot.Bubble.Say(line, swatch, DrawerStore.Shared.Side == DrawerSide.Right, bot.Bounds, WorkAreaDip(), _reducedMotion);
+        var swatch = Brand.Readable(SwatchOf(bot), Brand.IsDark());
+        bot.Bubble.Say(line, swatch, pixel, DrawerStore.Shared.Side == DrawerSide.Right,
+            bot.Bounds, WorkAreaDip(), _reducedMotion);
     }
 
     private void Hush()
@@ -622,12 +713,15 @@ internal sealed class DrawerWindow : Window
 
     /// Busy characters step on every vsync (or at the user's ceiling); calm
     /// ones whose eyes follow a nearby pointer run at 60 fps and the rest
-    /// breathe at 30. Reduced motion keeps 12 / 6.
+    /// breathe at 30. Reduced motion keeps 12 / 6. Pixel bots move in whole
+    /// cells, at most 10-15 frames a second, so 30 is plenty for them.
     private void Step(double now, bool near, bool reduced)
     {
+        var theme = _loopTheme;
+        var pixel = theme == CharacterTheme.Pixel;
         var cap = _activeCap;
-        var activeFps = reduced ? 12 : cap == 0 ? double.PositiveInfinity : cap;
-        var gazeFps = reduced ? 12 : 60;
+        var activeFps = reduced ? 12 : pixel ? (cap == 0 ? 30 : Math.Min(cap, 30)) : cap == 0 ? double.PositiveInfinity : cap;
+        var gazeFps = reduced ? 12 : pixel ? 30 : 60;
         var calmFps = reduced ? 6 : 30;
         var dts = new double[_slots.Length];
         Array.Fill(dts, double.NaN);
@@ -636,7 +730,7 @@ internal sealed class DrawerWindow : Window
             var slot = _slots[index];
             dts[index] = Math.Min(now - slot.LastStep, 0.1);
             slot.LastStep = now;
-            var fps = !DrawerLooks.CalmStates.Contains(slot.EngineState) ? activeFps : near ? gazeFps : calmFps;
+            var fps = !DrawerLooks.IsCalm(slot.EngineState, theme) ? activeFps : near ? gazeFps : calmFps;
             var interval = 1.0 / fps;
             slot.NextStep = now - slot.NextStep > interval ? now + interval : slot.NextStep + interval;
         }
@@ -706,12 +800,15 @@ internal sealed class DrawerWindow : Window
     /// the calm rate the characters need.
     private void Pace(Scene scene, bool near, bool reduced)
     {
+        var theme = _loopTheme;
         var busy = false;
         foreach (var (index, _, _) in scene.Shown)
         {
-            busy |= !DrawerLooks.CalmStates.Contains(_slots[index].EngineState);
+            busy |= !DrawerLooks.IsCalm(_slots[index].EngineState, theme);
         }
-        var fps = busy ? (reduced ? 12 : _activeCap) : near ? 60 : (reduced ? 6 : 30);
+        var pixel = theme == CharacterTheme.Pixel;
+        var active = pixel ? (_activeCap == 0 ? 30 : Math.Min(_activeCap, 30)) : _activeCap;
+        var fps = busy ? (reduced ? 12 : active) : near ? (pixel ? 30 : 60) : (reduced ? 6 : 30);
         if (fps == _pace) return;
         _pace = fps;
         _queue.TryEnqueue(() =>
@@ -735,13 +832,18 @@ internal sealed class DrawerWindow : Window
         var started = Stopwatch.GetTimestamp();
         var ds = args.DrawingSession;
         var time = _clock.Elapsed.TotalSeconds;
+        var theme = _loopTheme;
+        // Pixel frames stay hard-edged: drawn without antialiasing and blitted
+        // whole-pixel, unfiltered, even at scalings like 125 %.
+        var pixel = theme == CharacterTheme.Pixel;
+        var scale = sender.Dpi / 96f;
         foreach (var (index, x, y) in _scene.Shown)
         {
             var slot = _slots[index];
             if (slot.Svg is not { } svg)
             {
                 ds.Transform = Matrix3x2.CreateTranslation(x, y);
-                DrawFallback(ds, slot, time);
+                DrawFallback(ds, slot, time, theme);
                 ds.Transform = Matrix3x2.Identity;
                 continue;
             }
@@ -756,20 +858,26 @@ internal sealed class DrawerWindow : Window
                 using (var session = slot.Rendered.CreateDrawingSession())
                 {
                     session.Clear(Microsoft.UI.Colors.Transparent);
+                    if (pixel) session.Antialiasing = CanvasAntialiasing.Aliased;
                     _svg.Render(svg, session);
                 }
                 slot.RenderedSvg = svg;
             }
-            ds.DrawImage(slot.Rendered, x, y);
+            if (pixel)
+            {
+                var at = new Vector2(MathF.Round(x * scale) / scale, MathF.Round(y * scale) / scale);
+                ds.DrawImage(slot.Rendered, at, slot.Rendered.Bounds, 1, CanvasImageInterpolation.NearestNeighbor);
+            }
+            else ds.DrawImage(slot.Rendered, x, y);
         }
         _stats?.Drew(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 
     /// Without the engine: a disc in the character's colour with two eyes,
     /// breathing faster while its agent is busy.
-    private static void DrawFallback(CanvasDrawingSession ds, Slot slot, double time)
+    private static void DrawFallback(CanvasDrawingSession ds, Slot slot, double time, CharacterTheme theme)
     {
-        var busy = !DrawerLooks.CalmStates.Contains(slot.EngineState);
+        var busy = !DrawerLooks.IsCalm(slot.EngineState, theme);
         var pulse = (float)Math.Sin(time * (busy ? 6 : 1.5)) * (busy ? 1.6f : 0.6f);
         var center = new Vector2((float)BotSize / 2, (float)BotSize / 2);
         var radius = (float)BotSize / 2 - 4 + pulse;
@@ -815,13 +923,19 @@ internal sealed class DrawerWindow : Window
     {
         if (!_shown) return;
         var dark = Brand.IsDark();
-        var sections = _bots
-            .Where(b => b.Visible && (_cardBot is null || b == _cardBot))
-            .Select(b => (StatusCards.For(b.Provider, b.Phase, b.Detail, b.Running), Brand.Readable(DrawerLooks.Swatch(b.Color), dark)))
-            .ToList();
+        var pixel = _theme == CharacterTheme.Pixel;
+        List<(StatusCard, uint)> sections;
+        using (pixel ? L10n.English() : null)
+        {
+            sections = _bots
+                .Where(b => b.Visible && (_cardBot is null || b == _cardBot))
+                .Select(b => (StatusCards.For(b.Provider, b.Phase, b.Detail, b.Running), Brand.Readable(SwatchOf(b), dark)))
+                .ToList();
+        }
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
         var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, height / 2 - BotSize / 2, BotSize, BotSize);
-        _card.Show(sections, DrawerStore.Shared.Side == DrawerSide.Right, anchor, WorkAreaDip(), _reducedMotion, retarget);
+        _card.Show(sections, pixel, DrawerStore.Shared.Side == DrawerSide.Right, anchor,
+            WorkAreaDip(), _reducedMotion, retarget);
     }
 
     /// Closes the card once the pointer is off every character; the region
@@ -893,12 +1007,12 @@ internal sealed class DrawerWindow : Window
                 var travel = work.Bottom - work.Top - AppWindow.Size.Height;
                 DrawerStore.Shared.Offset = travel > 0 ? (double)(AppWindow.Position.Y - work.Top) / travel : 0.5;
             }
-            else if (_engine is not null)
+            else
             {
                 var index = bot.Index;
                 _commands.Enqueue(() =>
                 {
-                    _engine.Poke(index, "nod");
+                    _engine?.Poke(index);
                     _slots[index].NextStep = 0;
                 });
             }
@@ -923,7 +1037,7 @@ internal sealed class DrawerWindow : Window
         PointInt32? at = keepOpen
             ? new PointInt32(scene.Left + (int)(bot.Bounds.X * scene.Scale), scene.Top + (int)(bot.Bounds.Bottom * scene.Scale))
             : null;
-        DrawerMenu.Show(bot.Provider, bot.Shape, bot.Color, _engine?.Shapes, _engine?.Colors,
+        DrawerMenu.Show(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
             _bots.Select(b => (b.Provider, b.Visible)).ToList(),
             (shape, color) => ChangeLook(bot, shape, color), keepOpen, at);
     }
@@ -953,7 +1067,7 @@ internal sealed class DrawerWindow : Window
         bot.Color = color;
         DrawerStore.Shared.SetLook(bot.Provider, shape, color);
         var index = bot.Index;
-        var swatch = DrawerLooks.Swatch(color);
+        var swatch = SwatchOf(bot);
         _commands.Enqueue(() =>
         {
             _engine?.SetLook(index, shape, color);

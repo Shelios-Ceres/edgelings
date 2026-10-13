@@ -56,6 +56,87 @@ public static class DrawerLooks
 
     public static readonly HashSet<string> CalmStates = new() { "idle", "listening", "sleeping", "blocked", "drowsy", "bored" };
 
+    // MARK: - Pixel theme
+    // Mirrors the bundled pixel engine (WinUI Drawer/Characters/characters.mjs);
+    // PixelThemeTests checks every name and colour against that file.
+
+    /// The pixel engine's bot for each provider.
+    public static string PixelKind(DisplayProvider provider) => provider switch
+    {
+        DisplayProvider.Codex => "codex",
+        DisplayProvider.Antigravity => "antigravity",
+        DisplayProvider.Grok => "grok",
+        DisplayProvider.Cursor => "cursor",
+        DisplayProvider.Kimi => "kimi",
+        DisplayProvider.DeepSeek => "deepseek",
+        _ => "claude",
+    };
+
+    /// Each pixel bot's own colour (the engine's swatchOf).
+    public static uint PixelSwatch(DisplayProvider provider) => provider switch
+    {
+        DisplayProvider.Codex => 0x9EA1AB,
+        DisplayProvider.Antigravity => 0x3D7BF5,
+        DisplayProvider.Grok => 0x0B0B0C,
+        DisplayProvider.Cursor => 0x45454F,
+        DisplayProvider.Kimi => 0x2B8BFF,
+        DisplayProvider.DeepSeek => 0x4D6BFE,
+        _ => 0xD77757,
+    };
+
+    /// A provider's colour in a theme: the pixel bot's own, or the classic
+    /// colour the user picked.
+    public static uint Swatch(DisplayProvider provider, string color, CharacterTheme theme) =>
+        theme == CharacterTheme.Pixel ? PixelSwatch(provider) : Swatch(color);
+
+    /// The state a phase enters in a theme; the pixel bots have one per phase.
+    public static string Entry(AgentPhase phase, CharacterTheme theme) => theme == CharacterTheme.Classic ? Entry(phase) : phase switch
+    {
+        AgentPhase.Thinking => "thinking",
+        AgentPhase.Streaming => "streaming",
+        AgentPhase.Reading => "reading",
+        AgentPhase.Searching => "searching",
+        AgentPhase.WebSearching => "web",
+        AgentPhase.Writing => "writing",
+        AgentPhase.Running => "running",
+        AgentPhase.Controlling => "controlling",
+        AgentPhase.Spawning => "spawning",
+        AgentPhase.WaitingOnAgents => "orbit",
+        AgentPhase.Sending => "sending",
+        AgentPhase.Asking => "asking",
+        AgentPhase.Approving => "approving",
+        AgentPhase.Compacting => "compacting",
+        AgentPhase.Working => "working",
+        AgentPhase.Finished => "finished",
+        AgentPhase.Failed => "failed",
+        AgentPhase.NetworkTrouble => "offline",
+        AgentPhase.RateLimited => "sleeping",
+        AgentPhase.AuthRequired => "locked",
+        _ => "idle",
+    };
+
+    /// Where a phase rests; the pixel engine settles finished into listening
+    /// and failed into broken by itself.
+    public static string Hold(AgentPhase phase, CharacterTheme theme) => theme == CharacterTheme.Classic ? Hold(phase) : phase switch
+    {
+        AgentPhase.Finished => "listening",
+        AgentPhase.Failed => "broken",
+        _ => Entry(phase, theme),
+    };
+
+    /// The pixel engine's CALM list: states fine at the calm frame rate.
+    public static readonly HashSet<string> PixelCalmStates = new(StringComparer.Ordinal)
+    {
+        "idle", "listening", "broken", "offline", "sleeping", "locked",
+    };
+
+    public static bool IsCalm(string state, CharacterTheme theme) =>
+        (theme == CharacterTheme.Pixel ? PixelCalmStates : CalmStates).Contains(state);
+
+    /// Entries that play once from their start.
+    public static bool IsOneShot(string state, CharacterTheme theme) =>
+        theme == CharacterTheme.Pixel ? state is "finished" or "failed" : OneShotStates.Contains(state);
+
     /// Entries that play once from their start (measured in the engine);
     /// every other state loops and may begin anywhere in its cycle.
     public static readonly HashSet<string> OneShotStates = new(StringComparer.Ordinal) { "finished", "failed", "approving", "waking" };

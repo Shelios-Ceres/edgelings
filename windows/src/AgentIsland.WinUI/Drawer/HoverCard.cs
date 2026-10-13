@@ -22,12 +22,21 @@ namespace AgentIsland.WinUI.Drawer;
 /// describes, each quota window as a filled bar in that character's colour.
 /// It is a windowed popup, so it can extend past the drawer's narrow window,
 /// and the glass is the system's own acrylic, blurring whatever is behind.
+/// With the pixel bots it is a pixel panel instead: an opaque plate on their
+/// 2-DIP grid, outlined in the character's colour and pointing at it, with
+/// block bars, its English set in a pixel face.
 internal sealed class HoverCard : IDisposable
 {
     private const double CardWidth = 252;
+    // English in the pixel face runs wider than the system font.
+    private const double PixelCardWidth = 272;
+    private const double PixelLabelWidth = 52;
+    private const double PixelValueWidth = 72;
     private const double Gap = 10;
     private const double LabelWidth = 44;
     private const double ValueWidth = 64;
+    private static readonly Thickness GlassPadding = new(14, 12, 14, 13);
+    private static readonly Thickness PixelPadding = new(16, 14, 16, 14);
 
     // Motion: the card grows out of the side facing the character and drifts
     // in from it on an ease-out cubic — no overshoot, and gentle enough that
@@ -46,6 +55,7 @@ internal sealed class HoverCard : IDisposable
     private readonly Grid _plate = new() { VerticalAlignment = VerticalAlignment.Top };
     private readonly SystemBackdropElement _glass = new() { CornerRadius = new CornerRadius(8) };
     private readonly Border _wash = new() { CornerRadius = new CornerRadius(8) };
+    private readonly PixelPlate _pixelPlate = new() { Visibility = Visibility.Collapsed };
     private readonly HoverWashBrush _washBrush;
     private readonly Border _card;
     private readonly StackPanel _body = new();
@@ -64,6 +74,7 @@ internal sealed class HoverCard : IDisposable
     private bool _closing;
     private bool _animating;
     private bool _disposed;
+    private double _width = CardWidth;
     private GlassBackdrop? _backdrop;
     private static bool _dark;
     private Request? _displayed;
@@ -82,7 +93,7 @@ internal sealed class HoverCard : IDisposable
     private double _lastShowMs;
 
     private sealed record Request(
-        IReadOnlyList<(StatusCard Card, uint Swatch)> Sections,
+        IReadOnlyList<(StatusCard Card, uint Swatch)> Sections, bool Pixel,
         bool CharacterRight, Rect Anchor, Rect Area, bool ReducedMotion,
         double Scale, bool Dark, string Key, string Identity);
 
@@ -98,13 +109,14 @@ internal sealed class HoverCard : IDisposable
         {
             Child = _body,
             Width = CardWidth,
-            Padding = new Thickness(14, 12, 14, 13),
+            Padding = GlassPadding,
             CornerRadius = new CornerRadius(8),
             VerticalAlignment = VerticalAlignment.Top,
         };
         _host.Width = CardWidth;
         _plate.Children.Add(_glass);
         _plate.Children.Add(_wash);
+        _plate.Children.Add(_pixelPlate);
         _host.Children.Add(_plate);
         _host.Children.Add(_card);
         _stage.Children.Add(_host);
@@ -143,11 +155,23 @@ internal sealed class HoverCard : IDisposable
     /// The card's content, for the verification snapshot.
     public UIElement Visual => _host;
 
+    /// Saves the card as shown. Its Translation places it in drawer
+    /// coordinates, which leaves a rendered bitmap empty, so the snapshot
+    /// draws it at the origin for the moment it takes.
+    internal async Task SnapshotAsync(string path)
+    {
+        var translation = _host.Translation;
+        _host.Translation = Vector3.Zero;
+        try { await Snapshot.SaveAsync(_host, path); }
+        finally { _host.Translation = translation; }
+    }
+
     /// anchor and area are in the drawer window's DIPs; characterRight means
-    /// the character is to the card's right (drawer on the right edge).
+    /// the character is to the card's right (drawer on the right edge); pixel
+    /// draws the pixel panel instead of the glass.
     /// The transparent popup is a staging area; glass and content move as
     /// one element within it, without moving a native window on every frame.
-    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool characterRight, Rect anchor, Rect area, bool reducedMotion, bool retarget = false)
+    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion, bool retarget = false)
     {
         var started = Stopwatch.GetTimestamp();
         _requests++;
@@ -157,8 +181,8 @@ internal sealed class HoverCard : IDisposable
             if (sections.Count == 0) { Hide(); return; }
             _popup.XamlRoot = xamlRoot;
             var dark = Brand.IsDark();
-            var request = new Request(sections.ToArray(), characterRight, anchor, area, reducedMotion,
-                xamlRoot.RasterizationScale, dark, ContentKey(sections, dark),
+            var request = new Request(sections.ToArray(), pixel, characterRight, anchor, area, reducedMotion,
+                xamlRoot.RasterizationScale, dark, ContentKey(sections, dark, pixel),
                 string.Join(",", sections.Select(s => (int)s.Card.Provider)));
             if (_displayed is { } before && !SameFrame(before, request)) Hide();
             if (!_popup.IsOpen)
@@ -256,27 +280,44 @@ internal sealed class HoverCard : IDisposable
             else
             {
                 Move("Translation", Target, SwitchDuration);
-                MorphHeight(SwitchDuration);
+                // A pixel panel snaps to its new height: stretching it would
+                // smear its one-cell outline mid-way.
+                if (request.Pixel) SettleHeight();
+                else MorphHeight(SwitchDuration);
             }
         }, CompletePresentation);
     }
 
     private void Present(Request request, bool animateWash = false)
     {
-        if (_backdrop is null)
+        if (request.Pixel)
         {
-            _backdrop = new GlassBackdrop(request.Dark);
-            _glass.SystemBackdrop = _backdrop;
+            _glass.Visibility = _wash.Visibility = Visibility.Collapsed;
+            _pixelPlate.Visibility = Visibility.Visible;
         }
-        else _backdrop.UpdateTheme(request.Dark);
+        else
+        {
+            if (_backdrop is null)
+            {
+                _backdrop = new GlassBackdrop(request.Dark);
+                _glass.SystemBackdrop = _backdrop;
+            }
+            else _backdrop.UpdateTheme(request.Dark);
+            _glass.Visibility = _wash.Visibility = Visibility.Visible;
+            _pixelPlate.Visibility = Visibility.Collapsed;
+        }
         if (_contentKey != request.Key)
         {
             _dark = request.Dark;
             _washBrush.Set(request.Sections.Count == 1 ? request.Sections[0].Swatch : null,
                 request.Dark, animateWash ? Duration(SwitchDuration) : TimeSpan.Zero, _easeOut);
-            Build(request.Sections);
+            _card.Padding = request.Pixel ? PixelPadding : GlassPadding;
+            _width = request.Pixel ? PixelCardWidth : CardWidth;
+            _card.Width = _host.Width = _width;
+            using (request.Pixel ? L10n.English() : null) Build(request.Sections, request.Pixel);
+            if (request.Pixel) UsePixelFace(_body, PixelPlate.FontSize(request.Scale));
             _builds++;
-            _card.Measure(new Size(CardWidth, double.PositiveInfinity));
+            _card.Measure(new Size(_width, double.PositiveInfinity));
             _contentSize = _card.DesiredSize;
             _measures++;
             _contentKey = request.Key;
@@ -287,16 +328,32 @@ internal sealed class HoverCard : IDisposable
         var aim = request.Anchor.Y + request.Anchor.Height / 2;
         var top = Math.Clamp(aim - _contentSize.Height / 2, request.Area.Top + 6,
             Math.Max(request.Area.Top + 6, request.Area.Bottom - 6 - _contentSize.Height));
-        var left = request.CharacterRight ? request.Anchor.Left - Gap - CardWidth : request.Anchor.Right + Gap;
-        left = Math.Clamp(left, request.Area.Left + 6, Math.Max(request.Area.Left + 6, request.Area.Right - 6 - CardWidth));
-        _bounds = new Rect(GlassBackdrop.Snap(left, request.Scale), GlassBackdrop.Snap(top, request.Scale), CardWidth, _contentSize.Height);
+        var left = request.CharacterRight ? request.Anchor.Left - Gap - _width : request.Anchor.Right + Gap;
+        left = Math.Clamp(left, request.Area.Left + 6, Math.Max(request.Area.Left + 6, request.Area.Right - 6 - _width));
+        _bounds = new Rect(GlassBackdrop.Snap(left, request.Scale), GlassBackdrop.Snap(top, request.Scale), _width, _contentSize.Height);
         _travelTop = Math.Min(_bounds.Top, _popup.IsOpen ? _travelTop : _bounds.Top);
         _travelBottom = Math.Max(_bounds.Bottom, _popup.IsOpen ? _travelBottom : _bounds.Bottom);
-        ExtendStage(new Rect(_bounds.Left, _travelTop, CardWidth, _travelBottom - _travelTop), request);
-        _host.CenterPoint = new Vector3(request.CharacterRight ? (float)CardWidth : 0,
+        ExtendStage(new Rect(_bounds.Left, _travelTop, _width, _travelBottom - _travelTop), request);
+        _host.CenterPoint = new Vector3(request.CharacterRight ? (float)_width : 0,
             (float)Math.Clamp(aim - _bounds.Top, 0, _bounds.Height), 0);
+        if (request.Pixel) DrawPlate(request, aim - _bounds.Top);
         _displayed = request;
     }
+
+    /// One character's card is outlined in its colour and points at it; the
+    /// all-characters card is neutral and points nowhere.
+    private void DrawPlate(Request request, double aim)
+    {
+        var single = request.Sections.Count == 1;
+        var outline = single
+            ? Brand.Rgb(request.Sections[0].Swatch)
+            : Brand.Rgb(request.Dark ? 0x5A5B66u : 0x2B2B33u);
+        _pixelPlate.Set(_width, _contentSize.Height, outline, PixelFill(request.Dark),
+            pointLeft: !request.CharacterRight, pointerY: single ? aim : null);
+    }
+
+    /// The pixel panels' paper: warm white, or a deep ink in dark mode.
+    internal static Windows.UI.Color PixelFill(bool dark) => Brand.Rgb(dark ? 0x1F2027u : 0xFFFDF7u);
 
     private void ExtendStage(Rect bounds, Request request)
     {
@@ -313,7 +370,7 @@ internal sealed class HoverCard : IDisposable
         }
         left = GlassBackdrop.Snap(left, request.Scale);
         top = GlassBackdrop.Snap(top, request.Scale);
-        var stage = new Rect(left, top, Math.Max(CardWidth, right - left), Math.Max(bounds.Height, bottom - top));
+        var stage = new Rect(left, top, Math.Max(_width, right - left), Math.Max(bounds.Height, bottom - top));
         if (_stageBounds == stage) return;
         _stageBounds = stage;
         _stage.Width = stage.Width;
@@ -372,7 +429,7 @@ internal sealed class HoverCard : IDisposable
         _easeOut.Dispose();
     }
 
-    private static string ContentKey(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool dark)
+    private static string ContentKey(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool dark, bool pixel)
     {
         var key = new StringBuilder();
         void Add(object? value)
@@ -381,6 +438,7 @@ internal sealed class HoverCard : IDisposable
             key.Append(text.Length).Append(':').Append(text);
         }
         Add(dark);
+        Add(pixel);
         Add(sections.Count);
         foreach (var (card, swatch) in sections)
         {
@@ -407,7 +465,7 @@ internal sealed class HoverCard : IDisposable
         return key.ToString();
     }
 
-    private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections)
+    private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel)
     {
         _body.Children.Clear();
         for (var i = 0; i < sections.Count; i++)
@@ -415,19 +473,50 @@ internal sealed class HoverCard : IDisposable
             var (card, swatch) = sections[i];
             if (i > 0)
             {
-                _body.Children.Add(new Rectangle
-                {
-                    Height = 1,
-                    Fill = Res<Brush>("DividerStrokeColorDefaultBrush"),
-                    Margin = new Thickness(0, 9, 0, 9),
-                });
+                _body.Children.Add(pixel
+                    ? new Line
+                    {
+                        X2 = _width - PixelPadding.Left - PixelPadding.Right,
+                        StrokeThickness = PixelPlate.Cell,
+                        StrokeDashArray = new DoubleCollection { 1, 1 },
+                        Stroke = Res<Brush>("DividerStrokeColorDefaultBrush"),
+                        Margin = new Thickness(0, 9, 0, 9),
+                    }
+                    : new Rectangle
+                    {
+                        Height = 1,
+                        Fill = Res<Brush>("DividerStrokeColorDefaultBrush"),
+                        Margin = new Thickness(0, 9, 0, 9),
+                    });
             }
-            _body.Children.Add(Section(card, swatch));
+            _body.Children.Add(Section(card, swatch, pixel));
         }
     }
 
-    private static UIElement Section(StatusCard card, uint swatch)
+    /// Every line of a pixel panel in the pixel face, at a size that keeps
+    /// its pixels whole. Weights stay regular: the face has no bold, and a
+    /// synthetic one smears it; emphasis is the primary ink alone.
+    internal static void UsePixelFace(Panel panel, double size)
     {
+        foreach (var child in panel.Children)
+        {
+            if (child is Panel inner) UsePixelFace(inner, size);
+            else if (child is TextBlock text)
+            {
+                text.FontFamily = PixelPlate.Font;
+                text.FontSize = size;
+                text.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
+                foreach (var inline in text.Inlines) inline.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
+            }
+        }
+    }
+
+    private static UIElement Section(StatusCard card, uint swatch, bool pixel)
+    {
+        // Rows indent past the colour chip; the pixel panel keeps whole cells.
+        var indent = pixel ? 14.0 : 13.0;
+        var labelWidth = pixel ? PixelLabelWidth : LabelWidth;
+        var valueWidth = pixel ? PixelValueWidth : ValueWidth;
         var panel = new StackPanel();
         var title = new TextBlock { FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
         title.Inlines.Add(new Run { Text = card.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -437,45 +526,63 @@ internal sealed class HoverCard : IDisposable
             Orientation = Orientation.Horizontal,
             Children =
             {
-                new Ellipse
-                {
-                    Width = 7,
-                    Height = 7,
-                    Fill = Brand.Brush(swatch),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 1, 6, 0),
-                },
+                pixel
+                    ? new Rectangle
+                    {
+                        Width = 3 * PixelPlate.Cell,
+                        Height = 3 * PixelPlate.Cell,
+                        Fill = Brand.Brush(swatch),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 1, 8, 0),
+                    }
+                    : new Ellipse
+                    {
+                        Width = 7,
+                        Height = 7,
+                        Fill = Brand.Brush(swatch),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 1, 6, 0),
+                    },
                 title,
             },
         });
         if (card.Detail is { } detail)
         {
-            panel.Children.Add(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(13, 1, 0, 0)));
+            panel.Children.Add(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0)));
         }
 
         // Fixed label and value columns line the rows up across sections.
         var top = 7.0;
         if (card.Tasks is { } tasks)
         {
-            var line = Line(top);
+            var line = Line(top, indent, labelWidth);
             Place(line, Caption(tasks.Label, "TextFillColorSecondaryBrush"), 0, 0);
             Place(line, Emphasised(tasks.Text, tasks.Number), 0, 1);
             panel.Children.Add(line);
             top = 4;
         }
-        var meters = new Grid { Margin = new Thickness(13, top, 0, 0), RowSpacing = 4, ColumnSpacing = 8 };
-        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
+        var meters = new Grid { Margin = new Thickness(indent, top, 0, 0), RowSpacing = pixel ? 6 : 4, ColumnSpacing = 8 };
+        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
         meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ValueWidth) });
+        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(valueWidth) });
         var row = 0;
         foreach (var meter in card.Meters)
         {
             meters.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var warn = meter.Used >= 0.9;
             Place(meters, Caption(meter.Label, "TextFillColorSecondaryBrush"), row, 0);
-            var bar = new QuotaBar(6) { VerticalAlignment = VerticalAlignment.Center };
-            bar.Set(meter.Shown, Brand.Rgb(swatch), warn, _dark);
-            Place(meters, bar, row, 1);
+            if (pixel)
+            {
+                var blocks = new PixelBar { VerticalAlignment = VerticalAlignment.Center };
+                blocks.Set(meter.Shown, Brand.Rgb(swatch), warn, _dark);
+                Place(meters, blocks, row, 1);
+            }
+            else
+            {
+                var bar = new QuotaBar(6) { VerticalAlignment = VerticalAlignment.Center };
+                bar.Set(meter.Shown, Brand.Rgb(swatch), warn, _dark);
+                Place(meters, bar, row, 1);
+            }
             var value = Caption(meter.Value, warn ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
             value.HorizontalAlignment = HorizontalAlignment.Right;
             Place(meters, value, row, 2);
@@ -488,10 +595,10 @@ internal sealed class HoverCard : IDisposable
         }
         if (card.Tokens is { } tokens)
         {
-            var line = new Grid { Margin = new Thickness(13, top, 0, 0), ColumnSpacing = 8, RowSpacing = 2 };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
+            var line = new Grid { Margin = new Thickness(indent, top, 0, 0), ColumnSpacing = 8, RowSpacing = 2 };
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ValueWidth) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(valueWidth) });
             line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var label = Caption(tokens.Label, "TextFillColorSecondaryBrush");
@@ -523,7 +630,7 @@ internal sealed class HoverCard : IDisposable
             {
                 FontSize = 12,
                 Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
-                Margin = new Thickness(13, 5, 0, 0),
+                Margin = new Thickness(indent, 5, 0, 0),
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
             for (var i = 0; i < card.Note.Count; i++)
@@ -537,10 +644,10 @@ internal sealed class HoverCard : IDisposable
     }
 
     /// A label column, a stretching value and an end-aligned value.
-    private static Grid Line(double top)
+    private static Grid Line(double top, double indent, double labelWidth)
     {
-        var line = new Grid { Margin = new Thickness(13, top, 0, 0), ColumnSpacing = 8 };
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
+        var line = new Grid { Margin = new Thickness(indent, top, 0, 0), ColumnSpacing = 8 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         return line;

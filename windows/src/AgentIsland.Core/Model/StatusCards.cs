@@ -163,7 +163,7 @@ public static class StatusCards
         if (ProviderUsage.For(provider).ResetCards is > 0 and var cards)
         {
             var count = cards.ToString(CultureInfo.InvariantCulture);
-            parts.Add(Phrase(L10n.TrFormat("{0} reset cards", count), count));
+            parts.Add(Phrase(L10n.TrFormat(cards == 1 ? "{0} reset card" : "{0} reset cards", count), count));
         }
         if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(Phrase(L10n.TrFormat("Auto-switched to {0}", account)));
         return parts;

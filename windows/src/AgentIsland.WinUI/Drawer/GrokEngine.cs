@@ -1,5 +1,6 @@
 using System.IO;
 
+using AgentIsland.Model;
 using Microsoft.ClearScript;
 using Microsoft.ClearScript.JavaScript;
 using Microsoft.ClearScript.V8;
@@ -9,7 +10,7 @@ namespace AgentIsland.WinUI.Drawer;
 /// Runs the Grok Bot character engine in embedded V8 and hands back one SVG
 /// frame per bot. The engine is a local study copy of the installed Grok Bot
 /// app: it is read at runtime and never shipped (see GrokEngineLocator).
-public sealed class GrokEngine : IDisposable
+internal sealed class GrokEngine : ICharacterEngine
 {
     public const string EngineFile = "study-engine.mjs";
 
@@ -106,6 +107,15 @@ public sealed class GrokEngine : IDisposable
     /// phase is where in its cycle the state starts (0-1); negative lets the
     /// engine pick, so characters entering a state together never move as one.
     public void SetState(int bot, string state, double phase) => _host.InvokeMethod("setState", bot, state, phase);
+
+    public CharacterTheme Theme => CharacterTheme.Classic;
+
+    int ICharacterEngine.AddBot(DisplayProvider provider, string shape, string color, double tempo, int seed) =>
+        AddBot(shape, color, "idle", tempo, seed);
+
+    void ICharacterEngine.Poke(int bot) => Poke(bot, "nod");
+
+    public string[] Fidgets(DisplayProvider provider) => DrawerLooks.PersonalityOf(provider).Fidgets;
 
     public void SetLook(int bot, string shape, string color) => _host.InvokeMethod("setLook", bot, shape, color);
 

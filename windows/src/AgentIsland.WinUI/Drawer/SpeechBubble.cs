@@ -12,6 +12,8 @@ namespace AgentIsland.WinUI.Drawer;
 
 /// A character's line: a small pane of the hover card's glass beside it,
 /// growing out of the side facing the character and fading away on its own.
+/// With the pixel bots it is a pixel panel pointing at its speaker, the
+/// line in English in the pixel face.
 internal sealed class SpeechBubble
 {
     private const double MaxWidth = 240;
@@ -22,8 +24,12 @@ internal sealed class SpeechBubble
     private static readonly TimeSpan ExitDuration = TimeSpan.FromMilliseconds(180);
 
     private readonly Panel _root;
+    private static readonly Thickness TextPadding = new(14, 9, 14, 10);
+
     private readonly Popup _popup;
     private readonly Border _pane;
+    private readonly Grid _content = new();
+    private readonly PixelPlate _plate = new() { Visibility = Visibility.Collapsed };
     private readonly TextBlock _text = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxWidth = MaxWidth - 28 };
     private readonly Compositor _compositor;
     private readonly CompositionEasingFunction _easeOut;
@@ -35,10 +41,12 @@ internal sealed class SpeechBubble
     public SpeechBubble(Panel root)
     {
         _root = root;
+        _content.Children.Add(_plate);
+        _content.Children.Add(_text);
         _pane = new Border
         {
-            Child = _text,
-            Padding = new Thickness(14, 9, 14, 10),
+            Child = _content,
+            Padding = TextPadding,
             CornerRadius = new CornerRadius(8),
         };
         _popup = new Popup { Child = _pane, ShouldConstrainToRootBounds = false, IsHitTestVisible = false };
@@ -60,26 +68,56 @@ internal sealed class SpeechBubble
 
     /// anchor and area are in the drawer window's DIPs; characterRight means
     /// the character is to the bubble's right.
-    /// swatch is the speaking character's colour, washed through the glass.
-    public void Say(string line, uint swatch, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
+    /// swatch is the speaking character's colour, washed through the glass or
+    /// outlining the pixel panel.
+    public void Say(string line, uint swatch, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
     {
         if (_root.XamlRoot is not { } xamlRoot) return;
         _popup.XamlRoot = xamlRoot;
         var scale = xamlRoot.RasterizationScale;
         var dark = Brand.IsDark();
-        if (_glassDark != dark)
+        if (pixel)
         {
-            _glassDark = dark;
-            _popup.SystemBackdrop = new GlassBackdrop(dark);
+            _glassDark = null;
+            _popup.SystemBackdrop = null;
+            _pane.Background = null;
+            _pane.CornerRadius = new CornerRadius(0);
+            // The pane's padding on the speaker's side holds the pointer.
+            _pane.Padding = characterRight
+                ? new Thickness(0, 0, PixelPlate.PointerReach, 0)
+                : new Thickness(PixelPlate.PointerReach, 0, 0, 0);
+            _text.Margin = TextPadding;
+            _text.FontFamily = PixelPlate.Font;
+            _text.FontSize = PixelPlate.FontSize(scale);
+            _plate.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            if (_glassDark != dark)
+            {
+                _glassDark = dark;
+                _popup.SystemBackdrop = new GlassBackdrop(dark);
+            }
+            _pane.Background = GlassBackdrop.Wash(swatch, dark);
+            _pane.CornerRadius = new CornerRadius(8);
+            _pane.Padding = TextPadding;
+            _text.Margin = new Thickness(0);
+            _text.ClearValue(TextBlock.FontFamilyProperty);
+            _text.FontSize = 13;
+            _plate.Visibility = Visibility.Collapsed;
         }
         _text.Foreground = Fluent.Resource<Brush>("TextFillColorPrimaryBrush", dark);
-        _pane.Background = GlassBackdrop.Wash(swatch, dark);
         _text.Text = line;
 
         _pane.Measure(new Size(MaxWidth, double.PositiveInfinity));
         var size = _pane.DesiredSize;
         var aim = anchor.Y + anchor.Height / 2;
         var top = Math.Clamp(aim - size.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - size.Height));
+        if (pixel)
+        {
+            _plate.Set(size.Width - PixelPlate.PointerReach, size.Height, Brand.Rgb(swatch), HoverCard.PixelFill(dark),
+                pointLeft: !characterRight, pointerY: aim - top);
+        }
         _popup.HorizontalOffset = GlassBackdrop.Snap(characterRight ? anchor.Left - Gap - size.Width : anchor.Right + Gap, scale);
         _popup.VerticalOffset = GlassBackdrop.Snap(top, scale);
         _pane.CenterPoint = new Vector3((float)(characterRight ? size.Width : 0), (float)Math.Clamp(aim - top, 0, size.Height), 0);

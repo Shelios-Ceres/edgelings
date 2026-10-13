@@ -185,8 +185,9 @@ internal sealed class AgentSection
     /// Bars wear the agent's character colour, as in the drawer.
     private Windows.UI.Color Accent()
     {
-        var look = App.Current.Drawer?.LookOf(_provider) ?? DrawerLooks.For(_provider);
-        return Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(look.Color), Brand.IsDark()));
+        var swatch = App.Current.Drawer?.SwatchOf(_provider)
+            ?? DrawerLooks.Swatch(_provider, DrawerLooks.For(_provider).Color, DrawerStore.Shared.Theme);
+        return Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
     }
 
     private static string MeterTitle(string label) => label switch
