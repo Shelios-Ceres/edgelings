@@ -6,6 +6,7 @@ namespace AgentIsland.WinUI.Platform;
 internal static class Win32
 {
     public const int GwlExStyle = -20;
+    public const long WsExTopmost = 0x8;
     public const long WsExToolWindow = 0x80;
     public const long WsExNoActivate = 0x08000000;
     public const uint SwpNoSize = 0x1;

@@ -97,6 +97,7 @@ internal sealed class DrawerWindow : Window
     private readonly DispatcherQueue _queue;
     private readonly DispatcherQueueTimer _poll;
     private readonly DispatcherQueueTimer _guard;
+    private readonly OverlappedPresenter _presenter;
     private readonly DispatcherQueueTimer _cardClose;
     private readonly ConcurrentQueue<Action> _commands = new();
     private readonly List<int> _due = new();
@@ -175,13 +176,13 @@ internal sealed class DrawerWindow : Window
         Content = _root;
         WirePointer();
 
-        var presenter = OverlappedPresenter.Create();
-        presenter.SetBorderAndTitleBar(false, false);
-        presenter.IsResizable = false;
-        presenter.IsMaximizable = false;
-        presenter.IsMinimizable = false;
-        presenter.IsAlwaysOnTop = true;
-        AppWindow.SetPresenter(presenter);
+        _presenter = OverlappedPresenter.Create();
+        _presenter.SetBorderAndTitleBar(false, false);
+        _presenter.IsResizable = false;
+        _presenter.IsMaximizable = false;
+        _presenter.IsMinimizable = false;
+        _presenter.IsAlwaysOnTop = true;
+        AppWindow.SetPresenter(_presenter);
         AppWindow.IsShownInSwitchers = false;
         AppWindow.Title = "Agent Island";
         var style = (long)Win32.GetWindowLongPtr(_hwnd, Win32.GwlExStyle);
@@ -419,9 +420,22 @@ internal sealed class DrawerWindow : Window
             _coveredByFullscreen = covered;
             ApplyVisibility();
         }
-        if (!_shown || --_topmostCountdown > 0) return;
+        if (!_shown) return;
+        KeepOnTop();
+        if (--_topmostCountdown > 0) return;
         _topmostCountdown = TopmostEverySeconds;
         Win32.SetWindowPos(_hwnd, Win32.HwndTopmost, 0, 0, 0, 0, Win32.SwpNoMove | Win32.SwpNoSize | Win32.SwpNoActivate);
+    }
+
+    /// Topmost has to go through the presenter: AppWindow holds the window to
+    /// its presenter's state and quietly undoes a bare SetWindowPos. Asked for
+    /// before the window was first shown, it never took on a normal launch,
+    /// so the drawer sat under other apps; flipping it makes WinUI apply it.
+    private void KeepOnTop()
+    {
+        if (((long)Win32.GetWindowLongPtr(_hwnd, Win32.GwlExStyle) & Win32.WsExTopmost) != 0) return;
+        _presenter.IsAlwaysOnTop = false;
+        _presenter.IsAlwaysOnTop = true;
     }
 
     /// The busy characters' ceiling: the user's choice (0 follows the
@@ -442,6 +456,7 @@ internal sealed class DrawerWindow : Window
         if (show)
         {
             AppWindow.Show(false);
+            KeepOnTop();
             _canvas.Paused = false;
         }
         else
