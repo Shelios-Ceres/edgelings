@@ -549,7 +549,8 @@ internal sealed class DrawerWindow : Window
         if (BotLines.For(phase, _random) is not { } line) return;
         bot.LastSpoke = now;
         bot.Bubble ??= new SpeechBubble(_root);
-        bot.Bubble.Say(line, DrawerStore.Shared.Side == DrawerSide.Right, bot.Bounds, WorkAreaDip(), _reducedMotion);
+        var swatch = Brand.Readable(DrawerLooks.Swatch(bot.Color), Brand.IsDark());
+        bot.Bubble.Say(line, swatch, DrawerStore.Shared.Side == DrawerSide.Right, bot.Bounds, WorkAreaDip(), _reducedMotion);
     }
 
     private void Hush()

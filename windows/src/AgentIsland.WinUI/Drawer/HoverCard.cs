@@ -56,9 +56,6 @@ internal sealed class HoverCard
             Width = CardWidth,
             Padding = new Thickness(14, 12, 14, 13),
             CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(1),
-            Translation = new Vector3(0, 0, 16),
-            Shadow = new ThemeShadow(),
         };
         _host.Children.Add(_card);
         // The element's own Scale/Translation/Opacity are animated, so its
@@ -97,6 +94,7 @@ internal sealed class HoverCard
         // Before the drawer's content loads there is no root to open into.
         if (_root.XamlRoot is not { } xamlRoot) return;
         _popup.XamlRoot = xamlRoot;
+        var scale = xamlRoot.RasterizationScale;
         var dark = Brand.IsDark();
         _dark = dark;
         if (_glassDark != dark)
@@ -105,18 +103,17 @@ internal sealed class HoverCard
             _glassDark = dark;
             _popup.SystemBackdrop = new GlassBackdrop(dark);
         }
-        // No fill — the glass shows through. A faint light hairline gives the
-        // pane a lit edge on dark backgrounds, never a dark outline.
-        _card.Background = null;
-        _card.BorderBrush = Brand.Brush(0xFFFFFF, (byte)(dark ? 0x1F : 0x8C));
+        // No outline: the glass is the edge. A card about one character is
+        // washed in its colour; the all-characters card stays neutral.
+        _card.Background = sections.Count == 1 ? GlassBackdrop.Wash(sections[0].Swatch, dark) : null;
         Build(sections);
 
         _host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _host.DesiredSize;
         var aim = anchor.Y + anchor.Height / 2;
         var top = Math.Clamp(aim - size.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - size.Height));
-        _popup.HorizontalOffset = characterRight ? anchor.Left - Gap - CardWidth : anchor.Right + Gap;
-        _popup.VerticalOffset = top;
+        _popup.HorizontalOffset = GlassBackdrop.Snap(characterRight ? anchor.Left - Gap - CardWidth : anchor.Right + Gap, scale);
+        _popup.VerticalOffset = GlassBackdrop.Snap(top, scale);
 
         // Grows from the edge that faces the character, level with it.
         var faceY = Math.Clamp(aim - top, 0, size.Height);

@@ -40,9 +40,6 @@ internal sealed class SpeechBubble
             Child = _text,
             Padding = new Thickness(14, 9, 14, 10),
             CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(1),
-            Translation = new Vector3(0, 0, 16),
-            Shadow = new ThemeShadow(),
         };
         _popup = new Popup { Child = _pane, ShouldConstrainToRootBounds = false, IsHitTestVisible = false };
         root.Children.Add(_popup);
@@ -63,26 +60,28 @@ internal sealed class SpeechBubble
 
     /// anchor and area are in the drawer window's DIPs; characterRight means
     /// the character is to the bubble's right.
-    public void Say(string line, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
+    /// swatch is the speaking character's colour, washed through the glass.
+    public void Say(string line, uint swatch, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
     {
         if (_root.XamlRoot is not { } xamlRoot) return;
         _popup.XamlRoot = xamlRoot;
+        var scale = xamlRoot.RasterizationScale;
         var dark = Brand.IsDark();
         if (_glassDark != dark)
         {
             _glassDark = dark;
             _popup.SystemBackdrop = new GlassBackdrop(dark);
         }
-        _pane.BorderBrush = Brand.Brush(0xFFFFFF, (byte)(dark ? 0x1F : 0x8C));
         _text.Foreground = Fluent.Resource<Brush>("TextFillColorPrimaryBrush", dark);
+        _pane.Background = GlassBackdrop.Wash(swatch, dark);
         _text.Text = line;
 
         _pane.Measure(new Size(MaxWidth, double.PositiveInfinity));
         var size = _pane.DesiredSize;
         var aim = anchor.Y + anchor.Height / 2;
         var top = Math.Clamp(aim - size.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - size.Height));
-        _popup.HorizontalOffset = characterRight ? anchor.Left - Gap - size.Width : anchor.Right + Gap;
-        _popup.VerticalOffset = top;
+        _popup.HorizontalOffset = GlassBackdrop.Snap(characterRight ? anchor.Left - Gap - size.Width : anchor.Right + Gap, scale);
+        _popup.VerticalOffset = GlassBackdrop.Snap(top, scale);
         _pane.CenterPoint = new Vector3((float)(characterRight ? size.Width : 0), (float)Math.Clamp(aim - top, 0, size.Height), 0);
 
         _reduced = reducedMotion;

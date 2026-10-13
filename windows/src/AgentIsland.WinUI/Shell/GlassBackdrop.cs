@@ -2,6 +2,7 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 using Windows.UI;
 
 namespace AgentIsland.WinUI.Shell;
@@ -24,8 +25,10 @@ internal sealed class GlassBackdrop : SystemBackdrop
         {
             Kind = DesktopAcrylicKind.Thin,
             TintColor = _dark ? Color.FromArgb(255, 0x20, 0x20, 0x22) : Color.FromArgb(255, 0xFB, 0xFB, 0xFD),
-            TintOpacity = _dark ? 0.32f : 0.22f,
-            LuminosityOpacity = _dark ? 0.62f : 0.55f,
+            // Kept see-through so the wallpaper's colours read through the
+            // frost; a denser pane looked like flat plastic, not glass.
+            TintOpacity = _dark ? 0.28f : 0.15f,
+            LuminosityOpacity = _dark ? 0.58f : 0.5f,
             FallbackColor = _dark ? Color.FromArgb(0xF0, 0x2A, 0x2A, 0x2C) : Color.FromArgb(0xF0, 0xF7, 0xF7, 0xF9),
         };
         _controller.AddSystemBackdropTarget(target);
@@ -34,6 +37,31 @@ internal sealed class GlassBackdrop : SystemBackdrop
             IsInputActive = true,
             Theme = _dark ? SystemBackdropTheme.Dark : SystemBackdropTheme.Light,
         });
+    }
+
+    /// A glass pane's edge is the backdrop's own: crisp only on whole
+    /// physical pixels, since an offset between pixels (at 150% scale) smears
+    /// it across two. An outline is never drawn: the backdrop stops a pixel
+    /// short of one, so it floated around the pane as a separate frame.
+    public static double Snap(double dip, double scale) => Math.Round(dip * scale) / scale;
+
+    /// A character's colour washed through the frost, strongest in the top
+    /// corner and fading out, so the pane reads as theirs while the glass
+    /// stays see-through. Laid over the backdrop rather than tinting it: the
+    /// acrylic's own tint costs transparency.
+    public static Brush Wash(uint rgb, bool dark)
+    {
+        Color Tone(byte alpha) => Color.FromArgb(alpha, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        return new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0),
+            EndPoint = new Point(1, 1),
+            GradientStops =
+            {
+                new GradientStop { Color = Tone((byte)(dark ? 0x40 : 0x38)), Offset = 0 },
+                new GradientStop { Color = Tone((byte)(dark ? 0x14 : 0x0E)), Offset = 1 },
+            },
+        };
     }
 
     protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop target)
