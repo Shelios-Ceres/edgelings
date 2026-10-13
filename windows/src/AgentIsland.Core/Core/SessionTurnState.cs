@@ -119,26 +119,59 @@ public static class SessionTurnState
 
     /// Grok appends one JSON object per session event to `updates.jsonl` with
     /// an explicit `params.update.sessionUpdate` discriminator — and unlike
-    /// Claude it names the turn boundary outright: `turn_completed`. Anything
-    /// written after it (tool calls, streaming chunks, retry_state) means the
-    /// turn is open again. Timestamps here are unix SECONDS, not the
+    /// Claude it names the turn boundary outright: `turn_completed`. Any part
+    /// of the conversation written after it (tool calls, streaming chunks,
+    /// retry_state) means the turn is open again; the bookkeeping Grok writes
+    /// once a turn is over (memory dreams, background-task notices, rewind
+    /// markers) does not. Timestamps here are unix SECONDS, not the
     /// milliseconds Claude Desktop uses.
     public static SessionTurnStatus Grok(IReadOnlyList<string> lines)
     {
+        SessionTurnStatus? newest = null;
+        var returned = new HashSet<string>(StringComparer.Ordinal);
         for (var i = lines.Count - 1; i >= 0; i--)
         {
             using var doc = Jsonl.TryParseLine(lines[i]);
             if (doc is null) continue;
             if (Jsonl.GetObject(doc.RootElement, "params") is not { } parameters) continue;
             if (Jsonl.GetObject(parameters, "update") is not { } update) continue;
-            if (Jsonl.GetString(update, "sessionUpdate") is not { } kind) continue;
-            var stamp = UnixSeconds(Jsonl.GetDouble(doc.RootElement, "timestamp"));
-            var seconds = stamp is { } s
-                ? s.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
-                : "";
-            return new SessionTurnStatus(kind == "turn_completed", seconds + ":" + kind, stamp);
+            var kind = Jsonl.GetString(update, "sessionUpdate");
+            if (kind is not ("turn_completed" or "user_message_chunk" or "agent_thought_chunk"
+                or "agent_message_chunk" or "tool_call" or "tool_call_update" or "retry_state"))
+            {
+                continue;
+            }
+            if (newest is null)
+            {
+                var stamp = UnixSeconds(Jsonl.GetDouble(doc.RootElement, "timestamp"));
+                var seconds = stamp is { } s
+                    ? s.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : "";
+                newest = new SessionTurnStatus(kind == "turn_completed", seconds + ":" + kind, stamp);
+            }
+            // Back through the step's tool traffic: a call with no completed
+            // update after it is still running; anything else means the model
+            // owes the next update.
+            switch (kind)
+            {
+                case "turn_completed":
+                    return newest.Value;
+                case "tool_call_update":
+                    if (Jsonl.GetString(update, "status") is "completed" or "failed"
+                        && Jsonl.GetString(update, "toolCallId") is { } done)
+                    {
+                        returned.Add(done);
+                    }
+                    continue;
+                case "tool_call":
+                    if (Jsonl.GetString(update, "toolCallId") is { } call ? !returned.Contains(call) : returned.Count == 0)
+                        return newest.Value;
+                    continue;
+                default:
+                    return newest.Value with { AwaitingModel = true };
+            }
         }
-        return new SessionTurnStatus(false, null, null);
+        return newest ?? new SessionTurnStatus(false, null, null);
     }
 
     /// For sessions whose transcript has no verified turn boundary (Gemini's

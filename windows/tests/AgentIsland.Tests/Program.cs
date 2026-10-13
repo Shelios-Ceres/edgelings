@@ -64,6 +64,7 @@ public static class Program
             KimiDeepSeekTests.RunAll();
             SubagentFilterTests.RunAll();
             GrokTurnStateTests.RunAll();
+            GrokStallTests.RunAll();
             GrokPhaseTests.RunAll();
             KimiUsageTests.RunAll();
             ClaudeHooksTests.RunAll();
