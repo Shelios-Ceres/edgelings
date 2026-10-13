@@ -14,7 +14,10 @@ public sealed class UsageStore : INotifyPropertyChanged
     public static UsageStore Shared { get; } = new();
 
     private const string CacheKey = "UsageStore.lastSuccessfulUsage.v1";
-    private static readonly TimeSpan CacheMaxAge = TimeSpan.FromHours(24);
+    // A property, not a static readonly field: Shared is constructed before
+    // later static fields are set, so the restore below read a zero age
+    // limit and dropped every saved snapshot.
+    private static TimeSpan CacheMaxAge => UsageCachePolicy.KeepFor;
 
     private AppUsage _claude = AppUsage.Empty;
     private AppUsage _codex = AppUsage.Empty;
@@ -315,26 +318,8 @@ public sealed class UsageStore : INotifyPropertyChanged
         }
     }
 
-    /// Don't clobber existing good values when a fetch returns an all-error
-    /// result: preserve the last useful percentages but carry the new error
-    /// forward so the UI admits the values are stale. If the existing value
-    /// is itself error-only (cold start, series of failures), let the new
-    /// error through.
-    private static AppUsage MergedUsage(AppUsage existing, AppUsage fetched)
-    {
-        if (!IsErrorOnly(fetched) || IsErrorOnly(existing)) return fetched;
-        var error = fetched.FiveHour.Error ?? fetched.Weekly.Error;
-        return new AppUsage(
-            new WindowUsage(
-                existing.FiveHour.UsedPercent, existing.FiveHour.ResetAt, error,
-                existing.FiveHour.PeriodSeconds),
-            new WindowUsage(
-                existing.Weekly.UsedPercent, existing.Weekly.ResetAt, error,
-                existing.Weekly.PeriodSeconds),
-            existing.Plan,
-            existing.ResetCards,
-            existing.ResetCardDetails);
-    }
+    private static AppUsage MergedUsage(AppUsage existing, AppUsage fetched) =>
+        UsageCachePolicy.Merged(existing, fetched);
 
     private static string? WarningFor(bool codexFailed, bool claudeFailed)
     {

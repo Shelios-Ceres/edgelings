@@ -65,22 +65,9 @@ public static class StatusCards
     public static IReadOnlyList<StatusMeter> Meters(DisplayProvider provider)
     {
         var usage = ProviderUsage.For(provider);
-        var mode = QuotaDisplayModeStore.Shared;
-        StatusMeter Meter(WindowUsage window, string label)
-        {
-            if (window.HasError) return new StatusMeter(L10n.Tr(label), "—", null, null);
-            var shown = mode.DisplayValue(window.UsedPercent);
-            var value = Math.Round(shown);
-            var resets = window.ResetAt is { } at && at > DateTimeOffset.Now
-                ? L10n.TrFormat("Resets {0}", Formatting.LongCountdown(at - DateTimeOffset.Now, L10n.IsChinese))
-                : null;
-            return new StatusMeter(
-                L10n.Tr(label),
-                mode.ShowsRemaining ? L10n.TrFormat("{0}% left", value) : $"{value}%",
-                shown / 100,
-                window.UsedPercent,
-                resets);
-        }
+        var remaining = QuotaDisplayModeStore.Shared.ShowsRemaining;
+        var now = DateTimeOffset.Now;
+        StatusMeter Meter(WindowUsage window, string label) => MeterFor(window, L10n.Tr(label), remaining, now);
         return provider switch
         {
             DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "week") },
@@ -94,6 +81,26 @@ public static class StatusCards
         };
     }
 
+    /// One window as the card shows it. Numbers kept through a failed refresh
+    /// or a closed app still show, refilled if their reset has passed since;
+    /// only a window that never loaded shows a dash.
+    internal static StatusMeter MeterFor(WindowUsage window, string label, bool showsRemaining, DateTimeOffset now)
+    {
+        if (window.HasError && !window.Kept) return new StatusMeter(label, "—", null, null);
+        var current = window.At(now);
+        var shown = QuotaDisplayModeStore.DisplayValue(current.UsedPercent, showsRemaining);
+        var value = Math.Round(shown);
+        var resets = current.ResetAt is { } at && at > now
+            ? L10n.TrFormat("Resets {0}", Formatting.LongCountdown(at - now, L10n.IsChinese))
+            : null;
+        return new StatusMeter(
+            label,
+            showsRemaining ? L10n.TrFormat("{0}% left", value) : $"{value}%",
+            shown / 100,
+            current.UsedPercent,
+            resets);
+    }
+
     /// Every window Kimi Code's plan reports: 5 hours, the week, the month.
     private static IReadOnlyList<StatusMeter> KimiMeters(Func<WindowUsage, string, StatusMeter> meter)
     {
@@ -105,30 +112,39 @@ public static class StatusCards
                 : new[] { meter(new WindowUsage(0, null, store.ErrorCaption), "month") };
         }
         var meters = new List<StatusMeter>();
-        void Add(KimiQuotaWindow? window, string label)
+        // A calendar month has no fixed length, so it gets no period to roll
+        // its reset forward by.
+        void Add(KimiQuotaWindow? window, string label, double? period)
         {
-            if (window is { } w) meters.Add(meter(new WindowUsage(w.UsedPercent, w.ResetAt, null), label));
+            if (window is { } w) meters.Add(meter(new WindowUsage(w.UsedPercent, w.ResetAt, null, period), label));
         }
-        Add(snapshot.FiveHour, "5h");
-        Add(snapshot.Weekly, "week");
-        Add(snapshot.Month, "month");
+        Add(snapshot.FiveHour, "5h", 5 * 3600);
+        Add(snapshot.Weekly, "week", 7 * 86400);
+        Add(snapshot.Month, "month", null);
         return meters;
     }
 
     /// Today's and this month's tokens from the local logs, counted the way
     /// the Token counting setting says. Antigravity keeps no local log.
-    public static StatusTokens? Tokens(DisplayProvider provider)
+    public static StatusTokens? Tokens(DisplayProvider provider) => provider == DisplayProvider.Antigravity
+        ? null
+        : TokensFrom(CostStore.Shared.Totals(provider), TokenCountModeStore.Shared.Mode, DateTimeOffset.Now);
+
+    /// Counts from an earlier day or month say nothing about this one, so a
+    /// figure kept across midnight or a restart shows a dash until the next
+    /// scan lands.
+    internal static StatusTokens TokensFrom(TokenTotals? totals, TokenCountMode mode, DateTimeOffset now)
     {
-        if (provider == DisplayProvider.Antigravity) return null;
-        var summary = CostStore.Shared.Summary(provider);
-        var mode = TokenCountModeStore.Shared.Mode;
-        if (summary.AsOf is null)
-        {
-            return new StatusTokens(L10n.Tr("Tokens"), L10n.Tr("Not scanned yet"), "", "—", "");
-        }
+        if (totals is null) return new StatusTokens(L10n.Tr("Tokens"), L10n.Tr("Not scanned yet"), "", "—", "");
         var billable = mode == TokenCountMode.Billable;
-        var today = Formatting.CompactTokens(billable ? summary.TodayBillableTokens : summary.TodayTokens);
-        var month = Formatting.CompactTokens(billable ? summary.MonthBillableTokens : summary.MonthTokens);
+        var counted = totals.AsOf.ToLocalTime();
+        var local = now.ToLocalTime();
+        var today = counted.Date == local.Date
+            ? Formatting.CompactTokens(billable ? totals.TodayBillable : totals.Today)
+            : "—";
+        var month = counted.Year == local.Year && counted.Month == local.Month
+            ? Formatting.CompactTokens(billable ? totals.MonthBillable : totals.Month)
+            : "—";
         return new StatusTokens(
             L10n.Tr("Tokens"),
             $"{L10n.Tr("today")} {today}", today,
@@ -140,9 +156,10 @@ public static class StatusCards
     /// Kimi app, and its booster balance.
     public static IReadOnlyList<StatusPhrase> NoteParts(DisplayProvider provider)
     {
-        if (provider == DisplayProvider.Kimi) return KimiNote();
-        if (provider != DisplayProvider.Codex) return Array.Empty<StatusPhrase>();
         var parts = new List<StatusPhrase>();
+        if (QuotaAge(provider, DateTimeOffset.Now) is { } age) parts.Add(age);
+        if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
+        if (provider != DisplayProvider.Codex) return parts;
         if (ProviderUsage.For(provider).ResetCards is > 0 and var cards)
         {
             var count = cards.ToString(CultureInfo.InvariantCulture);
@@ -151,6 +168,36 @@ public static class StatusCards
         if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(Phrase(L10n.TrFormat("Auto-switched to {0}", account)));
         return parts;
     }
+
+    /// Says how old the quota numbers are whenever they are not live.
+    private static StatusPhrase? QuotaAge(DisplayProvider provider, DateTimeOffset now)
+    {
+        var usage = ProviderUsage.For(provider);
+        var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
+        if (QuotaUpdatedAt(provider) is not { } at
+            || !QuotaIsStale(usage.FiveHour.Kept || usage.Weekly.Kept, at, now, interval))
+        {
+            return null;
+        }
+        return Phrase(L10n.TrFormat("Quota updated {0}", Formatting.RelativeAgo(now - at, L10n.IsChinese)));
+    }
+
+    /// When a provider's quota numbers last came from a successful refresh.
+    private static DateTimeOffset? QuotaUpdatedAt(DisplayProvider provider) => provider switch
+    {
+        DisplayProvider.Claude => UsageStore.Shared.ClaudeUpdatedAt,
+        DisplayProvider.Codex => UsageStore.Shared.CodexUpdatedAt,
+        DisplayProvider.Antigravity => AntigravityUsageStore.Shared is { Snapshot: not null } antigravity ? antigravity.LastUpdated : null,
+        DisplayProvider.Grok => GrokUsageStore.Shared is { Snapshot: not null } grok ? grok.LastUpdated : null,
+        DisplayProvider.Cursor => CursorUsageStore.Shared is { Snapshot: not null } cursor ? cursor.LastUpdated : null,
+        DisplayProvider.Kimi => KimiUsageStore.Shared is { Snapshot: not null } kimi ? kimi.LastUpdated : null,
+        _ => null,
+    };
+
+    /// Not live: the last refresh failed, or the numbers have not moved for
+    /// two refresh rounds (Antigravity's quota only updates while its app runs).
+    internal static bool QuotaIsStale(bool kept, DateTimeOffset updatedAt, DateTimeOffset now, TimeSpan interval) =>
+        kept || now - updatedAt > interval * 2 + TimeSpan.FromMinutes(1);
 
     /// The note on one line, where it shows as plain text.
     public static string? Note(DisplayProvider provider) =>

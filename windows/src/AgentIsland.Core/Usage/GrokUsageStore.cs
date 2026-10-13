@@ -23,7 +23,10 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
     public static GrokUsageStore Shared { get; } = new();
 
     private const string CacheKey = "GrokUsageStore.lastSnapshot.v1";
-    private static readonly TimeSpan CacheMaxAge = TimeSpan.FromHours(24);
+    // A property, not a static readonly field: Shared is constructed before
+    // later static fields are set, so the restore below read a zero age
+    // limit and dropped every saved snapshot.
+    private static TimeSpan CacheMaxAge => UsageCachePolicy.KeepFor;
 
     /// De-dupes kick bursts (poll + reset boundary + manual refresh all
     /// landing close together); the real cadence stays whatever UsageStore runs.

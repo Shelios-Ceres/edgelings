@@ -77,6 +77,7 @@ public static class Program
             TokenDisplayTextTests.RunAll();
             TokenAccountingTests.RunAll();
             OtherTokenAccountingTests.RunAll();
+            QuotaRetentionTests.RunAll();
             SecurityGuardTests.RunAll();
             FormattingTests.RunAll();
             LaunchAtLoginTests.RunAll();

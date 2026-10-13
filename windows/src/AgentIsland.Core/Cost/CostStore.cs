@@ -5,6 +5,10 @@ using AgentIsland.Usage;
 
 namespace AgentIsland.Cost;
 
+/// A card's token figures and when they were counted. Saved after every scan
+/// so a restart shows the last counts at once instead of nothing.
+public sealed record TokenTotals(DateTimeOffset AsOf, long Today, long TodayBillable, long Month, long MonthBillable);
+
 /// Publishes per-provider cost rollups from the local logs. Scans run in
 /// parallel off the UI thread on the shared poll cadence; demo mode injects
 /// the same screenshot-friendly April numbers as macOS.
@@ -15,6 +19,10 @@ public sealed class CostStore : INotifyPropertyChanged
     // Replaced wholesale, never mutated: the drawer reads it from its own UI
     // thread while commits land on the app thread.
     private volatile Dictionary<DisplayProvider, ProviderCostSummary> _summaries = new();
+    private const string TotalsKey = "CostStore.cardTotals.v1";
+    // The last saved figures by provider name, replaced wholesale like
+    // _summaries; a provider's live summary wins once its first scan commits.
+    private volatile Dictionary<string, TokenTotals> _savedTotals;
     private DateTimeOffset? _lastUpdated;
     private bool _scanning;
     private DateTimeOffset _scanStartedAt;
@@ -25,6 +33,31 @@ public sealed class CostStore : INotifyPropertyChanged
     private CostStore()
     {
         _summaries = DisplayProviders.All.ToDictionary(p => p, _ => ProviderCostSummary.Empty);
+        _savedTotals = Preferences.Get<Dictionary<string, TokenTotals>>(TotalsKey) ?? new Dictionary<string, TokenTotals>();
+    }
+
+    /// The figures a card shows: the live scan's, or until a provider's first
+    /// scan of this run commits, the ones the last run saved.
+    public TokenTotals? Totals(DisplayProvider provider)
+    {
+        var summary = Summary(provider);
+        if (summary.AsOf is { } asOf)
+        {
+            return new TokenTotals(asOf, summary.TodayTokens, summary.TodayBillableTokens,
+                summary.MonthTokens, summary.MonthBillableTokens);
+        }
+        return _savedTotals.TryGetValue(provider.ToString(), out var saved) ? saved : null;
+    }
+
+    private void SaveTotals()
+    {
+        var totals = new Dictionary<string, TokenTotals>(_savedTotals);
+        foreach (var provider in DisplayProviders.All)
+        {
+            if (Summary(provider).AsOf is not null && Totals(provider) is { } live) totals[provider.ToString()] = live;
+        }
+        _savedTotals = totals;
+        Preferences.Set(TotalsKey, totals);
     }
 
     /// One provider's rollup, keyed by DisplayProvider. Empty until its first
@@ -105,6 +138,7 @@ public sealed class CostStore : INotifyPropertyChanged
                 if (cursorTask.IsCompletedSuccessfully) SetSummary(DisplayProvider.Cursor, cursorTask.Result);
                 if (kimiTask.IsCompletedSuccessfully) SetSummary(DisplayProvider.Kimi, kimiTask.Result);
                 if (deepSeekTask.IsCompletedSuccessfully) SetSummary(DisplayProvider.DeepSeek, deepSeekTask.Result);
+                SaveTotals();
                 LastUpdated = DateTimeOffset.Now;
                 _scanning = false;
             });

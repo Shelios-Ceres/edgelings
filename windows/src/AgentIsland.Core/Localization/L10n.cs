@@ -574,6 +574,7 @@ public static class L10n
         ["Local logs"] = "本机日志",
         ["Last scanned {0}"] = "上次扫描：{0}",
         ["Not scanned yet"] = "还没扫描",
+        ["Quota updated {0}"] = "额度更新于 {0}",
         ["Scan now"] = "立即扫描",
         ["Open cost"] = "打开成本",
         ["Startup"] = "启动",

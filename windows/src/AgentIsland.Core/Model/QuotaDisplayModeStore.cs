@@ -36,9 +36,11 @@ public sealed class QuotaDisplayModeStore : INotifyPropertyChanged
     }
 
     /// 0-100 display value for a window, honoring the mode.
-    public double DisplayValue(double usedPercent)
+    public double DisplayValue(double usedPercent) => DisplayValue(usedPercent, ShowsRemaining);
+
+    public static double DisplayValue(double usedPercent, bool showsRemaining)
     {
         var used = usedPercent * 100;
-        return ShowsRemaining ? System.Math.Max(0, 100 - used) : used;
+        return showsRemaining ? System.Math.Max(0, 100 - used) : used;
     }
 }

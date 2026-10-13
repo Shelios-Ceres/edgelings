@@ -33,6 +33,34 @@ public sealed class UsageCacheSnapshot
 /// snapshot restores only while young enough per provider.
 public static class UsageCachePolicy
 {
+    /// How long last-good quota numbers are kept on disk. They outlive days
+    /// offline or with an agent closed: a window that has reset since shows
+    /// as refilled, and the card says how old the numbers are.
+    public static TimeSpan KeepFor => TimeSpan.FromDays(7);
+
+    /// Don't clobber existing good values when a fetch returns an all-error
+    /// result: keep the last useful numbers, marked Kept, and carry the new
+    /// error forward so the UI admits they are not live. Numbers already kept
+    /// survive any run of failures, even at 0%; only a value that never held
+    /// numbers (cold start) lets the new error through. A single-window
+    /// provider keeps its "no data" slot, so the numbers stay under their label.
+    internal static AppUsage Merged(AppUsage existing, AppUsage fetched)
+    {
+        if (!fetched.IsErrorOnly || !HoldsNumbers(existing)) return fetched;
+        var error = fetched.FiveHour.Error ?? fetched.Weekly.Error;
+        WindowUsage Keep(WindowUsage window) => window.HasError && !window.Kept
+            ? window with { Error = error }
+            : window with { Error = error, Kept = true };
+        return existing with
+        {
+            FiveHour = Keep(existing.FiveHour),
+            Weekly = existing.SecondaryMissing ? existing.Weekly : Keep(existing.Weekly),
+        };
+    }
+
+    private static bool HoldsNumbers(AppUsage usage) =>
+        !usage.IsErrorOnly || usage.FiveHour.Kept || usage.Weekly.Kept;
+
     internal static DateTimeOffset? SuccessfulUpdateAt(AppUsage fetched, DateTimeOffset? previous, DateTimeOffset now) =>
         !fetched.FiveHour.HasError && (!fetched.Weekly.HasError || fetched.SecondaryMissing) ? now : previous;
 

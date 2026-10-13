@@ -81,7 +81,12 @@ public static class Formatting
             var m = (int)(seconds / 60);
             return chinese ? $"{m} 分钟前" : $"{m}m ago";
         }
-        var h = (int)(seconds / 3600);
-        return chinese ? $"{h} 小时前" : $"{h}h ago";
+        if (seconds < 2 * 86400)
+        {
+            var h = (int)(seconds / 3600);
+            return chinese ? $"{h} 小时前" : $"{h}h ago";
+        }
+        var d = (int)(seconds / 86400);
+        return chinese ? $"{d} 天前" : $"{d}d ago";
     }
 }

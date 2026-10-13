@@ -533,8 +533,9 @@ internal sealed class DrawerWindow : Window
     private static bool QuotaExhausted(DisplayProvider provider)
     {
         var usage = ProviderUsage.For(provider);
-        return (!usage.FiveHour.HasError && usage.FiveHour.UsedPercent >= 1)
-            || (!usage.Weekly.HasError && usage.Weekly.UsedPercent >= 1);
+        var now = DateTimeOffset.Now;
+        return (!usage.FiveHour.HasError && usage.FiveHour.At(now).UsedPercent >= 1)
+            || (!usage.Weekly.HasError && usage.Weekly.At(now).UsedPercent >= 1);
     }
 
     /// A shown phase stays at least MinDwellSeconds so quick tool bursts do

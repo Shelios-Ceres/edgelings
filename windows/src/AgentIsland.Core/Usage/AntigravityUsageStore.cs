@@ -15,7 +15,10 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
     public static AntigravityUsageStore Shared { get; } = new();
 
     private const string CacheKey = "AntigravityUsageStore.lastSnapshot.v1";
-    private static readonly TimeSpan CacheMaxAge = TimeSpan.FromDays(8);
+    // A property, not a static readonly field: Shared is constructed before
+    // later static fields are set, so the restore below read a zero age
+    // limit and dropped every saved snapshot.
+    private static TimeSpan CacheMaxAge => TimeSpan.FromDays(8);
     private static readonly TimeSpan MinAttemptGap = TimeSpan.FromSeconds(120);
 
     private AntigravityQuotaSnapshot? _snapshot;

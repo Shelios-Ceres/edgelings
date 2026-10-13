@@ -15,8 +15,27 @@ public sealed record WindowUsage(
 
     public bool HasError => !string.IsNullOrEmpty(Error);
 
+    /// The last good numbers, kept through a failed refresh or a closed app;
+    /// Error then says why they are not live rather than that none exist.
+    public bool Kept { get; init; }
+
     /// A multi-day window (weekly-style) as opposed to an intra-day one.
     public bool IsLongPeriod => (PeriodSeconds ?? 0) >= 2 * 86400;
+
+    /// The window as it stands at `now`. One whose reset time has passed has
+    /// refilled since it was read, so kept numbers never claim quota that has
+    /// come back; the next reset follows from the period, when known.
+    public WindowUsage At(DateTimeOffset now)
+    {
+        if (ResetAt is not { } reset || reset > now) return this;
+        DateTimeOffset? next = null;
+        if (PeriodSeconds is { } seconds && seconds > 0)
+        {
+            var period = TimeSpan.FromSeconds(seconds);
+            next = reset + period * (Math.Floor((now - reset) / period) + 1);
+        }
+        return this with { UsedPercent = 0, ResetAt = next };
+    }
 }
 
 /// A banked Codex rate-limit reset ("reset card") — OpenAI's own title
@@ -53,6 +72,6 @@ public sealed record AppUsage(
     /// Codex's July 2026 shape (a single weekly quota, secondary_window
     /// gone). The UI hides the empty tile instead of pinning "no data".
     /// Cold start (both unknown) and fetch failures don't qualify, because
-    /// the primary slot carries an error too.
-    public bool SecondaryMissing => Weekly.Error == "no data" && FiveHour.Error is null;
+    /// the primary slot carries an error too, unless it holds kept numbers.
+    public bool SecondaryMissing => Weekly.Error == "no data" && (FiveHour.Error is null || FiveHour.Kept);
 }

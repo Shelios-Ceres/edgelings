@@ -312,7 +312,10 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     internal static ActivityState? UsageAttentionState(AppUsage usage)
     {
-        if (usage.FiveHour.UsedPercent >= 1 || usage.Weekly.UsedPercent >= 1)
+        // Kept numbers can outlive their window: one that has reset since is
+        // no longer used up.
+        var now = DateTimeOffset.Now;
+        if (usage.FiveHour.At(now).UsedPercent >= 1 || usage.Weekly.At(now).UsedPercent >= 1)
             return ActivityState.RateLimited;
         var messages = new[] { usage.FiveHour.Error, usage.Weekly.Error }
             .Where(m => !string.IsNullOrEmpty(m))

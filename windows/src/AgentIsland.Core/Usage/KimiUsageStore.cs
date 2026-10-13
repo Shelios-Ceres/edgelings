@@ -20,7 +20,10 @@ public sealed class KimiUsageStore : INotifyPropertyChanged
     public static KimiUsageStore Shared { get; } = new();
 
     private const string CacheKey = "KimiUsageStore.lastSnapshot.v1";
-    private static readonly TimeSpan CacheMaxAge = TimeSpan.FromHours(24);
+    // A property, not a static readonly field: Shared is constructed before
+    // later static fields are set, so the restore below read a zero age
+    // limit and dropped every saved snapshot.
+    private static TimeSpan CacheMaxAge => UsageCachePolicy.KeepFor;
     private static readonly TimeSpan MinAttemptGap = TimeSpan.FromSeconds(120);
 
     private KimiUsageSnapshot? _snapshot;
