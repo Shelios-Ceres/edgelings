@@ -20,4 +20,5 @@ public sealed record ScannedSession(
     SessionLaunchTarget LaunchTarget)
 {
     public string Id => Tool.RawValue() + ":" + SessionId;
+    public PhaseReading? PendingPrompt { get; init; }
 }

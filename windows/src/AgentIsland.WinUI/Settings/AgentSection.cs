@@ -17,8 +17,6 @@ namespace AgentIsland.WinUI.Settings;
 /// tokens counted from local logs, the account, sign-in and the character.
 internal sealed class AgentSection
 {
-    private const int MaxMeters = 2;
-
     private readonly DisplayProvider _provider;
     private readonly TextBlock _plan = new();
     private readonly Border _planBadge;
@@ -64,15 +62,6 @@ internal sealed class AgentSection
 
         _activity = new SettingsCard { Header = L10n.Tr("Right now"), Description = _activityText, HeaderIcon = Icon("\uE9D9") };
         Expander.Items.Add(_activity);
-        for (var i = 0; i < MaxMeters; i++)
-        {
-            var bar = new QuotaBar(8) { Width = 180, VerticalAlignment = VerticalAlignment.Center };
-            var value = new TextBlock { MinWidth = 64, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { bar, value } };
-            var card = new SettingsCard { HeaderIcon = Icon("\uE9D2"), Content = content };
-            _meters.Add((card, bar, value));
-            Expander.Items.Add(card);
-        }
         _tokens = new SettingsCard { Header = L10n.Tr("Tokens"), HeaderIcon = Icon("\uE8EF"), Content = _tokensText };
         Expander.Items.Add(_tokens);
         _note = new SettingsCard { HeaderIcon = Icon("\uE946") };
@@ -115,6 +104,15 @@ internal sealed class AgentSection
         SetStatus(_status, report.Status, report.Warning);
         _shown.IsOn = ProviderVisibilityStore.Shared.IsShown(_provider);
 
+        while (_meters.Count < report.Meters.Count)
+        {
+            var bar = new QuotaBar(8) { Width = 180, VerticalAlignment = VerticalAlignment.Center };
+            var value = new TextBlock { MinWidth = 64, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { bar, value } };
+            var card = new SettingsCard { HeaderIcon = Icon("\uE9D2"), Content = content };
+            _meters.Add((card, bar, value));
+            Expander.Items.Insert(_meters.Count, card);
+        }
         for (var i = 0; i < _meters.Count; i++)
         {
             var (card, bar, value) = _meters[i];

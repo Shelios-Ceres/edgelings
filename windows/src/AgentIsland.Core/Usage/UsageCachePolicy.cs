@@ -33,6 +33,9 @@ public sealed class UsageCacheSnapshot
 /// snapshot restores only while young enough per provider.
 public static class UsageCachePolicy
 {
+    internal static DateTimeOffset? SuccessfulUpdateAt(AppUsage fetched, DateTimeOffset? previous, DateTimeOffset now) =>
+        !fetched.FiveHour.HasError && (!fetched.Weekly.HasError || fetched.SecondaryMissing) ? now : previous;
+
     public static UsageCacheSnapshot? SnapshotForSave(
         AppUsage claude,
         AppUsage codex,

@@ -97,7 +97,8 @@ public static class AgentReports
     {
         DateTimeOffset? synced = provider switch
         {
-            DisplayProvider.Claude or DisplayProvider.Codex => UsageStore.Shared.LastUpdated,
+            DisplayProvider.Claude => UsageStore.Shared.ClaudeUpdatedAt,
+            DisplayProvider.Codex => UsageStore.Shared.CodexUpdatedAt,
             DisplayProvider.Antigravity => AntigravityUsageStore.Shared.LastUpdated,
             DisplayProvider.Grok => GrokUsageStore.Shared.LastUpdated,
             DisplayProvider.Cursor => CursorUsageStore.Shared.LastUpdated,
@@ -110,7 +111,7 @@ public static class AgentReports
             : L10n.Tr("Waiting for the first sync");
     }
 
-    private static string? Warning(DisplayProvider provider)
+    internal static string? Warning(DisplayProvider provider)
     {
         string? raw = provider switch
         {
@@ -127,13 +128,12 @@ public static class AgentReports
         return raw is null ? null : ErrorDisplay.Localize(raw);
     }
 
-    /// The first window error that left no number behind; both windows
-    /// failing the same way is one fact, not two.
-    private static string? WindowError(AppUsage usage)
+    /// A failed refresh still needs an explanation when old numbers survive.
+    internal static string? WindowError(AppUsage usage)
     {
         foreach (var window in new[] { usage.FiveHour, usage.Weekly })
         {
-            if (window.Error is { } error && error != "no data" && Formatting.PercentInt(window.UsedPercent) == 0) return error;
+            if (window.Error is { Length: > 0 } error && error != "no data") return error;
         }
         return null;
     }
@@ -188,7 +188,7 @@ public static class AgentReports
             case DisplayProvider.Codex:
                 // Anthropic rate-limits the usage endpoint hard: a manual
                 // refresh still asks at most once a minute.
-                if (UsageStore.Shared.LastUpdated is not { } last || DateTimeOffset.Now - last > TimeSpan.FromMinutes(1))
+                if (UsageStore.Shared.LastAttemptedAt is not { } last || DateTimeOffset.Now - last > TimeSpan.FromMinutes(1))
                 {
                     UsageStore.Shared.Refresh();
                 }

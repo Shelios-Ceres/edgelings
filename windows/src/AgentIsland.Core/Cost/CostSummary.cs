@@ -20,6 +20,10 @@ public sealed record ProviderCostSummary(
     IReadOnlyList<DailyTokenBucket> DailyHistory,     // Jan 1 -> today
     IReadOnlyList<string> UnknownModels)
 {
+    /// The cost window's seven calendar days, including today. The rolling
+    /// WeeklyModels above remains unchanged for existing report consumers.
+    public ReportSlice LastSevenDays { get; init; } = ReportSlice.Empty;
+
     public static ProviderCostSummary Empty { get; } = new(
         0, 0, 0, 0, 0, 0,
         new double[24], Array.Empty<double>(),
@@ -50,11 +54,12 @@ public static class CostSummarizer
     public static ReportSlice Slice(IReadOnlyList<TokenEvent> events, DateTimeOffset start, DateTimeOffset end)
     {
         var startDay = start.ToLocalTime().Date;
-        var lastDay = end.ToLocalTime().AddSeconds(-1).Date;
+        var lastDay = end.ToLocalTime().AddTicks(-1).Date;
         var dayCount = Math.Max(1, (int)(lastDay - startDay).TotalDays + 1);
 
         var tokenBuckets = new long[dayCount];
         var billableBuckets = new long[dayCount];
+        var dollarBuckets = new double[dayCount];
         double dollars = 0;
         var byModel = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
 
@@ -67,6 +72,7 @@ public static class CostSummarizer
             {
                 tokenBuckets[dayOffset] += tokenEvent.WireTokens;
                 billableBuckets[dayOffset] += tokenEvent.BillableTokens;
+                dollarBuckets[dayOffset] += tokenEvent.Dollars;
             }
             dollars += tokenEvent.Dollars;
             var model = Pricing.CanonicalModelName(tokenEvent.Model);
@@ -79,8 +85,9 @@ public static class CostSummarizer
         var daily = new List<DailyTokenBucket>(dayCount);
         for (var i = 0; i < dayCount; i++)
         {
-            var day = new DateTimeOffset(startDay.AddDays(i), DateTimeOffset.Now.Offset);
-            daily.Add(new DailyTokenBucket(day, tokenBuckets[i], billableBuckets[i], 0));
+            var date = startDay.AddDays(i);
+            var day = new DateTimeOffset(date, TimeZoneInfo.Local.GetUtcOffset(date));
+            daily.Add(new DailyTokenBucket(day, tokenBuckets[i], billableBuckets[i], dollarBuckets[i]));
         }
 
         return new ReportSlice(
@@ -94,7 +101,13 @@ public static class CostSummarizer
     public static int YearHistoryDays(DateTimeOffset now)
     {
         var jan1 = new DateTimeOffset(now.Year, 1, 1, 0, 0, 0, now.Offset);
-        return Math.Max(1, (int)(now.Date - jan1.Date).TotalDays + 1);
+        return Math.Max(7, (int)(now.Date - jan1.Date).TotalDays + 1);
+    }
+
+    public static DateTimeOffset LastSevenDaysStart(DateTimeOffset now)
+    {
+        var date = now.ToLocalTime().Date.AddDays(-6);
+        return new DateTimeOffset(date, TimeZoneInfo.Local.GetUtcOffset(date));
     }
 
     public static ProviderCostSummary Summarize(IReadOnlyList<TokenEvent> events, DateTimeOffset now)
@@ -176,7 +189,10 @@ public static class CostSummarizer
             monthDollars, monthTokens, monthBillable,
             todaySeries, monthSeries,
             ToSpendList(recent), ToSpendList(weekly), ToSpendList(month),
-            dailyHistory, unknown.ToList());
+            dailyHistory, unknown.ToList())
+        {
+            LastSevenDays = Slice(events, LastSevenDaysStart(now), now.AddTicks(1)),
+        };
     }
 
     private static void Accumulate(

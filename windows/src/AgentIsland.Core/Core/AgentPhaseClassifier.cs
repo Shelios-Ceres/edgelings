@@ -296,7 +296,7 @@ public static class AgentPhaseClassifier
 
     /// A permission prompt or MCP input dialog the opt-in hook saw open.
     private static PhaseReading? ClaudePrompt(string transcriptPath, DateTimeOffset now) =>
-        ClaudeHooks.Pending(transcriptPath, now) is { } prompt
+        ClaudeHooks.Pending(transcriptPath, now) is { } prompt && SessionScanner.HasOpenClaudeTurn(transcriptPath)
             ? new PhaseReading(prompt.Type == ClaudeHooks.PermissionPrompt ? AgentPhase.Approving : AgentPhase.Asking, null, prompt.At)
             : null;
 

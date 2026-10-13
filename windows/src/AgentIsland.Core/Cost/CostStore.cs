@@ -161,6 +161,12 @@ public sealed class CostStore : INotifyPropertyChanged
             var tokens = (long)(monthTokens / 30.0 * (0.2 + random.NextDouble()));
             history.Add(new DailyTokenBucket(day, tokens, tokens / 10, tokens / 1_500_000.0));
         }
+        var weekStart = CostSummarizer.LastSevenDaysStart(now);
+        var week = Enumerable.Range(0, 7).Select(i =>
+        {
+            var day = weekStart.AddDays(i);
+            return history.FirstOrDefault(bucket => bucket.DayStart.Date == day.Date) ?? new DailyTokenBucket(day, 0, 0, 0);
+        }).ToList();
         return new ProviderCostSummary(
             todayDollars, todayTokens, todayBillable,
             monthDollars, monthTokens, monthBillable,
@@ -169,7 +175,13 @@ public sealed class CostStore : INotifyPropertyChanged
             new[] { new ModelSpend("claude-fable-5", todayTokens, todayBillable, todayDollars) },
             new[] { new ModelSpend("claude-fable-5", monthTokens, monthBillable, monthDollars) },
             history,
-            Array.Empty<string>());
+            Array.Empty<string>())
+        {
+            LastSevenDays = new ReportSlice(week, week.Sum(d => d.Dollars), new[]
+            {
+                new ModelSpend("claude-fable-5", week.Sum(d => d.Tokens), week.Sum(d => d.BillableTokens), week.Sum(d => d.Dollars)),
+            }),
+        };
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

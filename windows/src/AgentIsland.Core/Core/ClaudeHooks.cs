@@ -138,33 +138,46 @@ public static class ClaudeHooks
     /// The open prompt for a transcript: the latest marker for it that is
     /// newer than the transcript's last write. Answering the prompt writes
     /// the tool's result to the transcript, which retires the marker.
-    public static (string Type, DateTimeOffset At)? Pending(string transcriptPath, DateTimeOffset now)
+    public static (string Type, DateTimeOffset At)? Pending(string transcriptPath, DateTimeOffset now) =>
+        PendingFor(new[] { transcriptPath }, now).TryGetValue(transcriptPath, out var prompt) ? prompt : null;
+
+    internal static Dictionary<string, (string Type, DateTimeOffset At)> PendingFor(
+        IEnumerable<string> transcriptPaths, DateTimeOffset now)
     {
+        var pending = new Dictionary<string, (string Type, DateTimeOffset At)>(StringComparer.OrdinalIgnoreCase);
+        var targets = transcriptPaths.Distinct(StringComparer.OrdinalIgnoreCase)
+            .GroupBy(Normalize).ToDictionary(group => group.Key, group => group.First());
+        if (targets.Count == 0) return pending;
         try
         {
-            if (!Directory.Exists(SignalDirectory) || !File.Exists(transcriptPath)) return null;
-            var written = new DateTimeOffset(File.GetLastWriteTimeUtc(transcriptPath), TimeSpan.Zero);
-            var target = Normalize(transcriptPath);
-            (string, DateTimeOffset)? latest = null;
+            if (!Directory.Exists(SignalDirectory)) return pending;
             foreach (var file in Directory.EnumerateFiles(SignalDirectory, "*.json"))
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(file));
-                var root = doc.RootElement;
-                if (Jsonl.GetString(root, "transcript_path") is not { } path || Normalize(path) != target) continue;
-                var type = Jsonl.GetString(root, "type");
-                if (type is not (PermissionPrompt or ElicitationDialog)) continue;
-                var ms = Jsonl.GetDouble(root, "at") ?? 0;
-                if (ms is <= 0 or > 253_402_300_799_999) continue;
-                var at = DateTimeOffset.FromUnixTimeMilliseconds((long)ms);
-                if (now - at > PromptLifetime || at < written) continue;
-                if (latest is null || at > latest.Value.Item2) latest = (type, at);
+                try
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                    var root = doc.RootElement;
+                    if (Jsonl.GetString(root, "transcript_path") is not { } path
+                        || !targets.TryGetValue(Normalize(path), out var target) || !File.Exists(target)) continue;
+                    var type = Jsonl.GetString(root, "type");
+                    if (type is not (PermissionPrompt or ElicitationDialog)) continue;
+                    var ms = Jsonl.GetDouble(root, "at") ?? 0;
+                    if (ms is <= 0 or > 253_402_300_799_999) continue;
+                    var at = DateTimeOffset.FromUnixTimeMilliseconds((long)ms);
+                    var written = new DateTimeOffset(File.GetLastWriteTimeUtc(target), TimeSpan.Zero);
+                    if (at > now || now - at >= PromptLifetime || at < written) continue;
+                    if (!pending.TryGetValue(target, out var latest) || at > latest.At) pending[target] = (type, at);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+                {
+                    // A concurrent hook write must not hide another session's prompt.
+                }
             }
-            return latest;
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            return null;
         }
+        return pending;
     }
 
     private static string Normalize(string path) =>

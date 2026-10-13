@@ -121,11 +121,11 @@ internal sealed class HoverCard
         _reduced = reducedMotion;
         var fresh = !_popup.IsOpen;
         var returning = _closing;
-        _generation++;
         _closing = false;
         _closeTimer.Stop();
         if (fresh)
         {
+            _generation++;
             // The first frame must already be the starting pose: opening at
             // full size and only then shrinking to grow is the jump.
             _host.Opacity = 0;
@@ -356,7 +356,7 @@ internal sealed class HoverCard
     }
 
     /// Runs once the popup has put a frame on screen at the starting pose,
-    /// unless the card was shown or hidden again meanwhile.
+    /// unless the card was hidden meanwhile; content refreshes keep the entry.
     private void AfterFirstFrame(int generation, Action action)
     {
         var frames = 0;

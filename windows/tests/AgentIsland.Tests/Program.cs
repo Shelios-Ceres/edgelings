@@ -72,6 +72,8 @@ public static class Program
             ClaudeHooksTests.RunAll();
             CodexReplayGuardTests.RunAll();
             UsageCachePolicyTests.RunAll();
+            UsageFreshnessTests.RunAll();
+            CostPeriodTests.RunAll();
             SecurityGuardTests.RunAll();
             FormattingTests.RunAll();
             LaunchAtLoginTests.RunAll();

@@ -20,7 +20,10 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         DateTimeOffset Modified,
         string? TranscriptPath,
         string? TurnKey,
-        SessionLaunchTarget LaunchTarget);
+        SessionLaunchTarget LaunchTarget)
+    {
+        public PhaseReading? PendingPrompt { get; init; }
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -184,7 +187,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         var lastWorkingSnapshot = new Dictionary<string, DateTimeOffset>(
             _lastWorking, StringComparer.OrdinalIgnoreCase);
         Task.Run(() => new Scan(
-                SessionScanner.MonitoringScan(now, lastWorkingSnapshot),
+                PrepareSessions(SessionScanner.MonitoringScan(now, lastWorkingSnapshot), now),
                 AgentProcesses.Gone(),
                 InternetStatus.IsOffline(now)))
             .ContinueWith(task =>
@@ -216,6 +219,25 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         public static readonly Scan Empty = new(new List<ScannedSession>(), new HashSet<TriggerTool>(), false);
     }
 
+    internal static List<ScannedSession> PrepareSessions(IEnumerable<ScannedSession> sessions, DateTimeOffset now)
+    {
+        var current = LatestSessions(sessions).ToList();
+        var prompts = ClaudeHooks.PendingFor(current
+            .Where(s => s.Tool == TriggerTool.Claude && s.TranscriptPath is not null)
+            .Select(s => s.TranscriptPath!), now);
+        return current.ConvertAll(session =>
+        {
+            if (session.Tool != TriggerTool.Claude || session.TranscriptPath is not { } path
+                || session.Status is ActivityState.NeedsYou or ActivityState.RateLimited or ActivityState.AuthRequired
+                || !prompts.TryGetValue(path, out var prompt) || !SessionScanner.HasOpenClaudeTurn(path))
+            {
+                return session with { PendingPrompt = null };
+            }
+            var phase = prompt.Type == ClaudeHooks.PermissionPrompt ? AgentPhase.Approving : AgentPhase.Asking;
+            return session with { Status = ActivityState.Working, PendingPrompt = new(phase, null, prompt.At) };
+        });
+    }
+
     /// Evidence beyond the transcripts: a mid-task session whose agent has no
     /// process left was abandoned, and while Windows reports no internet a
     /// working agent cannot be getting anywhere.
@@ -223,7 +245,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         sessions.ConvertAll(session => session.Status switch
         {
             ActivityState.Working or ActivityState.NetworkTrouble when gone.Contains(session.Tool) =>
-                session with { Status = ActivityState.Idle },
+                session with { Status = ActivityState.Idle, PendingPrompt = null },
             ActivityState.Working when offline => session with { Status = ActivityState.NetworkTrouble },
             _ => session,
         });
@@ -318,7 +340,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// mask a genuinely running sibling until it ages out. Trouble a session
     /// wrote down stays above working so real anomalies surface.
     private static int SelectionPriority(ScannedSession session) =>
-        session.Status switch
+        session.PendingPrompt is not null ? 4 : session.Status switch
         {
             ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired => 3,
             ActivityState.Working => 2,
@@ -329,17 +351,32 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// Codex can spread one thread over several rollout files, so threads
     /// are counted by id, not by file.
     internal static int RunningCount(IEnumerable<ScannedSession> sessions, TriggerTool tool) =>
-        sessions
-            .Where(s => s.Tool == tool && s.Status is ActivityState.Working or ActivityState.NetworkTrouble)
-            .Select(s => s.SessionId)
-            .Distinct(StringComparer.Ordinal)
-            .Count();
+        LatestSessions(sessions)
+            .Count(s => s.Tool == tool && s.Status is ActivityState.Working or ActivityState.NetworkTrouble);
 
-    private static (ActivityState State, ActiveThread? Thread) BestSession(
+    internal static IEnumerable<ScannedSession> LatestSessions(IEnumerable<ScannedSession> sessions) =>
+        sessions.Select((session, index) => (Session: session, Key: !string.IsNullOrWhiteSpace(session.SessionId)
+                ? "id:" + session.SessionId
+                : !string.IsNullOrWhiteSpace(session.TranscriptPath)
+                    ? "path:" + session.TranscriptPath.Replace('/', '\\').ToUpperInvariant()
+                    : "unknown:" + index))
+            .GroupBy(item => (item.Session.Tool, item.Key))
+            .Select(group => group.Select(item => item.Session)
+                .OrderByDescending(s => s.Modified)
+                // A close can share its timestamp with the last work event.
+                .ThenByDescending(s => s.Status is ActivityState.Idle or ActivityState.NeedsYou
+                    or ActivityState.RateLimited or ActivityState.AuthRequired)
+                .ThenByDescending(s => s.Status)
+                .ThenBy(s => s.TranscriptPath, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.TranscriptPath, StringComparer.Ordinal)
+                .ThenBy(s => s.TurnKey, StringComparer.Ordinal)
+                .First());
+
+    internal static (ActivityState State, ActiveThread? Thread) BestSession(
         List<ScannedSession> sessions,
         TriggerTool tool)
     {
-        var ranked = sessions
+        var ranked = LatestSessions(sessions)
             .Where(s => s.Tool == tool)
             .Select(s => (Session: s, Priority: SelectionPriority(s)))
             .OrderByDescending(x => x.Priority)
@@ -358,7 +395,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         session.Modified,
         session.TranscriptPath,
         session.TurnKey,
-        session.LaunchTarget);
+        session.LaunchTarget) { PendingPrompt = session.PendingPrompt };
 
     /// Both the maps and the two named views have to be announced: the island
     /// and tray listen for "Claude"/"Codex", the five-wide panel reads the

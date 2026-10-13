@@ -348,13 +348,17 @@ public sealed class DrawerWindow : Window
         var monitor = ActivityMonitor.Shared;
         var jobs = _bots
             .Where(b => b.Visible)
-            .Select(b => (Bot: b, State: monitor.StateFor(b.Tool), Path: monitor.ThreadFor(b.Tool)?.TranscriptPath))
+            .Select(b =>
+            {
+                var thread = monitor.ThreadFor(b.Tool);
+                return (Bot: b, State: monitor.StateFor(b.Tool), Path: thread?.TranscriptPath, Prompt: thread?.PendingPrompt);
+            })
             .ToList();
         // Tail reads stay off the UI thread; only working sessions are read.
         Task.Run(() => jobs
-                .Select(job => job.State == ActivityState.Working && job.Path is { } path
+                .Select(job => job.Prompt ?? (job.State == ActivityState.Working && job.Path is { } path
                     ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
-                    : null)
+                    : null))
                 .ToList())
             .ContinueWith(task =>
             {
@@ -363,7 +367,7 @@ public sealed class DrawerWindow : Window
                 var seconds = _clock.Elapsed.TotalSeconds;
                 for (var i = 0; i < jobs.Count; i++)
                 {
-                    var (bot, state, _) = jobs[i];
+                    var (bot, state, _, _) = jobs[i];
                     var reading = task.Result[i];
                     var phase = AgentPhases.Combine(state, reading, QuotaExhausted(bot.Provider));
                     Offer(bot, phase, reading is { } r && r.Phase == phase ? r.Detail : null, seconds);

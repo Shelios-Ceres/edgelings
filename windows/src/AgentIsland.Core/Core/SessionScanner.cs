@@ -987,6 +987,12 @@ public static class SessionScanner
         return (ActivityState.Working, turn.Key, effectiveModified);
     }
 
+    internal static bool HasOpenClaudeTurn(string path)
+    {
+        var (turn, _) = ReadTurn(path, SessionTurnState.Claude, p => TailLines(p));
+        return turn.Key is not null && !turn.IsDone && !turn.Idle;
+    }
+
     // MARK: - Turn parse cache
 
     private static readonly Dictionary<string, (long Ticks, long Size, SessionTurnStatus Turn, DateTimeOffset Modified)>

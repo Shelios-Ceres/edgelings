@@ -200,9 +200,9 @@ internal sealed class CostWindow : Window
                 }
                 return new Slice(provider, dollars, summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens, hours, summary.RecentModels);
             case Period.Week:
-                var week = summary.WeeklyModels;
-                return new Slice(provider, dollars, week.Sum(m => m.Dollars), week.Sum(m => m.Tokens), week.Sum(m => m.BillableTokens),
-                    Days(today.AddDays(-6)), week);
+                var week = summary.LastSevenDays;
+                return new Slice(provider, dollars, week.Dollars, week.DailyTokens.Sum(d => d.Tokens), week.DailyTokens.Sum(d => d.BillableTokens),
+                    week.DailyTokens.Select(d => (d.DayStart.ToString(L10n.IsChinese ? "M月d日" : "MMM d"), DayValue(d))).ToList(), week.ByModel);
             default:
                 return new Slice(provider, dollars, summary.MonthDollars, summary.MonthTokens, summary.MonthBillableTokens,
                     Days(new DateTime(today.Year, today.Month, 1)), summary.MonthModels);

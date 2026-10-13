@@ -480,23 +480,28 @@ internal sealed class DrawerWindow : Window
             var monitor = ActivityMonitor.Shared;
             var jobs = _bots
                 .Where(b => b.Visible)
-                .Select(b => (Bot: b, State: monitor.StateFor(b.Tool), Path: monitor.ThreadFor(b.Tool)?.TranscriptPath, Running: monitor.RunningFor(b.Tool)))
+                .Select(b =>
+                {
+                    var thread = monitor.ThreadFor(b.Tool);
+                    return (Bot: b, State: monitor.StateFor(b.Tool), Path: thread?.TranscriptPath,
+                        Running: monitor.RunningFor(b.Tool), Prompt: thread?.PendingPrompt);
+                })
                 .ToList();
             // Tail reads stay off the UI thread. Working sessions are read for
             // how they work, network trouble for a prompt that may be open, and
             // finished turns for whether they ended on an error.
             var readings = await Task.Run(() => jobs
-                .Select(job => job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
+                .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
                     && job.Path is { } path
                     ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
-                    : null)
+                    : null))
                 .ToList());
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
             var recounted = false;
             for (var i = 0; i < jobs.Count; i++)
             {
-                var (bot, state, _, running) = jobs[i];
+                var (bot, state, _, running, _) = jobs[i];
                 recounted |= bot.Running != running;
                 bot.Running = running;
                 var reading = readings[i];
@@ -819,8 +824,13 @@ internal sealed class DrawerWindow : Window
 
     // MARK: - Interaction
 
-    private Bot? BotAt(Point point) =>
-        _bots.FirstOrDefault(b => b.Visible && b.Bounds.Contains(point));
+    private Bot? BotAt(Point point) => _bots.FirstOrDefault(b =>
+    {
+        if (!b.Visible) return false;
+        var dx = point.X - (b.Bounds.X + BotSize / 2);
+        var dy = point.Y - (b.Bounds.Y + BotSize / 2);
+        return dx * dx + dy * dy <= BotSize * BotSize / 4;
+    });
 
     private Bot? BotUnderCursor()
     {

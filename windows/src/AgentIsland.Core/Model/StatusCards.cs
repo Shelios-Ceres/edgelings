@@ -44,7 +44,14 @@ public static class StatusCards
         Tasks(running),
         Meters(provider),
         Tokens(provider),
-        NoteParts(provider));
+        CardNotes(provider));
+
+    private static IReadOnlyList<StatusPhrase> CardNotes(DisplayProvider provider)
+    {
+        var parts = NoteParts(provider).ToList();
+        if (AgentReports.Warning(provider) is { } warning) parts.Insert(0, Phrase(warning));
+        return parts;
+    }
 
     public static StatusTasks? Tasks(int running)
     {

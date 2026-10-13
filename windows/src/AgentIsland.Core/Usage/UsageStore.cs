@@ -19,6 +19,9 @@ public sealed class UsageStore : INotifyPropertyChanged
     private AppUsage _claude = AppUsage.Empty;
     private AppUsage _codex = AppUsage.Empty;
     private DateTimeOffset? _lastUpdated;
+    private DateTimeOffset? _claudeUpdatedAt;
+    private DateTimeOffset? _codexUpdatedAt;
+    private DateTimeOffset? _lastAttemptedAt;
     private string? _refreshWarning;
     private bool _loading;
     private bool _claudeReauthInProgress;
@@ -63,12 +66,17 @@ public sealed class UsageStore : INotifyPropertyChanged
             _claude = snapshot.Claude;
             _codex = snapshot.Codex;
             _lastUpdated = snapshot.UpdatedAt;
+            _claudeUpdatedAt = UsageCachePolicy.CacheableCopy(snapshot.Claude) is null ? null : snapshot.ClaudeUpdatedAt;
+            _codexUpdatedAt = UsageCachePolicy.CacheableCopy(snapshot.Codex) is null ? null : snapshot.CodexUpdatedAt;
         }
     }
 
     public AppUsage Claude { get => _claude; private set { _claude = value; Raise(nameof(Claude)); } }
     public AppUsage Codex { get => _codex; private set { _codex = value; Raise(nameof(Codex)); } }
     public DateTimeOffset? LastUpdated { get => _lastUpdated; private set { _lastUpdated = value; Raise(nameof(LastUpdated)); } }
+    public DateTimeOffset? ClaudeUpdatedAt { get => _claudeUpdatedAt; private set { _claudeUpdatedAt = value; Raise(nameof(ClaudeUpdatedAt)); } }
+    public DateTimeOffset? CodexUpdatedAt { get => _codexUpdatedAt; private set { _codexUpdatedAt = value; Raise(nameof(CodexUpdatedAt)); } }
+    public DateTimeOffset? LastAttemptedAt { get => _lastAttemptedAt; private set { _lastAttemptedAt = value; Raise(nameof(LastAttemptedAt)); } }
     public string? RefreshWarning { get => _refreshWarning; private set { _refreshWarning = value; Raise(nameof(RefreshWarning)); } }
     public bool Loading { get => _loading; private set { _loading = value; Raise(nameof(Loading)); } }
 
@@ -104,7 +112,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     {
         if (AppEnvironment.IsDemo) return;
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
-        if (LastUpdated is { } last && DateTimeOffset.Now - last < interval) return;
+        if ((LastAttemptedAt ?? LastUpdated) is { } last && DateTimeOffset.Now - last < interval) return;
         Refresh();
     }
 
@@ -159,13 +167,16 @@ public sealed class UsageStore : INotifyPropertyChanged
                         null),
                     new WindowUsage(DemoDouble("AGENTISLAND_DEMO_CODEX_WEEKLY", 0.76), now.AddSeconds(4 * 86400 + 18 * 3600), null),
                     "pro");
-            LastUpdated = now;
+            LastAttemptedAt = now;
+            RecordSuccessfulUpdate(claude: true, Claude, now);
+            RecordSuccessfulUpdate(claude: false, Codex, now);
             RefreshWarning = null;
             return;
         }
 
         Loading = true;
         _refreshStartedAt = DateTimeOffset.Now;
+        LastAttemptedAt = _refreshStartedAt;
         // Grok, Gemini and Cursor ride this exact cadence (poll / wake /
         // unlock / network / manual) instead of owning timers; their stores
         // no-op when the provider is undetected or when kicked again inside
@@ -209,7 +220,9 @@ public sealed class UsageStore : INotifyPropertyChanged
                     Claude = mergedClaude;
                     SaveCachedSnapshot(mergedClaude, mergedCodex);
                     RefreshWarning = WarningFor(codexFailed, claudeFailed);
-                    LastUpdated = DateTimeOffset.Now;
+                    var now = DateTimeOffset.Now;
+                    RecordSuccessfulUpdate(claude: true, claudeResult, now);
+                    RecordSuccessfulUpdate(claude: false, codexResult, now);
                     Loading = false;
                     MaybeAutoSwitchCodex(mergedCodex);
                 });
@@ -346,6 +359,16 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     // MARK: - Cache
 
+    private void RecordSuccessfulUpdate(bool claude, AppUsage fetched, DateTimeOffset now)
+    {
+        var previous = claude ? ClaudeUpdatedAt : CodexUpdatedAt;
+        var updated = UsageCachePolicy.SuccessfulUpdateAt(fetched, previous, now);
+        if (updated == previous) return;
+        if (claude) ClaudeUpdatedAt = updated;
+        else CodexUpdatedAt = updated;
+        LastUpdated = now;
+    }
+
     private static UsageCacheSnapshot? LoadCachedSnapshot()
     {
         var snapshot = Preferences.Get<UsageCacheSnapshot?>(CacheKey);
@@ -384,7 +407,8 @@ public sealed class UsageStore : INotifyPropertyChanged
             new WindowUsage(codexFiveHour, fiveHourReset, null),
             new WindowUsage(0.30, weeklyReset, null),
             Codex.Plan ?? "pro");
-        LastUpdated = now;
+        RecordSuccessfulUpdate(claude: true, Claude, now);
+        RecordSuccessfulUpdate(claude: false, Codex, now);
         RefreshWarning = null;
     }
 
@@ -514,7 +538,8 @@ public sealed class UsageStore : INotifyPropertyChanged
             Claude = merged;
             SaveCachedSnapshot(merged, Codex, fetchedClaude: true, fetchedCodex: false);
             RefreshWarning = IsErrorOnly(fetched) ? L10n.Tr("Claude stale") : null;
-            if (!IsErrorOnly(fetched)) LastUpdated = DateTimeOffset.Now;
+            LastAttemptedAt = DateTimeOffset.Now;
+            RecordSuccessfulUpdate(claude: true, fetched, LastAttemptedAt.Value);
             ClaudeReauthInProgress = false;
         });
     }
@@ -530,7 +555,8 @@ public sealed class UsageStore : INotifyPropertyChanged
             RefreshWarning = IsErrorOnly(fetched) && Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex)
                 ? L10n.Tr("Codex stale")
                 : null;
-            if (!IsErrorOnly(fetched)) LastUpdated = DateTimeOffset.Now;
+            LastAttemptedAt = DateTimeOffset.Now;
+            RecordSuccessfulUpdate(claude: false, fetched, LastAttemptedAt.Value);
             CodexReauthInProgress = false;
         });
     }

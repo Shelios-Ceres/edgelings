@@ -57,10 +57,10 @@ public static class AgentPhases
         state switch
         {
             ActivityState.AuthRequired => AgentPhase.AuthRequired,
+            _ when state is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.RateLimited
+                && transcript is { Phase: AgentPhase.Approving or AgentPhase.Asking } prompt => prompt.Phase,
             ActivityState.RateLimited => AgentPhase.RateLimited,
             _ when quotaExhausted => AgentPhase.RateLimited,
-            // A prompt waiting on the user is the more useful thing to show.
-            ActivityState.NetworkTrouble when transcript is { Phase: AgentPhase.Approving or AgentPhase.Asking } reading => reading.Phase,
             ActivityState.NetworkTrouble => AgentPhase.NetworkTrouble,
             // A turn that ended on an error says so rather than "your turn".
             ActivityState.NeedsYou when transcript is { Phase: AgentPhase.Failed } => AgentPhase.Failed,
