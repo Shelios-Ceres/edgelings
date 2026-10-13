@@ -177,6 +177,7 @@ public sealed class CostStore : INotifyPropertyChanged
             history,
             Array.Empty<string>())
         {
+            AsOf = now,
             LastSevenDays = new ReportSlice(week, week.Sum(d => d.Dollars), new[]
             {
                 new ModelSpend("claude-fable-5", week.Sum(d => d.Tokens), week.Sum(d => d.BillableTokens), week.Sum(d => d.Dollars)),

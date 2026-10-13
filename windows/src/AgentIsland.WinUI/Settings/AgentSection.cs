@@ -131,9 +131,7 @@ internal sealed class AgentSection
         _tokens.Visibility = report.Tokens is null ? Visibility.Collapsed : Visibility.Visible;
         if (report.Tokens is { } tokens)
         {
-            _tokens.Description = L10n.Tr(TokenCountModeStore.Shared.Mode == TokenCountMode.Billable
-                ? "Input and output, from this computer's logs"
-                : "Input, output and cache, from this computer's logs");
+            _tokens.Description = TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode);
             _tokensText.Text = $"{tokens.Today}  ·  {tokens.Month}";
         }
         _note.Visibility = report.Note is null ? Visibility.Collapsed : Visibility.Visible;

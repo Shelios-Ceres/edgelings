@@ -278,8 +278,8 @@ internal sealed class SettingsWindow : Window
 
         body.Children.Add(Section(L10n.Tr("Tokens")));
         var counting = TokenCountModeStore.Shared;
-        body.Children.Add(Card(L10n.Tr("Token counting"), L10n.Tr("Cache reads dwarf everything else in agent sessions; counting only input and output shows the work done"), "\uE8EF",
-            Combo(new[] { L10n.Tr("All tokens (including cache)"), L10n.Tr("Input + output") }, counting.Mode == TokenCountMode.All ? 0 : 1,
+        body.Children.Add(Card(L10n.Tr("Token counting"), L10n.Tr("Excludes cache reads; new input written to cache still counts. History is kept."), "\uE8EF",
+            Combo(new[] { TokenDisplayText.ModeLabel(TokenCountMode.All), TokenDisplayText.ModeLabel(TokenCountMode.Billable) }, counting.Mode == TokenCountMode.All ? 0 : 1,
                 index => counting.Mode = index == 0 ? TokenCountMode.All : TokenCountMode.Billable)));
 
         body.Children.Add(Section(L10n.Tr("Cost")));

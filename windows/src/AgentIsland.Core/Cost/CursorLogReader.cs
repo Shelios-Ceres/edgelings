@@ -55,10 +55,11 @@ public static class CursorLogReader
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Cursor", "User", "globalStorage", "state.vscdb");
 
-    public static List<TokenEvent> Scan(int lookbackDays)
+    public static List<TokenEvent> Scan(int lookbackDays) => ReadDatabase(DatabasePath, lookbackDays);
+
+    internal static List<TokenEvent> ReadDatabase(string path, int lookbackDays)
     {
         var output = new List<TokenEvent>();
-        var path = DatabasePath;
         if (!File.Exists(path)) return output;
 
         var cutoff = DateTimeOffset.UtcNow.AddDays(-lookbackDays);
@@ -70,10 +71,9 @@ public static class CursorLogReader
         var statement = IntPtr.Zero;
         try
         {
-            // Read-only and via the URI form so a running Cursor's lock never
-            // blocks us; `immutable=1` also skips the -wal replay, matching
-            // what the macOS reader does.
-            var uri = "file:" + path.Replace('\\', '/') + "?mode=ro&immutable=1";
+            // Cursor may still be writing. Read-only must include committed
+            // WAL records, so this database cannot be declared immutable.
+            var uri = new Uri(path).AbsoluteUri + "?mode=ro";
             if (Open(NullTerminated(uri), out db, SqliteOpenReadonly | 0x00000040, IntPtr.Zero) != SqliteOk)
             {
                 return output;

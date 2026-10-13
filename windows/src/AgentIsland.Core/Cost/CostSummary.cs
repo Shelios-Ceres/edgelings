@@ -23,6 +23,7 @@ public sealed record ProviderCostSummary(
     /// The cost window's seven calendar days, including today. The rolling
     /// WeeklyModels above remains unchanged for existing report consumers.
     public ReportSlice LastSevenDays { get; init; } = ReportSlice.Empty;
+    public DateTimeOffset? AsOf { get; init; }
 
     public static ProviderCostSummary Empty { get; } = new(
         0, 0, 0, 0, 0, 0,
@@ -191,6 +192,7 @@ public static class CostSummarizer
             ToSpendList(recent), ToSpendList(weekly), ToSpendList(month),
             dailyHistory, unknown.ToList())
         {
+            AsOf = now,
             LastSevenDays = Slice(events, LastSevenDaysStart(now), now.AddTicks(1)),
         };
     }

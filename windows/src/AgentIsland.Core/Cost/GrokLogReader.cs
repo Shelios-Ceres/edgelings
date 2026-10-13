@@ -52,47 +52,42 @@ public static class GrokLogReader
     internal static List<(TokenEvent Event, string? DedupKey)> ParseFile(string path)
     {
         var output = new List<(TokenEvent, string?)>();
-        try
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        while (reader.ReadLine() is { } line)
         {
-            foreach (var line in File.ReadLines(path))
+            // Tool-call results dominate the stream and can be multi-MB;
+            // only turn_completed lines carry a usage object, and every one
+            // contains the "usage" key. Guard on both before parsing.
+            if (line.Length > 1_000_000) continue;
+            if (!line.Contains("\"usage\"", StringComparison.Ordinal)) continue;
+            using var doc = Jsonl.TryParseLine(line);
+            if (doc is null) continue;
+            var root = doc.RootElement;
+            if (Jsonl.GetObject(root, "params") is not { } prms) continue;
+            if (Jsonl.GetObject(prms, "update") is not { } update) continue;
+            if (Jsonl.GetObject(update, "usage") is not { } usage) continue;
+
+            // Unix seconds. Range-guard so a corrupt value can't throw out
+            // of FromUnixTimeSeconds and abort the rest of the file.
+            if (Jsonl.GetDouble(root, "timestamp") is not { } seconds
+                || seconds <= 0 || seconds > 253_402_300_799) continue;
+            var timestamp = DateTimeOffset.FromUnixTimeSeconds((long)seconds);
+            var promptId = Jsonl.GetString(update, "prompt_id") ?? "";
+
+            if (Jsonl.GetObject(usage, "modelUsage") is { } modelUsage
+                && modelUsage.EnumerateObject().Any())
             {
-                // Tool-call results dominate the stream and can be multi-MB;
-                // only turn_completed lines carry a usage object, and every one
-                // contains the "usage" key. Guard on both before parsing.
-                if (line.Length > 1_000_000) continue;
-                if (!line.Contains("\"usage\"", StringComparison.Ordinal)) continue;
-                using var doc = Jsonl.TryParseLine(line);
-                if (doc is null) continue;
-                var root = doc.RootElement;
-                if (Jsonl.GetObject(root, "params") is not { } prms) continue;
-                if (Jsonl.GetObject(prms, "update") is not { } update) continue;
-                if (Jsonl.GetObject(update, "usage") is not { } usage) continue;
-
-                // Unix seconds. Range-guard so a corrupt value can't throw out
-                // of FromUnixTimeSeconds and abort the rest of the file.
-                if (Jsonl.GetDouble(root, "timestamp") is not { } seconds
-                    || seconds <= 0 || seconds > 253_402_300_799) continue;
-                var timestamp = DateTimeOffset.FromUnixTimeSeconds((long)seconds);
-                var promptId = Jsonl.GetString(update, "prompt_id") ?? "";
-
-                if (Jsonl.GetObject(usage, "modelUsage") is { } modelUsage
-                    && modelUsage.EnumerateObject().Any())
+                foreach (var model in modelUsage.EnumerateObject())
                 {
-                    foreach (var model in modelUsage.EnumerateObject())
-                    {
-                        if (model.Value.ValueKind != JsonValueKind.Object) continue;
-                        AddModel(output, model.Value, model.Name, timestamp, promptId);
-                    }
-                }
-                else
-                {
-                    AddModel(output, usage, FallbackModel, timestamp, promptId);
+                    if (model.Value.ValueKind != JsonValueKind.Object) continue;
+                    AddModel(output, model.Value, model.Name, timestamp, promptId);
                 }
             }
-        }
-        catch
-        {
-            // A session being written can race the reader; the next poll re-reads.
+            else
+            {
+                AddModel(output, usage, FallbackModel, timestamp, promptId);
+            }
         }
         return output;
     }
@@ -104,10 +99,12 @@ public static class GrokLogReader
         DateTimeOffset timestamp,
         string promptId)
     {
-        var input = Jsonl.GetLong(fields, "inputTokens") ?? 0;
-        var outputTokens = Jsonl.GetLong(fields, "outputTokens") ?? 0;
-        var cachedRead = Jsonl.GetLong(fields, "cachedReadTokens") ?? 0;
-        if (input == 0 && outputTokens == 0 && cachedRead == 0) return;
+        var totalInput = Math.Max(0, Jsonl.GetLong(fields, "inputTokens") ?? 0);
+        var outputTokens = Math.Max(0, Jsonl.GetLong(fields, "outputTokens") ?? 0);
+        var cachedRead = Math.Clamp(Jsonl.GetLong(fields, "cachedReadTokens") ?? 0, 0, totalInput);
+        var cacheCreation = Math.Clamp(Jsonl.GetLong(fields, "cacheCreationTokens") ?? 0, 0, totalInput - cachedRead);
+        var input = totalInput - cachedRead - cacheCreation;
+        if (totalInput == 0 && outputTokens == 0) return;
 
         // Grok reports cost in ticks of USD * 1e-9. Absent ticks stay null
         // rather than being priced from a table Grok has no entry in.
@@ -122,6 +119,6 @@ public static class GrokLogReader
 
         output.Add((new TokenEvent(
             TriggerTool.Grok, timestamp, model,
-            input, outputTokens, 0, cachedRead, cost), dedupKey));
+            input, outputTokens, cacheCreation, cachedRead, cost), dedupKey));
     }
 }

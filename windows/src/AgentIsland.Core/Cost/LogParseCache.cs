@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AgentIsland.Core;
 
 namespace AgentIsland.Cost;
@@ -11,7 +12,9 @@ namespace AgentIsland.Cost;
 public sealed class LogParseCache
 {
     private sealed record EventDto(
-        long Ts, string Model, long In, long Out, long Cc, long Cr);
+        long Ts, string Model, long In, long Out, long Cc, long Cr,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResponseKey = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool IsFinalUsage = false);
 
     private sealed record Entry(long MtimeTicks, long Size, List<EventDto> Events);
 
@@ -22,9 +25,14 @@ public sealed class LogParseCache
     private bool _loaded;
 
     public LogParseCache(TriggerTool provider, string cacheFileName)
+        : this(provider, cacheFileName, IslandPaths.CacheDir)
+    {
+    }
+
+    internal LogParseCache(TriggerTool provider, string cacheFileName, string cacheDirectory)
     {
         _provider = provider;
-        _cachePath = Path.Combine(IslandPaths.CacheDir, cacheFileName);
+        _cachePath = Path.Combine(cacheDirectory, cacheFileName);
     }
 
     public List<TokenEvent> Walk(
@@ -37,6 +45,7 @@ public sealed class LogParseCache
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in files)
         {
+            _entries.TryGetValue(path, out var entry);
             DateTimeOffset mtime;
             long size;
             try
@@ -48,23 +57,37 @@ public sealed class LogParseCache
             }
             catch
             {
+                seen.Add(path);
+                if (entry is not null) output.AddRange(entry.Events.Select(FromDto));
                 continue;
             }
             if (mtime < cutoff) continue;
             seen.Add(path);
 
-            if (_entries.TryGetValue(path, out var entry)
-                && entry.MtimeTicks == mtime.UtcTicks
+            if (entry is not null && entry.MtimeTicks == mtime.UtcTicks
                 && entry.Size == size)
             {
                 output.AddRange(entry.Events.Select(FromDto));
                 continue;
             }
 
-            var events = parseFile(path);
-            _entries[path] = new Entry(mtime.UtcTicks, size, events.Select(ToDto).ToList());
-            _dirty = true;
-            output.AddRange(events);
+            try
+            {
+                var events = parseFile(path);
+                var after = new FileInfo(path);
+                if (after.Exists && after.LastWriteTimeUtc.Ticks == mtime.UtcTicks && after.Length == size)
+                {
+                    _entries[path] = new Entry(mtime.UtcTicks, size, events.Select(ToDto).ToList());
+                    _dirty = true;
+                }
+                output.AddRange(events);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // A failed read must neither erase the last success nor be
+                // remembered as an empty log. Its old fingerprint forces retry.
+                if (entry is not null) output.AddRange(entry.Events.Select(FromDto));
+            }
         }
 
         // Prune entries for files gone or aged out of the window.
@@ -89,7 +112,11 @@ public sealed class LogParseCache
         dto.In,
         dto.Out,
         dto.Cc,
-        dto.Cr);
+        dto.Cr)
+    {
+        ResponseKey = dto.ResponseKey,
+        IsFinalUsage = dto.IsFinalUsage,
+    };
 
     private static EventDto ToDto(TokenEvent tokenEvent) => new(
         tokenEvent.Timestamp.ToUnixTimeMilliseconds(),
@@ -97,7 +124,9 @@ public sealed class LogParseCache
         tokenEvent.InputTokens,
         tokenEvent.OutputTokens,
         tokenEvent.CacheCreationTokens,
-        tokenEvent.CacheReadTokens);
+        tokenEvent.CacheReadTokens,
+        tokenEvent.ResponseKey,
+        tokenEvent.IsFinalUsage);
 
     private void Load()
     {
@@ -124,13 +153,14 @@ public sealed class LogParseCache
         _dirty = false;
         try
         {
-            Directory.CreateDirectory(IslandPaths.CacheDir);
+            Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
             var tmp = _cachePath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(_entries));
             File.Move(tmp, _cachePath, overwrite: true);
         }
         catch
         {
+            _dirty = true;
         }
     }
 }

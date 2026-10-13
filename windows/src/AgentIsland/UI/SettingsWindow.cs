@@ -595,9 +595,7 @@ public sealed class SettingsWindow : Window
             TokenCountModeStore.Shared.Mode = index == 0 ? TokenCountMode.All : TokenCountMode.Billable;
         stack.Children.Add(new SettingsRowControl(
             "Token counting",
-            TokenCountModeStore.Shared.Mode == TokenCountMode.All
-                ? "Input, output, and cache."
-                : "Input and output only.",
+            L10n.Tr("Excludes cache reads; new input written to cache still counts. History is kept."),
             mode));
 
         // Cost freshness strip: section label + last-scan caption + Refresh.

@@ -86,6 +86,7 @@ public static class KimiDeepSeekTests
         Expect(parsed.OutputTokens, 40L);
         Expect(parsed.CacheReadTokens, 9000L);
         Expect(parsed.CacheCreationTokens, 7L);
+        Expect(parsed.BillableTokens, 167L);
         Expect(parsed.Timestamp, Now.AddSeconds(-5));
     }
 

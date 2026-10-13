@@ -121,7 +121,12 @@ public static class StatusCards
     {
         if (provider == DisplayProvider.Antigravity) return null;
         var summary = CostStore.Shared.Summary(provider);
-        var billable = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable;
+        var mode = TokenCountModeStore.Shared.Mode;
+        if (summary.AsOf is null)
+        {
+            return new StatusTokens(L10n.Tr("Tokens"), L10n.Tr("Not scanned yet"), "", "—", "");
+        }
+        var billable = mode == TokenCountMode.Billable;
         var today = Formatting.CompactTokens(billable ? summary.TodayBillableTokens : summary.TodayTokens);
         var month = Formatting.CompactTokens(billable ? summary.MonthBillableTokens : summary.MonthTokens);
         return new StatusTokens(

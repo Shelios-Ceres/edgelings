@@ -34,6 +34,8 @@ internal sealed class CostWindow : Window
     private readonly SelectorBar _periods = new();
     private readonly StackPanel _body = new() { Spacing = 12, MaxWidth = 1100, Padding = new Thickness(40, 4, 40, 40) };
     private readonly TextBlock _scanned = new();
+    private readonly TextBlock _periodRange = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _calendarNote = new() { TextWrapping = TextWrapping.Wrap };
     private readonly List<Action> _teardown = new();
     private readonly DispatcherQueue _queue;
     private Period _period;
@@ -103,7 +105,7 @@ internal sealed class CostWindow : Window
 
     /// One agent's numbers for the chosen period.
     private sealed record Slice(DisplayProvider Provider, bool Dollars, double Spend, long Tokens, long Billable,
-        IReadOnlyList<(string Label, double Value)> Bars, IReadOnlyList<ModelSpend> Models);
+        IReadOnlyList<(string Label, double Value)> Bars, IReadOnlyList<ModelSpend> Models, DateTimeOffset? AsOf);
 
     private FrameworkElement Header()
     {
@@ -121,20 +123,33 @@ internal sealed class CostWindow : Window
         };
 
         var header = new Grid { ColumnSpacing = 16, MaxWidth = 1100, Padding = new Thickness(40, 20, 40, 8) };
+        header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var titles = new StackPanel();
         titles.Children.Add(PageTitle(L10n.Tr("Cost")));
         titles.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.")));
         titles.Children.Add(_periods);
+        _periodRange.Style = Res<Style>("CaptionTextBlockStyle");
+        _periodRange.Foreground = Res<Brush>("TextFillColorSecondaryBrush");
+        _periodRange.Margin = new Thickness(0, 8, 0, 0);
+        _calendarNote.Style = Res<Style>("CaptionTextBlockStyle");
+        _calendarNote.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
+        var captions = new StackPanel { Children = { _periodRange, _calendarNote } };
+        Grid.SetRow(captions, 1);
+        Grid.SetColumnSpan(captions, 2);
+        header.Children.Add(captions);
         header.Children.Add(titles);
-        var side = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom };
+        var side = new StackPanel { Spacing = 8, MaxWidth = 160, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom };
         var rescan = Button(L10n.Tr("Scan now"), () => CostStore.Shared.Refresh());
         rescan.HorizontalAlignment = HorizontalAlignment.Right;
         side.Children.Add(rescan);
         _scanned.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
         _scanned.Style = Res<Style>("CaptionTextBlockStyle");
         _scanned.HorizontalAlignment = HorizontalAlignment.Right;
+        _scanned.TextWrapping = TextWrapping.Wrap;
+        _scanned.TextAlignment = TextAlignment.Right;
         _scanned.Margin = new Thickness(0, 0, 0, 10);
         side.Children.Add(_scanned);
         Grid.SetColumn(side, 1);
@@ -151,6 +166,7 @@ internal sealed class CostWindow : Window
 
         var shown = DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsShown).ToList();
         var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(SliceFor).ToList();
+        UpdatePeriodCaption(slices);
         _body.Children.Add(Totals(slices));
 
         var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12, Margin = new Thickness(0, 8, 0, 0) };
@@ -168,12 +184,30 @@ internal sealed class CostWindow : Window
         _body.Children.Add(grid);
     }
 
+    private void UpdatePeriodCaption(IReadOnlyList<Slice> slices)
+    {
+        var period = _period switch
+        {
+            Period.Week => UsageDisplayPeriod.Week,
+            Period.Month => UsageDisplayPeriod.Month,
+            _ => UsageDisplayPeriod.Today,
+        };
+        var stamps = slices.Where(s => s.AsOf is not null).Select(s => s.AsOf!.Value).ToList();
+        var ranges = stamps.Select(stamp => TokenDisplayText.PeriodRange(period, stamp)).Distinct().ToList();
+        _periodRange.Text = L10n.TrFormat("{0} · Local time zone: {1}",
+            ranges.Count == 0 ? L10n.Tr("Not scanned yet") : string.Join(" / ", ranges),
+            TokenDisplayText.TimeZoneLabel(stamps.Count == 0 ? DateTimeOffset.Now : stamps.Max()));
+        _calendarNote.Text = L10n.Tr(ranges.Count > 1
+            ? "Snapshot dates differ; scan to refresh them together."
+            : "Today starts at this computer's midnight. Previous days stay in history.");
+    }
+
     private Slice SliceFor(DisplayProvider provider)
     {
         var summary = CostStore.Shared.Summary(provider);
         var dollars = ProvidesDollars(provider);
         var billableMode = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable;
-        var today = DateTimeOffset.Now.Date;
+        var today = (summary.AsOf ?? DateTimeOffset.Now).ToLocalTime().Date;
         double DayValue(DailyTokenBucket day) => dollars ? day.Dollars : billableMode ? day.BillableTokens : day.Tokens;
         var byDay = summary.DailyHistory.GroupBy(d => d.DayStart.Date).ToDictionary(g => g.Key, g => g.Sum(DayValue));
         // Every day of the period gets a bar, idle days included.
@@ -198,14 +232,14 @@ internal sealed class CostWindow : Window
                     var cumulative = summary.TodayCumulativeDollars;
                     for (var h = 0; h < cumulative.Count; h++) hours.Add(($"{h}:00", cumulative[h] - (h > 0 ? cumulative[h - 1] : 0)));
                 }
-                return new Slice(provider, dollars, summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens, hours, summary.RecentModels);
+                return new Slice(provider, dollars, summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens, hours, summary.RecentModels, summary.AsOf);
             case Period.Week:
                 var week = summary.LastSevenDays;
                 return new Slice(provider, dollars, week.Dollars, week.DailyTokens.Sum(d => d.Tokens), week.DailyTokens.Sum(d => d.BillableTokens),
-                    week.DailyTokens.Select(d => (d.DayStart.ToString(L10n.IsChinese ? "M月d日" : "MMM d"), DayValue(d))).ToList(), week.ByModel);
+                    week.DailyTokens.Select(d => (d.DayStart.ToString(L10n.IsChinese ? "M月d日" : "MMM d"), DayValue(d))).ToList(), week.ByModel, summary.AsOf);
             default:
                 return new Slice(provider, dollars, summary.MonthDollars, summary.MonthTokens, summary.MonthBillableTokens,
-                    Days(new DateTime(today.Year, today.Month, 1)), summary.MonthModels);
+                    Days(new DateTime(today.Year, today.Month, 1)), summary.MonthModels, summary.AsOf);
         }
     }
 
@@ -227,6 +261,7 @@ internal sealed class CostWindow : Window
         var spend = slices.Where(s => s.Dollars).Sum(s => s.Spend);
         var tokens = slices.Sum(s => billable ? s.Billable : s.Tokens);
         var busiest = slices.OrderByDescending(s => billable ? s.Billable : s.Tokens).FirstOrDefault();
+        var scanned = slices.Any(s => s.AsOf is not null);
         var row = new Grid { ColumnSpacing = 12 };
         for (var i = 0; i < 3; i++) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         void Stat(int column, string label, string value, string caption)
@@ -238,21 +273,22 @@ internal sealed class CostWindow : Window
                 {
                     new TextBlock { Text = label, Foreground = Res<Brush>("TextFillColorSecondaryBrush") },
                     new TextBlock { Text = value, Style = Res<Style>("SubtitleTextBlockStyle") },
-                    new TextBlock { Text = caption, Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") },
+                    new TextBlock { Text = caption, TextWrapping = TextWrapping.Wrap, Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") },
                 },
             });
             Grid.SetColumn(card, column);
             row.Children.Add(card);
         }
         var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.Models).Count(Unpriced);
-        Stat(0, L10n.Tr("Estimated cost"), Formatting.Money(spend), unpriced > 0
+        Stat(0, L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
             ? L10n.TrFormat("{0} models have no price and count as $0", unpriced)
             : L10n.Tr("At API list prices"));
-        Stat(1, L10n.Tr("Tokens"), Formatting.CompactTokens(tokens),
-            L10n.Tr(billable ? "Input + output" : "All tokens (including cache)"));
+        Stat(1, L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
+            TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode));
         Stat(2, L10n.Tr("Busiest agent"),
             busiest is { } top && (billable ? top.Billable : top.Tokens) > 0 ? ProviderIdentity.DisplayName(top.Provider) : "—",
-            busiest is { } b && (billable ? b.Billable : b.Tokens) > 0 ? L10n.TrFormat("{0} tokens", Tokens(b)) : L10n.Tr("No activity yet"));
+            busiest is { } b && (billable ? b.Billable : b.Tokens) > 0 ? L10n.TrFormat("{0} tokens", Tokens(b))
+                : L10n.Tr(scanned ? "No activity yet" : "Not scanned yet"));
         return row;
     }
 
@@ -272,13 +308,14 @@ internal sealed class CostWindow : Window
         var hero = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
         hero.Children.Add(new TextBlock
         {
-            Text = slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice),
+            Text = slice.AsOf is null ? "—" : slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice),
             Style = Res<Style>("SubtitleTextBlockStyle"),
             HorizontalAlignment = HorizontalAlignment.Right,
         });
         hero.Children.Add(new TextBlock
         {
-            Text = slice.Dollars ? L10n.TrFormat("{0} tokens", Tokens(slice)) : L10n.Tr("tokens · billed by Cursor's own plan"),
+            Text = slice.AsOf is null ? L10n.Tr("Not scanned yet")
+                : slice.Dollars ? L10n.TrFormat("{0} tokens", Tokens(slice)) : L10n.Tr("tokens · billed by Cursor's own plan"),
             Style = Res<Style>("CaptionTextBlockStyle"),
             Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -290,7 +327,7 @@ internal sealed class CostWindow : Window
         // Bars wear the agent's character colour, as in the drawer.
         var look = App.Current.Drawer?.LookOf(slice.Provider) ?? DrawerLooks.For(slice.Provider);
         var accent = Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(look.Color), Brand.IsDark()));
-        if (slice.Bars.Count > 0) panel.Children.Add(Chart(slice, accent));
+        if (slice.AsOf is not null && slice.Bars.Count > 0) panel.Children.Add(Chart(slice, accent));
 
         var models = slice.Models.Take(3).ToList();
         if (models.Count > 0)
@@ -320,7 +357,7 @@ internal sealed class CostWindow : Window
                 panel.Children.Add(line);
             }
         }
-        else if (slice.Tokens == 0)
+        else if (slice.AsOf is not null && slice.Tokens == 0)
         {
             panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in this period"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
         }

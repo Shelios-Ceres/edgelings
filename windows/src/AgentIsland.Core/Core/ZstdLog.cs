@@ -35,17 +35,9 @@ public static class ZstdLog
     /// Every line of the log, for the cost reader.
     public static IEnumerable<string> ReadLines(string path)
     {
-        byte[] data;
-        try
-        {
-            using var stream = Open(path);
-            data = new byte[stream.Length];
-            stream.ReadExactly(data);
-        }
-        catch
-        {
-            return Array.Empty<string>();
-        }
+        using var stream = Open(path);
+        var data = new byte[stream.Length];
+        stream.ReadExactly(data);
         return Decode(data).Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
 

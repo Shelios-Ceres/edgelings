@@ -54,8 +54,8 @@ public static class CostPeriodTests
             "start and now are included; older and future events must stay out of every total");
         Expect(period.DailyTokens.Sum(d => d.Tokens) == 380 && period.ByModel.Sum(m => m.Tokens) == 380,
             "all-token totals and model details must agree");
-        Expect(period.DailyTokens.Sum(d => d.BillableTokens) == 240 && period.ByModel.Sum(m => m.BillableTokens) == 240,
-            "input/output totals and model details must agree");
+        Expect(period.DailyTokens.Sum(d => d.BillableTokens) == 300 && period.ByModel.Sum(m => m.BillableTokens) == 300,
+            "new-input/output totals and model details must agree, including cache writes");
     }
 
     private static void Midnight()

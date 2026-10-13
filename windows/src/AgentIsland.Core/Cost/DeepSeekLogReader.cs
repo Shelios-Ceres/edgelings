@@ -14,7 +14,7 @@ namespace AgentIsland.Cost;
 /// so these are tokens only, never dollars.
 public static class DeepSeekLogReader
 {
-    private static readonly LogParseCache Cache = new(TriggerTool.DeepSeek, "deepseek-parse-cache.v1.json");
+    private static readonly LogParseCache Cache = new(TriggerTool.DeepSeek, "deepseek-parse-cache.v2.json");
 
     private const string FallbackModel = "deepseek";
 

@@ -74,6 +74,9 @@ public static class Program
             UsageCachePolicyTests.RunAll();
             UsageFreshnessTests.RunAll();
             CostPeriodTests.RunAll();
+            TokenDisplayTextTests.RunAll();
+            TokenAccountingTests.RunAll();
+            OtherTokenAccountingTests.RunAll();
             SecurityGuardTests.RunAll();
             FormattingTests.RunAll();
             LaunchAtLoginTests.RunAll();

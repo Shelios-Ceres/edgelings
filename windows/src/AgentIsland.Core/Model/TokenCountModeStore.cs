@@ -10,9 +10,8 @@ public enum TokenCountMode
 }
 
 /// Which token total drives the TOKENS hero on the cost screen. `All`
-/// mirrors ccusage (everything that crossed the wire); `Billable` matches
-/// Anthropic's claude.ai stats (input + output only). Both totals are
-/// computed every scan, so flipping is instant.
+/// includes every input category and output; the legacy `Billable` value
+/// excludes only cache reads. Both totals are computed every scan.
 public sealed class TokenCountModeStore : INotifyPropertyChanged
 {
     private const string Key = "AgentIsland.tokenCountMode";

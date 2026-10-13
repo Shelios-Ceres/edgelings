@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using AgentIsland.Core;
 
 namespace AgentIsland.Cost;
@@ -14,37 +15,31 @@ namespace AgentIsland.Cost;
 /// dollars.
 public static class KimiLogReader
 {
-    private static readonly LogParseCache Cache = new(TriggerTool.Kimi, "kimi-parse-cache.v1.json");
+    // v3 carries usage identity so copied session histories count only once.
+    private static readonly LogParseCache Cache = new(TriggerTool.Kimi, "kimi-parse-cache.v3.json");
 
     public static List<TokenEvent> Scan(int lookbackDays)
     {
         var root = IslandPaths.KimiSessionsRoot;
         if (!Directory.Exists(root)) return new List<TokenEvent>();
         var files = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl");
-        return Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile);
+        return Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
     }
 
     internal static List<TokenEvent> ParseFile(string path)
     {
         var output = new List<TokenEvent>();
-        try
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        while (reader.ReadLine() is { } line)
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream);
-            while (reader.ReadLine() is { } line)
-            {
-                // Tool results and appended messages dominate the log; only
-                // usage records matter, and the substring guard skips the rest
-                // before any JSON parse.
-                if (line.Length > 100_000 || !line.Contains("\"usage.record\"", StringComparison.Ordinal)) continue;
-                if (Parse(line) is { } tokenEvent) output.Add(tokenEvent);
-            }
+            // Tool results and appended messages dominate the log; only
+            // usage records matter, and the substring guard skips the rest
+            // before any JSON parse.
+            if (line.Length > 100_000 || !line.Contains("\"usage.record\"", StringComparison.Ordinal)) continue;
+            if (Parse(line) is { } tokenEvent) output.Add(tokenEvent);
         }
-        catch
-        {
-            // A log being written can race the reader; the next scan re-reads.
-        }
-        return output;
+        return Deduplicate(output);
     }
 
     internal static TokenEvent? Parse(string line)
@@ -60,10 +55,25 @@ public static class KimiLogReader
         var cacheRead = Jsonl.GetLong(usage, "inputCacheRead") ?? 0;
         var cacheCreation = Jsonl.GetLong(usage, "inputCacheCreation") ?? 0;
         if (input == 0 && output == 0 && cacheRead == 0 && cacheCreation == 0) return null;
+        var model = Jsonl.GetString(root, "model") ?? "kimi";
+        var agent = Jsonl.GetString(root, "agentId");
+        var scope = Jsonl.GetString(root, "usageScope");
+        var key = agent is { Length: > 0 } && scope is { Length: > 0 }
+            ? $"{agent.Length}:{agent}{scope.Length}:{scope}|{ms.ToString("R", CultureInfo.InvariantCulture)}|{model}|{input}|{output}|{cacheCreation}|{cacheRead}"
+            : null;
         return new TokenEvent(
             TriggerTool.Kimi,
             DateTimeOffset.FromUnixTimeMilliseconds((long)ms),
-            Jsonl.GetString(root, "model") ?? "kimi",
-            input, output, cacheCreation, cacheRead);
+            model,
+            input, output, cacheCreation, cacheRead)
+        {
+            ResponseKey = key,
+        };
+    }
+
+    internal static List<TokenEvent> Deduplicate(List<TokenEvent> events)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return events.Where(e => e.ResponseKey is null || seen.Add(e.ResponseKey)).ToList();
     }
 }
