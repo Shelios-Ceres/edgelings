@@ -1,4 +1,8 @@
 using System.Numerics;
+using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using Microsoft.UI.Composition;
@@ -7,6 +11,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
@@ -17,7 +22,7 @@ namespace AgentIsland.WinUI.Drawer;
 /// describes, each quota window as a filled bar in that character's colour.
 /// It is a windowed popup, so it can extend past the drawer's narrow window,
 /// and the glass is the system's own acrylic, blurring whatever is behind.
-internal sealed class HoverCard
+internal sealed class HoverCard : IDisposable
 {
     private const double CardWidth = 252;
     private const double Gap = 10;
@@ -29,23 +34,62 @@ internal sealed class HoverCard
     // the growth reads instead of popping in the first few frames.
     private const float StartScale = 0.95f;
     private const float Drift = 8;
+    private const double MotionMargin = 10;
     private static readonly TimeSpan EnterDuration = TimeSpan.FromMilliseconds(280);
     private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan ExitDuration = TimeSpan.FromMilliseconds(120);
+    private static readonly TimeSpan SwitchDuration = TimeSpan.FromMilliseconds(260);
 
     private readonly Popup _popup;
+    private readonly Canvas _stage = new() { IsHitTestVisible = false };
     private readonly Grid _host = new();
+    private readonly Grid _plate = new() { VerticalAlignment = VerticalAlignment.Top };
+    private readonly SystemBackdropElement _glass = new() { CornerRadius = new CornerRadius(8) };
+    private readonly Border _wash = new() { CornerRadius = new CornerRadius(8) };
+    private readonly HoverWashBrush _washBrush;
     private readonly Border _card;
     private readonly StackPanel _body = new();
     private readonly Panel _root;
     private readonly Compositor _compositor;
     private readonly CompositionEasingFunction _easeOut;
-    private readonly DispatcherQueueTimer _closeTimer;
+    private readonly CompositionPropertySet _size;
+    private readonly ExpressionAnimation _plateSizeAnimation;
+    private readonly InsetClip _contentClip;
+    private readonly DispatcherQueue _queue = DispatcherQueue.GetForCurrentThread();
+    private readonly Dictionary<string, CompositionAnimation> _animations = new();
+    private CompositionScopedBatch? _batch;
+    private TypedEventHandler<object, CompositionBatchCompletedEventArgs>? _batchCompleted;
+    private EventHandler<object>? _firstFrame;
     private int _generation;
     private bool _closing;
-    private bool _reduced;
-    private bool? _glassDark;
+    private bool _animating;
+    private bool _disposed;
+    private GlassBackdrop? _backdrop;
     private static bool _dark;
+    private Request? _displayed;
+    private Request? _refresh;
+    private string? _contentKey;
+    private Size _contentSize;
+    private Rect _bounds;
+    private Rect? _stageBounds;
+    private double _travelTop;
+    private double _travelBottom;
+    private int _requests;
+    private int _builds;
+    private int _measures;
+    private int _skips;
+    private int _transitions;
+    private double _lastShowMs;
+
+    private sealed record Request(
+        IReadOnlyList<(StatusCard Card, uint Swatch)> Sections,
+        bool CharacterRight, Rect Anchor, Rect Area, bool ReducedMotion,
+        double Scale, bool Dark, string Key, string Identity);
+
+    internal double DebugDurationScale { get; set; } = 1;
+
+    internal string DiagnosticsSummary =>
+        $"requests={_requests} builds={_builds} measures={_measures} skips={_skips} transitions={_transitions} lastShow={_lastShowMs:F2}ms";
 
     public HoverCard(Panel root)
     {
@@ -56,27 +100,41 @@ internal sealed class HoverCard
             Width = CardWidth,
             Padding = new Thickness(14, 12, 14, 13),
             CornerRadius = new CornerRadius(8),
+            VerticalAlignment = VerticalAlignment.Top,
         };
+        _host.Width = CardWidth;
+        _plate.Children.Add(_glass);
+        _plate.Children.Add(_wash);
+        _host.Children.Add(_plate);
         _host.Children.Add(_card);
+        _stage.Children.Add(_host);
         // The element's own Scale/Translation/Opacity are animated, so its
         // composition visual must not be handed off; any compositor will do.
         _compositor = CompositionTarget.GetCompositorForCurrentThread();
         _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 1f), new Vector2(0.68f, 1f));
+        _washBrush = new HoverWashBrush(_compositor);
+        _wash.Background = _washBrush;
+        _size = _compositor.CreatePropertySet();
+        _size.InsertScalar("Height", 1);
+        _size.InsertScalar("TargetHeight", 1);
+        _plateSizeAnimation = _compositor.CreateExpressionAnimation("Vector3(1, size.Height / size.TargetHeight, 1)");
+        _plateSizeAnimation.Target = "Scale";
+        _plateSizeAnimation.SetReferenceParameter("size", _size);
+        _plate.StartAnimation(_plateSizeAnimation);
+        _contentClip = _compositor.CreateInsetClip();
+        using (var clip = _compositor.CreateExpressionAnimation("Max(0, size.TargetHeight - size.Height)"))
+        {
+            clip.SetReferenceParameter("size", _size);
+            _contentClip.StartAnimation("BottomInset", clip);
+        }
+        ElementCompositionPreview.GetElementVisual(_card).Clip = _contentClip;
         _popup = new Popup
         {
-            Child = _host,
+            Child = _stage,
             ShouldConstrainToRootBounds = false,
             IsHitTestVisible = false,
         };
         root.Children.Add(_popup);
-        _closeTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
-        _closeTimer.IsRepeating = false;
-        _closeTimer.Tick += (_, _) =>
-        {
-            if (!_closing) return;
-            _closing = false;
-            _popup.IsOpen = false;
-        };
     }
 
     /// Open and not on its way out.
@@ -87,62 +145,50 @@ internal sealed class HoverCard
 
     /// anchor and area are in the drawer window's DIPs; characterRight means
     /// the character is to the card's right (drawer on the right edge).
-    /// retarget means an open card now describes another character: it swaps
-    /// in place.
+    /// The transparent popup is a staging area; glass and content move as
+    /// one element within it, without moving a native window on every frame.
     public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool characterRight, Rect anchor, Rect area, bool reducedMotion, bool retarget = false)
     {
-        // Before the drawer's content loads there is no root to open into.
-        if (_root.XamlRoot is not { } xamlRoot) return;
-        _popup.XamlRoot = xamlRoot;
-        var scale = xamlRoot.RasterizationScale;
-        var dark = Brand.IsDark();
-        _dark = dark;
-        if (_glassDark != dark)
+        var started = Stopwatch.GetTimestamp();
+        _requests++;
+        try
         {
-            // The glass follows the system theme; a new backdrop per theme.
-            _glassDark = dark;
-            _popup.SystemBackdrop = new GlassBackdrop(dark);
+            if (_disposed || _root.XamlRoot is not { } xamlRoot) return;
+            if (sections.Count == 0) { Hide(); return; }
+            _popup.XamlRoot = xamlRoot;
+            var dark = Brand.IsDark();
+            var request = new Request(sections.ToArray(), characterRight, anchor, area, reducedMotion,
+                xamlRoot.RasterizationScale, dark, ContentKey(sections, dark),
+                string.Join(",", sections.Select(s => (int)s.Card.Provider)));
+            if (_displayed is { } before && !SameFrame(before, request)) Hide();
+            if (!_popup.IsOpen)
+            {
+                Open(request);
+                return;
+            }
+            if (_displayed?.Identity != request.Identity)
+            {
+                Switch(request);
+                return;
+            }
+            if (_closing)
+            {
+                _closing = false;
+                _refresh = request;
+                AnimateIn(fromHidden: false, move: !request.ReducedMotion);
+                return;
+            }
+            if (SamePresentation(_displayed!, request)) { _refresh = null; _skips++; return; }
+            if (_animating)
+            {
+                _refresh = request;
+                _skips++;
+                return;
+            }
+            Present(request);
+            Rest();
         }
-        // No outline: the glass is the edge. A card about one character is
-        // washed in its colour; the all-characters card stays neutral.
-        _card.Background = sections.Count == 1 ? GlassBackdrop.Wash(sections[0].Swatch, dark) : null;
-        Build(sections);
-
-        _host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var size = _host.DesiredSize;
-        var aim = anchor.Y + anchor.Height / 2;
-        var top = Math.Clamp(aim - size.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - size.Height));
-        _popup.HorizontalOffset = GlassBackdrop.Snap(characterRight ? anchor.Left - Gap - CardWidth : anchor.Right + Gap, scale);
-        _popup.VerticalOffset = GlassBackdrop.Snap(top, scale);
-
-        // Grows from the edge that faces the character, level with it.
-        var faceY = Math.Clamp(aim - top, 0, size.Height);
-        _host.CenterPoint = new Vector3((float)(characterRight ? CardWidth : 0), (float)faceY, 0);
-        _reduced = reducedMotion;
-        var fresh = !_popup.IsOpen;
-        var returning = _closing;
-        _closing = false;
-        _closeTimer.Stop();
-        if (fresh)
-        {
-            _generation++;
-            // The first frame must already be the starting pose: opening at
-            // full size and only then shrinking to grow is the jump.
-            _host.Opacity = 0;
-            _host.Scale = reducedMotion ? Vector3.One : new Vector3(StartScale, StartScale, 1);
-            _host.Translation = reducedMotion ? Vector3.Zero : new Vector3(characterRight ? Drift : -Drift, 0, 0);
-            _popup.IsOpen = true;
-            AfterFirstFrame(_generation, Enter);
-        }
-        else if (returning)
-        {
-            Enter();
-        }
-        else if (retarget)
-        {
-            _host.Opacity = 0.35;
-            Fade(1, FadeDuration);
-        }
+        finally { _lastShowMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds; }
     }
 
     /// animated fades the card out; otherwise it goes at once (drags, menus,
@@ -150,19 +196,215 @@ internal sealed class HoverCard
     public void Hide(bool animated = false)
     {
         if (!_popup.IsOpen) return;
-        _generation++;
-        if (!animated || _closing)
-        {
-            _closeTimer.Stop();
-            _closing = false;
-            _popup.IsOpen = false;
-            return;
-        }
+        if (!animated) { Close(); return; }
+        if (_closing) return;
         _closing = true;
-        Fade(0, ExitDuration);
-        if (!_reduced) Move("Scale", new Vector3(0.97f, 0.97f, 1), ExitDuration);
-        _closeTimer.Interval = ExitDuration + TimeSpan.FromMilliseconds(20);
-        _closeTimer.Start();
+        _refresh = null;
+        Animate(() =>
+        {
+            Fade(0, ExitDuration);
+            if (_displayed?.ReducedMotion == false) Move("Scale", new Vector3(0.97f, 0.97f, 1), ExitDuration);
+        }, Close);
+    }
+
+    private static bool SameFrame(Request a, Request b) =>
+        a.CharacterRight == b.CharacterRight && a.Scale == b.Scale && a.Area == b.Area
+        && a.ReducedMotion == b.ReducedMotion;
+
+    private static bool SamePresentation(Request a, Request b) =>
+        a.Key == b.Key && a.Anchor == b.Anchor && SameFrame(a, b);
+
+    private void Open(Request request)
+    {
+        Present(request);
+        Rest();
+        _host.Opacity = 0;
+        if (!request.ReducedMotion)
+        {
+            _host.Scale = new Vector3(StartScale, StartScale, 1);
+            _host.Translation = Target + new Vector3(request.CharacterRight ? Drift : -Drift, 0, 0);
+        }
+        _popup.IsOpen = true;
+        _animating = true;
+        var generation = ++_generation;
+        _firstFrame = (_, _) =>
+        {
+            if (_disposed || generation != _generation) return;
+            CancelFirstFrame();
+            AnimateIn(fromHidden: true, move: !request.ReducedMotion);
+        };
+        CompositionTarget.Rendering += _firstFrame;
+    }
+
+    private void Switch(Request request)
+    {
+        _closing = false;
+        _refresh = null;
+        Animate(() =>
+        {
+            Present(request, animateWash: !request.ReducedMotion);
+            // The same pane stays visible. Replacing an animation samples
+            // its current value, including when the pointer changes mid-move.
+            Fade(1, SwitchDuration);
+            Move("Scale", Vector3.One, SwitchDuration);
+            if (request.ReducedMotion)
+            {
+                StopAnimation("Translation");
+                _host.Translation = Target;
+                SettleHeight();
+            }
+            else
+            {
+                Move("Translation", Target, SwitchDuration);
+                MorphHeight(SwitchDuration);
+            }
+        }, CompletePresentation);
+    }
+
+    private void Present(Request request, bool animateWash = false)
+    {
+        if (_backdrop is null)
+        {
+            _backdrop = new GlassBackdrop(request.Dark);
+            _glass.SystemBackdrop = _backdrop;
+        }
+        else _backdrop.UpdateTheme(request.Dark);
+        if (_contentKey != request.Key)
+        {
+            _dark = request.Dark;
+            _washBrush.Set(request.Sections.Count == 1 ? request.Sections[0].Swatch : null,
+                request.Dark, animateWash ? Duration(SwitchDuration) : TimeSpan.Zero, _easeOut);
+            Build(request.Sections);
+            _builds++;
+            _card.Measure(new Size(CardWidth, double.PositiveInfinity));
+            _contentSize = _card.DesiredSize;
+            _measures++;
+            _contentKey = request.Key;
+            _host.Height = _contentSize.Height;
+            _plate.Height = _contentSize.Height;
+            _size.InsertScalar("TargetHeight", (float)Math.Max(1, _contentSize.Height));
+        }
+        var aim = request.Anchor.Y + request.Anchor.Height / 2;
+        var top = Math.Clamp(aim - _contentSize.Height / 2, request.Area.Top + 6,
+            Math.Max(request.Area.Top + 6, request.Area.Bottom - 6 - _contentSize.Height));
+        var left = request.CharacterRight ? request.Anchor.Left - Gap - CardWidth : request.Anchor.Right + Gap;
+        left = Math.Clamp(left, request.Area.Left + 6, Math.Max(request.Area.Left + 6, request.Area.Right - 6 - CardWidth));
+        _bounds = new Rect(GlassBackdrop.Snap(left, request.Scale), GlassBackdrop.Snap(top, request.Scale), CardWidth, _contentSize.Height);
+        _travelTop = Math.Min(_bounds.Top, _popup.IsOpen ? _travelTop : _bounds.Top);
+        _travelBottom = Math.Max(_bounds.Bottom, _popup.IsOpen ? _travelBottom : _bounds.Bottom);
+        ExtendStage(new Rect(_bounds.Left, _travelTop, CardWidth, _travelBottom - _travelTop), request);
+        _host.CenterPoint = new Vector3(request.CharacterRight ? (float)CardWidth : 0,
+            (float)Math.Clamp(aim - _bounds.Top, 0, _bounds.Height), 0);
+        _displayed = request;
+    }
+
+    private void ExtendStage(Rect bounds, Request request)
+    {
+        var left = Math.Max(request.Area.Left, bounds.Left - MotionMargin);
+        var top = Math.Max(request.Area.Top, bounds.Top - MotionMargin);
+        var right = Math.Min(request.Area.Right, bounds.Right + MotionMargin);
+        var bottom = Math.Max(top + bounds.Height, Math.Min(request.Area.Bottom, bounds.Bottom + MotionMargin));
+        if (_stageBounds is { } old)
+        {
+            left = Math.Min(left, old.Left);
+            top = Math.Min(top, old.Top);
+            right = Math.Max(right, old.Right);
+            bottom = Math.Max(bottom, old.Bottom);
+        }
+        left = GlassBackdrop.Snap(left, request.Scale);
+        top = GlassBackdrop.Snap(top, request.Scale);
+        var stage = new Rect(left, top, Math.Max(CardWidth, right - left), Math.Max(bounds.Height, bottom - top));
+        if (_stageBounds == stage) return;
+        _stageBounds = stage;
+        _stage.Width = stage.Width;
+        _stage.Height = stage.Height;
+        // Translation remains in drawer coordinates. Moving the stage origin
+        // and applying its inverse here preserves an in-flight card's position.
+        Canvas.SetLeft(_host, -stage.Left);
+        Canvas.SetTop(_host, -stage.Top);
+        _popup.HorizontalOffset = stage.Left;
+        _popup.VerticalOffset = stage.Top;
+    }
+
+    private Vector3 Target => new((float)_bounds.Left, (float)_bounds.Top, 0);
+
+    private void Rest()
+    {
+        StopAnimation("Opacity");
+        StopAnimation("Scale");
+        StopAnimation("Translation");
+        _host.Opacity = 1;
+        _host.Scale = Vector3.One;
+        _host.Translation = Target;
+        SettleHeight();
+        _washBrush.Settle();
+        _travelTop = _bounds.Top;
+        _travelBottom = _bounds.Bottom;
+    }
+
+    private void Close()
+    {
+        CancelCompletion();
+        _popup.IsOpen = false;
+        Rest();
+        _closing = _animating = false;
+        _refresh = null;
+        _stageBounds = null;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        Close();
+        _disposed = true;
+        _glass.SystemBackdrop = null;
+        _popup.Child = null;
+        _root.Children.Remove(_popup);
+        _backdrop?.Dispose();
+        _backdrop = null;
+        _wash.Background = null;
+        _washBrush.Dispose();
+        _plate.StopAnimation(_plateSizeAnimation);
+        _plateSizeAnimation.Dispose();
+        ElementCompositionPreview.GetElementVisual(_card).Clip = null;
+        _contentClip.Dispose();
+        _size.Dispose();
+        _easeOut.Dispose();
+    }
+
+    private static string ContentKey(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool dark)
+    {
+        var key = new StringBuilder();
+        void Add(object? value)
+        {
+            var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
+            key.Append(text.Length).Append(':').Append(text);
+        }
+        Add(dark);
+        Add(sections.Count);
+        foreach (var (card, swatch) in sections)
+        {
+            Add(card.Provider); Add(swatch); Add(card.Name); Add(card.Phase); Add(card.Detail is not null); Add(card.Detail);
+            Add(card.Tasks is not null);
+            if (card.Tasks is { } tasks) { Add(tasks.Label); Add(tasks.Text); Add(tasks.Number); }
+            Add(card.Meters.Count);
+            foreach (var meter in card.Meters)
+            {
+                Add(meter.Label); Add(meter.Value); Add(meter.Shown); Add(meter.Used >= 0.9);
+            }
+            Add(card.Tokens is not null);
+            if (card.Tokens is { } tokens)
+            {
+                Add(tokens.Label); Add(tokens.Today); Add(tokens.TodayNumber); Add(tokens.Month); Add(tokens.MonthNumber);
+            }
+            Add(card.Note.Count);
+            foreach (var note in card.Note)
+            {
+                Add(note.Text); Add(note.Numbers.Count);
+                foreach (var number in note.Numbers) Add(number);
+            }
+        }
+        return key.ToString();
     }
 
     private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections)
@@ -246,12 +488,33 @@ internal sealed class HoverCard
         }
         if (card.Tokens is { } tokens)
         {
-            var line = Line(top);
-            Place(line, Caption(tokens.Label, "TextFillColorSecondaryBrush"), 0, 0);
-            Place(line, Emphasised(tokens.Today, tokens.TodayNumber), 0, 1);
-            var month = Emphasised(tokens.Month, tokens.MonthNumber);
-            month.HorizontalAlignment = HorizontalAlignment.Right;
-            Place(line, month, 0, 2);
+            var line = new Grid { Margin = new Thickness(13, top, 0, 0), ColumnSpacing = 8, RowSpacing = 2 };
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelWidth) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ValueWidth) });
+            line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var label = Caption(tokens.Label, "TextFillColorSecondaryBrush");
+            label.VerticalAlignment = VerticalAlignment.Top;
+            Grid.SetRowSpan(label, 2);
+            Place(line, label, 0, 0);
+            if (tokens.TodayNumber.Length == 0)
+            {
+                var pending = Caption(tokens.Today, "TextFillColorTertiaryBrush");
+                Grid.SetColumnSpan(pending, 2);
+                Place(line, pending, 0, 1);
+            }
+            else
+            {
+                Place(line, Caption(L10n.Tr("Today"), "TextFillColorSecondaryBrush"), 0, 1);
+                Place(line, Caption(L10n.Tr("This month"), "TextFillColorSecondaryBrush"), 1, 1);
+                var today = Emphasised(tokens.TodayNumber, tokens.TodayNumber);
+                today.HorizontalAlignment = HorizontalAlignment.Right;
+                Place(line, today, 0, 2);
+                var month = Emphasised(tokens.MonthNumber, tokens.MonthNumber);
+                month.HorizontalAlignment = HorizontalAlignment.Right;
+                Place(line, month, 1, 2);
+            }
             panel.Children.Add(line);
         }
         if (card.Note.Count > 0)
@@ -327,47 +590,125 @@ internal sealed class HoverCard
         if (from < phrase.Length) text.Inlines.Add(new Run { Text = phrase[from..] });
     }
 
-    /// Grows out of the pointer's tip and settles from its drift; reduced
-    /// motion keeps only the fade. Runs on the compositor, not the UI thread.
-    private void Enter()
+    private void AnimateIn(bool fromHidden, bool move)
     {
-        Fade(1, FadeDuration);
-        if (_reduced) return;
-        Move("Scale", Vector3.One, EnterDuration);
-        Move("Translation", Vector3.Zero, EnterDuration);
+        Animate(() =>
+        {
+            Fade(1, FadeDuration, fromHidden ? 0 : null);
+            if (move)
+            {
+                Move("Scale", Vector3.One, EnterDuration);
+                Move("Translation", Target, EnterDuration);
+            }
+        }, CompletePresentation);
     }
 
-    private void Fade(float to, TimeSpan duration)
+    private void CompletePresentation()
+    {
+        _animating = false;
+        Rest();
+        if (_refresh is not { } refresh) return;
+        _refresh = null;
+        Present(refresh);
+        Rest();
+    }
+
+    private void Fade(float to, TimeSpan duration, float? from = null)
     {
         var fade = _compositor.CreateScalarKeyFrameAnimation();
         fade.Target = "Opacity";
+        fade.StopBehavior = AnimationStopBehavior.LeaveCurrentValue;
+        if (from is { } start) fade.InsertKeyFrame(0, start);
+        else fade.InsertExpressionKeyFrame(0, "this.StartingValue");
         fade.InsertKeyFrame(1, to, _easeOut);
-        fade.Duration = duration;
-        _host.StartAnimation(fade);
+        fade.Duration = Duration(duration);
+        StartAnimation(fade);
     }
 
     private void Move(string property, Vector3 to, TimeSpan duration)
     {
         var move = _compositor.CreateVector3KeyFrameAnimation();
         move.Target = property;
+        move.StopBehavior = AnimationStopBehavior.LeaveCurrentValue;
+        move.InsertExpressionKeyFrame(0, "this.StartingValue");
         move.InsertKeyFrame(1, to, _easeOut);
-        move.Duration = duration;
-        _host.StartAnimation(move);
+        move.Duration = Duration(duration);
+        StartAnimation(move);
     }
 
-    /// Runs once the popup has put a frame on screen at the starting pose,
-    /// unless the card was hidden meanwhile; content refreshes keep the entry.
-    private void AfterFirstFrame(int generation, Action action)
+    private void MorphHeight(TimeSpan duration)
     {
-        var frames = 0;
-        EventHandler<object>? tick = null;
-        tick = (_, _) =>
+        using var resize = _compositor.CreateScalarKeyFrameAnimation();
+        resize.StopBehavior = AnimationStopBehavior.LeaveCurrentValue;
+        resize.Duration = Duration(duration);
+        resize.InsertExpressionKeyFrame(0, "this.StartingValue");
+        resize.InsertKeyFrame(1, (float)_contentSize.Height, _easeOut);
+        _size.StartAnimation("Height", resize);
+    }
+
+    private void SettleHeight()
+    {
+        _size.StopAnimation("Height");
+        _size.InsertScalar("Height", (float)Math.Max(1, _contentSize.Height));
+    }
+
+    private void StartAnimation(CompositionAnimation animation)
+    {
+        _animations.TryGetValue(animation.Target, out var previous);
+        try { _host.StartAnimation(animation); }
+        catch { animation.Dispose(); throw; }
+        _animations[animation.Target] = animation;
+        // Starting the replacement samples the current value. Stopping the
+        // old animation afterward would also stop the new one on that target.
+        previous?.Dispose();
+    }
+
+    private void StopAnimation(string property)
+    {
+        if (!_animations.Remove(property, out var animation)) return;
+        _host.StopAnimation(animation);
+        animation.Dispose();
+    }
+
+    private TimeSpan Duration(TimeSpan duration) =>
+        TimeSpan.FromTicks((long)(duration.Ticks * Math.Clamp(DebugDurationScale, 0.1, 8)));
+
+    private void Animate(Action start, Action completed)
+    {
+        CancelCompletion();
+        _animating = true;
+        _transitions++;
+        var generation = _generation;
+        var batch = _batch = _compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+        _batchCompleted = (_, _) => _queue.TryEnqueue(() =>
         {
-            if (++frames < 2) return;
-            CompositionTarget.Rendering -= tick;
-            if (generation == _generation) action();
-        };
-        CompositionTarget.Rendering += tick;
+            if (_disposed || generation != _generation || _batch != batch) return;
+            CancelCompletion();
+            completed();
+        });
+        batch.Completed += _batchCompleted;
+        start();
+        batch.End();
+    }
+
+    private void CancelCompletion()
+    {
+        _generation++;
+        CancelFirstFrame();
+        if (_batch is not null)
+        {
+            if (_batchCompleted is not null) _batch.Completed -= _batchCompleted;
+            _batch.Dispose();
+            _batch = null;
+            _batchCompleted = null;
+        }
+    }
+
+    private void CancelFirstFrame()
+    {
+        if (_firstFrame is null) return;
+        CompositionTarget.Rendering -= _firstFrame;
+        _firstFrame = null;
     }
 
     private static T Res<T>(string key) => Fluent.Resource<T>(key, _dark);

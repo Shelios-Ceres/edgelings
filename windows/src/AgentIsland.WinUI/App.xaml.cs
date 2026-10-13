@@ -12,6 +12,7 @@ public sealed partial class App : Application
 {
     private DrawerWindow? _drawer;
     private TrayIcon? _tray;
+    private Window? _hoverPreview;
 
     public App()
     {
@@ -30,6 +31,12 @@ public sealed partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1")
+        {
+            _hoverPreview = new HoverCardPreview();
+            _hoverPreview.Activate();
+            return;
+        }
         UiThread.Capture();
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();

@@ -34,6 +34,8 @@ public static class Program
     /// the two never run together.
     private static bool ClaimSingleInstance()
     {
+        // The isolated motion check creates no stores or background readers.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1") return true;
         _singleInstance = new Mutex(initiallyOwned: false, @"Local\AgentIsland.SingleInstance");
         try
         {
@@ -52,6 +54,12 @@ internal static class CrashLog
     {
         try
         {
+            if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1"
+                && Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_TRACE") is { Length: > 0 } trace)
+            {
+                File.AppendAllText(trace, $"[{DateTimeOffset.Now:O}] {source}: {error}\n\n");
+                return;
+            }
             Directory.CreateDirectory(IslandPaths.AppSupportDir);
             File.AppendAllText(Path.Combine(IslandPaths.AppSupportDir, "crash.log"),
                 $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] WinUI {source}: {error}\n\n");
@@ -69,12 +77,12 @@ internal static class DebugTrace
 
     public static void Write(string text)
     {
-        if (Path is null) return;
+        if (string.IsNullOrWhiteSpace(Path)) return;
         try
         {
             File.AppendAllText(Path, $"[{DateTimeOffset.Now:HH:mm:ss.fff}] {text}{Environment.NewLine}");
         }
-        catch (IOException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
         }
     }

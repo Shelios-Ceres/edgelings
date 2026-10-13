@@ -116,6 +116,7 @@ internal sealed class DrawerWindow : Window
     private bool _deliberatelyHidden;
     private int _topmostCountdown = TopmostEverySeconds;
     private Bot? _cardBot;
+    private bool _cardRefreshPending;
     private Bot? _pressed;
     private bool _dragging;
     private int _pressY;
@@ -209,6 +210,9 @@ internal sealed class DrawerWindow : Window
         Watch(IslandTargetDisplayStore.Shared, Layout);
         Watch(UsageStore.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
+        Watch(GrokUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Grok));
+        Watch(CursorUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Cursor));
+        Watch(AntigravityUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Antigravity));
         Watch(QuotaDisplayModeStore.Shared, RefreshCard);
         Watch(TokenCountModeStore.Shared, RefreshCard);
         Watch(CostStore.Shared, RefreshCard);
@@ -250,7 +254,7 @@ internal sealed class DrawerWindow : Window
         _poll.Stop();
         _guard.Stop();
         _cardClose.Stop();
-        _card.Hide();
+        _card.Dispose();
         Hush();
         foreach (var teardown in _teardown) teardown();
         _canvas.Paused = true;
@@ -502,7 +506,7 @@ internal sealed class DrawerWindow : Window
             for (var i = 0; i < jobs.Count; i++)
             {
                 var (bot, state, _, running, _) = jobs[i];
-                recounted |= bot.Running != running;
+                recounted |= bot.Running != running && (_cardBot is null || _cardBot == bot);
                 bot.Running = running;
                 var reading = readings[i];
                 var phase = AgentPhases.Combine(state, reading, QuotaExhausted(bot.Provider));
@@ -542,7 +546,7 @@ internal sealed class DrawerWindow : Window
             if (detail != bot.Detail)
             {
                 bot.Detail = detail;
-                if (_card.IsOpen) RefreshCard();
+                RefreshCardFor(bot.Provider);
             }
             return;
         }
@@ -566,7 +570,7 @@ internal sealed class DrawerWindow : Window
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
-        if (_card.IsOpen) RefreshCard();
+        RefreshCardFor(bot.Provider);
     }
 
     /// A line in a bubble when the agent needs you; a line that no longer
@@ -792,7 +796,18 @@ internal sealed class DrawerWindow : Window
 
     private void RefreshCard()
     {
-        if (_card.IsOpen) ShowCard();
+        if (_closed || !_card.IsOpen || _cardRefreshPending) return;
+        _cardRefreshPending = true;
+        if (!_queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            _cardRefreshPending = false;
+            if (!_closed && _card.IsOpen) ShowCard();
+        })) _cardRefreshPending = false;
+    }
+
+    private void RefreshCardFor(DisplayProvider provider)
+    {
+        if (_cardBot is null || _cardBot.Provider == provider) RefreshCard();
     }
 
     private void ShowCard(bool retarget = false)
