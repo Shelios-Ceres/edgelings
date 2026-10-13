@@ -60,6 +60,7 @@ public static class Program
             CodexStallTests.RunAll();
             ClaudeStallTests.RunAll();
             RunningTasksTests.RunAll();
+            EvidenceTests.RunAll();
             AgentPhaseTests.RunAll();
             KimiDeepSeekTests.RunAll();
             SubagentFilterTests.RunAll();
@@ -90,6 +91,8 @@ public static class Program
         var now = DateTimeOffset.UtcNow;
         var sessions = SessionScanner.MonitoringScan(now, new Dictionary<string, DateTimeOffset>());
         Console.WriteLine($"{sessions.Count} session(s) discovered");
+        Console.WriteLine($"no process running: {string.Join(", ", AgentProcesses.Gone())}");
+        Console.WriteLine($"offline: {InternetStatus.IsOffline(now)}");
         foreach (var session in sessions.Take(15))
         {
             var age = now - session.Modified;

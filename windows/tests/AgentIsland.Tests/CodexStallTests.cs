@@ -16,7 +16,10 @@ public static class CodexStallTests
         {
             ("codex long turn that keeps writing is working", TestLongTurnStillWritingIsWorking),
             ("codex turn start past the tail is still working", TestTurnStartOutsideTailIsWorking),
-            ("codex turn quiet for five minutes is stalled", TestQuietTurnIsStalled),
+            ("codex turn quiet for six minutes is still working", TestQuietTurnIsWorking),
+            ("codex turn silent for half an hour is idle", TestAbandonedTurnIsIdle),
+            ("codex failed turn is an error, not your turn", TestFailedTurnIsError),
+            ("codex usage limit is out of quota", TestUsageLimitIsRateLimited),
             ("codex interrupted turn is idle, not stalled", TestInterruptedTurnIsIdle),
             ("codex new turn after an interrupt is working", TestTurnAfterInterruptIsWorking),
         };
@@ -57,7 +60,7 @@ public static class CodexStallTests
         Expect(state.Status == ActivityState.Working, $"a turn writing every 10s must be working however old the file is, got {state.Status}");
     }
 
-    private static void TestQuietTurnIsStalled()
+    private static void TestQuietTurnIsWorking()
     {
         var now = Start.AddMinutes(7);
         var state = Scan(new[]
@@ -65,7 +68,44 @@ public static class CodexStallTests
             Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
             Line(Start.AddMinutes(1), "response_item", """{"type":"function_call","name":"shell","call_id":"c1","arguments":"{}"}"""),
         }, now, lastWorking: Start.AddMinutes(1));
-        Expect(state.Status == ActivityState.Stalled, $"six quiet minutes inside a turn must still read as stalled, got {state.Status}");
+        Expect(state.Status == ActivityState.Working, $"six quiet minutes inside a turn are not trouble, got {state.Status}");
+    }
+
+    private static void TestAbandonedTurnIsIdle()
+    {
+        var now = Start.AddMinutes(32);
+        var state = Scan(new[]
+        {
+            Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
+            Line(Start.AddMinutes(1), "response_item", """{"type":"function_call","name":"shell","call_id":"c1","arguments":"{}"}"""),
+        }, now, lastWorking: Start.AddMinutes(1));
+        Expect(state.Status == ActivityState.Idle, $"a turn silent for half an hour was abandoned, got {state.Status}");
+    }
+
+    private static void TestFailedTurnIsError()
+    {
+        var failed = Start.AddMinutes(1);
+        var lines = new[]
+        {
+            Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
+            Line(failed, "event_msg", """{"type":"task_complete","turn_id":"t1","error":{"message":"{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\"}}"}}"""),
+        };
+        var now = failed.AddMinutes(1);
+        var state = Scan(lines, now, lastWorking: failed);
+        Expect(state.Status == ActivityState.NeedsYou, $"a failed turn is over and back to the user, got {state.Status}");
+        var phase = AgentPhases.Combine(state.Status, AgentPhaseClassifier.Codex(lines, now), quotaExhausted: false);
+        Expect(phase == AgentPhase.Failed, $"a failed turn shows as an error, not your turn, got {phase}");
+    }
+
+    private static void TestUsageLimitIsRateLimited()
+    {
+        var failed = Start.AddMinutes(1);
+        var state = Scan(new[]
+        {
+            Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
+            Line(failed, "event_msg", """{"type":"task_complete","turn_id":"t1","error":"usage_limit_reached: try again later"}"""),
+        }, failed.AddMinutes(1), lastWorking: failed);
+        Expect(state.Status == ActivityState.RateLimited, $"a usage-limit failure is out of quota, got {state.Status}");
     }
 
     private static void TestInterruptedTurnIsIdle()

@@ -15,8 +15,15 @@ public static class ClaudeStallTests
         {
             ("claude thinking for nine minutes is working", TestLongThinkingAfterPromptIsWorking),
             ("claude thinking on a tool result for twelve minutes is working", TestLongThinkingAfterToolResultIsWorking),
-            ("claude model silent for sixteen minutes is stalled", TestModelSilentPastLimitIsStalled),
-            ("claude tool silent for six minutes is stalled", TestQuietToolIsStalled),
+            ("claude model silent for sixteen minutes is still working", TestLongSilenceIsWorking),
+            ("claude tool silent for six minutes is still working", TestQuietToolIsWorking),
+            ("claude third failed connection attempt is network trouble", TestRepeatedRetriesAreNetworkTrouble),
+            ("claude single retry is still working", TestSingleRetryIsWorking),
+            ("claude retries long over are working again", TestOldRetriesAreWorking),
+            ("claude session limit is out of quota", TestSessionLimitIsRateLimited),
+            ("claude sign-in error needs sign-in", TestNotLoggedInNeedsSignIn),
+            ("claude connection error that ended the turn is network trouble", TestFinalConnectionErrorIsNetworkTrouble),
+            ("claude other API error is an error, not your turn", TestOtherApiErrorIsError),
             ("claude /compact leaves the session idle", TestLocalCommandIsIdle),
             ("claude interrupt is idle, not stalled", TestInterruptIsIdle),
             ("claude image caption does not hide the prompt", TestImageCaptionIsNotAPrompt),
@@ -48,20 +55,80 @@ public static class ClaudeStallTests
         Expect(status == ActivityState.Working, $"twelve minutes of thinking on a tool result must be working, got {status}");
     }
 
-    private static void TestModelSilentPastLimitIsStalled()
+    private static void TestLongSilenceIsWorking()
     {
         var status = Scan(new[] { Prompt(Start) }, Start.AddMinutes(16), lastWorking: Start.AddMinutes(15).AddSeconds(-10));
-        Expect(status == ActivityState.Stalled, $"a model silent for sixteen minutes must read as stalled, got {status}");
+        Expect(status == ActivityState.Working, $"silence alone is never trouble, got {status}");
     }
 
-    private static void TestQuietToolIsStalled()
+    private static void TestRepeatedRetriesAreNetworkTrouble()
+    {
+        var failing = Start.AddMinutes(2);
+        var status = Scan(new[]
+        {
+            Prompt(Start),
+            ToolUse(Start.AddMinutes(1)),
+            ToolResult(Start.AddMinutes(1)),
+            Retry(failing, 1),
+            Retry(failing.AddSeconds(1), 2),
+            Retry(failing.AddSeconds(3), 3),
+        }, failing.AddSeconds(10), lastWorking: failing);
+        Expect(status == ActivityState.NetworkTrouble, $"three failed connection attempts in a row are network trouble, got {status}");
+    }
+
+    private static void TestSingleRetryIsWorking()
+    {
+        var failing = Start.AddMinutes(2);
+        var status = Scan(new[] { Prompt(Start), Retry(failing, 1) }, failing.AddSeconds(10), lastWorking: failing);
+        Expect(status == ActivityState.Working, $"one retry recovers on its own, got {status}");
+    }
+
+    private static void TestOldRetriesAreWorking()
+    {
+        var failing = Start.AddMinutes(2);
+        var status = Scan(new[] { Prompt(Start), Retry(failing, 3) }, failing.AddMinutes(4), lastWorking: failing);
+        Expect(status == ActivityState.Working, $"retries that stopped minutes ago succeeded, got {status}");
+    }
+
+    private static void TestSessionLimitIsRateLimited()
+    {
+        var status = Scan(new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "You've hit your session limit · resets 2am (Asia/Shanghai)") },
+            Start.AddMinutes(3), lastWorking: Start.AddMinutes(1));
+        Expect(status == ActivityState.RateLimited, $"a session limit is out of quota, got {status}");
+    }
+
+    private static void TestNotLoggedInNeedsSignIn()
+    {
+        var status = Scan(new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "Not logged in · Please run /login") },
+            Start.AddMinutes(3), lastWorking: Start.AddMinutes(1));
+        Expect(status == ActivityState.AuthRequired, $"a lost login needs signing in, got {status}");
+    }
+
+    private static void TestFinalConnectionErrorIsNetworkTrouble()
+    {
+        var status = Scan(new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "API Error: Connection error.") },
+            Start.AddMinutes(3), lastWorking: Start.AddMinutes(1));
+        Expect(status == ActivityState.NetworkTrouble, $"giving up on a lost connection is network trouble, got {status}");
+    }
+
+    private static void TestOtherApiErrorIsError()
+    {
+        var lines = new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "API Error: 500 Internal server error") };
+        var now = Start.AddMinutes(3);
+        var status = Scan(lines, now, lastWorking: Start.AddMinutes(1));
+        Expect(status == ActivityState.NeedsYou, $"a turn that ended on an error is back to the user, got {status}");
+        var phase = AgentPhases.Combine(status, AgentPhaseClassifier.Claude(lines, now), quotaExhausted: false);
+        Expect(phase == AgentPhase.Failed, $"it shows as an error, not your turn, got {phase}");
+    }
+
+    private static void TestQuietToolIsWorking()
     {
         var status = Scan(new[]
         {
             Prompt(Start),
             ToolUse(Start.AddMinutes(1)),
         }, Start.AddMinutes(7), lastWorking: Start.AddMinutes(5));
-        Expect(status == ActivityState.Stalled, $"a tool silent for six minutes still reads as stalled, got {status}");
+        Expect(status == ActivityState.Working, $"a long command is not trouble, got {status}");
     }
 
     private static void TestLocalCommandIsIdle()
@@ -107,6 +174,16 @@ public static class ClaudeStallTests
 
     private static string ToolUse(DateTimeOffset at) =>
         Line(at, """{"type":"assistant","uuid":"a1","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"PowerShell","input":{}}]}}""");
+
+    /// A Claude Code retry record after the connection dropped.
+    private static string Retry(DateTimeOffset at, int attempt) =>
+        Line(at, """{"type":"system","subtype":"api_error","level":"error","uuid":"rN","error":{"message":"Connection error.","formatted":"Connection dropped (ECONNRESET)","connection":{"code":"ECONNRESET"}},"retryInMs":DELAY,"retryAttempt":N,"maxRetries":10}"""
+            .Replace("DELAY", (500 << attempt).ToString(CultureInfo.InvariantCulture))
+            .Replace("\"rN\"", "\"r" + attempt + "\"")
+            .Replace("\"retryAttempt\":N", "\"retryAttempt\":" + attempt));
+
+    private static string ApiError(DateTimeOffset at, string text) =>
+        Line(at, """{"type":"assistant","isApiErrorMessage":true,"uuid":"e1","message":{"stop_reason":"stop_sequence","content":[{"type":"text","text":"TEXT"}]}}""".Replace("TEXT", text));
 
     private static string ToolResult(DateTimeOffset at) =>
         Line(at, """{"type":"user","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}""");

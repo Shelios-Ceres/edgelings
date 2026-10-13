@@ -75,9 +75,12 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     public ActiveThread? ThreadFor(TriggerTool provider) =>
         _threads.TryGetValue(provider, out var thread) ? thread : null;
 
-    /// Threads mid-turn, stalled ones included: they have not finished.
+    /// Threads mid-turn, including ones held up by the network.
     public int RunningFor(TriggerTool provider) =>
         _running.TryGetValue(provider, out var count) ? count : 0;
+
+    /// Windows has reported no internet for a while.
+    public bool IsOffline { get; private set; }
 
     // The island and tray bind to these two by name; they stay as thin views
     // over the maps so those bindings keep working unchanged.
@@ -177,20 +180,24 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         // entries but NOT the source's comparer, and the scanner looks these
         // paths up again — Windows hands back whatever casing the directory
         // entry carries, so an ordinal snapshot would lose a session's
-        // last-working stamp and downgrade a stall to idle.
+        // last-working stamp and keep a finished guest turn reading as work.
         var lastWorkingSnapshot = new Dictionary<string, DateTimeOffset>(
             _lastWorking, StringComparer.OrdinalIgnoreCase);
-        Task.Run(() => SessionScanner.MonitoringScan(now, lastWorkingSnapshot))
+        Task.Run(() => new Scan(
+                SessionScanner.MonitoringScan(now, lastWorkingSnapshot),
+                AgentProcesses.Gone(),
+                InternetStatus.IsOffline(now)))
             .ContinueWith(task =>
             {
-                var sessions = task.IsCompletedSuccessfully ? task.Result : new List<ScannedSession>();
+                var scan = task.IsCompletedSuccessfully ? task.Result : Scan.Empty;
                 // Apply reaches the alarm center and every bound surface. A
                 // throw there is swallowed by the continuation's own task, so
                 // without the finally the in-flight flag would latch and the
                 // monitor would silently never scan again.
                 try
                 {
-                    Apply(sessions, now);
+                    IsOffline = scan.Offline;
+                    Apply(Settle(scan.Sessions, scan.Gone, scan.Offline), now);
                 }
                 finally
                 {
@@ -203,6 +210,23 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                 }
             }, UiThread.Scheduler);
     }
+
+    private sealed record Scan(List<ScannedSession> Sessions, IReadOnlySet<TriggerTool> Gone, bool Offline)
+    {
+        public static readonly Scan Empty = new(new List<ScannedSession>(), new HashSet<TriggerTool>(), false);
+    }
+
+    /// Evidence beyond the transcripts: a mid-task session whose agent has no
+    /// process left was abandoned, and while Windows reports no internet a
+    /// working agent cannot be getting anywhere.
+    internal static List<ScannedSession> Settle(List<ScannedSession> sessions, IReadOnlySet<TriggerTool> gone, bool offline) =>
+        sessions.ConvertAll(session => session.Status switch
+        {
+            ActivityState.Working or ActivityState.NetworkTrouble when gone.Contains(session.Tool) =>
+                session with { Status = ActivityState.Idle },
+            ActivityState.Working when offline => session with { Status = ActivityState.NetworkTrouble },
+            _ => session,
+        });
 
     private void Apply(List<ScannedSession> sessions, DateTimeOffset now)
     {
@@ -264,7 +288,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         return (int)attention > (int)state ? attention : state;
     }
 
-    private static ActivityState? UsageAttentionState(AppUsage usage)
+    internal static ActivityState? UsageAttentionState(AppUsage usage)
     {
         if (usage.FiveHour.UsedPercent >= 1 || usage.Weekly.UsedPercent >= 1)
             return ActivityState.RateLimited;
@@ -282,36 +306,21 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         {
             return ActivityState.AuthRequired;
         }
-        if (messages.Any(IsProviderOrNetworkError))
-            return ActivityState.RateLimited;
+        // Any other failure (the network, a bad response) only means the quota
+        // is unknown. It used to read as "out of quota"; the app's own request
+        // failing says nothing about the agents, which may reach their
+        // service through a proxy this app does not use.
         return null;
     }
 
-    private static bool IsProviderOrNetworkError(string message) =>
-        message.StartsWith("http ", StringComparison.Ordinal)
-        || message.Contains("bad response")
-        || message.Contains("parse error")
-        || message.Contains("timed out")
-        || message.Contains("timeout")
-        || message.Contains("offline")
-        || message.Contains("network")
-        || message.Contains("internet")
-        || message.Contains("connection")
-        || message.Contains("cannot connect")
-        || message.Contains("could not connect")
-        || message.Contains("not connected")
-        || message.Contains("dns")
-        || message.Contains("ssl")
-        || message.Contains("tls");
-
     /// A running session outranks a finished one: with the turn alarms gone
     /// nothing acknowledges a finished turn, so a needsYou ranked first would
-    /// mask a genuinely running sibling until it ages out. Stalled stays
-    /// above working so real anomalies surface.
+    /// mask a genuinely running sibling until it ages out. Trouble a session
+    /// wrote down stays above working so real anomalies surface.
     private static int SelectionPriority(ScannedSession session) =>
         session.Status switch
         {
-            ActivityState.Stalled => 3,
+            ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired => 3,
             ActivityState.Working => 2,
             ActivityState.NeedsYou => 1,
             _ => 0,
@@ -321,7 +330,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// are counted by id, not by file.
     internal static int RunningCount(IEnumerable<ScannedSession> sessions, TriggerTool tool) =>
         sessions
-            .Where(s => s.Tool == tool && s.Status is ActivityState.Working or ActivityState.Stalled)
+            .Where(s => s.Tool == tool && s.Status is ActivityState.Working or ActivityState.NetworkTrouble)
             .Select(s => s.SessionId)
             .Distinct(StringComparer.Ordinal)
             .Count();

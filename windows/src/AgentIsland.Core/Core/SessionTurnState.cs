@@ -1,13 +1,28 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AgentIsland.Core;
 
+/// How a turn went wrong, as the agent wrote it down.
+public enum TurnTrouble
+{
+    None,
+    /// The service could not be reached: the connection dropped or timed out.
+    Network,
+    RateLimited,
+    AuthRequired,
+    /// Any other error.
+    Failed,
+}
+
 /// Idle: the turn is over with nothing waiting on the user — it was
-/// interrupted, or a local command answered itself. AwaitingModel: the model
-/// owes the next line, so a long silence is most likely thinking.
+/// interrupted, or a local command answered itself. Trouble: the error a
+/// finished turn ended on. RetryingUntil: the agent is retrying a lost
+/// connection, as of its latest record.
 public readonly record struct SessionTurnStatus(
-    bool IsDone, string? Key, DateTimeOffset? ActivityDate, bool Idle = false, bool AwaitingModel = false);
+    bool IsDone, string? Key, DateTimeOffset? ActivityDate, bool Idle = false,
+    TurnTrouble Trouble = TurnTrouble.None, DateTimeOffset? RetryingUntil = null);
 
 /// Classifies the tail of a transcript: is the latest turn finished (the user
 /// is "up"), and which event identifies that turn. Direct port of the macOS
@@ -15,6 +30,12 @@ public readonly record struct SessionTurnStatus(
 /// bookkeeping-grace logic in SessionScanner.
 public static class SessionTurnState
 {
+    /// Agents retry a failed request on their own, and single retries recover
+    /// within seconds (every one in two months of real logs did), so only a
+    /// third straight failure counts, for as long as the next try could take.
+    private const int RetriesBeforeTrouble = 3;
+    private static readonly TimeSpan RetryGrace = TimeSpan.FromSeconds(60);
+
     public static SessionTurnStatus Claude(IReadOnlyList<string> lines) =>
         ClaudeCore(lines, sidechainIsTheConversation: false);
 
@@ -24,6 +45,8 @@ public static class SessionTurnState
 
     private static SessionTurnStatus ClaudeCore(IReadOnlyList<string> lines, bool sidechainIsTheConversation)
     {
+        DateTimeOffset? retryingUntil = null;
+        var retrySeen = false;
         for (var i = lines.Count - 1; i >= 0; i--)
         {
             using var doc = Jsonl.TryParseLine(lines[i]);
@@ -36,27 +59,30 @@ public static class SessionTurnState
             var type = Jsonl.GetString(root, "type");
             switch (type)
             {
+                case "system":
+                    // Claude Code records each retry of a failed request; only
+                    // the newest, written after the conversation's latest
+                    // line, speaks for the turn.
+                    if (!retrySeen && Jsonl.GetString(root, "subtype") == "api_error")
+                    {
+                        retrySeen = true;
+                        retryingUntil = ConnectionRetryUntil(root);
+                    }
+                    continue;
                 case "assistant":
                 {
-                    string? stop = null;
-                    string? lastBlock = null;
-                    if (Jsonl.GetObject(root, "message") is { } message)
-                    {
-                        stop = Jsonl.GetString(message, "stop_reason");
-                        lastBlock = AgentPhaseClassifier.LastBlock(message) is { } block ? Jsonl.GetString(block, "type") : null;
-                    }
+                    var message = Jsonl.GetObject(root, "message");
+                    var stop = message is { } m ? Jsonl.GetString(m, "stop_reason") : null;
                     // Claude Code writes rate-limit / API-error lines with the
                     // SAME envelope as a finished turn (type:assistant,
                     // stop_reason:"stop_sequence") but flags them
                     // isApiErrorMessage:true (e.g. "You've hit your session
-                    // limit · resets 2:20am"). Treating those as a completed
-                    // turn fired a false "it's your turn" alarm on every
-                    // rate-limit — mirror the macOS fix and never mark them done.
-                    var isApiError = Jsonl.GetBool(root, "isApiErrorMessage") == true;
-                    var isDone = !isApiError && stop is "end_turn" or "stop_sequence" or "stop";
-                    // Thinking or text not yet followed by its tool calls.
-                    var awaitingModel = !isDone && !isApiError && lastBlock != "tool_use";
-                    return new SessionTurnStatus(isDone, Key(root, lines[i]), Date(root), AwaitingModel: awaitingModel);
+                    // limit · resets 2:20am"). The turn is over, but on an
+                    // error, so it must never read as plain "your turn".
+                    if (Jsonl.GetBool(root, "isApiErrorMessage") == true)
+                        return new SessionTurnStatus(true, Key(root, lines[i]), Date(root), Trouble: TroubleFrom(MessageText(message)));
+                    var isDone = stop is "end_turn" or "stop_sequence" or "stop";
+                    return new SessionTurnStatus(isDone, Key(root, lines[i]), Date(root), RetryingUntil: isDone ? null : retryingUntil);
                 }
                 case "user":
                     // Agent runs usually end on the final tool result (marked
@@ -71,8 +97,7 @@ public static class SessionTurnState
                     // (/compact, /model): over, and the model owes nothing.
                     if (AgentPhaseClassifier.IsInterrupt(root) || AgentPhaseClassifier.IsLocalCommandOutput(root))
                         return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), Idle: true);
-                    // A prompt or a tool result: the model owes the next line.
-                    return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), AwaitingModel: true);
+                    return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), RetryingUntil: retryingUntil);
                 default:
                     continue;
             }
@@ -102,7 +127,10 @@ public static class SessionTurnState
                 if (IsCodexUserOrStart(payloadType))
                     return new SessionTurnStatus(false, Key(root, lines[i]), newest);
                 if (payloadType is "task_complete" or "turn/completed")
-                    return new SessionTurnStatus(true, Key(root, lines[i]), Date(root));
+                {
+                    var trouble = ErrorText(payload) is { } error ? TroubleFrom(error) : TurnTrouble.None;
+                    return new SessionTurnStatus(true, Key(root, lines[i]), Date(root), Trouble: trouble);
+                }
                 if (payloadType == "turn_aborted")
                     return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), Idle: true);
             }
@@ -123,12 +151,13 @@ public static class SessionTurnState
     /// of the conversation written after it (tool calls, streaming chunks,
     /// retry_state) means the turn is open again; the bookkeeping Grok writes
     /// once a turn is over (memory dreams, background-task notices, rewind
-    /// markers) does not. Timestamps here are unix SECONDS, not the
+    /// markers) does not. A run of retry_state updates at the end is Grok
+    /// backing off a failing API. Timestamps here are unix SECONDS, not the
     /// milliseconds Claude Desktop uses.
     public static SessionTurnStatus Grok(IReadOnlyList<string> lines)
     {
         SessionTurnStatus? newest = null;
-        var returned = new HashSet<string>(StringComparer.Ordinal);
+        var retries = 0;
         for (var i = lines.Count - 1; i >= 0; i--)
         {
             using var doc = Jsonl.TryParseLine(lines[i]);
@@ -149,29 +178,77 @@ public static class SessionTurnState
                     : "";
                 newest = new SessionTurnStatus(kind == "turn_completed", seconds + ":" + kind, stamp);
             }
-            // Back through the step's tool traffic: a call with no completed
-            // update after it is still running; anything else means the model
-            // owes the next update.
-            switch (kind)
-            {
-                case "turn_completed":
-                    return newest.Value;
-                case "tool_call_update":
-                    if (Jsonl.GetString(update, "status") is "completed" or "failed"
-                        && Jsonl.GetString(update, "toolCallId") is { } done)
-                    {
-                        returned.Add(done);
-                    }
-                    continue;
-                case "tool_call":
-                    if (Jsonl.GetString(update, "toolCallId") is { } call ? !returned.Contains(call) : returned.Count == 0)
-                        return newest.Value;
-                    continue;
-                default:
-                    return newest.Value with { AwaitingModel = true };
-            }
+            if (kind != "retry_state") break;
+            retries++;
         }
-        return newest ?? new SessionTurnStatus(false, null, null);
+        if (newest is not { } status) return new SessionTurnStatus(false, null, null);
+        return retries >= RetriesBeforeTrouble && status.ActivityDate is { } at
+            ? status with { RetryingUntil = at + RetryGrace }
+            : status;
+    }
+
+    /// What an agent's error text says went wrong.
+    internal static TurnTrouble TroubleFrom(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return TurnTrouble.Failed;
+        var lower = text.ToLowerInvariant();
+        if (Has(lower, "session limit", "usage limit", "usage_limit", "rate limit", "rate_limit", "quota")
+            || Regex.IsMatch(lower, @"\b429\b"))
+        {
+            return TurnTrouble.RateLimited;
+        }
+        if (Has(lower, "not logged in", "/login", "authenticat", "unauthorized", "invalid api key")
+            || Regex.IsMatch(lower, @"\b401\b"))
+        {
+            return TurnTrouble.AuthRequired;
+        }
+        if (Has(lower, "connection error", "connection dropped", "connection reset", "connection refused",
+                "stream disconnected", "error sending request", "econnreset", "econnrefused", "etimedout",
+                "enotfound", "eai_again", "socket hang up", "timed out", "timeout", "network", "dns"))
+        {
+            return TurnTrouble.Network;
+        }
+        return TurnTrouble.Failed;
+    }
+
+    private static bool Has(string text, params string[] needles) =>
+        needles.Any(needle => text.Contains(needle, StringComparison.Ordinal));
+
+    /// Until when a retry record keeps the session in network trouble; null
+    /// for an early attempt, or an HTTP error rather than a lost connection.
+    private static DateTimeOffset? ConnectionRetryUntil(JsonElement root)
+    {
+        if (Jsonl.GetDouble(root, "retryAttempt") is not { } attempt || attempt < RetriesBeforeTrouble) return null;
+        if (Jsonl.GetObject(root, "error") is not { } error || TroubleFrom(error.GetRawText()) != TurnTrouble.Network) return null;
+        if (Date(root) is not { } at) return null;
+        var wait = Jsonl.GetDouble(root, "retryInMs") is { } ms ? TimeSpan.FromMilliseconds(ms) : TimeSpan.Zero;
+        return at + wait + RetryGrace;
+    }
+
+    private static string? MessageText(JsonElement? message)
+    {
+        if (message is not { } m || !m.TryGetProperty("content", out var content)) return null;
+        if (content.ValueKind == JsonValueKind.String) return content.GetString();
+        if (content.ValueKind != JsonValueKind.Array) return null;
+        var text = new StringBuilder();
+        foreach (var block in content.EnumerateArray())
+        {
+            if (block.ValueKind == JsonValueKind.Object && Jsonl.GetString(block, "text") is { } part)
+                text.Append(part).Append(' ');
+        }
+        return text.ToString();
+    }
+
+    /// A Codex completion's error, or null when the turn succeeded.
+    private static string? ErrorText(JsonElement? payload)
+    {
+        if (payload is not { } p || !p.TryGetProperty("error", out var error)) return null;
+        return error.ValueKind switch
+        {
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            JsonValueKind.String => error.GetString() is { Length: > 0 } text ? text : null,
+            _ => error.GetRawText(),
+        };
     }
 
     /// For sessions whose transcript has no verified turn boundary (Gemini's

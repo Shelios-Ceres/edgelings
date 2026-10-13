@@ -16,8 +16,10 @@ public static class GrokStallTests
             ("grok thinking for eight minutes is working", TestLongThinkingIsWorking),
             ("grok memory dream after a finished turn is your turn", TestMemoryDreamKeepsTurnDone),
             ("grok background notice long after a turn is idle", TestLateBackgroundNoticeIsIdle),
-            ("grok tool silent for six minutes is stalled", TestQuietToolIsStalled),
-            ("grok model silent for sixteen minutes is stalled", TestModelSilentPastLimitIsStalled),
+            ("grok tool silent for six minutes is still working", TestQuietToolIsWorking),
+            ("grok model silent for sixteen minutes is still working", TestLongSilenceIsWorking),
+            ("grok repeated retries are network trouble", TestRepeatedRetriesAreNetworkTrouble),
+            ("grok a single retry is still working", TestSingleRetryIsWorking),
         };
         foreach (var (name, test) in tests)
         {
@@ -68,7 +70,7 @@ public static class GrokStallTests
         Expect(status == ActivityState.Idle, $"a background notice an hour after the turn does not reopen it, got {status}");
     }
 
-    private static void TestQuietToolIsStalled()
+    private static void TestQuietToolIsWorking()
     {
         var called = Start.AddSeconds(10);
         var status = Scan(new[]
@@ -76,14 +78,36 @@ public static class GrokStallTests
             Update(Start, "user_message_chunk"),
             Update(called, "tool_call", "c1", "in_progress"),
         }, called.AddMinutes(6), lastWorking: called.AddMinutes(4));
-        Expect(status == ActivityState.Stalled, $"a tool silent for six minutes still reads as stalled, got {status}");
+        Expect(status == ActivityState.Working, $"a long command is not trouble, got {status}");
     }
 
-    private static void TestModelSilentPastLimitIsStalled()
+    private static void TestLongSilenceIsWorking()
     {
         var status = Scan(new[] { Update(Start, "user_message_chunk") },
             Start.AddMinutes(16), lastWorking: Start.AddMinutes(15).AddSeconds(-10));
-        Expect(status == ActivityState.Stalled, $"a model silent for sixteen minutes must read as stalled, got {status}");
+        Expect(status == ActivityState.Working, $"silence alone is never trouble, got {status}");
+    }
+
+    private static void TestRepeatedRetriesAreNetworkTrouble()
+    {
+        var status = Scan(new[]
+        {
+            Update(Start, "user_message_chunk"),
+            Update(Start.AddSeconds(10), "retry_state"),
+            Update(Start.AddSeconds(20), "retry_state"),
+            Update(Start.AddSeconds(40), "retry_state"),
+        }, Start.AddSeconds(50), lastWorking: Start.AddSeconds(5));
+        Expect(status == ActivityState.NetworkTrouble, $"three retries in a row are network trouble, got {status}");
+    }
+
+    private static void TestSingleRetryIsWorking()
+    {
+        var status = Scan(new[]
+        {
+            Update(Start, "user_message_chunk"),
+            Update(Start.AddSeconds(10), "retry_state"),
+        }, Start.AddSeconds(20), lastWorking: Start.AddSeconds(5));
+        Expect(status == ActivityState.Working, $"one retry recovers on its own, got {status}");
     }
 
     private static string Update(DateTimeOffset at, string kind, string? call = null, string? status = null)

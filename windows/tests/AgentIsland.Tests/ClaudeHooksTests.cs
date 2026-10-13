@@ -22,7 +22,7 @@ public static class ClaudeHooksTests
             ("a transcript write after the marker retires it", RetiredByWrite),
             ("an idle prompt is not an approval", IgnoresIdlePrompt),
             ("the classifier reads the pending approval", ClassifierApproving),
-            ("an open prompt outlives the stall verdict", StalledButApproving),
+            ("an open prompt outranks network trouble", ApprovingOutranksNetworkTrouble),
         };
         foreach (var (name, test) in tests)
         {
@@ -93,11 +93,11 @@ public static class ClaudeHooksTests
         Expect(AgentPhaseClassifier.Classify(TriggerTool.Claude, transcript, now)?.Phase, AgentPhase.Approving);
     });
 
-    private static void StalledButApproving()
+    private static void ApprovingOutranksNetworkTrouble()
     {
         var reading = new PhaseReading(AgentPhase.Approving, null, DateTimeOffset.Now);
-        Expect(AgentPhases.Combine(ActivityState.Stalled, reading, quotaExhausted: false), AgentPhase.Approving);
-        Expect(AgentPhases.Combine(ActivityState.Stalled, null, quotaExhausted: false), AgentPhase.Stalled);
+        Expect(AgentPhases.Combine(ActivityState.NetworkTrouble, reading, quotaExhausted: false), AgentPhase.Approving);
+        Expect(AgentPhases.Combine(ActivityState.NetworkTrouble, null, quotaExhausted: false), AgentPhase.NetworkTrouble);
     }
 
     /// A throwaway transcript and signal directory; real time, since the

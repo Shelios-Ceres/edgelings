@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Numerics;
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.Usage;
 using AgentIsland.WinUI.Platform;
@@ -453,10 +454,12 @@ internal sealed class DrawerWindow : Window
                 .Where(b => b.Visible)
                 .Select(b => (Bot: b, State: monitor.StateFor(b.Tool), Path: monitor.ThreadFor(b.Tool)?.TranscriptPath, Running: monitor.RunningFor(b.Tool)))
                 .ToList();
-            // Tail reads stay off the UI thread; only working (or seemingly
-            // stalled, maybe waiting on a prompt) sessions are read.
+            // Tail reads stay off the UI thread. Working sessions are read for
+            // how they work, network trouble for a prompt that may be open, and
+            // finished turns for whether they ended on an error.
             var readings = await Task.Run(() => jobs
-                .Select(job => job.State is ActivityState.Working or ActivityState.Stalled && job.Path is { } path
+                .Select(job => job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
+                    && job.Path is { } path
                     ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
                     : null)
                 .ToList());
@@ -470,7 +473,10 @@ internal sealed class DrawerWindow : Window
                 bot.Running = running;
                 var reading = readings[i];
                 var phase = AgentPhases.Combine(state, reading, QuotaExhausted(bot.Provider));
-                Offer(bot, phase, reading is { } r && r.Phase == phase ? r.Detail : null, seconds);
+                var detail = reading is { } r && r.Phase == phase ? r.Detail : null;
+                if (phase == AgentPhase.NetworkTrouble && detail is null && monitor.IsOffline)
+                    detail = L10n.Tr("No internet connection");
+                Offer(bot, phase, detail, seconds);
             }
             // A task can start or end without the shown phase changing.
             if (recounted) RefreshCard();

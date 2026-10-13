@@ -23,7 +23,7 @@ public enum AgentPhase
     Working,
     Finished,
     Failed,
-    Stalled,
+    NetworkTrouble,
     RateLimited,
     AuthRequired,
     Approving,
@@ -40,14 +40,14 @@ public static class AgentPhases
     public static int Priority(AgentPhase phase) => phase switch
     {
         AgentPhase.Asking or AgentPhase.Approving => 0,
-        AgentPhase.Failed or AgentPhase.AuthRequired => 1,
-        AgentPhase.Finished or AgentPhase.RateLimited or AgentPhase.Stalled => 2,
+        AgentPhase.Failed or AgentPhase.AuthRequired or AgentPhase.NetworkTrouble => 1,
+        AgentPhase.Finished or AgentPhase.RateLimited => 2,
         AgentPhase.Idle => 4,
         _ => 3,
     };
 
     public static bool IsWork(AgentPhase phase) =>
-        phase is not (AgentPhase.Idle or AgentPhase.Finished or AgentPhase.Stalled
+        phase is not (AgentPhase.Idle or AgentPhase.Finished or AgentPhase.NetworkTrouble
             or AgentPhase.RateLimited or AgentPhase.AuthRequired);
 
     /// The scanner's state decides whether the agent is working at all; the
@@ -59,10 +59,11 @@ public static class AgentPhases
             ActivityState.AuthRequired => AgentPhase.AuthRequired,
             ActivityState.RateLimited => AgentPhase.RateLimited,
             _ when quotaExhausted => AgentPhase.RateLimited,
-            // An open permission prompt writes nothing, so the scan calls it
-            // stalled after a few minutes; the hook knows better.
-            ActivityState.Stalled when transcript is { Phase: AgentPhase.Approving or AgentPhase.Asking } reading => reading.Phase,
-            ActivityState.Stalled => AgentPhase.Stalled,
+            // A prompt waiting on the user is the more useful thing to show.
+            ActivityState.NetworkTrouble when transcript is { Phase: AgentPhase.Approving or AgentPhase.Asking } reading => reading.Phase,
+            ActivityState.NetworkTrouble => AgentPhase.NetworkTrouble,
+            // A turn that ended on an error says so rather than "your turn".
+            ActivityState.NeedsYou when transcript is { Phase: AgentPhase.Failed } => AgentPhase.Failed,
             ActivityState.NeedsYou => AgentPhase.Finished,
             ActivityState.Working when transcript is { } reading && IsWork(reading.Phase) => reading.Phase,
             ActivityState.Working => AgentPhase.Working,

@@ -1,14 +1,16 @@
 namespace AgentIsland.Core;
 
 /// Per-provider visible state. Raw values are the urgency ranking used when
-/// aggregating multiple sessions: idle &lt; working &lt; needsYou &lt; stalled &lt;
-/// rateLimited &lt; authRequired.
+/// aggregating multiple sessions: idle &lt; working &lt; needsYou &lt;
+/// networkTrouble &lt; rateLimited &lt; authRequired. NetworkTrouble needs
+/// evidence (Windows reporting no internet, or an agent retrying a lost
+/// connection), never mere silence.
 public enum ActivityState
 {
     Idle = 0,
     Working = 1,
     NeedsYou = 2,
-    Stalled = 3,
+    NetworkTrouble = 3,
     RateLimited = 4,
     AuthRequired = 5,
 }
@@ -16,14 +18,14 @@ public enum ActivityState
 public static class ActivityStateExtensions
 {
     public static bool IsAttentionState(this ActivityState state) => state is
-        ActivityState.Stalled or ActivityState.RateLimited or ActivityState.AuthRequired;
+        ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired;
 
     /// Attention states that pulse. AuthRequired is deliberately excluded:
     /// a login can stay pending for hours, and an endless red blink reads as
     /// a crash — it gets the static red treatment instead (macOS
     /// pulsesAttention semantics).
     public static bool PulsesAttention(this ActivityState state) => state is
-        ActivityState.Stalled or ActivityState.RateLimited;
+        ActivityState.NetworkTrouble or ActivityState.RateLimited;
 
     /// Live activity — a session is running, or something needs you. The
     /// rotating comet sweep spins on these and rests otherwise: Idle and
@@ -32,7 +34,7 @@ public static class ActivityStateExtensions
     /// render thread.
     public static bool IsActiveState(this ActivityState state) => state is
         ActivityState.Working
-        or ActivityState.Stalled or ActivityState.RateLimited or ActivityState.AuthRequired;
+        or ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired;
 }
 
 /// The providers a session can belong to. Triggers are persisted as JSON

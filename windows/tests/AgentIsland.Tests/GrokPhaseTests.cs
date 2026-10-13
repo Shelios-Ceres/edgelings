@@ -31,7 +31,7 @@ public static class GrokPhaseTests
                 Update("agent_thought_chunk", 5), Update("agent_message_chunk", 3))),
             ("turn_completed is finished", () => Phase(AgentPhase.Finished,
                 Update("agent_message_chunk", 4), Update("turn_completed", 3))),
-            ("retrying the API is stalled", () => Phase(AgentPhase.Stalled,
+            ("retrying the API is network trouble", () => Phase(AgentPhase.NetworkTrouble,
                 Update("agent_thought_chunk", 9), Update("retry_state", 2))),
             ("bookkeeping after the close keeps it finished", () => Phase(AgentPhase.Finished,
                 Update("turn_completed", 5), Update("background_tasks", 4), Update("session_recap", 3))),

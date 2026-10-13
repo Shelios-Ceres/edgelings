@@ -14,7 +14,7 @@ public static class BotLines
         [AgentPhase.Approving] = new[] { "Can I run this? Needs your OK.", "Waiting for your approval." },
         [AgentPhase.Asking] = new[] { "Quick question for you.", "I need your input." },
         [AgentPhase.Failed] = new[] { "Something broke…", "Hit an error." },
-        [AgentPhase.Stalled] = new[] { "I think I'm stuck.", "No progress for a while." },
+        [AgentPhase.NetworkTrouble] = new[] { "My connection dropped.", "Can't reach the server — retrying." },
         [AgentPhase.RateLimited] = new[] { "Out of quota for now.", "Taking a break — quota's used up." },
         [AgentPhase.AuthRequired] = new[] { "Please sign me in again." },
     };

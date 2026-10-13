@@ -9,7 +9,7 @@ public static class RunningTasksTests
     {
         var tests = new (string Name, Action Test)[]
         {
-            ("running counts working and stalled threads only", TestCountsWorkingAndStalled),
+            ("running counts working threads and ones held up by the network", TestCountsWorkingAndNetworkTrouble),
             ("a thread split over two rollouts counts once", TestSplitThreadCountsOnce),
         };
         foreach (var (name, test) in tests)
@@ -20,18 +20,18 @@ public static class RunningTasksTests
         Console.WriteLine("RunningTasksTests GREEN");
     }
 
-    private static void TestCountsWorkingAndStalled()
+    private static void TestCountsWorkingAndNetworkTrouble()
     {
         var sessions = new[]
         {
             Session(TriggerTool.Codex, "a", ActivityState.Working),
-            Session(TriggerTool.Codex, "b", ActivityState.Stalled),
+            Session(TriggerTool.Codex, "b", ActivityState.NetworkTrouble),
             Session(TriggerTool.Codex, "c", ActivityState.NeedsYou),
             Session(TriggerTool.Codex, "d", ActivityState.Idle),
             Session(TriggerTool.Claude, "e", ActivityState.Working),
         };
         var codex = ActivityMonitor.RunningCount(sessions, TriggerTool.Codex);
-        Expect(codex == 2, $"a working and a stalled thread are running, a finished and an idle one are not; got {codex}");
+        Expect(codex == 2, $"a working thread and one held up by the network are running, a finished and an idle one are not; got {codex}");
         Expect(ActivityMonitor.RunningCount(sessions, TriggerTool.Grok) == 0, "a provider with no sessions runs nothing");
     }
 

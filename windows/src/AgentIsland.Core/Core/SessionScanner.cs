@@ -13,17 +13,12 @@ namespace AgentIsland.Core;
 /// running right now" honestly.
 public static class SessionScanner
 {
-    private static readonly TimeSpan ActiveWindow = TimeSpan.FromSeconds(18);
-    private static readonly TimeSpan StallAfter = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan StallCap = TimeSpan.FromMinutes(15);
-    /// Thinking writes nothing until its block completes and can run past ten
-    /// minutes, so while the model owes the next line, silence takes this
-    /// long to read as stalled.
-    private static readonly TimeSpan ModelStallAfter = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan NeedsYouCap = TimeSpan.FromMinutes(20);
     /// How long a guest transcript must sit unchanged, after visible
     /// activity, before quiet counts as turn-done.
     private const double GuestQuietAfterSeconds = 25;
+    /// An open turn silent this long is presumed abandoned. Silence alone is
+    /// never trouble: thinking and long commands write nothing for minutes.
     private static readonly TimeSpan AttentionWindow = TimeSpan.FromMinutes(30);
     /// Claude Desktop writes lastActivityAt 2.3-4.2s after the final assistant
     /// event as turn-completion bookkeeping; external activity inside this
@@ -396,7 +391,7 @@ public static class SessionScanner
             // past the quiet gap, and the db stops changing the moment the
             // assistant stops writing, so a cached status would freeze at
             // "working" and the alarm would never fire.
-            return cached.ConvertAll(c => CursorSession(c, now, lastWorking));
+            return cached.ConvertAll(c => CursorSession(c, now));
         }
 
         var parsed = new List<CursorConversation>();
@@ -422,7 +417,7 @@ public static class SessionScanner
             _cursorStamp = modified;
             _cursorCache = parsed;
         }
-        return parsed.ConvertAll(c => CursorSession(c, now, lastWorking));
+        return parsed.ConvertAll(c => CursorSession(c, now));
     }
 
     private static readonly object CursorGate = new();
@@ -434,10 +429,7 @@ public static class SessionScanner
     private readonly record struct CursorConversation(
         string Id, string Label, bool IsDone, string? TurnKey, DateTimeOffset Stamp);
 
-    private static ScannedSession CursorSession(
-        CursorConversation conversation,
-        DateTimeOffset now,
-        IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
+    private static ScannedSession CursorSession(CursorConversation conversation, DateTimeOffset now)
     {
         var key = "cursor:" + conversation.Id;
         var turn = new SessionTurnStatus(conversation.IsDone, conversation.TurnKey, conversation.Stamp);
@@ -447,7 +439,7 @@ public static class SessionScanner
             string.Empty,
             conversation.Label,
             conversation.Stamp,
-            CursorStatus(turn, conversation.Stamp, now, key, lastWorking),
+            CursorStatus(turn, conversation.Stamp, now),
             key,
             conversation.TurnKey,
             SessionLaunchTarget.Cli);
@@ -461,9 +453,7 @@ public static class SessionScanner
     /// Assistant-last plus a quiet gap means the turn finished; assistant-last
     /// while still streaming reads as working. A user bubble last means the
     /// agent is thinking.
-    private static ActivityState CursorStatus(
-        SessionTurnStatus turn, DateTimeOffset stamp, DateTimeOffset now,
-        string key, IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
+    private static ActivityState CursorStatus(SessionTurnStatus turn, DateTimeOffset stamp, DateTimeOffset now)
     {
         var age = now - stamp;
         if (turn.IsDone)
@@ -471,13 +461,7 @@ public static class SessionScanner
             if (age.TotalSeconds <= GuestQuietAfterSeconds) return ActivityState.Working;
             return age < NeedsYouCap ? ActivityState.NeedsYou : ActivityState.Idle;
         }
-        if (age < StallAfter) return ActivityState.Working;
-        if (lastWorking.TryGetValue(key, out var seen)
-            && (now - seen) < StallCap && age < StallCap)
-        {
-            return ActivityState.Stalled;
-        }
-        return ActivityState.Idle;
+        return age < AttentionWindow ? ActivityState.Working : ActivityState.Idle;
     }
 
 
@@ -763,7 +747,7 @@ public static class SessionScanner
     }
 
     /// Guest trees keep every session ever run; anything this old cannot be
-    /// working, stalled or waiting on the user, so it is not even opened.
+    /// working or waiting on the user, so it is not even opened.
     private static readonly TimeSpan RecentWindow = TimeSpan.FromDays(1);
 
     // MARK: - Indexes
@@ -983,30 +967,24 @@ public static class SessionScanner
         var age = now - effectiveModified;
 
         if (age > AttentionWindow || turn.Idle) return (ActivityState.Idle, turn.Key, effectiveModified);
-        var stallAfter = turn.AwaitingModel ? ModelStallAfter : StallAfter;
-        var stallCap = turn.AwaitingModel ? AttentionWindow : StallCap;
-        if (externalIsNewer)
-        {
-            if (age < stallAfter) return (ActivityState.Working, turn.Key, effectiveModified);
-            if (lastWorking.TryGetValue(path, out var seen)
-                && now - seen < stallCap
-                && age < stallCap)
-            {
-                return (ActivityState.Stalled, turn.Key, effectiveModified);
-            }
-            return (ActivityState.Idle, turn.Key, effectiveModified);
-        }
+        if (externalIsNewer) return (ActivityState.Working, turn.Key, effectiveModified);
         if (turn.IsDone)
-            return (age < NeedsYouCap ? ActivityState.NeedsYou : ActivityState.Idle, turn.Key, effectiveModified);
-        if (age < ActiveWindow) return (ActivityState.Working, turn.Key, effectiveModified);
-        if (age < stallAfter) return (ActivityState.Working, turn.Key, effectiveModified);
-        if (lastWorking.TryGetValue(path, out var seenAgain)
-            && now - seenAgain < stallCap
-            && age < stallCap)
         {
-            return (ActivityState.Stalled, turn.Key, effectiveModified);
+            if (age >= NeedsYouCap) return (ActivityState.Idle, turn.Key, effectiveModified);
+            var ended = turn.Trouble switch
+            {
+                TurnTrouble.Network => ActivityState.NetworkTrouble,
+                TurnTrouble.RateLimited => ActivityState.RateLimited,
+                TurnTrouble.AuthRequired => ActivityState.AuthRequired,
+                // Any other error is still the user's move; the drawer reads
+                // the transcript and shows it as an error.
+                _ => ActivityState.NeedsYou,
+            };
+            return (ended, turn.Key, effectiveModified);
         }
-        return (ActivityState.Idle, turn.Key, effectiveModified);
+        if (turn.RetryingUntil is { } until && now < until)
+            return (ActivityState.NetworkTrouble, turn.Key, effectiveModified);
+        return (ActivityState.Working, turn.Key, effectiveModified);
     }
 
     // MARK: - Turn parse cache
@@ -1032,7 +1010,7 @@ public static class SessionScanner
     /// write, and without this every kick re-read and re-parsed the tail of
     /// EVERY session. Now an idle session is a two-field stat, and only the one
     /// transcript actually being written gets re-parsed. The time-based state
-    /// (working / stalled / needsYou) is still computed fresh each scan from
+    /// (working / needsYou / idle) is still computed fresh each scan from
     /// the cached turn, so nothing about detection changes — only redundant IO.
     private static (SessionTurnStatus Turn, DateTimeOffset Modified) ReadTurn(
         string path, Func<IReadOnlyList<string>, SessionTurnStatus> turnState, Func<string, List<string>> tail)

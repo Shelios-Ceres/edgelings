@@ -102,7 +102,7 @@ public static class AgentPhaseClassifier
                     switch (Jsonl.GetString(root, "subtype"))
                     {
                         case "compact_boundary": return Aged(new(AgentPhase.Compacting, null, at), now);
-                        case "api_error": return Aged(new(AgentPhase.Failed, "API", at), now);
+                        case "api_error": return Aged(new(AgentPhase.NetworkTrouble, RetryDetail(root), at), now);
                     }
                     continue;
                 default:
@@ -135,7 +135,10 @@ public static class AgentPhaseClassifier
                     switch (kind)
                     {
                         case "task_started": return Aged(new(AgentPhase.Thinking, null, at), now);
-                        case "task_complete": return Aged(new(AgentPhase.Finished, null, at), now);
+                        case "task_complete":
+                            var failed = payload is { } done && done.TryGetProperty("error", out var error)
+                                && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined);
+                            return Aged(new(failed ? AgentPhase.Failed : AgentPhase.Finished, null, at), now);
                         case "turn_aborted": return new(AgentPhase.Idle, null, at);
                     }
                     continue; // token counts, item completions, settings
@@ -341,7 +344,7 @@ public static class AgentPhaseClassifier
                     return Aged(new(stepDone ? AgentPhase.Thinking : AgentPhase.Streaming, null, resultAt ?? at), now);
                 case "retry_state":
                     if (stepDone) continue;
-                    return Aged(new(AgentPhase.Stalled, null, at), now);
+                    return Aged(new(AgentPhase.NetworkTrouble, null, at), now);
                 default:
                     continue; // background tasks, recaps, memory upkeep
             }
@@ -444,6 +447,12 @@ public static class AgentPhaseClassifier
         var parts = name.Split("__");
         return parts.Length >= 3 ? parts[^1] : name;
     }
+
+    /// "Reconnecting · attempt 3 of 10" for a Claude Code retry record.
+    private static string? RetryDetail(JsonElement root) =>
+        Jsonl.GetDouble(root, "retryAttempt") is { } attempt && Jsonl.GetDouble(root, "maxRetries") is { } max
+            ? Localization.L10n.TrFormat("Reconnecting · attempt {0} of {1}", (int)attempt, (int)max)
+            : null;
 
     internal static bool IsInterrupt(JsonElement root) => UserTextStarts(root, "[Request interrupted");
 

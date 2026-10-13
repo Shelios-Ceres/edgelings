@@ -134,7 +134,7 @@ public sealed class TrayIcon : IDisposable
     {
         ActivityState.AuthRequired => Localization.L10n.Tr("Needs attention"),
         ActivityState.RateLimited => Localization.L10n.Tr("Needs attention"),
-        ActivityState.Stalled => Localization.L10n.Tr("Needs attention"),
+        ActivityState.NetworkTrouble => Localization.L10n.Tr("Network trouble"),
         ActivityState.NeedsYou => Localization.L10n.Tr("Your turn"),
         ActivityState.Working => Localization.L10n.Tr("Running"),
         _ => null,
