@@ -28,9 +28,10 @@ public static class ProviderUsage
         var store = AntigravityUsageStore.Shared;
         var pool = store.Snapshot?.Primary;
         return new AppUsage(
-            new WindowUsage(pool?.UsedPercent ?? 0, pool?.ResetAt, store.StatusCaption, pool?.PeriodSeconds)
+            new WindowUsage(pool?.UsedPercent ?? 0, pool?.ResetAt, store.StatusCaption ?? (pool is null ? "no data" : null), pool?.PeriodSeconds)
             {
                 Kept = pool is not null && store.StatusCaption is not null,
+                Observed = pool is not null,
             },
             WindowUsage.Unknown,
             store.TierBadge?.ToLowerInvariant());
@@ -43,9 +44,10 @@ public static class ProviderUsage
         var grok = GrokUsageStore.Shared;
         var snapshot = grok.Snapshot;
         return new AppUsage(
-            new WindowUsage(snapshot?.WeeklyUsedPercent ?? 0, snapshot?.WeeklyPeriodEnd, grok.ErrorCaption)
+            new WindowUsage(snapshot?.WeeklyUsedPercent ?? 0, snapshot?.WeeklyPeriodEnd, grok.ErrorCaption ?? (snapshot is null ? "no data" : null))
             {
                 Kept = snapshot is not null && grok.ErrorCaption is not null,
+                Observed = snapshot is not null,
             },
             WindowUsage.Unknown,
             grok.AuthModeBadge?.ToLowerInvariant());
@@ -58,7 +60,7 @@ public static class ProviderUsage
         var kimi = KimiUsageStore.Shared;
         var snapshot = kimi.Snapshot;
         WindowUsage Slot(KimiQuotaWindow? window, double period) => window is { } w
-            ? new WindowUsage(w.UsedPercent, w.ResetAt, kimi.ErrorCaption, period) { Kept = kimi.ErrorCaption is not null }
+            ? new WindowUsage(w.UsedPercent, w.ResetAt, kimi.ErrorCaption, period) { Kept = kimi.ErrorCaption is not null, Observed = true }
             : snapshot is null ? new WindowUsage(0, null, kimi.ErrorCaption ?? "no data") : WindowUsage.Unknown;
         var longer = snapshot?.Weekly is { } week ? Slot(week, 7 * 86400) : Slot(snapshot?.Month, 30 * 86400);
         return new AppUsage(Slot(snapshot?.FiveHour, 5 * 3600), longer, kimi.PlanBadge?.ToLowerInvariant());
@@ -70,9 +72,10 @@ public static class ProviderUsage
         var cursor = CursorUsageStore.Shared;
         var snapshot = cursor.Snapshot;
         return new AppUsage(
-            new WindowUsage(snapshot?.UsedPercent ?? 0, snapshot?.PeriodEnd, cursor.ErrorCaption)
+            new WindowUsage(snapshot?.UsedPercent ?? 0, snapshot?.PeriodEnd, cursor.ErrorCaption ?? (snapshot is null ? "no data" : null))
             {
                 Kept = snapshot is not null && cursor.ErrorCaption is not null,
+                Observed = snapshot is not null,
             },
             WindowUsage.Unknown,
             cursor.PlanBadge?.ToLowerInvariant());

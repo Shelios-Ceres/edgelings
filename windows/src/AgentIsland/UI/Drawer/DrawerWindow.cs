@@ -381,8 +381,9 @@ public sealed class DrawerWindow : Window
     private static bool QuotaExhausted(DisplayProvider provider)
     {
         var usage = ProviderUsage.For(provider);
-        return (!usage.FiveHour.HasError && usage.FiveHour.UsedPercent >= 1)
-            || (!usage.Weekly.HasError && usage.Weekly.UsedPercent >= 1);
+        var now = DateTimeOffset.Now;
+        return (!usage.FiveHour.HasError && usage.FiveHour.At(now).UsedPercent >= 1)
+            || (!usage.Weekly.HasError && usage.Weekly.At(now).UsedPercent >= 1);
     }
 
     /// A shown phase stays at least MinDwellSeconds so quick tool bursts do
@@ -563,14 +564,8 @@ public sealed class DrawerWindow : Window
         var mode = QuotaDisplayModeStore.Shared;
         CardMeter Meter(WindowUsage window, string label)
         {
-            if (window.HasError) return new CardMeter(L10n.Tr(label), "—", null, null);
-            var shown = mode.DisplayValue(window.UsedPercent);
-            var value = Math.Round(shown);
-            return new CardMeter(
-                L10n.Tr(label),
-                mode.ShowsRemaining ? L10n.TrFormat("{0}% left", value) : $"{value}%",
-                shown / 100,
-                window.UsedPercent);
+            var meter = StatusCards.MeterFor(window, L10n.Tr(label), mode.ShowsRemaining, DateTimeOffset.Now);
+            return new CardMeter(meter.Label, meter.Value, meter.Shown, meter.Used);
         }
         return provider switch
         {

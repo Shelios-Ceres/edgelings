@@ -35,6 +35,8 @@
 "Click to refresh now" = "Click to refresh now";
 "click to cycle" = "click to cycle";
 "Codex" = "Codex";
+"Could not switch Codex account" = "Could not switch Codex account";
+"Could not read or save the account files. Check file access and try again." = "Could not read or save the account files. Check file access and try again.";
 "AgentIsland panel" = "Agent Island panel";
 "Cost" = "Cost";
 "Counts everything — input, output, and cache. Mirrors ccusage." = "Counts everything — input, output, and cache. Mirrors ccusage";

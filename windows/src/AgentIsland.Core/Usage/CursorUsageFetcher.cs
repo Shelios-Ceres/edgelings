@@ -52,8 +52,17 @@ public static class CursorUsageFetcher
 
     public static async Task<Outcome> Fetch(CancellationToken ct = default)
     {
-        if (!CursorCredentials.Exists()) return new Outcome.NotInstalled();
-        if (CursorCredentials.ReadSession() is not { } session) return new Outcome.ReauthRequired();
+        try { return await Fetch(CursorCredentials.ReadSnapshot(), ct); }
+        catch (Exception ex) when (ex is System.IO.IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            return new Outcome.Failed(L10n.Tr("Cursor data unavailable"));
+        }
+    }
+
+    internal static async Task<Outcome> Fetch(CursorCredentials.Snapshot? credentials, CancellationToken ct = default)
+    {
+        if (credentials is null) return new Outcome.NotInstalled();
+        if (credentials.Session is not { } session) return new Outcome.ReauthRequired();
 
         switch (await Post("GetCurrentPeriodUsage", session, ct))
         {
@@ -73,7 +82,7 @@ public static class CursorUsageFetcher
                     plan = ParsePlanName(planned.Body);
                 }
                 return new Outcome.Success(
-                    snapshot with { PlanName = plan ?? CursorCredentials.CachedPlan() });
+                    snapshot with { PlanName = plan ?? credentials.Plan });
             }
             default:
                 return new Outcome.Failed("bad response");
@@ -89,13 +98,19 @@ public static class CursorUsageFetcher
             using var doc = JsonDocument.Parse(data);
             var root = doc.RootElement;
             if (Jsonl.GetObject(root, "planUsage") is not { } usage) return null;
+            foreach (var key in new[] { "totalPercentUsed", "autoPercentUsed", "apiPercentUsed" })
+            {
+                if (usage.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null
+                    && NumberValue(usage, key) is null) return null;
+            }
             // totalPercentUsed covers the whole included allowance (agent +
             // API); when absent, the larger half is the better "how close am
             // I" signal since only one is usually in play.
-            var percent = NumberValue(usage, "totalPercentUsed")
-                ?? Math.Max(
-                    NumberValue(usage, "autoPercentUsed") ?? 0,
-                    NumberValue(usage, "apiPercentUsed") ?? 0);
+            var total = NumberValue(usage, "totalPercentUsed");
+            var automatic = NumberValue(usage, "autoPercentUsed");
+            var api = NumberValue(usage, "apiPercentUsed");
+            if (total is null && automatic is null && api is null) return null;
+            var percent = total ?? Math.Max(automatic ?? 0, api ?? 0);
             return new CursorUsageSnapshot(
                 Math.Min(1, Math.Max(0, percent / 100)),
                 EpochMillisDate(NumberValue(root, "billingCycleEnd")));
@@ -127,15 +142,16 @@ public static class CursorUsageFetcher
     {
         if (element.ValueKind != JsonValueKind.Object) return null;
         if (!element.TryGetProperty(property, out var value)) return null;
-        return value.ValueKind switch
+        double? parsed = value.ValueKind switch
         {
             JsonValueKind.Number => value.TryGetDouble(out var number) ? number : (double?)null,
             JsonValueKind.String => double.TryParse(
-                value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
-                ? parsed
+                value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var textNumber)
+                ? textNumber
                 : (double?)null,
             _ => null,
         };
+        return parsed is { } finite && double.IsFinite(finite) ? finite : null;
     }
 
     private static DateTimeOffset? EpochMillisDate(double? millis)

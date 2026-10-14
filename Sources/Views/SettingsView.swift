@@ -41,6 +41,7 @@ struct SettingsView: View {
     @State private var hoveredTab: SettingsTab?
     /// Bumped after any parked-account change so the menu rebuilds.
     @State private var codexAccountsToken = 0
+    @State private var codexAccountError = false
     @Namespace private var sidebarSelection
     @State private var hoveredProvider: DisplayProvider?
     @State private var railHovered: String?
@@ -117,6 +118,11 @@ struct SettingsView: View {
         .id(appLanguage.language)
         .alert(L10n.tr("Pick at most two — turn one off first"), isPresented: $providerLimitAlert) {
             Button(L10n.tr("OK"), role: .cancel) { }
+        }
+        .alert(L10n.tr("Could not switch Codex account"), isPresented: $codexAccountError) {
+            Button(L10n.tr("OK"), role: .cancel) { }
+        } message: {
+            Text(L10n.tr("Could not read or save the account files. Check file access and try again."))
         }
     }
 
@@ -1041,6 +1047,8 @@ struct SettingsView: View {
                         if CodexAccountSwitcher.activate(account) {
                             codexAccountsToken += 1
                             usage.refresh()
+                        } else {
+                            codexAccountError = true
                         }
                     } label: {
                         Text(account.label == active

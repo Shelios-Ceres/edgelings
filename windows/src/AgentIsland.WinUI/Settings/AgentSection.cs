@@ -4,6 +4,7 @@ using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
@@ -40,6 +41,7 @@ internal sealed class AgentSection
         _provider = provider;
         _planBadge = Badge(_plan);
         var header = new StackPanel { Orientation = Orientation.Horizontal };
+        AutomationProperties.SetName(header, ProviderIdentity.DisplayName(provider));
         header.Children.Add(new TextBlock { Text = ProviderIdentity.DisplayName(provider), VerticalAlignment = VerticalAlignment.Center });
         header.Children.Add(_planBadge);
 
@@ -50,6 +52,7 @@ internal sealed class AgentSection
             if (on) AgentReports.RefreshNow(provider);
         });
         ToolTipService.SetToolTip(_shown, L10n.Tr("Show in drawer"));
+        Name(_shown, "ShowInDrawer", L10n.Tr("Show in drawer"));
 
         Expander = new SettingsExpander
         {
@@ -58,9 +61,11 @@ internal sealed class AgentSection
             HeaderIcon = new ImageIcon(),
             Content = _shown,
         };
+        Name(Expander, "Details", L10n.Tr("Settings"));
         _ = LoadMarkAsync();
 
         _activity = new SettingsCard { Header = L10n.Tr("Right now"), Description = _activityText, HeaderIcon = Icon("\uE9D9") };
+        Name(_activity, "Activity", L10n.Tr("Right now"));
         Expander.Items.Add(_activity);
         _tokens = new SettingsCard { Header = L10n.Tr("Tokens"), HeaderIcon = Icon("\uE8EF"), Content = _tokensText };
         Expander.Items.Add(_tokens);
@@ -149,6 +154,7 @@ internal sealed class AgentSection
             SignInOffer.Available => "Sign in",
             _ => "Sign in again",
         });
+        Name(_signInButton, "SignIn", _signInButton.Content.ToString()!);
         _signInButton.Style = report.SignIn == SignInOffer.Available ? Res<Style>("AccentButtonStyle") : null;
 
         _activity.Visibility = report.Detected ? Visibility.Visible : Visibility.Collapsed;
@@ -182,6 +188,12 @@ internal sealed class AgentSection
         return string.IsNullOrEmpty(name) ? trimmed : name;
     }
 
+    private void Name(DependencyObject control, string id, string label)
+    {
+        AutomationProperties.SetName(control, $"{ProviderIdentity.DisplayName(_provider)} · {label}");
+        AutomationProperties.SetAutomationId(control, $"Agent.{_provider.RawValue()}.{id}");
+    }
+
     /// Bars wear the agent's character colour, as in the drawer.
     private Windows.UI.Color Accent()
     {
@@ -204,6 +216,8 @@ internal sealed class AgentSection
     private static SettingsCard PromptHookCard(Func<XamlRoot?> root)
     {
         var toggle = new ToggleSwitch { IsOn = ClaudeHooks.IsInstalled(), OnContent = L10n.Tr("On"), OffContent = L10n.Tr("Off") };
+        AutomationProperties.SetName(toggle, $"Claude · {L10n.Tr("Permission prompts")}");
+        AutomationProperties.SetAutomationId(toggle, "Agent.claude.PermissionPrompts");
         var settling = false;
         toggle.Toggled += async (_, _) =>
         {
@@ -233,13 +247,15 @@ internal sealed class AgentSection
     {
         var (shape, color) = drawer.LookOf(_provider);
         var shapeBox = new ComboBox { MinWidth = 130 };
+        Name(shapeBox, "Shape", L10n.Tr("Shape"));
         foreach (var option in shapes) shapeBox.Items.Add(DrawerLooks.ShapeLabel(option));
         shapeBox.SelectedIndex = Math.Max(0, shapes.ToList().IndexOf(shape));
         var colorBox = new ComboBox { MinWidth = 150 };
+        Name(colorBox, "Color", L10n.Tr("Color"));
         var dark = Brand.IsDark();
         foreach (var option in colors)
         {
-            colorBox.Items.Add(new StackPanel
+            var optionPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 8,
@@ -254,7 +270,9 @@ internal sealed class AgentSection
                     },
                     new TextBlock { Text = DrawerLooks.ColorLabel(option), VerticalAlignment = VerticalAlignment.Center },
                 },
-            });
+            };
+            AutomationProperties.SetName(optionPanel, DrawerLooks.ColorLabel(option));
+            colorBox.Items.Add(optionPanel);
         }
         colorBox.SelectedIndex = Math.Max(0, colors.ToList().IndexOf(color));
         void Apply()

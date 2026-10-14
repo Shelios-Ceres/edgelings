@@ -121,17 +121,17 @@ public static class UsageFetcher
         }
     }
 
-    private static WindowUsage ParseCodexWindow(JsonElement? obj)
+    internal static WindowUsage ParseCodexWindow(JsonElement? obj)
     {
         if (obj is not { } window) return WindowUsage.Unknown;
-        var used = Jsonl.GetDouble(window, "used_percent") ?? 0;
+        if (Jsonl.GetDouble(window, "used_percent") is not { } used) return WindowUsage.Unknown;
         DateTimeOffset? resetAt = Jsonl.GetDouble(window, "reset_at") is { } epoch
             ? DateTimeOffset.FromUnixTimeMilliseconds((long)(epoch * 1000))
             : null;
         // The payload states its own window length (604800s = the single
         // weekly window Codex moved to in July 2026). Labels render from it.
         var period = Jsonl.GetDouble(window, "limit_window_seconds");
-        return new WindowUsage(used / 100, resetAt, null, period);
+        return new WindowUsage(used / 100, resetAt, null, period) { Observed = true };
     }
 
     // MARK: - Claude
@@ -202,14 +202,13 @@ public static class UsageFetcher
         }
     }
 
-    private static WindowUsage ParseClaudeWindow(JsonElement? obj, double periodSeconds)
+    internal static WindowUsage ParseClaudeWindow(JsonElement? obj, double periodSeconds)
     {
         if (obj is not { } window) return WindowUsage.Unknown;
         // Anthropic returns `utilization` as a percentage in [0, 100], not a
         // normalized fraction. Always divide by 100; clamp below.
-        var raw = Jsonl.GetDouble(window, "utilization")
-            ?? Jsonl.GetDouble(window, "used_percent")
-            ?? 0;
+        if ((Jsonl.GetDouble(window, "utilization") ?? Jsonl.GetDouble(window, "used_percent")) is not { } raw)
+            return WindowUsage.Unknown;
         var normalized = raw / 100.0;
         DateTimeOffset? resetAt = null;
         if (Jsonl.GetDouble(window, "resets_at") is { } epoch)
@@ -220,6 +219,6 @@ public static class UsageFetcher
         {
             resetAt = Jsonl.ParseIso8601(iso);
         }
-        return new WindowUsage(Math.Min(1, Math.Max(0, normalized)), resetAt, null, periodSeconds);
+        return new WindowUsage(Math.Min(1, Math.Max(0, normalized)), resetAt, null, periodSeconds) { Observed = true };
     }
 }

@@ -16,6 +16,8 @@
   <ItemGroup>
     <!-- Antigravity's conversation_summaries.db. -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <!-- Pin the native engine independently of the managed provider's old minimum. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
     <!-- DeepSeek Harness appends its session log as zstd frames; .NET 8 has
          no zstd codec, so a pure managed one (MIT) reads them. -->
     <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />

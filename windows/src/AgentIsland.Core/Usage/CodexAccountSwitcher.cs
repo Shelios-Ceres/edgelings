@@ -39,16 +39,15 @@ public static class CodexAccountSwitcher
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     };
 
-    private static string LivePath => IslandPaths.CodexAuthFile;
+    public static IReadOnlyList<Account> Accounts() => Accounts(IslandPaths.CodexHome);
 
-    private static string StoreDir => Path.Combine(IslandPaths.CodexHome, "agentisland-accounts");
-
-    public static IReadOnlyList<Account> Accounts()
+    internal static IReadOnlyList<Account> Accounts(string home)
     {
         try
         {
-            if (!Directory.Exists(StoreDir)) return Array.Empty<Account>();
-            return Directory.EnumerateFiles(StoreDir)
+            var store = Path.Combine(home, "agentisland-accounts");
+            if (!Directory.Exists(store)) return Array.Empty<Account>();
+            return Directory.EnumerateFiles(store)
                 .Where(path => Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
                 .Select(path => new Account(
                     Path.GetFileNameWithoutExtension(path), path, EmailInFile(path)))
@@ -63,14 +62,15 @@ public static class CodexAccountSwitcher
         }
     }
 
-    /// Label of the account currently live, matched by credential contents —
-    /// null when the live file matches nothing parked (a fresh login).
-    public static string? ActiveLabel()
+    /// Match the account and user, not tokens that Codex refreshes in place.
+    public static string? ActiveLabel() => ActiveLabel(IslandPaths.CodexHome);
+
+    internal static string? ActiveLabel(string home)
     {
-        if (ReadBytesOrNull(LivePath) is not { } live) return null;
-        foreach (var parked in Accounts())
+        if (ReadBytesOrNull(Path.Combine(home, "auth.json")) is not { } live) return null;
+        foreach (var parked in Accounts(home))
         {
-            if (ReadBytesOrNull(parked.Path) is { } stored && stored.SequenceEqual(live))
+            if (ReadBytesOrNull(parked.Path) is { } stored && SameAccount(stored, live))
             {
                 return parked.Label;
             }
@@ -79,14 +79,22 @@ public static class CodexAccountSwitcher
     }
 
     /// Park the CURRENT login under `label`, so it can be switched back to.
-    public static bool ParkCurrent(string? label)
+    public static bool ParkCurrent(string? label) => ParkCurrent(label, IslandPaths.CodexHome);
+
+    internal static bool ParkCurrent(string? label, string home)
     {
-        if (StoredPath(Sanitize(label)) is not { } target) return false;
-        if (ReadBytesOrNull(LivePath) is not { } live) return false;
+        if (ReadBytesOrNull(Path.Combine(home, "auth.json")) is not { } live) return false;
+        return Park(label, live, home);
+    }
+
+    private static bool Park(string? label, byte[] data, string home)
+    {
+        if (StoredPath(Sanitize(label), home) is not { } target) return false;
+        var store = Path.Combine(home, "agentisland-accounts");
         try
         {
-            Directory.CreateDirectory(StoreDir);
-            Harden(StoreDir);
+            Directory.CreateDirectory(store);
+            Harden(store);
         }
         catch (Exception error)
         {
@@ -94,22 +102,38 @@ public static class CodexAccountSwitcher
                 $"AgentIsland: could not create the Codex account store: {error.Message}");
             return false;
         }
-        return WriteAtomic(target, live);
+        return WriteAtomic(target, data);
     }
 
-    /// Make `account` the live Codex login. The outgoing file is parked first
-    /// when it matches nothing on disk, so a hand-made login is never
-    /// destroyed by a switch.
-    public static bool Activate(Account account)
+    /// Save the exact outgoing credentials before replacing the live login.
+    public static bool Activate(Account account) => Activate(account, IslandPaths.CodexHome);
+
+    internal static bool Activate(Account account, string home)
     {
-        if (ReadBytesOrNull(account.Path) is not { } data) return false;
-        if (ActiveLabel() is null)
+        if (InStore(account.Path, home) is not { } target || ReadBytesOrNull(target) is not { } data)
+            return false;
+        var livePath = Path.Combine(home, "auth.json");
+        if (!TryRead(livePath, out var live)) return false;
+        if (live is not null)
         {
-            ParkCurrent($"previous-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
+            // Selecting the current account must never restore its older tokens.
+            if (SameAccount(live, data)) return true;
+            var matching = Accounts(home).Where(parked =>
+                ReadBytesOrNull(parked.Path) is { } stored && SameAccount(stored, live)).ToList();
+            if (matching.Count == 0)
+            {
+                if (!Park("previous-" + Guid.NewGuid().ToString("N")[..30], live, home)) return false;
+            }
+            else
+            {
+                // Refresh every alias, so a later rotation cannot select a stale copy.
+                foreach (var parked in matching)
+                    if (!SameBytes(ReadBytesOrNull(parked.Path), live) && !WriteAtomic(parked.Path, live)) return false;
+            }
         }
         try
         {
-            if (Path.GetDirectoryName(LivePath) is { Length: > 0 } dir) Directory.CreateDirectory(dir);
+            Directory.CreateDirectory(home);
         }
         catch (Exception error)
         {
@@ -117,14 +141,16 @@ public static class CodexAccountSwitcher
                 $"AgentIsland: could not prepare the Codex home directory: {error.Message}");
             return false;
         }
-        return WriteAtomic(LivePath, data);
+        // A CLI refresh or another switch while backing up invalidates this snapshot.
+        if (!TryRead(livePath, out var latest) || !SameBytes(live, latest)) return false;
+        return WriteAtomic(livePath, data);
     }
 
     public static bool Forget(Account account)
     {
         // Delete only inside our own store: the Account comes from a caller,
         // and this is the one code path that removes a credentials file.
-        if (InStore(account.Path) is not { } target) return false;
+        if (InStore(account.Path, IslandPaths.CodexHome) is not { } target) return false;
         try
         {
             if (!File.Exists(target)) return false;
@@ -153,19 +179,72 @@ public static class CodexAccountSwitcher
     /// The next account worth rotating to: parked, not the live one, not yet
     /// tried this exhaustion episode. Stable label order, so rotation walks
     /// the pool deterministically instead of ping-ponging between two logins.
-    public static Account? RotationCandidate(IReadOnlySet<string> tried)
+    public static Account? RotationCandidate(IReadOnlySet<string> tried) =>
+        RotationCandidate(tried, IslandPaths.CodexHome);
+
+    internal static Account? RotationCandidate(IReadOnlySet<string> tried, string home)
     {
-        var active = ActiveLabel();
-        foreach (var account in Accounts())
+        if (!TryRead(Path.Combine(home, "auth.json"), out var live)) return null;
+        var accounts = Accounts(home);
+        var attempted = accounts.Where(account => tried.Contains(account.Label))
+            .Select(account => ReadBytesOrNull(account.Path)).OfType<byte[]>().ToList();
+        foreach (var account in accounts)
         {
-            if (string.Equals(account.Label, active, StringComparison.Ordinal)) continue;
             if (tried.Contains(account.Label)) continue;
+            if (ReadBytesOrNull(account.Path) is not { } stored) continue;
+            if (live is not null && SameAccount(stored, live)) continue;
+            if (attempted.Any(previous => SameAccount(stored, previous))) continue;
             return account;
         }
         return null;
     }
 
     // MARK: - Helpers (unit-tested)
+
+    private sealed record Identity(string AccountId, string? UserId);
+
+    internal static bool SameAccount(byte[] first, byte[] second) =>
+        first.SequenceEqual(second) ||
+        (IdentityIn(first) is { } identity && identity == IdentityIn(second));
+
+    private static Identity? IdentityIn(byte[] data)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(data);
+            if (!document.RootElement.TryGetProperty("tokens", out var tokens) ||
+                tokens.ValueKind != JsonValueKind.Object) return null;
+            var account = StringIn(tokens, "account_id");
+            string? user = null, subject = null;
+            foreach (var key in new[] { "id_token", "access_token" })
+            {
+                if (StringIn(tokens, key)?.Split('.') is not { Length: 3 } parts) continue;
+                try
+                {
+                    var payload = parts[1].Replace('-', '+').Replace('_', '/');
+                    payload = payload.PadRight((payload.Length + 3) / 4 * 4, '=');
+                    using var claims = JsonDocument.Parse(Convert.FromBase64String(payload));
+                    subject ??= StringIn(claims.RootElement, "sub");
+                    if (claims.RootElement.TryGetProperty("https://api.openai.com/auth", out var auth))
+                    {
+                        account ??= StringIn(auth, "chatgpt_account_id");
+                        user ??= StringIn(auth, "chatgpt_user_id");
+                    }
+                }
+                catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException) { }
+            }
+            // Email alone is not an identity: one user may have several workspaces.
+            return account is null ? null : new Identity(account, user ?? subject);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return null; }
+    }
+
+    private static string? StringIn(JsonElement element, string key) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(key, out var value) &&
+        value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : null;
+
+    private static bool SameBytes(byte[]? first, byte[]? second) =>
+        first is null ? second is null : second is not null && first.SequenceEqual(second);
 
     /// Labels become filenames: keep them to safe characters so a stray "\" or
     /// ".." can never escape the store directory. Strips rather than rejects —
@@ -226,14 +305,14 @@ public static class CodexAccountSwitcher
     }
 
     /// Where a sanitized label lives, or null when the label is empty.
-    private static string? StoredPath(string cleanLabel) =>
-        cleanLabel.Length == 0 ? null : InStore(Path.Combine(StoreDir, cleanLabel + ".json"));
+    private static string? StoredPath(string cleanLabel, string home) =>
+        cleanLabel.Length == 0 ? null : InStore(Path.Combine(home, "agentisland-accounts", cleanLabel + ".json"), home);
 
     /// Resolve a path and confirm it sits DIRECTLY inside the store directory.
     /// Sanitize already makes an escape impossible for labels; this is the
     /// check that keeps the guarantee if Sanitize ever loosens, and the only
     /// gate a caller-supplied Account path passes through.
-    private static string? InStore(string candidate)
+    private static string? InStore(string candidate, string home)
     {
         try
         {
@@ -241,7 +320,7 @@ public static class CodexAccountSwitcher
             if (Path.GetDirectoryName(target) is not { } parent) return null;
             return string.Equals(
                 parent.TrimEnd(Path.DirectorySeparatorChar),
-                Path.GetFullPath(StoreDir).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(Path.Combine(home, "agentisland-accounts")).TrimEnd(Path.DirectorySeparatorChar),
                 StringComparison.OrdinalIgnoreCase)
                 ? target
                 : null;
@@ -252,26 +331,28 @@ public static class CodexAccountSwitcher
         }
     }
 
-    /// A running Codex CLI holds auth.json open, and the default File.ReadAll*
-    /// share mode throws against it. That failure is not cosmetic here:
-    /// ActiveLabel() would report "matches nothing parked", and Activate()
-    /// answers that by parking ANOTHER copy of the live login under a fresh
-    /// previous-&lt;stamp&gt; name — one more file, and one more rotation
-    /// candidate, every single switch.
+    /// Cooperate with a CLI that keeps auth.json open; activation separately
+    /// distinguishes a missing login from one that cannot safely be read.
     private static byte[]? ReadBytesOrNull(string path)
+        => TryRead(path, out var data) ? data : null;
+
+    private static bool TryRead(string path, out byte[]? data)
     {
+        data = null;
         try
         {
-            if (!File.Exists(path)) return null;
             using var stream = new FileStream(
                 path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var memory = new MemoryStream();
             stream.CopyTo(memory);
-            return memory.ToArray();
+            data = memory.ToArray();
+            return true;
         }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
         catch
         {
-            return null;
+            return false;
         }
     }
 

@@ -7,6 +7,7 @@ using AgentIsland.WinUI.Platform;
 using AgentIsland.WinUI.Settings;
 using H.NotifyIcon;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 
 namespace AgentIsland.WinUI.Shell;
@@ -43,6 +44,17 @@ internal sealed class TrayIcon : IDisposable
     {
         var menu = new MenuFlyout();
         menu.Items.Add(MenuHost.Item(L10n.Tr("Show / Hide drawer"), "\uE890", () => App.Current.ToggleDrawer()));
+        var agents = new MenuFlyoutSubItem { Text = L10n.Tr("Agents"), Icon = MenuHost.Glyph("\uE99A") };
+        AutomationProperties.SetAutomationId(agents, "Tray.Agents");
+        foreach (var provider in DisplayProviders.All)
+        {
+            var phase = App.Current.Drawer?.PhaseOf(provider).Phase ?? AgentPhase.Idle;
+            var item = MenuHost.Item($"{ProviderIdentity.DisplayName(provider)} · {DrawerLooks.PhaseLabel(phase)}", null,
+                () => SettingsWindow.Open(provider));
+            AutomationProperties.SetAutomationId(item, $"Tray.Agent.{provider.RawValue()}");
+            agents.Items.Add(item);
+        }
+        menu.Items.Add(agents);
         menu.Items.Add(MenuHost.Item(L10n.Tr("Cost…"), "\uE8C7", () => Cost.CostWindow.Open()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
         menu.Items.Add(new MenuFlyoutSeparator());

@@ -114,12 +114,13 @@ public static class StatusCards
     }
 
     /// One window as the card shows it. Numbers kept through a failed refresh
-    /// or a closed app still show, refilled if their reset has passed since;
-    /// only a window that never loaded shows a dash.
+    /// or a closed app still show until their observed window ends. A window
+    /// that never loaded or has reset awaits a fresh reading.
     internal static StatusMeter MeterFor(WindowUsage window, string label, bool showsRemaining, DateTimeOffset now)
     {
-        if (window.HasError && !window.Kept) return new StatusMeter(label, "—", null, null);
         var current = window.At(now);
+        if (current.AwaitingSync) return new StatusMeter(label, "—", null, null, L10n.Tr("Awaiting sync"));
+        if (current.HasError && !current.Kept) return new StatusMeter(label, "—", null, null);
         var shown = QuotaDisplayModeStore.DisplayValue(current.UsedPercent, showsRemaining);
         var value = Math.Round(shown);
         var resets = current.ResetAt is { } at && at > now
@@ -144,11 +145,14 @@ public static class StatusCards
                 : new[] { meter(new WindowUsage(0, null, store.ErrorCaption), "month") };
         }
         var meters = new List<StatusMeter>();
-        // A calendar month has no fixed length, so it gets no period to roll
-        // its reset forward by.
+        // A calendar month has no fixed length.
         void Add(KimiQuotaWindow? window, string label, double? period)
         {
-            if (window is { } w) meters.Add(meter(new WindowUsage(w.UsedPercent, w.ResetAt, null, period), label));
+            if (window is { } w) meters.Add(meter(new WindowUsage(w.UsedPercent, w.ResetAt, store.ErrorCaption, period)
+            {
+                Kept = store.ErrorCaption is not null,
+                Observed = true,
+            }, label));
         }
         Add(snapshot.FiveHour, "5h", 5 * 3600);
         Add(snapshot.Weekly, "week", 7 * 86400);
@@ -201,10 +205,16 @@ public static class StatusCards
         return parts;
     }
 
-    /// Says how old the quota numbers are whenever they are not live.
+    /// Explain the wait at a reset boundary before showing an age for old
+    /// numbers; the prior window cannot describe the new balance.
     private static StatusPhrase? QuotaAge(DisplayProvider provider, DateTimeOffset now)
     {
         var usage = ProviderUsage.For(provider);
+        if (usage.FiveHour.At(now).AwaitingSync || usage.Weekly.At(now).AwaitingSync
+            || (provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now))
+        {
+            return Phrase(L10n.Tr("Awaiting sync"));
+        }
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
         if (QuotaUpdatedAt(provider) is not { } at
             || !QuotaIsStale(usage.FiveHour.Kept || usage.Weekly.Kept, at, now, interval))

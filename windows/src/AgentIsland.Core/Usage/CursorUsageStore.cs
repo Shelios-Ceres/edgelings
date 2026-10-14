@@ -11,12 +11,10 @@ namespace AgentIsland.Usage;
 /// selection, with an attempt floor so kick bursts never add polling.
 public sealed class CursorUsageStore : INotifyPropertyChanged
 {
-    public static CursorUsageStore Shared { get; } = new();
+    private static readonly Lazy<CursorUsageStore> Instance = new(() => new CursorUsageStore());
+    public static CursorUsageStore Shared => Instance.Value;
 
     private const string CacheKey = "CursorUsageStore.lastSnapshot.v1";
-    // A property, not a static readonly field: Shared is constructed before
-    // later static fields are set, so the restore below read a zero age
-    // limit and dropped every saved snapshot.
     private static TimeSpan CacheMaxAge => UsageCachePolicy.KeepFor;
 
     /// De-dupes kick bursts (poll + reset boundary + manual refresh landing
@@ -29,6 +27,8 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     public const double CycleSeconds = 30 * 24 * 60 * 60;
 
     private CursorUsageSnapshot? _snapshot;
+    private string? _snapshotUserId;
+    private readonly Action<Cached?> _save;
     private string? _errorCaption;
     private DateTimeOffset? _lastUpdated;
     private string? _accountEmail;
@@ -44,9 +44,16 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     {
         public CursorUsageSnapshot? Snapshot { get; init; }
         public DateTimeOffset UpdatedAt { get; init; }
+        public string? UserId { get; init; }
     }
 
-    private CursorUsageStore()
+    private CursorUsageStore() : this(
+        AppEnvironment.IsDemo ? null : Preferences.Get<Cached?>(CacheKey),
+        cached =>
+        {
+            if (cached is null) Preferences.Remove(CacheKey);
+            else Preferences.Set(CacheKey, cached);
+        })
     {
         if (AppEnvironment.IsDemo)
         {
@@ -58,14 +65,18 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
             }
             return;
         }
-        // Identity is deliberately NOT read here: on Windows it is a raw scan
-        // of Cursor's multi-megabyte state db, and this constructor runs on
-        // the UI thread. The first kick loads it off-thread instead.
-        if (Preferences.Get<Cached?>(CacheKey) is { Snapshot: { } cached } stored
+    }
+
+    internal CursorUsageStore(Cached? stored, Action<Cached?> save)
+    {
+        _save = save;
+        // Database I/O stays off the UI thread, including at first startup.
+        if (stored is { Snapshot: { } cached }
             && DateTimeOffset.Now - stored.UpdatedAt <= CacheMaxAge)
         {
             _snapshot = cached;
             _lastUpdated = stored.UpdatedAt;
+            _snapshotUserId = stored.UserId;
         }
     }
 
@@ -115,7 +126,11 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     /// monitored providers use: one pool, a ~30-day cycle, and the store's
     /// caption riding along so a stale strip admits it.
     public WindowUsage Window =>
-        new(_snapshot?.UsedPercent ?? 0, _snapshot?.PeriodEnd, _errorCaption, CycleSeconds);
+        new(_snapshot?.UsedPercent ?? 0, _snapshot?.PeriodEnd, _errorCaption ?? (_snapshot is null ? "no data" : null), CycleSeconds)
+        {
+            Observed = _snapshot is not null,
+            Kept = _snapshot is not null && _errorCaption is not null,
+        };
 
     /// No-ops when Cursor isn't on the island, when a fetch is already in
     /// flight, or when the last attempt is younger than the floor.
@@ -131,36 +146,39 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
         {
             try
             {
-                // The identity scan rides the fetch thread and the same pass,
-                // so the account line and the numbers can never disagree.
-                var email = CursorCredentials.CachedEmail();
-                var plan = CursorCredentials.CachedPlan();
-                var outcome = await CursorUsageFetcher.Fetch();
-                await UiThread.InvokeAsync(() => Apply(outcome, email, plan));
+                var credentials = CursorCredentials.ReadSnapshot();
+                var outcome = await CursorUsageFetcher.Fetch(credentials);
+                await UiThread.InvokeAsync(() => Apply(outcome, credentials));
             }
             catch
             {
                 // A faulted attempt must never leave Loading latched — that
                 // would wedge every later kick behind the in-flight guard.
-                await UiThread.InvokeAsync(() => { Loading = false; });
+                await UiThread.InvokeAsync(ApplyReadFailure);
             }
         });
     }
 
-    private void Apply(CursorUsageFetcher.Outcome outcome, string? email, string? localPlan)
+    internal void Apply(CursorUsageFetcher.Outcome outcome, CursorCredentials.Snapshot? credentials)
     {
         Loading = false;
-        AccountEmail = email;
-        _localPlan = localPlan;
+        var userId = credentials?.Session?.UserId;
+        // A retained quota belongs to the account that produced it, not to
+        // whichever login happens to be in Cursor after a failed fetch.
+        if (userId is null || (_snapshot is not null && _snapshotUserId != userId)) ClearQuota();
+        AccountEmail = userId is null ? null : credentials?.Email;
+        _localPlan = userId is null ? null : credentials?.Plan;
         Raise(nameof(PlanBadge));
         switch (outcome)
         {
-            case CursorUsageFetcher.Outcome.Success success:
+            case CursorUsageFetcher.Outcome.Success success when userId is not null:
+                _snapshotUserId = userId;
                 Snapshot = success.Snapshot;
                 ErrorCaption = null;
                 LastUpdated = DateTimeOffset.Now;
-                Persist(success.Snapshot);
+                _save(new Cached { Snapshot = success.Snapshot, UpdatedAt = LastUpdated.Value, UserId = userId });
                 break;
+            case CursorUsageFetcher.Outcome.Success:
             case CursorUsageFetcher.Outcome.ReauthRequired:
                 ErrorCaption = L10n.Tr("sign in again — open Cursor");
                 break;
@@ -169,14 +187,28 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
                 ErrorCaption = failed.Message;
                 break;
             case CursorUsageFetcher.Outcome.NotInstalled:
-                Snapshot = null;
                 ErrorCaption = null;
                 break;
         }
     }
 
-    private static void Persist(CursorUsageSnapshot fresh) =>
-        Preferences.Set(CacheKey, new Cached { Snapshot = fresh, UpdatedAt = DateTimeOffset.Now });
+    internal void ApplyReadFailure()
+    {
+        Loading = false;
+        // Legacy snapshots have no account identity. A read failure cannot
+        // establish who owns those numbers, so do not display them as current.
+        if (_snapshotUserId is null) ClearQuota();
+        ErrorCaption = L10n.Tr("Cursor data unavailable");
+    }
+
+    private void ClearQuota()
+    {
+        var hadQuota = _snapshot is not null || _lastUpdated is not null || _snapshotUserId is not null;
+        _snapshotUserId = null;
+        Snapshot = null;
+        LastUpdated = null;
+        if (hadQuota) _save(null);
+    }
 
     /// The recording rig's guest fixtures. AppEnvironment carries no flag for
     /// them yet, so the macOS variable is read directly here.

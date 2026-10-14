@@ -98,6 +98,7 @@ internal sealed class DrawerWindow : Window
     private IReadOnlyList<string>? _colors;
     private readonly SvgCanvas _svg = new();
     private readonly List<Bot> _bots = new();
+    private DrawerActivityFrame _activity = new(Array.Empty<(DisplayProvider, AgentPhase, string?, int)>());
     private readonly Slot[] _slots;
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     private readonly CanvasAnimatedControl _canvas;
@@ -286,11 +287,11 @@ internal sealed class DrawerWindow : Window
     public void SetLook(DisplayProvider provider, string shape, string color) =>
         ChangeLook(_bots.First(b => b.Provider == provider), shape, color);
 
-    /// What the provider's character is playing now, with its detail.
+    /// The provider's own activity, before shared characters combine it.
     public (AgentPhase Phase, string? Detail) PhaseOf(DisplayProvider provider)
     {
-        var bot = _bots.First(b => b.Provider == provider);
-        return (bot.Phase, bot.Detail);
+        var activity = _activity.ForProvider(provider);
+        return (activity.Phase, activity.Detail);
     }
 
     public async void DebugCard(int? index, string? snapshot)
@@ -428,17 +429,10 @@ internal sealed class DrawerWindow : Window
     {
         var visibility = ProviderVisibilityStore.Shared;
         var store = DrawerStore.Shared;
-        foreach (var bot in _bots) bot.Visible = store.IsShown(bot.Provider, visibility.IsDetected(bot.Provider));
         _merged = SharedSubscription.GrokWithCursor();
-        if (_merged)
-        {
-            var grok = BotOf(DisplayProvider.Grok);
-            var cursor = BotOf(DisplayProvider.Cursor);
-            grok.Visible |= cursor.Visible;
-            cursor.Visible = false;
-        }
-        // An empty drawer would leave no character to right-click back.
-        if (!_bots.Any(b => b.Visible)) _bots[0].Visible = true;
+        var shown = DrawerVisibility.Characters(
+            _bots.ToDictionary(b => b.Provider, b => visibility.IsShown(b.Provider)), _merged);
+        foreach (var bot in _bots) bot.Visible = shown[bot.Provider];
 
         var visible = _bots.Where(b => b.Visible).ToList();
         var left = store.Side == DrawerSide.Right ? InnerInset : EdgeInset;
@@ -569,17 +563,14 @@ internal sealed class DrawerWindow : Window
         {
             var now = DateTimeOffset.UtcNow;
             var monitor = ActivityMonitor.Shared;
-            var merged = _merged;
-            // The merged character follows both apps' sessions.
+            // Settings can show any provider, including one whose character is hidden.
             var jobs = _bots
-                .Where(b => b.Visible)
-                .SelectMany(b => (merged && b.Provider == DisplayProvider.Grok ? new[] { b.Tool, TriggerTool.Cursor } : new[] { b.Tool })
-                    .Select(tool =>
-                    {
-                        var thread = monitor.ThreadFor(tool);
-                        return (Bot: b, Tool: tool, State: monitor.StateFor(tool), Path: thread?.TranscriptPath,
-                            Running: monitor.RunningFor(tool), Prompt: thread?.PendingPrompt);
-                    }))
+                .Select(b =>
+                {
+                    var thread = monitor.ThreadFor(b.Tool);
+                    return (Bot: b, Tool: b.Tool, State: monitor.StateFor(b.Tool), Path: thread?.TranscriptPath,
+                        Running: monitor.RunningFor(b.Tool), Prompt: thread?.PendingPrompt);
+                })
                 .ToList();
             // Tail reads stay off the UI thread. Working sessions are read for
             // how they work, network trouble for a prompt that may be open, and
@@ -614,16 +605,13 @@ internal sealed class DrawerWindow : Window
                 }
                 results.Add((bot, phase, detail, running));
             }
-            foreach (var parts in results.GroupBy(result => result.Bot))
+            _activity = new DrawerActivityFrame(results.Select(r => (r.Bot.Provider, r.Phase, r.Detail, r.Running)));
+            foreach (var bot in _bots)
             {
-                var bot = parts.Key;
-                var running = parts.Sum(part => part.Running);
-                recounted |= bot.Running != running && (_cardBot is null || _cardBot == bot);
-                bot.Running = running;
-                var (phase, detail) = parts.Count() == 2
-                    ? SharedSubscription.Pick((parts.First().Phase, parts.First().Detail), (parts.Last().Phase, parts.Last().Detail))
-                    : (parts.First().Phase, parts.First().Detail);
-                Offer(bot, phase, detail, seconds);
+                var activity = _activity.ForCharacter(bot.Provider, _merged);
+                recounted |= bot.Running != activity.Running && (_cardBot is null || _cardBot == bot);
+                bot.Running = activity.Running;
+                Offer(bot, activity.Phase, activity.Detail, seconds);
             }
             // A task can start or end without the shown phase changing.
             if (recounted) RefreshCard();
@@ -1079,7 +1067,7 @@ internal sealed class DrawerWindow : Window
             ? new PointInt32(scene.Left + (int)(bot.Bounds.X * scene.Scale), scene.Top + (int)(bot.Bounds.Bottom * scene.Scale))
             : null;
         DrawerMenu.Show(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
-            _bots.Select(b => (b.Provider, b.Visible)).ToList(),
+            _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(),
             (shape, color) => ChangeLook(bot, shape, color), keepOpen, at);
     }
 

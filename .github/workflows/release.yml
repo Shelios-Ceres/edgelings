@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: macos-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-latest
@@ -21,20 +25,20 @@ jobs:
       - name: Resolve release tag
         id: release
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            tag="${{ inputs.tag }}"
-            source_ref="${GITHUB_REF_NAME}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
           else
             tag="${GITHUB_REF_NAME}"
-            source_ref="${GITHUB_REF_NAME}"
           fi
           if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid tag: $tag" >&2
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "source_ref=$source_ref" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Check out source
         uses: actions/checkout@v4
@@ -43,6 +47,18 @@ jobs:
 
       - name: Install DMG tooling
         run: pipx install dmgbuild
+
+      - name: Validate version and prepare changelog
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          version="${TAG#v}"
+          test "$(tr -d '\r\n' < VERSION)" = "$version" || { echo "::error::Tag and VERSION disagree"; exit 1; }
+          notes="$RUNNER_TEMP/agent-island-release-notes.md"
+          awk -v ver="$version" 'index($0,"## ["ver"]")==1 {f=1; print; next} f && /^## \[/ {exit} f' CHANGELOG.md > "$notes"
+          test -s "$notes" || { echo "::error::Missing CHANGELOG.md section for $version"; exit 1; }
+          echo "RELEASE_NOTES_PATH=$notes" >> "$GITHUB_ENV"
 
       - name: Prepare Sparkle signing key
         shell: bash
@@ -60,6 +76,7 @@ jobs:
 
       - name: Run tests
         run: |
+          bash ./scripts/test-codex-accounts.sh
           ./scripts/test-usage-cache.sh
           ./scripts/test-session-turn-state.sh
           ./scripts/test-reminder-delivery-key.sh
@@ -70,31 +87,21 @@ jobs:
           ./release.sh
           test -f dist/appcast.xml
 
-      - name: Ensure GitHub release exists
+      - name: Prepare draft release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || \
+          if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            [[ "$state" == "true" ]] || { echo "::error::Refusing to overwrite a published release"; exit 1; }
+          else
             gh release create "$TAG" \
+              --draft \
+              --verify-tag \
               --title "$TAG — Agent Island" \
-              --notes "Automated Agent Island release."
-
-      - name: Attach changelog notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # TAG was missing here, so VER expanded empty, awk matched nothing,
-          # and every release silently kept the "Automated release" stub.
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          VER="${TAG#v}"
-          awk -v ver="$VER" 'BEGIN{f=0} $0 ~ "^## \\["ver"\\]" {f=1} f==1 && $0 ~ "^## \\[" && $0 !~ ver {exit} f' CHANGELOG.md > /tmp/notes.md
-          if [ ! -s /tmp/notes.md ]; then
-            echo "::error::No CHANGELOG.md section found for $VER — release notes would be empty"
-            exit 1
+              --notes-file "$RELEASE_NOTES_PATH"
           fi
-          gh release edit "$TAG" --notes-file /tmp/notes.md
 
       - name: Upload release assets
         shell: bash
@@ -107,3 +114,10 @@ jobs:
             "dist/AgentIsland-${version}.dmg" \
             "dist/appcast.xml" \
             --clobber
+
+      - name: Publish complete release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: gh release edit "$TAG" --notes-file "$RELEASE_NOTES_PATH" --draft=false

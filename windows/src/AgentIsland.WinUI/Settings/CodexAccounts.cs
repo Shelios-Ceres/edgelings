@@ -1,6 +1,7 @@
 using AgentIsland.Localization;
 using AgentIsland.Usage;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 
 namespace AgentIsland.WinUI.Settings;
@@ -14,6 +15,8 @@ internal static class CodexAccounts
     {
         var menu = new MenuFlyout();
         var button = new DropDownButton { Content = L10n.Tr("Switch"), Flyout = menu };
+        AutomationProperties.SetName(button, L10n.Tr("Switch Codex account"));
+        AutomationProperties.SetAutomationId(button, "Agent.codex.SwitchAccount");
         menu.Opening += (_, _) => Fill(menu, root);
         return button;
     }
@@ -27,19 +30,33 @@ internal static class CodexAccounts
         {
             menu.Items.Add(new MenuFlyoutItem { Text = L10n.Tr("No saved accounts yet"), IsEnabled = false });
         }
+        var choices = new List<(string Label, RadioMenuFlyoutItem Item)>();
+        void RestoreChecks()
+        {
+            var current = CodexAccountSwitcher.ActiveLabel();
+            foreach (var (label, choice) in choices) choice.IsChecked = string.Equals(label, current, StringComparison.Ordinal);
+        }
         foreach (var account in accounts)
         {
-            // A radio item would tick itself on click, claiming the login is
-            // live before the swap has succeeded; the tick follows the file.
             var item = new RadioMenuFlyoutItem
             {
                 Text = account.Email is { } email && email != account.Label ? $"{account.Label}  ({email})" : account.Label,
                 GroupName = "codex-account",
                 IsChecked = string.Equals(account.Label, active, StringComparison.Ordinal),
             };
-            item.Click += (_, _) =>
+            choices.Add((account.Label, item));
+            item.Click += async (_, _) =>
             {
-                if (!CodexAccountSwitcher.Activate(account)) return;
+                var activated = CodexAccountSwitcher.Activate(account);
+                RestoreChecks();
+                if (!activated)
+                {
+                    menu.Hide();
+                    if (root() is { } xamlRoot)
+                        await SettingsUi.Alert(xamlRoot, L10n.Tr("Couldn't switch account"),
+                            L10n.Tr("Switch canceled. Credentials could not be read or safely saved. Check file access and try again."));
+                    return;
+                }
                 // A manual pick supersedes the last automatic rotation.
                 UsageStore.Shared.CodexAutoSwitched = null;
                 UsageStore.Shared.Refresh();
@@ -73,6 +90,8 @@ internal static class CodexAccounts
     private static async Task SaveCurrent(XamlRoot root)
     {
         var name = new TextBox { PlaceholderText = L10n.Tr("work / personal"), MaxLength = 40 };
+        AutomationProperties.SetName(name, L10n.Tr("Save current account"));
+        AutomationProperties.SetAutomationId(name, "Agent.codex.AccountLabel");
         var dialog = new ContentDialog
         {
             XamlRoot = root,
@@ -91,6 +110,8 @@ internal static class CodexAccounts
             DefaultButton = ContentDialogButton.Primary,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        CodexAccountSwitcher.ParkCurrent(string.IsNullOrWhiteSpace(name.Text) ? null : name.Text);
+        if (!CodexAccountSwitcher.ParkCurrent(string.IsNullOrWhiteSpace(name.Text) ? null : name.Text))
+            await SettingsUi.Alert(root, L10n.Tr("Couldn't save account"),
+                L10n.Tr("The current login could not be read or saved. Check file access and try again."));
     }
 }

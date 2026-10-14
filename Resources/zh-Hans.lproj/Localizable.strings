@@ -70,6 +70,8 @@
 "Everything is computed on your Mac from logs the agents already write. No account, no telemetry, nothing uploaded — the island reads what is yours and shows it back" = "所有数字都在你自己的 Mac 上算出来，读的是 Agent 本来就会写的日志。不用注册、没有埋点、什么都不上传——岛只是把属于你的东西读出来，再摆回你眼前";
 
 "Switch Codex account" = "切换 Codex 账号";
+"Could not switch Codex account" = "无法切换 Codex 账号";
+"Could not read or save the account files. Check file access and try again." = "无法读取或保存账号文件。请检查文件访问权限后重试。";
 "No saved accounts yet" = "还没有保存的账号";
 "Save current account…" = "保存当前账号…";
 "Save current account" = "保存当前账号";

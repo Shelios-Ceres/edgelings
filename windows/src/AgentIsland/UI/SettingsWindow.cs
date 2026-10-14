@@ -938,15 +938,14 @@ public sealed class SettingsWindow : Window
 
     private static string WindowCaption(WindowUsage window)
     {
-        // Gate on the PRINTED number, not the raw fraction: Swift tests
-        // percentInt, so a merged stale window sitting at 0.4% printed "0%"
-        // on Windows while macOS surfaced its error caption.
-        var percent = Formatting.PercentInt(window.UsedPercent);
-        if (window.Error is { } error && percent == 0)
+        var current = window.At(DateTimeOffset.Now);
+        if (current.AwaitingSync) return L10n.Tr("Awaiting sync");
+        if (current.Error == "no data" && !current.Kept) return "—";
+        if (current.Error is { } error && !current.Kept)
         {
             return "⚠ " + ErrorDisplay.Localize(error);
         }
-        return $"{percent}%";
+        return $"{Formatting.PercentInt(current.UsedPercent)}%";
     }
 
     /// Guest rows read like the Claude/Codex rows — sync freshness first, then
@@ -970,7 +969,7 @@ public sealed class SettingsWindow : Window
             // Only the Gemini pool: Claude and GPT are other providers'
             // rows in this app, and showing their shared pool here read as
             // cross-wiring (owner call, 2026-08-09).
-            parts.Add(L10n.TrFormat("{0} {1}%", pool.ShortLabel, Percent(pool.UsedPercent)));
+            parts.Add($"{pool.ShortLabel} {WindowCaption(ProviderUsage.For(DisplayProvider.Antigravity).FiveHour)}");
         }
         return string.Join(" · ", parts);
     }
@@ -1003,9 +1002,9 @@ public sealed class SettingsWindow : Window
         {
             parts.Add("⚠ " + ErrorDisplay.Localize(caption));
         }
-        else if (store.Snapshot is { } snapshot)
+        else if (store.Snapshot is not null)
         {
-            parts.Add(L10n.TrFormat("week {0}%", Percent(snapshot.WeeklyUsedPercent)));
+            parts.Add($"{L10n.Tr("week")} {WindowCaption(ProviderUsage.For(DisplayProvider.Grok).FiveHour)}");
         }
         return string.Join(" · ", parts);
     }
@@ -1022,9 +1021,9 @@ public sealed class SettingsWindow : Window
         {
             parts.Add("⚠ " + ErrorDisplay.Localize(caption));
         }
-        else if (store.Snapshot is { } snapshot)
+        else if (store.Snapshot is not null)
         {
-            parts.Add(L10n.TrFormat("cycle {0}%", Percent(snapshot.UsedPercent)));
+            parts.Add(WindowCaption(ProviderUsage.For(DisplayProvider.Cursor).FiveHour));
         }
         return string.Join(" · ", parts);
     }
@@ -1166,7 +1165,13 @@ public sealed class SettingsWindow : Window
                 };
                 item.Click += (_, _) =>
                 {
-                    if (!CodexAccountSwitcher.Activate(captured)) return;
+                    if (!CodexAccountSwitcher.Activate(captured))
+                    {
+                        System.Windows.MessageBox.Show(this,
+                            L10n.Tr("Switch canceled. Credentials could not be read or safely saved. Check file access and try again."),
+                            L10n.Tr("Couldn't switch account"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
                     // The badge described the previous rotation; a manual pick
                     // supersedes it (macOS parity).
                     UsageStore.Shared.CodexAutoSwitched = null;
@@ -1275,7 +1280,13 @@ public sealed class SettingsWindow : Window
             L10n.Tr("Give this login a name so you can switch back to it later"),
             L10n.Tr("work / personal"));
         if (label is null) return;
-        if (!CodexAccountSwitcher.ParkCurrent(label)) return;
+        if (!CodexAccountSwitcher.ParkCurrent(label))
+        {
+            System.Windows.MessageBox.Show(this,
+                L10n.Tr("The current login could not be read or saved. Check file access and try again."),
+                L10n.Tr("Couldn't save account"), MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         RefreshProviderRows();
     }
 

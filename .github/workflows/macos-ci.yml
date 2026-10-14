@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - "Sources/**"
+      - "Resources/**"
       - "Tests/**"
       - "build.sh"
       - "scripts/**"
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - "Sources/**"
+      - "Resources/**"
       - "Tests/**"
       - "build.sh"
       - "scripts/**"
@@ -26,6 +28,7 @@ jobs:
 
       - name: Unit suites
         run: |
+          bash ./scripts/test-codex-accounts.sh
           ./scripts/test-usage-cache.sh
           ./scripts/test-session-turn-state.sh
           ./scripts/test-reminder-delivery-key.sh

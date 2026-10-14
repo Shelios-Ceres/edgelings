@@ -10,6 +10,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
@@ -146,7 +147,10 @@ internal sealed class SettingsWindow : Window
         section.Expander.IsExpanded = true;
         // After the expanded items have laid out, or the scroll falls short.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-            section.Expander.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.1, AnimationDesired = true }));
+        {
+            section.Expander.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.1, AnimationDesired = true });
+            if (FocusManager.FindFirstFocusableElement(section.Expander) is Control control) control.Focus(FocusState.Keyboard);
+        });
     }
 
     private void Tick()

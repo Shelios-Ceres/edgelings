@@ -1,7 +1,5 @@
 using System.Numerics;
 using System.Diagnostics;
-using System.Globalization;
-using System.Text;
 using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
@@ -182,7 +180,7 @@ internal sealed class HoverCard : IDisposable
             _popup.XamlRoot = xamlRoot;
             var dark = Brand.IsDark();
             var request = new Request(sections.ToArray(), pixel, characterRight, anchor, area, reducedMotion,
-                xamlRoot.RasterizationScale, dark, ContentKey(sections, dark, pixel),
+                xamlRoot.RasterizationScale, dark, HoverCardContentKey.Create(sections, dark, pixel, xamlRoot.RasterizationScale),
                 string.Join(",", sections.Select(s => (int)s.Card.Provider)));
             if (_displayed is { } before && !SameFrame(before, request)) Hide();
             if (!_popup.IsOpen)
@@ -427,43 +425,6 @@ internal sealed class HoverCard : IDisposable
         _contentClip.Dispose();
         _size.Dispose();
         _easeOut.Dispose();
-    }
-
-    private static string ContentKey(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool dark, bool pixel)
-    {
-        var key = new StringBuilder();
-        void Add(object? value)
-        {
-            var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
-            key.Append(text.Length).Append(':').Append(text);
-        }
-        Add(dark);
-        Add(pixel);
-        Add(sections.Count);
-        foreach (var (card, swatch) in sections)
-        {
-            Add(card.Provider); Add(swatch); Add(card.Name); Add(card.Phase); Add(card.Detail is not null); Add(card.Detail);
-            Add(card.Plan);
-            Add(card.Tasks is not null);
-            if (card.Tasks is { } tasks) { Add(tasks.Label); Add(tasks.Text); Add(tasks.Number); }
-            Add(card.Meters.Count);
-            foreach (var meter in card.Meters)
-            {
-                Add(meter.Label); Add(meter.Value); Add(meter.Shown); Add(meter.Used >= 0.9);
-            }
-            Add(card.Tokens is not null);
-            if (card.Tokens is { } tokens)
-            {
-                Add(tokens.Label); Add(tokens.Today); Add(tokens.TodayNumber); Add(tokens.Month); Add(tokens.MonthNumber);
-            }
-            Add(card.Note.Count);
-            foreach (var note in card.Note)
-            {
-                Add(note.Text); Add(note.Numbers.Count);
-                foreach (var number in note.Numbers) Add(number);
-            }
-        }
-        return key.ToString();
     }
 
     private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel)

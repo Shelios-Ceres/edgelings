@@ -19,22 +19,23 @@ public sealed record WindowUsage(
     /// Error then says why they are not live rather than that none exist.
     public bool Kept { get; init; }
 
+    /// A provider explicitly supplied this number, including a genuine zero
+    /// without a reset date. Older caches omit this flag and retain the
+    /// existing nonzero/reset-date evidence rules.
+    public bool Observed { get; init; }
+
+    public bool AwaitingSync { get; init; }
+
     /// A multi-day window (weekly-style) as opposed to an intra-day one.
     public bool IsLongPeriod => (PeriodSeconds ?? 0) >= 2 * 86400;
 
-    /// The window as it stands at `now`. One whose reset time has passed has
-    /// refilled since it was read, so kept numbers never claim quota that has
-    /// come back; the next reset follows from the period, when known.
+    /// A reset ends the observed window; it does not tell us how much of the
+    /// next window has already been used. Await a new reading instead of
+    /// inventing a full balance and a future reset date.
     public WindowUsage At(DateTimeOffset now)
     {
         if (ResetAt is not { } reset || reset > now) return this;
-        DateTimeOffset? next = null;
-        if (PeriodSeconds is { } seconds && seconds > 0)
-        {
-            var period = TimeSpan.FromSeconds(seconds);
-            next = reset + period * (Math.Floor((now - reset) / period) + 1);
-        }
-        return this with { UsedPercent = 0, ResetAt = next };
+        return this with { UsedPercent = 0, ResetAt = null, AwaitingSync = true };
     }
 }
 
@@ -55,9 +56,7 @@ public sealed record AppUsage(
     int? ResetCards = null,
     IReadOnlyList<ResetCard>? ResetCardDetails = null)
 {
-    public static AppUsage Empty { get; } = new(
-        new WindowUsage(0, null, null),
-        new WindowUsage(0, null, null));
+    public static AppUsage Empty { get; } = new(WindowUsage.Unknown, WindowUsage.Unknown);
 
     public static AppUsage ErrorPair(string message) => new(
         new WindowUsage(0, null, message),

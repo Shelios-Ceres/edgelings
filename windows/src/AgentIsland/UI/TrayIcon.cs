@@ -110,8 +110,8 @@ public sealed class TrayIcon : IDisposable
         var parts = new List<string>();
         foreach (var provider in DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsShown))
         {
-            var window = ProviderUsage.For(provider).FiveHour;
-            if (!window.HasError)
+            var window = ProviderUsage.For(provider).FiveHour.At(DateTimeOffset.Now);
+            if (!window.HasError && !window.AwaitingSync)
             {
                 parts.Add($"{ProviderIdentity.DisplayName(provider)} {Percent(window.UsedPercent)}");
             }

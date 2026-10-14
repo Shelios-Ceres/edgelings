@@ -34,8 +34,8 @@ public sealed class UsageCacheSnapshot
 public static class UsageCachePolicy
 {
     /// How long last-good quota numbers are kept on disk. They outlive days
-    /// offline or with an agent closed: a window that has reset since shows
-    /// as refilled, and the card says how old the numbers are.
+    /// offline or with an agent closed: a window that has reset since waits
+    /// for sync, and the card says how old the numbers are.
     public static TimeSpan KeepFor => TimeSpan.FromDays(7);
 
     /// Don't clobber existing good values when a fetch returns an all-error
@@ -111,6 +111,7 @@ public static class UsageCachePolicy
         // clean would have silently stopped caching Codex forever.
         if (usage.FiveHour.Error is not null
             || (usage.Weekly.Error is not null && !usage.SecondaryMissing)
+            || usage.FiveHour.AwaitingSync || usage.Weekly.AwaitingSync
             || !HasUsageValues(usage))
         {
             return null;
@@ -118,20 +119,22 @@ public static class UsageCachePolicy
         return new AppUsage(
             new WindowUsage(
                 usage.FiveHour.UsedPercent, usage.FiveHour.ResetAt, null,
-                usage.FiveHour.PeriodSeconds),
+                usage.FiveHour.PeriodSeconds) { Observed = usage.FiveHour.Observed },
             new WindowUsage(
                 usage.Weekly.UsedPercent, usage.Weekly.ResetAt,
                 // Keep the "single window" marker so a cold start straight
                 // from cache hides the empty tile instead of showing 0%.
                 usage.SecondaryMissing ? usage.Weekly.Error : null,
-                usage.Weekly.PeriodSeconds),
+                usage.Weekly.PeriodSeconds) { Observed = usage.Weekly.Observed },
             usage.Plan,
             usage.ResetCards,
             usage.ResetCardDetails);
     }
 
     private static bool HasUsageValues(AppUsage usage) =>
-        usage.FiveHour.UsedPercent > 0
+        usage.FiveHour.Observed
+        || usage.Weekly.Observed
+        || usage.FiveHour.UsedPercent > 0
         || usage.Weekly.UsedPercent > 0
         || usage.FiveHour.ResetAt is not null
         || usage.Weekly.ResetAt is not null;

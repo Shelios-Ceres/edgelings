@@ -2,6 +2,7 @@ using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Settings;
 using AgentIsland.WinUI.Shell;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
@@ -17,7 +18,7 @@ internal static class DrawerMenu
         string color,
         IReadOnlyList<string>? shapes,
         IReadOnlyList<string>? colors,
-        IReadOnlyList<(DisplayProvider Provider, bool Visible)> shown,
+        IReadOnlyList<(DisplayProvider Provider, bool Visible)> requestedVisibility,
         Action<string, string> changeLook,
         bool keepOpen = false,
         Windows.Graphics.PointInt32? at = null)
@@ -58,9 +59,10 @@ internal static class DrawerMenu
         }
 
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Show in drawer"), Icon = MenuHost.Glyph("\uE890") };
-        foreach (var (other, visible) in shown)
+        foreach (var (other, visible) in requestedVisibility)
         {
             var item = new ToggleMenuFlyoutItem { Text = ProviderIdentity.DisplayName(other), IsChecked = visible };
+            AutomationProperties.SetAutomationId(item, $"Drawer.Show.{other.RawValue()}");
             item.Click += (_, _) => DrawerStore.Shared.SetShown(other, item.IsChecked);
             shownMenu.Items.Add(item);
         }

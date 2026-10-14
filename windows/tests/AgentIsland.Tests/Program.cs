@@ -77,6 +77,10 @@ public static class Program
             TokenDisplayTextTests.RunAll();
             TokenAccountingTests.RunAll();
             OtherTokenAccountingTests.RunAll();
+            CursorDatabaseTests.RunAll();
+            CursorQuotaStateTests.RunAll();
+            CodexAccountSwitcherTests.RunAll();
+            DrawerPresentationTests.RunAll();
             QuotaRetentionTests.RunAll();
             PixelThemeTests.RunAll();
             SharedSubscriptionTests.RunAll();

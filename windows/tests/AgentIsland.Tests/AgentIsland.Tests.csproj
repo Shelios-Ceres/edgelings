@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentIsland\AgentIsland.csproj" />
+    <Compile Include="..\..\src\AgentIsland.WinUI\Drawer\HoverCardContentKey.cs" Link="Presentation\HoverCardContentKey.cs" />
   </ItemGroup>
 
   <ItemGroup>

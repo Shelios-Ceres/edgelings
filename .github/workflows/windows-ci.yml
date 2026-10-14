@@ -14,6 +14,28 @@ on:
       - ".github/workflows/windows-ci.yml"
 
 jobs:
+  winui:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build WinUI
+        run: dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -p:Platform=x64
+      - name: Audit WinUI dependencies
+        shell: pwsh
+        run: |
+          $json = dotnet list windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj package --vulnerable --include-transitive --no-restore --format json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = ($json -join "`n") | ConvertFrom-Json
+          if ($report.logs | Where-Object level -eq 'error') { throw 'Dependency audit failed' }
+          $packages = $report.projects.frameworks | ForEach-Object { $_.topLevelPackages; $_.transitivePackages }
+          $unsafe = $packages | Where-Object { $_.vulnerabilities | Where-Object severity -in @('High', 'Critical') }
+          if ($unsafe) { $unsafe | ConvertTo-Json -Depth 8; throw 'High or critical dependency vulnerability' }
+
   build:
     runs-on: windows-latest
     permissions:
