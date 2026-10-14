@@ -7,7 +7,17 @@ namespace AgentIsland.Cost;
 
 /// A card's token figures and when they were counted. Saved after every scan
 /// so a restart shows the last counts at once instead of nothing.
-public sealed record TokenTotals(DateTimeOffset AsOf, long Today, long TodayBillable, long Month, long MonthBillable);
+public sealed record TokenTotals(DateTimeOffset AsOf, long Today, long TodayBillable, long Month, long MonthBillable)
+{
+    /// Two agents' figures as one: the counts add up, dated by the older of
+    /// the two, so a stale part never passes for today's.
+    public static TokenTotals? Sum(TokenTotals? a, TokenTotals? b) => (a, b) switch
+    {
+        ({ } x, { } y) => new TokenTotals(x.AsOf < y.AsOf ? x.AsOf : y.AsOf,
+            x.Today + y.Today, x.TodayBillable + y.TodayBillable, x.Month + y.Month, x.MonthBillable + y.MonthBillable),
+        _ => a ?? b,
+    };
+}
 
 /// Publishes per-provider cost rollups from the local logs. Scans run in
 /// parallel off the UI thread on the shared poll cadence; demo mode injects

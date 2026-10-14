@@ -53,6 +53,28 @@ public static class StatusCards
         return parts;
     }
 
+    /// Grok and Cursor on one X Subscription (SharedSubscription): one card
+    /// for both apps, with their one pool as Grok reports it, both apps'
+    /// tokens added up, and either app's warning.
+    public static StatusCard ForGrokWithCursor(AgentPhase phase, string? detail, int running)
+    {
+        var notes = NoteParts(DisplayProvider.Grok).ToList();
+        notes.InsertRange(0, new[] { AgentReports.Warning(DisplayProvider.Grok), AgentReports.Warning(DisplayProvider.Cursor) }
+            .OfType<string>()
+            .Distinct()
+            .Select(warning => Phrase(warning)));
+        var totals = TokenTotals.Sum(CostStore.Shared.Totals(DisplayProvider.Grok), CostStore.Shared.Totals(DisplayProvider.Cursor));
+        return new StatusCard(
+            DisplayProvider.Grok,
+            $"{ProviderIdentity.DisplayName(DisplayProvider.Grok)} + {ProviderIdentity.DisplayName(DisplayProvider.Cursor)}",
+            DrawerLooks.PhaseLabel(phase),
+            detail,
+            Tasks(running),
+            Meters(DisplayProvider.Grok),
+            TokensFrom(totals, TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),
+            notes);
+    }
+
     public static StatusTasks? Tasks(int running)
     {
         if (running <= 0) return null;

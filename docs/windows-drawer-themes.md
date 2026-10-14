@@ -56,6 +56,10 @@ Each bot should be recognisable at 44 DIP, and tell apart from the others by
 silhouette, not colour alone: Codex, Kimi Code and DeepSeek are all blue in
 some themes.
 
+While Grok and Cursor share one X Subscription (their usage APIs report the
+same pool), the drawer shows Grok's bot for both apps and hides Cursor's.
+The `cursor` bot must still exist for users whose plans are billed apart.
+
 ### 3.2 A state for every phase
 
 The drawer reports one of 21 phases per agent, and each must map to a state

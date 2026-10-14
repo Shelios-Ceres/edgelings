@@ -126,6 +126,9 @@ internal sealed class DrawerWindow : Window
     private int _topmostCountdown = TopmostEverySeconds;
     private Bot? _cardBot;
     private bool _cardRefreshPending;
+    // Grok and Cursor share one X Subscription: Grok's character stands for
+    // both apps and Cursor's steps aside (SharedSubscription).
+    private bool _merged;
     private Bot? _pressed;
     private bool _dragging;
     private int _pressY;
@@ -211,8 +214,8 @@ internal sealed class DrawerWindow : Window
         Watch(IslandTargetDisplayStore.Shared, Layout);
         Watch(UsageStore.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
-        Watch(GrokUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Grok));
-        Watch(CursorUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Cursor));
+        Watch(GrokUsageStore.Shared, () => OnSubscriptionUsage(DisplayProvider.Grok));
+        Watch(CursorUsageStore.Shared, () => OnSubscriptionUsage(DisplayProvider.Cursor));
         Watch(AntigravityUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Antigravity));
         Watch(QuotaDisplayModeStore.Shared, RefreshCard);
         Watch(TokenCountModeStore.Shared, RefreshCard);
@@ -426,6 +429,14 @@ internal sealed class DrawerWindow : Window
         var visibility = ProviderVisibilityStore.Shared;
         var store = DrawerStore.Shared;
         foreach (var bot in _bots) bot.Visible = store.IsShown(bot.Provider, visibility.IsDetected(bot.Provider));
+        _merged = SharedSubscription.GrokWithCursor();
+        if (_merged)
+        {
+            var grok = BotOf(DisplayProvider.Grok);
+            var cursor = BotOf(DisplayProvider.Cursor);
+            grok.Visible |= cursor.Visible;
+            cursor.Visible = false;
+        }
         // An empty drawer would leave no character to right-click back.
         if (!_bots.Any(b => b.Visible)) _bots[0].Visible = true;
 
@@ -558,14 +569,17 @@ internal sealed class DrawerWindow : Window
         {
             var now = DateTimeOffset.UtcNow;
             var monitor = ActivityMonitor.Shared;
+            var merged = _merged;
+            // The merged character follows both apps' sessions.
             var jobs = _bots
                 .Where(b => b.Visible)
-                .Select(b =>
-                {
-                    var thread = monitor.ThreadFor(b.Tool);
-                    return (Bot: b, State: monitor.StateFor(b.Tool), Path: thread?.TranscriptPath,
-                        Running: monitor.RunningFor(b.Tool), Prompt: thread?.PendingPrompt);
-                })
+                .SelectMany(b => (merged && b.Provider == DisplayProvider.Grok ? new[] { b.Tool, TriggerTool.Cursor } : new[] { b.Tool })
+                    .Select(tool =>
+                    {
+                        var thread = monitor.ThreadFor(tool);
+                        return (Bot: b, Tool: tool, State: monitor.StateFor(tool), Path: thread?.TranscriptPath,
+                            Running: monitor.RunningFor(tool), Prompt: thread?.PendingPrompt);
+                    }))
                 .ToList();
             // Tail reads stay off the UI thread. Working sessions are read for
             // how they work, network trouble for a prompt that may be open, and
@@ -579,7 +593,7 @@ internal sealed class DrawerWindow : Window
                     return jobs
                         .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
                             && job.Path is { } path
-                            ? AgentPhaseClassifier.Classify(job.Bot.Tool, path, now)
+                            ? AgentPhaseClassifier.Classify(job.Tool, path, now)
                             : null))
                         .ToList();
                 }
@@ -587,18 +601,28 @@ internal sealed class DrawerWindow : Window
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
             var recounted = false;
+            var results = new List<(Bot Bot, AgentPhase Phase, string? Detail, int Running)>();
             for (var i = 0; i < jobs.Count; i++)
             {
-                var (bot, state, _, running, _) = jobs[i];
-                recounted |= bot.Running != running && (_cardBot is null || _cardBot == bot);
-                bot.Running = running;
+                var (bot, tool, state, _, running, _) = jobs[i];
                 var reading = readings[i];
-                var phase = AgentPhases.Combine(state, reading, QuotaExhausted(bot.Provider));
+                var phase = AgentPhases.Combine(state, reading, QuotaExhausted(tool.ToDisplayProvider()));
                 var detail = reading is { } r && r.Phase == phase ? r.Detail : null;
                 if (phase == AgentPhase.NetworkTrouble && detail is null && monitor.IsOffline)
                 {
                     using (english ? L10n.English() : null) detail = L10n.Tr("No internet connection");
                 }
+                results.Add((bot, phase, detail, running));
+            }
+            foreach (var parts in results.GroupBy(result => result.Bot))
+            {
+                var bot = parts.Key;
+                var running = parts.Sum(part => part.Running);
+                recounted |= bot.Running != running && (_cardBot is null || _cardBot == bot);
+                bot.Running = running;
+                var (phase, detail) = parts.Count() == 2
+                    ? SharedSubscription.Pick((parts.First().Phase, parts.First().Detail), (parts.Last().Phase, parts.Last().Detail))
+                    : (parts.First().Phase, parts.First().Detail);
                 Offer(bot, phase, detail, seconds);
             }
             // A task can start or end without the shown phase changing.
@@ -916,7 +940,24 @@ internal sealed class DrawerWindow : Window
 
     private void RefreshCardFor(DisplayProvider provider)
     {
+        // The merged character's card shows Cursor's data too.
+        if (_merged && provider == DisplayProvider.Cursor) provider = DisplayProvider.Grok;
         if (_cardBot is null || _cardBot.Provider == provider) RefreshCard();
+    }
+
+    private Bot BotOf(DisplayProvider provider) => _bots.First(b => b.Provider == provider);
+
+    /// Grok's character stands for Cursor too while they share a subscription.
+    private StatusCard CardFor(Bot bot) => _merged && bot.Provider == DisplayProvider.Grok
+        ? StatusCards.ForGrokWithCursor(bot.Phase, bot.Detail, bot.Running)
+        : StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running);
+
+    /// New Grok or Cursor usage can start or end a shared subscription, which
+    /// merges or splits their characters; otherwise it only refreshes a card.
+    private void OnSubscriptionUsage(DisplayProvider provider)
+    {
+        if (SharedSubscription.GrokWithCursor() != _merged) Layout();
+        else RefreshCardFor(provider);
     }
 
     private void ShowCard(bool retarget = false)
@@ -929,7 +970,7 @@ internal sealed class DrawerWindow : Window
         {
             sections = _bots
                 .Where(b => b.Visible && (_cardBot is null || b == _cardBot))
-                .Select(b => (StatusCards.For(b.Provider, b.Phase, b.Detail, b.Running), Brand.Readable(SwatchOf(b), dark)))
+                .Select(b => (CardFor(b), Brand.Readable(SwatchOf(b), dark)))
                 .ToList();
         }
         var height = WindowHeightDip(_bots.Count(b => b.Visible));

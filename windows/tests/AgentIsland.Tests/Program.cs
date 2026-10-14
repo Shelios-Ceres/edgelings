@@ -79,6 +79,7 @@ public static class Program
             OtherTokenAccountingTests.RunAll();
             QuotaRetentionTests.RunAll();
             PixelThemeTests.RunAll();
+            SharedSubscriptionTests.RunAll();
             SecurityGuardTests.RunAll();
             FormattingTests.RunAll();
             LaunchAtLoginTests.RunAll();
