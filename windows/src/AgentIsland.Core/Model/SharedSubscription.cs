@@ -18,6 +18,11 @@ public static class SharedSubscription
     public static bool GrokWithCursor(DateTimeOffset? grokReset, DateTimeOffset? cursorReset) =>
         grokReset is { } grok && cursorReset is { } cursor && (grok - cursor).Duration() < TimeSpan.FromMinutes(1);
 
+    /// The shared subscription's tier. Cursor reports the X Subscription's own
+    /// ("PREMIUM"); Grok's badge names how it signed in ("SUPERGROK" for any
+    /// account login), so it only stands in when Cursor has none.
+    public static string? Plan(string? grokBadge, string? cursorBadge) => cursorBadge ?? grokBadge;
+
     /// The merged character plays the more urgent of the two apps' phases,
     /// Grok's on a tie; its detail names the app the phase comes from.
     public static (AgentPhase Phase, string? Detail) Pick(

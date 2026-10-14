@@ -23,7 +23,8 @@ public sealed record StatusPhrase(string Text, IReadOnlyList<string> Numbers);
 
 /// What a character's hover card says: who, what it is doing, how many of
 /// its tasks are running, its quota windows, its tokens, and any
-/// provider-specific note.
+/// provider-specific note. Plan is the subscription tier, as the Settings
+/// badge shows it ("MAX"), shown beside the name when the provider reports one.
 public sealed record StatusCard(
     DisplayProvider Provider,
     string Name,
@@ -32,7 +33,10 @@ public sealed record StatusCard(
     StatusTasks? Tasks,
     IReadOnlyList<StatusMeter> Meters,
     StatusTokens? Tokens,
-    IReadOnlyList<StatusPhrase> Note);
+    IReadOnlyList<StatusPhrase> Note)
+{
+    public string? Plan { get; init; }
+}
 
 public static class StatusCards
 {
@@ -44,7 +48,10 @@ public static class StatusCards
         Tasks(running),
         Meters(provider),
         Tokens(provider),
-        CardNotes(provider));
+        CardNotes(provider))
+    {
+        Plan = AgentReports.Plan(provider),
+    };
 
     private static IReadOnlyList<StatusPhrase> CardNotes(DisplayProvider provider)
     {
@@ -72,7 +79,10 @@ public static class StatusCards
             Tasks(running),
             Meters(DisplayProvider.Grok),
             TokensFrom(totals, TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),
-            notes);
+            notes)
+        {
+            Plan = SharedSubscription.Plan(GrokUsageStore.Shared.AuthModeBadge, CursorUsageStore.Shared.PlanBadge),
+        };
     }
 
     public static StatusTasks? Tasks(int running)

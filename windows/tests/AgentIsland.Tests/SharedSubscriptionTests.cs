@@ -22,6 +22,7 @@ public static class SharedSubscriptionTests
             ("the busier app's phase wins, named", TestPickBusier),
             ("a tie goes to Grok, idle needs no name", TestPickTie),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
+            ("the shared plan is the X Subscription's tier", TestPlan),
         };
         foreach (var (name, test) in tests)
         {
@@ -76,6 +77,13 @@ public static class SharedSubscriptionTests
         Expect(sum.AsOf == cursor.AsOf, "dated by the older count");
         Expect(TokenTotals.Sum(grok, null) == grok && TokenTotals.Sum(null, cursor) == cursor && TokenTotals.Sum(null, null) is null,
             "a missing side leaves the other as it is");
+    }
+
+    private static void TestPlan()
+    {
+        Expect(SharedSubscription.Plan("SUPERGROK", "PREMIUM") == "PREMIUM", "Cursor reports the subscription's tier");
+        Expect(SharedSubscription.Plan("SUPERGROK", null) == "SUPERGROK", "Grok's badge stands in without it");
+        Expect(SharedSubscription.Plan(null, null) is null, "no plan, no chip");
     }
 
     private static void Expect(bool condition, string message)

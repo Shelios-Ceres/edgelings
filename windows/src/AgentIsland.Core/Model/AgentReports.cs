@@ -71,7 +71,7 @@ public static class AgentReports
         _ => "Read from DeepSeek Harness's local sessions; no sign-in needed",
     };
 
-    private static string? Plan(DisplayProvider provider) => provider switch
+    internal static string? Plan(DisplayProvider provider) => provider switch
     {
         DisplayProvider.Claude => UsageStore.Shared.Claude.Plan?.ToUpperInvariant(),
         DisplayProvider.Codex => UsageStore.Shared.Codex.Plan?.ToUpperInvariant(),

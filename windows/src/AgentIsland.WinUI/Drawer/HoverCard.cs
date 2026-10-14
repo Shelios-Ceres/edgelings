@@ -443,6 +443,7 @@ internal sealed class HoverCard : IDisposable
         foreach (var (card, swatch) in sections)
         {
             Add(card.Provider); Add(swatch); Add(card.Name); Add(card.Phase); Add(card.Detail is not null); Add(card.Detail);
+            Add(card.Plan);
             Add(card.Tasks is not null);
             if (card.Tasks is { } tasks) { Add(tasks.Label); Add(tasks.Text); Add(tasks.Number); }
             Add(card.Meters.Count);
@@ -498,17 +499,50 @@ internal sealed class HoverCard : IDisposable
     /// synthetic one smears it; emphasis is the primary ink alone.
     internal static void UsePixelFace(Panel panel, double size)
     {
-        foreach (var child in panel.Children)
+        foreach (var child in panel.Children) ApplyPixelFace(child, size);
+    }
+
+    private static void ApplyPixelFace(UIElement element, double size)
+    {
+        switch (element)
         {
-            if (child is Panel inner) UsePixelFace(inner, size);
-            else if (child is TextBlock text)
-            {
+            case Panel panel:
+                UsePixelFace(panel, size);
+                break;
+            case Border { Child: { } child }:
+                ApplyPixelFace(child, size);
+                break;
+            case TextBlock text:
                 text.FontFamily = PixelPlate.Font;
                 text.FontSize = size;
                 text.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
+                text.CharacterSpacing = 0;
                 foreach (var inline in text.Inlines) inline.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
-            }
+                break;
         }
+    }
+
+    /// The plan as a small chip tinted with the agent's colour, like the
+    /// Settings badge; square on the pixel panel.
+    private static Border PlanChip(string plan, uint swatch, bool pixel)
+    {
+        var ink = Brand.Rgb(swatch);
+        return new Border
+        {
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb((byte)(_dark ? 0x40 : 0x2E), ink.R, ink.G, ink.B)),
+            CornerRadius = new CornerRadius(pixel ? 0 : 4),
+            Padding = pixel ? new Thickness(PixelPlate.Cell * 2, 0, PixelPlate.Cell * 2, 0) : new Thickness(6, 1, 6, 1),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = plan,
+                FontSize = 10,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                CharacterSpacing = 40,
+                Foreground = Res<Brush>("TextFillColorPrimaryBrush"),
+            },
+        };
     }
 
     private static UIElement Section(StatusCard card, uint swatch, bool pixel)
@@ -518,34 +552,52 @@ internal sealed class HoverCard : IDisposable
         var labelWidth = pixel ? PixelLabelWidth : LabelWidth;
         var valueWidth = pixel ? PixelValueWidth : ValueWidth;
         var panel = new StackPanel();
-        var title = new TextBlock { FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
-        title.Inlines.Add(new Run { Text = card.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        title.Inlines.Add(new Run { Text = " · " + card.Phase, Foreground = Res<Brush>("TextFillColorSecondaryBrush") });
-        panel.Children.Add(new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Children =
+        // Marker, name and plan, then the phase: only the phase shortens when
+        // the line runs long, never the name or the plan.
+        var head = new Grid();
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Place(head, pixel
+            ? new Rectangle
             {
-                pixel
-                    ? new Rectangle
-                    {
-                        Width = 3 * PixelPlate.Cell,
-                        Height = 3 * PixelPlate.Cell,
-                        Fill = Brand.Brush(swatch),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(0, 1, 8, 0),
-                    }
-                    : new Ellipse
-                    {
-                        Width = 7,
-                        Height = 7,
-                        Fill = Brand.Brush(swatch),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(0, 1, 6, 0),
-                    },
-                title,
-            },
-        });
+                Width = 3 * PixelPlate.Cell,
+                Height = 3 * PixelPlate.Cell,
+                Fill = Brand.Brush(swatch),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 8, 0),
+            }
+            : new Ellipse
+            {
+                Width = 7,
+                Height = 7,
+                Fill = Brand.Brush(swatch),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 6, 0),
+            }, 0, 0);
+        Place(head, new TextBlock
+        {
+            Text = card.Name,
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        }, 0, 1);
+        if (card.Plan is { Length: > 0 } plan)
+        {
+            var chip = PlanChip(plan, swatch, pixel);
+            chip.Margin = new Thickness(6, 0, 0, 0);
+            Place(head, chip, 0, 2);
+        }
+        Place(head, new TextBlock
+        {
+            Text = " · " + card.Phase,
+            FontSize = 13,
+            Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        }, 0, 3);
+        panel.Children.Add(head);
         if (card.Detail is { } detail)
         {
             panel.Children.Add(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0)));
