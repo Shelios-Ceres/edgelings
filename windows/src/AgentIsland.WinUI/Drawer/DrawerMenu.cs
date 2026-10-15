@@ -62,7 +62,8 @@ internal static class DrawerMenu
             menu.Items.Add(new MenuFlyoutSeparator());
         }
 
-        var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Show in drawer"), Icon = MenuHost.Glyph("\uE890") };
+        // Hiding one takes it out of the menus and the Cost window as well.
+        var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Shown agents"), Icon = MenuHost.Glyph("\uE890") };
         foreach (var (other, on) in DrawerVisibility.Switches(requestedVisibility, merged))
         {
             var item = new ToggleMenuFlyoutItem { Text = SharedSubscription.CharacterName(other, merged), IsChecked = on };

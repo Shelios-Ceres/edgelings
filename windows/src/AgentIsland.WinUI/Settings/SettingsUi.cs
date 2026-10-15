@@ -3,6 +3,7 @@ using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
@@ -62,6 +63,31 @@ internal static class SettingsUi
         };
     }
 
+    /// A page that scrolls up and down only.
+    public static ScrollViewer PageScroller()
+    {
+        var scroll = new ScrollViewer { HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        // Pixel type is crisp only on whole pixels. WinUI draws the scrolled
+        // page snapped, but a drop-down's list takes the page's exact place,
+        // so a scroll that settles between pixels blurs it: settle on one.
+        if (Looks.Pixel)
+        {
+            scroll.ViewChanged += (_, e) =>
+            {
+                if (e.IsIntermediate) return;
+                var scale = scroll.XamlRoot?.RasterizationScale ?? 1;
+                var exact = scroll.VerticalOffset * scale;
+                var whole = Math.Round(exact) / scale > scroll.ScrollableHeight ? Math.Floor(exact) : Math.Round(exact);
+                if (Math.Abs(whole - exact) > 0.001) scroll.ChangeView(null, whole / scale, null, disableAnimation: true);
+            };
+        }
+        return scroll;
+    }
+
+    /// Centred by a grid as wide as the viewport, not by the ScrollViewer,
+    /// which misplaced a page narrower than itself once the window was widened.
+    public static void SetPage(ScrollViewer scroll, UIElement page) => scroll.Content = new Grid { Children = { page } };
+
     public static SettingsCard Card(string header, string? description, string? glyph, object? content)
     {
         var card = new SettingsCard { Header = header };
@@ -69,6 +95,44 @@ internal static class SettingsUi
         if (glyph is not null) card.HeaderIcon = Icon(glyph);
         if (content is not null) card.Content = content;
         return card;
+    }
+
+    /// A card whose content runs full width under its header, like a list.
+    public static SettingsCard VerticalCard(string header, string? description, string? glyph, object content)
+    {
+        var card = Card(header, description, glyph, null);
+        if (Looks.Pixel)
+        {
+            card.Style = Res<Style>("PixelSettingsCardVerticalStyle");
+        }
+        else
+        {
+            card.ContentAlignment = CommunityToolkit.WinUI.Controls.ContentAlignment.Vertical;
+            card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        }
+        card.Content = content;
+        return card;
+    }
+
+    /// Several controls side by side in one card.
+    public static StackPanel SideBySide(params UIElement[] controls)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        foreach (var control in controls) row.Children.Add(control);
+        return row;
+    }
+
+    /// Every switch that shows or hides an agent, named and explained alike:
+    /// hiding one takes it out of the drawer, its menus and the Cost window.
+    public static void NameShownSwitch(ToggleSwitch toggle, string agent)
+    {
+        // Once: an order row is renamed as it moves, and a tooltip replaced
+        // while open would stay on screen.
+        if (ToolTipService.GetToolTip(toggle) is null)
+        {
+            ToolTipService.SetToolTip(toggle, Tip(L10n.Tr("Show in the drawer, its menus and the Cost window")));
+        }
+        AutomationProperties.SetName(toggle, L10n.TrFormat("Show {0}", agent));
     }
 
     /// No description at all rather than an empty line.

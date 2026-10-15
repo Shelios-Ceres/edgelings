@@ -344,7 +344,7 @@ internal sealed class HoverCardPreview : Window
             new[]
             {
                 new StatusMeter("5h", "67%", 0.67, 0.67, "Resets in 1h 40m"),
-                new StatusMeter("week", "28%", 0.28, 0.28, "Resets in 4d 6h"),
+                new StatusMeter("Week", "28%", 0.28, 0.28, "Resets in 4d 6h"),
             },
             new("Tokens", "Today 128K", "128K", "This month 2.4M", "2.4M"),
             new[] { new StatusPhrase("2 reset cards · synthetic preview", new[] { "2" }) }),
@@ -353,8 +353,8 @@ internal sealed class HoverCardPreview : Window
             new[]
             {
                 new StatusMeter("5h", "19%", 0.19, 0.19, "Resets in 3h 10m"),
-                new StatusMeter("week", "38%", 0.38, 0.38, "Resets in 5d 2h"),
-                new StatusMeter("month", "54%", 0.54, 0.54, "Resets in 18d"),
+                new StatusMeter("Week", "38%", 0.38, 0.38, "Resets in 5d 2h"),
+                new StatusMeter("Month", "54%", 0.54, 0.54, "Resets in 18d"),
             },
             new("Tokens", "今天 96K", "96K", "本月 1.8M", "1.8M"),
             new[] { new StatusPhrase("Month: Kimi Code 35% · Kimi app 19%", new[] { "35%", "19%" }) }),

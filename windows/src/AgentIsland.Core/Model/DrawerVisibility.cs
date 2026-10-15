@@ -17,10 +17,10 @@ public static class DrawerVisibility
         return shown;
     }
 
-    /// The "Show in drawer" switches, one per character. While Grok and Cursor
-    /// share a character, Grok's switch stands for both: it is on while either
-    /// choice shows the character, and it sets both (SetBy), so the shared
-    /// character can always be hidden.
+    /// The drawer menu's "Shown agents" switches, one per character. While
+    /// Grok and Cursor share a character, Grok's switch stands for both: it is
+    /// on while either choice shows the character, and it sets both (SetBy),
+    /// so the shared character can always be hidden.
     public static IReadOnlyList<(DisplayProvider Provider, bool On)> Switches(
         IReadOnlyList<(DisplayProvider Provider, bool Requested)> requested, bool merged)
     {

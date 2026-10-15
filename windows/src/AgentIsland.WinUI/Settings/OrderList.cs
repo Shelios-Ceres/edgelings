@@ -179,7 +179,6 @@ internal static class OrderList
             Up = Arrow("\uE70E", -1);
             Down = Arrow("\uE70D", 1);
             Pixelate(_shown);
-            ToolTipService.SetToolTip(_shown, Tip(L10n.Tr("Show in the drawer, its menus and the Cost window")));
             _shown.Toggled += (_, _) =>
             {
                 if (!_filling) setShown(this, _shown.IsOn);
@@ -221,7 +220,7 @@ internal static class OrderList
             _filling = true;
             _shown.IsOn = shown;
             _filling = false;
-            AutomationProperties.SetName(_shown, $"{name} · {L10n.Tr("Show in drawer")}");
+            NameShownSwitch(_shown, name);
             AutomationProperties.SetAutomationId(_shown, $"Settings.Drawer.Order.{entry.Provider.RawValue()}.Shown");
             Label(Up, "Up", L10n.Tr("Move up"), index > 0);
             Label(Down, "Down", L10n.Tr("Move down"), index >= 0 && index < count - 1);

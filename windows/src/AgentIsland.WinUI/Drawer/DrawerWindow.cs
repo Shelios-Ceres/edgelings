@@ -8,6 +8,7 @@ using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.Usage;
 using AgentIsland.WinUI.Platform;
+using AgentIsland.WinUI.Settings;
 using AgentIsland.WinUI.Shell;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
@@ -39,6 +40,8 @@ internal sealed class DrawerWindow : Window
     private const double GazeRange = 480;
     private const double MinDwellSeconds = 2;
     private const double DragThreshold = 4;
+    // A pointer passing over the drawer opens no card; one that rests does.
+    private static readonly TimeSpan HoverIntent = TimeSpan.FromMilliseconds(200);
     private const int TopmostEverySeconds = 10;
     private const double SpeechGapSeconds = 20;
     // Idle characters fidget every 25-75 s, the first one within a minute.
@@ -109,6 +112,7 @@ internal sealed class DrawerWindow : Window
     private readonly DispatcherQueueTimer _guard;
     private readonly OverlappedPresenter _presenter;
     private readonly DispatcherQueueTimer _cardClose;
+    private readonly DispatcherQueueTimer _cardIntent;
     private readonly ConcurrentQueue<Action> _commands = new();
     private readonly List<int> _due = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -132,6 +136,10 @@ internal sealed class DrawerWindow : Window
     private bool _merged;
     private Bot? _pressed;
     private bool _dragging;
+    // A locked drawer turned this press's drag down: no move, and no click.
+    private bool _refused;
+    // After a click or drag the card stays away until the pointer leaves.
+    private bool _cardHeldBack;
     private int _pressY;
     private int _pressTop;
     private bool _closed;
@@ -200,6 +208,7 @@ internal sealed class DrawerWindow : Window
         _poll = Timer(TimeSpan.FromMilliseconds(500), Poll);
         _guard = Timer(TimeSpan.FromSeconds(1), Guard);
         _cardClose = Timer(TimeSpan.FromMilliseconds(250), CloseCardUnlessHovered);
+        _cardIntent = Timer(HoverIntent, OpenCardIfStillHovered);
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_STATS") is { Length: > 0 } statsPath)
         {
             _stats = new DrawerStats(statsPath);
@@ -235,7 +244,10 @@ internal sealed class DrawerWindow : Window
         ApplyVisibility();
     }
 
-    /// Tray click: hide the drawer, or bring it back.
+    /// Hidden from the tray menu, as opposed to stepping aside for a full-screen app.
+    public bool DeliberatelyHidden => _deliberatelyHidden;
+
+    /// Tray menu: hide the drawer, or bring it back.
     public void ToggleDeliberately()
     {
         _deliberatelyHidden = !_deliberatelyHidden;
@@ -262,6 +274,7 @@ internal sealed class DrawerWindow : Window
         _poll.Stop();
         _guard.Stop();
         _cardClose.Stop();
+        _cardIntent.Stop();
         _card.Dispose();
         Hush();
         foreach (var teardown in _teardown) teardown();
@@ -314,6 +327,12 @@ internal sealed class DrawerWindow : Window
         if (_bots.FirstOrDefault(b => b.Visible) is not { } bot) return;
         bot.LastSpoke = double.NegativeInfinity;
         Speak(bot, phase, Math.Max(_clock.Elapsed.TotalSeconds, SpeechQuietAtStartSeconds));
+    }
+
+    /// AGENTISLAND_DEBUG_SAY=Locked: the line a locked drawer answers a drag with.
+    public void DebugSayLocked()
+    {
+        if (_bots.FirstOrDefault(b => b.Visible) is { } bot) SayLocked(bot);
     }
 
     public void DebugMenu()
@@ -718,10 +737,26 @@ internal sealed class DrawerWindow : Window
         using (pixel ? L10n.English() : null) line = BotLines.For(phase, _random);
         if (line is null) return;
         bot.LastSpoke = now;
+        Say(bot, line);
+    }
+
+    private void Say(Bot bot, string line)
+    {
         bot.Bubble ??= new SpeechBubble(_root);
         var swatch = Brand.Readable(SwatchOf(bot), Brand.IsDark());
-        bot.Bubble.Say(line, swatch, pixel, DrawerStore.Shared.Side == DrawerSide.Right,
+        bot.Bubble.Say(line, swatch, _theme == CharacterTheme.Pixel, DrawerStore.Shared.Side == DrawerSide.Right,
             bot.Bounds, WorkAreaDip(), _reducedMotion);
+    }
+
+    /// A locked drawer turns a drag down out loud, with the way out; it is an
+    /// answer to the drag, so it speaks even with character lines off.
+    private void SayLocked(Bot bot)
+    {
+        _card.Hide();
+        _cardBot = null;
+        string line;
+        using (_theme == CharacterTheme.Pixel ? L10n.English() : null) line = L10n.Tr("Locked in place.\nRight-click to unlock.");
+        Say(bot, line);
     }
 
     private void Hush()
@@ -1008,6 +1043,12 @@ internal sealed class DrawerWindow : Window
         _cardBot = null;
     }
 
+    private void OpenCardIfStillHovered()
+    {
+        _cardIntent.Stop();
+        if (_pressed is null && !_cardHeldBack && BotUnderCursor() is { } bot) OpenCard(bot);
+    }
+
     // MARK: - Interaction
 
     private Bot? BotAt(Point point) => _bots.FirstOrDefault(b =>
@@ -1034,18 +1075,36 @@ internal sealed class DrawerWindow : Window
                 Drag();
                 return;
             }
-            if (BotAt(e.GetCurrentPoint(_root).Position) is { } bot && (bot != _cardBot || !_card.IsOpen)) OpenCard(bot);
+            if (_cardHeldBack) return;
+            if (BotAt(e.GetCurrentPoint(_root).Position) is not { } bot)
+            {
+                _cardIntent.Stop();
+                return;
+            }
+            // An open card follows the pointer from character to character
+            // at once; a closed one waits for the pointer to rest.
+            if (_card.IsOpen)
+            {
+                if (bot != _cardBot) OpenCard(bot);
+            }
+            else if (!_cardIntent.IsRunning) _cardIntent.Start();
         };
+        // The region clips the window to the circles, so these come per circle.
+        _root.PointerEntered += (_, _) => _cardHeldBack = false;
         _root.PointerExited += (_, _) =>
         {
+            _cardIntent.Stop();
+            _cardHeldBack = false;
             if (_pressed is null) _cardClose.Start();
         };
         _root.PointerPressed += (_, e) =>
         {
             var point = e.GetCurrentPoint(_root);
             if (!point.Properties.IsLeftButtonPressed || BotAt(point.Position) is not { } bot) return;
+            _cardIntent.Stop();
             _pressed = bot;
-            _dragging = false;
+            _dragging = _refused = false;
+            _cardHeldBack = true;
             Win32.GetCursorPos(out var cursor);
             _pressY = cursor.Y;
             _pressTop = AppWindow.Position.Y;
@@ -1063,7 +1122,7 @@ internal sealed class DrawerWindow : Window
                 var travel = work.Bottom - work.Top - AppWindow.Size.Height;
                 DrawerStore.Shared.Offset = travel > 0 ? (double)(AppWindow.Position.Y - work.Top) / travel : 0.5;
             }
-            else
+            else if (!_refused)
             {
                 var index = bot.Index;
                 _commands.Enqueue(() =>
@@ -1071,6 +1130,13 @@ internal sealed class DrawerWindow : Window
                     _engine?.Poke(index);
                     _slots[index].NextStep = 0;
                 });
+                // A click opens the character's agent in Settings; the shared
+                // character opens Grok's.
+                _cardClose.Stop();
+                _card.Hide(animated: true);
+                _cardBot = null;
+                var provider = bot.Provider;
+                _queue.TryEnqueue(() => SettingsWindow.Open(provider));
             }
             e.Handled = true;
         };
@@ -1086,6 +1152,7 @@ internal sealed class DrawerWindow : Window
     private void OpenMenu(Bot bot, bool keepOpen)
     {
         _cardClose.Stop();
+        _cardIntent.Stop();
         _card.Hide();
         _cardBot = null;
         // The verification hook has no pointer on the character: open at it.
@@ -1100,11 +1167,16 @@ internal sealed class DrawerWindow : Window
 
     private void Drag()
     {
-        // A locked drawer stays put; the press still counts as a click.
-        if (DrawerStore.Shared.Locked) return;
+        if (_refused) return;
         Win32.GetCursorPos(out var cursor);
         var dy = cursor.Y - _pressY;
         if (!_dragging && Math.Abs(dy) < DragThreshold * _scene.Scale) return;
+        if (DrawerStore.Shared.Locked)
+        {
+            _refused = true;
+            if (_pressed is { } bot) SayLocked(bot);
+            return;
+        }
         if (!_dragging)
         {
             _dragging = true;

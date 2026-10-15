@@ -561,7 +561,7 @@ internal sealed class HoverCard : IDisposable
         panel.Children.Add(head);
         if (card.Detail is { } detail)
         {
-            panel.Children.Add(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0)));
+            panel.Children.Add(TwoLines(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0))));
         }
 
         // Fixed label and value columns line the rows up across sections.
@@ -651,7 +651,7 @@ internal sealed class HoverCard : IDisposable
                 if (i > 0) note.Inlines.Add(new Run { Text = " · " });
                 Append(note, card.Note[i].Text, card.Note[i].Numbers);
             }
-            panel.Children.Add(note);
+            panel.Children.Add(TwoLines(note));
         }
         return panel;
     }
@@ -681,6 +681,15 @@ internal sealed class HoverCard : IDisposable
         Margin = margin,
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
+
+    /// Details and notes carry warnings (a dropped connection, stale quota),
+    /// so they get a second line before they shorten.
+    private static TextBlock TwoLines(TextBlock text)
+    {
+        text.TextWrapping = TextWrapping.Wrap;
+        text.MaxLines = 2;
+        return text;
+    }
 
     /// A tertiary phrase whose numbers are lifted to primary ink.
     private static TextBlock Emphasised(string phrase, params string[] numbers)

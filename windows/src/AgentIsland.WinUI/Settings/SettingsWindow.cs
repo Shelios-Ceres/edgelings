@@ -254,7 +254,7 @@ internal sealed class SettingsWindow : Window
         };
         _pages = new ListView { SelectionMode = ListViewSelectionMode.Single, Margin = new Thickness(4) };
         _pageIcons = new List<IconElement>();
-        _scroll = new ScrollViewer { HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        _scroll = PageScroller();
         var pages = new[]
         {
             (Page.Agents, "Agents", "\uE99A"),
@@ -280,21 +280,6 @@ internal sealed class SettingsWindow : Window
             };
         }
         SelectPage(_page);
-        // Pixel type is crisp only on whole pixels. WinUI draws the scrolled
-        // page snapped, but a drop-down's list takes the page's exact place,
-        // so a scroll that settles between pixels blurs it: settle on one.
-        if (_pixel)
-        {
-            var scroll = _scroll;
-            scroll.ViewChanged += (_, e) =>
-            {
-                if (e.IsIntermediate) return;
-                var scale = scroll.XamlRoot?.RasterizationScale ?? 1;
-                var exact = scroll.VerticalOffset * scale;
-                var whole = Math.Round(exact) / scale > scroll.ScrollableHeight ? Math.Floor(exact) : Math.Round(exact);
-                if (Math.Abs(whole - exact) > 0.001) scroll.ChangeView(null, whole / scale, null, disableAnimation: true);
-            };
-        }
     }
 
     /// The pixel kit's page list: a 200-DIP pane on desk, the page on a layer
@@ -355,21 +340,9 @@ internal sealed class SettingsWindow : Window
         DrawerStore.Shared.PropertyChanged += _drawerPage;
     }
 
-    private static SettingsCard OrderCard(DrawerStore store)
-    {
-        var card = Card(L10n.Tr("Order"), L10n.Tr("Drag or use the arrows; the first stands at the top. Switch one off to hide it everywhere."), "\uE8CB", null);
-        if (Shell.Looks.Pixel)
-        {
-            card.Style = Res<Style>("PixelSettingsCardVerticalStyle");
-        }
-        else
-        {
-            card.ContentAlignment = CommunityToolkit.WinUI.Controls.ContentAlignment.Vertical;
-            card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        }
-        card.Content = OrderList.Create(store);
-        return card;
-    }
+    private static SettingsCard OrderCard(DrawerStore store) =>
+        VerticalCard(L10n.Tr("Order"), L10n.Tr("Drag or use the arrows; the first stands at the top. Switch one off to hide it everywhere."), "\uE8CB",
+            OrderList.Create(store));
 
     /// While Grok and Cursor share a character: the name the drawer gives it,
     /// one of theirs, both, or the user's own.
@@ -397,11 +370,8 @@ internal sealed class SettingsWindow : Window
                 custom.Visibility = choices[index] == SharedName.Custom ? Visibility.Visible : Visibility.Collapsed;
             });
         AutomationProperties.SetAutomationId(combo, "Settings.Drawer.SharedName");
-        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        content.Children.Add(custom);
-        content.Children.Add(combo);
         return Card(L10n.Tr("Shared character's name"),
-            L10n.Tr("Grok and Cursor are one character while they share a subscription"), "\uE77B", content);
+            L10n.Tr("Grok and Cursor are one character while they share a subscription"), "\uE77B", SideBySide(custom, combo));
     }
 
     private void Watch(INotifyPropertyChanged source)
@@ -462,9 +432,7 @@ internal sealed class SettingsWindow : Window
                 BuildGeneral(body);
                 break;
         }
-        // Centred by a viewport-wide grid, not by the ScrollViewer, which
-        // misplaced a page narrower than itself once the window was widened.
-        _scroll.Content = new Grid { Children = { body } };
+        SetPage(_scroll, body);
         _scroll.ChangeView(null, 0, null, disableAnimation: true);
     }
 
@@ -550,7 +518,7 @@ internal sealed class SettingsWindow : Window
         {
             var show = Button(L10n.Tr("Show"), () => ProviderVisibilityStore.Shared.SetShown(provider, true));
             AutomationProperties.SetAutomationId(show, $"Settings.Agents.Hidden.{provider.RawValue()}");
-            AutomationProperties.SetName(show, $"{ProviderIdentity.DisplayName(provider)} · {L10n.Tr("Show")}");
+            AutomationProperties.SetName(show, L10n.TrFormat("Show {0}", ProviderIdentity.DisplayName(provider)));
             list.Items.Add(new SettingsCard { Header = ProviderIdentity.DisplayName(provider), HeaderIcon = Mark(provider), Content = show });
         }
         return list;
@@ -576,13 +544,17 @@ internal sealed class SettingsWindow : Window
     private void BuildDrawer(StackPanel body)
     {
         body.Children.Add(PageTitle(L10n.Tr("Drawer")));
-        body.Children.Add(PageIntro(L10n.Tr("The column of characters on the edge of your screen. Hover one for its status, drag it to move the drawer, right-click it for options.")));
+        body.Children.Add(PageIntro(L10n.Tr("The column of characters on the edge of your screen. Hover one for its status, click it for its settings, drag it to move the drawer, right-click it for options.")));
         var store = DrawerStore.Shared;
         body.Children.Add(Section(L10n.Tr("Characters")));
         body.Children.Add(Card(L10n.Tr("Character style"),
             L10n.Tr("Pixel bots drawn for each agent, or the classic shapes you can recolour"), "\uE771",
             Combo(new[] { L10n.Tr("Pixel"), L10n.Tr("Classic") }, store.Theme == CharacterTheme.Pixel ? 0 : 1,
                 index => store.Theme = index == 0 ? CharacterTheme.Pixel : CharacterTheme.Classic)));
+        body.Children.Add(Card(L10n.Tr("Character lines"),
+            L10n.Tr("A character speaks up in a bubble when its agent is done, needs your approval or hits an error"),
+            "\uE8BD", Toggle(store.SpeechBubbles, on => store.SpeechBubbles = on)));
+
         body.Children.Add(Section(L10n.Tr("Placement")));
         body.Children.Add(Card(L10n.Tr("Edge"), L10n.Tr("Which side of the screen the drawer docks to"), "\uE8AB",
             Combo(new[] { L10n.Tr("Right edge"), L10n.Tr("Left edge") }, store.Side == DrawerSide.Right ? 0 : 1,
@@ -602,35 +574,29 @@ internal sealed class SettingsWindow : Window
         body.Children.Add(Card(L10n.Tr("Display"), L10n.Tr("A pinned display falls back to automatic while it is unplugged"), "\uE7F4",
             Combo(labels, Math.Max(0, selected), index =>
                 IslandTargetDisplayStore.Shared.Choice = index == 0 ? "auto" : screens[index - 1].Device)));
+        // Where the drawer sits on its edge, and whether it stays there.
+        var center = Button(L10n.Tr("Center on the edge"), () => store.Offset = 0.5);
         var lockToggle = Toggle(store.Locked, on => store.Locked = on);
+        lockToggle.OnContent = L10n.Tr("Locked");
+        lockToggle.OffContent = L10n.Tr("Unlocked");
         AutomationProperties.SetAutomationId(lockToggle, "Settings.Drawer.Locked");
         AutomationProperties.SetName(lockToggle, L10n.Tr("Lock position"));
-        body.Children.Add(Card(L10n.Tr("Lock position"),
-            L10n.Tr("Characters stay put: dragging won't move the drawer, and a character appearing or leaving won't shift the ones above it"),
-            "\uE72E", lockToggle));
-        var center = Button(L10n.Tr("Center on the edge"), () => store.Offset = 0.5);
-        var position = Card(L10n.Tr("Position"), null, "\uE7C2", center);
+        var position = Card(L10n.Tr("Position"), null, "\uE7C2", SideBySide(center, lockToggle));
         void ShowLock()
         {
             lockToggle.IsOn = store.Locked;
             center.IsEnabled = !store.Locked;
-            SetDescription(position, L10n.Tr(store.Locked ? "Unlock the drawer to move it" : "Drag any character up or down to move the drawer"));
+            SetDescription(position, L10n.Tr(store.Locked
+                ? "Characters stay put: dragging won't move the drawer, and a character appearing or leaving won't shift the ones above it"
+                : "Drag any character up or down to move the drawer"));
         }
         ShowLock();
         body.Children.Add(position);
-        body.Children.Add(OrderCard(store));
-        if (SharedSubscription.GrokWithCursor()) body.Children.Add(SharedNameCard(store));
         FollowDrawerStore(ShowLock);
 
-        body.Children.Add(Section(L10n.Tr("Cards")));
-        var quota = QuotaDisplayModeStore.Shared;
-        body.Children.Add(Card(L10n.Tr("Quota shows"), L10n.Tr("How the bars and percentages read on cards and in Settings"), "\uE9D2",
-            Combo(new[] { L10n.Tr("Used"), L10n.Tr("Remaining") }, quota.ShowsRemaining ? 1 : 0,
-                index => quota.ShowsRemaining = index == 1)));
-
-        body.Children.Add(Card(L10n.Tr("Character lines"),
-            L10n.Tr("When an agent needs you — done, waiting for approval, an error — its character says so in a bubble beside it"),
-            "\uE8BD", Toggle(store.SpeechBubbles, on => store.SpeechBubbles = on)));
+        body.Children.Add(Section(L10n.Tr("Lineup")));
+        body.Children.Add(OrderCard(store));
+        if (SharedSubscription.GrokWithCursor()) body.Children.Add(SharedNameCard(store));
 
         body.Children.Add(Section(L10n.Tr("Motion")));
         var rates = new[] { 0, 120, 60 };
@@ -642,7 +608,7 @@ internal sealed class SettingsWindow : Window
             Toggle(store.SaveBattery, on => store.SaveBattery = on)));
         var motion = new HyperlinkButton { Content = L10n.Tr("Windows animation settings"), NavigateUri = new Uri("ms-settings:easeofaccess-visualeffects") };
         body.Children.Add(Card(L10n.Tr("Animation"),
-            L10n.Tr("With Windows animation effects off, characters move slowly and stop following the pointer."),
+            L10n.Tr("With Windows animation effects off, characters slow down and stop following the pointer"),
             "\uE768", motion));
     }
 
@@ -659,6 +625,10 @@ internal sealed class SettingsWindow : Window
             Combo(presets.Select(p => L10n.TrFormat("Every {0} minutes", p / 60)).ToList(),
                 Array.IndexOf(presets, RefreshIntervalStore.Shared.Seconds),
                 index => RefreshIntervalStore.Shared.Seconds = presets[index])));
+        var quota = QuotaDisplayModeStore.Shared;
+        body.Children.Add(Card(L10n.Tr("Quota shows"), L10n.Tr("How the bars and percentages read on the drawer's cards and in Settings"), "\uE9D2",
+            Combo(new[] { L10n.Tr("Used"), L10n.Tr("Remaining") }, quota.ShowsRemaining ? 1 : 0,
+                index => quota.ShowsRemaining = index == 1)));
 
         body.Children.Add(Section(L10n.Tr("Tokens")));
         var counting = TokenCountModeStore.Shared;
@@ -672,15 +642,13 @@ internal sealed class SettingsWindow : Window
             ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
             : L10n.Tr("Not scanned yet");
         Caption();
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        actions.Children.Add(Button(L10n.Tr("Scan now"), () =>
+        var scan = Button(L10n.Tr("Scan now"), () =>
         {
             using var english = Shell.Looks.English();
             CostStore.Shared.Refresh();
             Caption();
-        }));
-        actions.Children.Add(Button(L10n.Tr("Open cost"), () => Cost.CostWindow.Open(), accent: true));
-        var card = Card(L10n.Tr("Local logs"), null, "\uE8C7", actions);
+        });
+        var card = Card(L10n.Tr("Local logs"), null, "\uE8C7", SideBySide(scan, Button(L10n.Tr("Open cost"), () => Cost.CostWindow.Open(), accent: true)));
         card.Description = scanned;
         body.Children.Add(card);
     }

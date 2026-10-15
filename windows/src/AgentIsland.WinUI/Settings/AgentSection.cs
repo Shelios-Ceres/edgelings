@@ -59,8 +59,8 @@ internal sealed class AgentSection
         // Off hides the agent everywhere, not only from the drawer.
         _shown.OnContent = L10n.Tr("Shown");
         _shown.OffContent = L10n.Tr("Hidden");
-        ToolTipService.SetToolTip(_shown, Tip(L10n.Tr("Show in the drawer, its menus and the Cost window")));
-        Name(_shown, "ShowInDrawer", L10n.Tr("Show in drawer"));
+        AutomationProperties.SetAutomationId(_shown, $"Agent.{provider.RawValue()}.ShowInDrawer");
+        NameShownSwitch(_shown, ProviderIdentity.DisplayName(provider));
 
         Expander = new SettingsExpander
         {
@@ -225,9 +225,9 @@ internal sealed class AgentSection
     private static string MeterTitle(string label) => label switch
     {
         _ when label == L10n.Tr("5h") => L10n.Tr("5-hour window"),
-        _ when label == L10n.Tr("week") => L10n.Tr("Weekly window"),
+        _ when label == L10n.Tr("Week") => L10n.Tr("Weekly window"),
         _ when label == L10n.Tr("30d") => L10n.Tr("Billing cycle"),
-        _ when label == L10n.Tr("month") => L10n.Tr("Monthly window"),
+        _ when label == L10n.Tr("Month") => L10n.Tr("Monthly window"),
         _ => label,
     };
 

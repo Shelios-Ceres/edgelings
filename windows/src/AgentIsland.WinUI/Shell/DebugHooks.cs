@@ -21,6 +21,9 @@ internal static class DebugHooks
 
     private static void Run(DrawerWindow drawer, TrayIcon tray)
     {
+        // AGENTISLAND_DEBUG_DRAWER_HIDDEN=1: measure without the drawer; the
+        // tray menu then offers to show it.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_HIDDEN") == "1") drawer.ToggleDeliberately();
         // AGENTISLAND_DEBUG_OPEN_SETTINGS=1 or a provider name to focus it;
         // with AGENTISLAND_DEBUG_SNAPSHOT=<dir> every page is saved as a PNG.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_OPEN_SETTINGS") is { Length: > 0 } settings)
@@ -60,9 +63,9 @@ internal static class DebugHooks
                 drawer.DebugMenu();
                 break;
         }
-        // AGENTISLAND_DEBUG_DRAWER_HIDDEN=1: measure without the drawer.
-        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_HIDDEN") == "1") drawer.ToggleDeliberately();
-        if (Enum.TryParse<AgentIsland.Core.AgentPhase>(Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_SAY"), out var say)) drawer.DebugSay(say);
+        var say = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_SAY");
+        if (say == "Locked") drawer.DebugSayLocked();
+        else if (Enum.TryParse<AgentIsland.Core.AgentPhase>(say, out var phase)) drawer.DebugSay(phase);
         // AGENTISLAND_DEBUG_BUBBLE=all|<n>: open the hover card.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_BUBBLE") is { Length: > 0 } bubble)
         {

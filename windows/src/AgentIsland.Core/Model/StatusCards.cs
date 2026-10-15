@@ -102,14 +102,14 @@ public static class StatusCards
         StatusMeter Meter(WindowUsage window, string label) => MeterFor(window, L10n.Tr(label), remaining, now);
         return provider switch
         {
-            DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "week") },
-            DisplayProvider.Codex when usage.SecondaryMissing => new[] { Meter(usage.FiveHour, "week") },
-            DisplayProvider.Codex => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "week") },
+            DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
+            DisplayProvider.Codex when usage.SecondaryMissing => new[] { Meter(usage.FiveHour, "Week") },
+            DisplayProvider.Codex => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
             DisplayProvider.Cursor => new[] { Meter(usage.FiveHour, "30d") },
             DisplayProvider.Kimi => KimiMeters(Meter),
             // No quota source: the card shows phases and tokens only.
             DisplayProvider.DeepSeek => Array.Empty<StatusMeter>(),
-            _ => new[] { Meter(usage.FiveHour, "week") },
+            _ => new[] { Meter(usage.FiveHour, "Week") },
         };
     }
 
@@ -142,7 +142,7 @@ public static class StatusCards
         {
             return store.ErrorCaption is null
                 ? Array.Empty<StatusMeter>()
-                : new[] { meter(new WindowUsage(0, null, store.ErrorCaption), "month") };
+                : new[] { meter(new WindowUsage(0, null, store.ErrorCaption), "Month") };
         }
         var meters = new List<StatusMeter>();
         // A calendar month has no fixed length.
@@ -155,8 +155,8 @@ public static class StatusCards
             }, label));
         }
         Add(snapshot.FiveHour, "5h", 5 * 3600);
-        Add(snapshot.Weekly, "week", 7 * 86400);
-        Add(snapshot.Month, "month", null);
+        Add(snapshot.Weekly, "Week", 7 * 86400);
+        Add(snapshot.Month, "Month", null);
         return meters;
     }
 

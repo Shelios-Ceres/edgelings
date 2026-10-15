@@ -80,7 +80,8 @@ internal sealed class TrayIcon : IDisposable
     public void ShowMenu(bool keepOpen = false)
     {
         var menu = new MenuFlyout();
-        menu.Items.Add(MenuHost.Item(L10n.Tr("Show / Hide drawer"), "\uE890", () => App.Current.ToggleDrawer()));
+        var hidden = App.Current.Drawer?.DeliberatelyHidden ?? false;
+        menu.Items.Add(MenuHost.Item(L10n.Tr(hidden ? "Show drawer" : "Hide drawer"), "\uE890", () => App.Current.ToggleDrawer()));
         var agents = new MenuFlyoutSubItem { Text = L10n.Tr("Agents"), Icon = MenuHost.Glyph("\uE99A") };
         AutomationProperties.SetAutomationId(agents, "Tray.Agents");
         // In the drawer's order, without the agents the user hid.
