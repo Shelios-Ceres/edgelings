@@ -109,7 +109,15 @@ internal sealed class CostWindow : Window
         page.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         page.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         page.Children.Add(Header());
-        var scroll = new ScrollViewer { Content = _body, HorizontalScrollMode = ScrollMode.Disabled };
+        // The numbers centre in a grid as wide as the viewport: a ScrollViewer
+        // left to centre content narrower than itself misplaced it after the
+        // window was widened past the content's MaxWidth.
+        var scroll = new ScrollViewer
+        {
+            Content = new Grid { Children = { _body } },
+            HorizontalScrollMode = ScrollMode.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
         // Under Pixel the numbers sit on a layer panel below the title strip.
         FrameworkElement body = scroll;
         if (_pixel)

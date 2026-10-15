@@ -254,7 +254,7 @@ internal sealed class SettingsWindow : Window
         };
         _pages = new ListView { SelectionMode = ListViewSelectionMode.Single, Margin = new Thickness(4) };
         _pageIcons = new List<IconElement>();
-        _scroll = new ScrollViewer { HorizontalScrollMode = ScrollMode.Disabled };
+        _scroll = new ScrollViewer { HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         var pages = new[]
         {
             (Page.Agents, "Agents", "\uE99A"),
@@ -409,6 +409,7 @@ internal sealed class SettingsWindow : Window
     private void Show(Page page)
     {
         using var english = Shell.Looks.English();
+        CloseToolTips();
         _page = page;
         Preferences.Set(PageKey, page.ToString());
         _agents.Clear();
@@ -428,8 +429,22 @@ internal sealed class SettingsWindow : Window
                 BuildGeneral(body);
                 break;
         }
-        _scroll.Content = body;
+        // Centred by a viewport-wide grid, not by the ScrollViewer, which
+        // misplaced a page narrower than itself once the window was widened.
+        _scroll.Content = new Grid { Children = { body } };
         _scroll.ChangeView(null, 0, null, disableAnimation: true);
+    }
+
+    /// Tooltips open in popups of their own and outlive their controls: a
+    /// page rebuilt under the pointer (a switch that regroups the Agents
+    /// page) would leave the old one on screen under the next.
+    private void CloseToolTips()
+    {
+        if (Content?.XamlRoot is not { } root) return;
+        foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root))
+        {
+            if (popup.Child is ToolTip) popup.IsOpen = false;
+        }
     }
 
     // MARK: - Agents
