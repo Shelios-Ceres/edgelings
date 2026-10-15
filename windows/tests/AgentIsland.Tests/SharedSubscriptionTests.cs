@@ -23,6 +23,7 @@ public static class SharedSubscriptionTests
             ("a tie goes to Grok, idle needs no name", TestPickTie),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
             ("the shared plan is the X Subscription's tier", TestPlan),
+            ("the shared character is named both, either app, or the user's way", TestName),
         };
         foreach (var (name, test) in tests)
         {
@@ -30,6 +31,21 @@ public static class SharedSubscriptionTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("SharedSubscriptionTests GREEN");
+    }
+
+    private static void TestName()
+    {
+        Expect(SharedSubscription.Name(SharedName.Both, null) == $"{Grok} + {Cursor}", "both apps by default");
+        Expect(SharedSubscription.Name(SharedName.Grok, "ignored") == Grok, "Grok's name");
+        Expect(SharedSubscription.Name(SharedName.Cursor, null) == Cursor, "Cursor's name");
+        Expect(SharedSubscription.Name(SharedName.Custom, "  Pixel pal ") == "Pixel pal", "the user's own name, trimmed");
+        Expect(SharedSubscription.Name(SharedName.Custom, "   ") == $"{Grok} + {Cursor}", "a blank name falls back to both");
+        Expect(SharedSubscription.Name(SharedName.Custom, new string('x', 30)).Length == SharedSubscription.MaxNameLength,
+            "a long name is cut to the limit");
+        var robots = string.Concat(Enumerable.Repeat(char.ConvertFromUtf32(0x1F916), 30));
+        var cut = SharedSubscription.Clean(robots);
+        Expect(new System.Globalization.StringInfo(cut).LengthInTextElements == SharedSubscription.MaxNameLength
+            && !char.IsHighSurrogate(cut[^1]), "the cut never splits an emoji");
     }
 
     private static void TestSharedPool()

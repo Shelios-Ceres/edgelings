@@ -19,10 +19,11 @@ public static class AppLanguageStore
             case "zh": return L10n.Language.SimplifiedChinese;
             case "en": return L10n.Language.English;
         }
-        var raw = Preferences.Get<string?>(Key) ?? "";
-        return raw switch
+        // Nothing chosen yet means English; "Same as Windows" is saved as an
+        // empty value, so a user who picked it keeps it.
+        return Preferences.Get<string?>(Key) switch
         {
-            "en" => L10n.Language.English,
+            null or "en" => L10n.Language.English,
             "zh-Hans" => L10n.Language.SimplifiedChinese,
             _ => L10n.Language.Auto,
         };

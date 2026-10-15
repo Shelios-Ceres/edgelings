@@ -73,7 +73,7 @@ public static class StatusCards
         var totals = TokenTotals.Sum(CostStore.Shared.Totals(DisplayProvider.Grok), CostStore.Shared.Totals(DisplayProvider.Cursor));
         return new StatusCard(
             DisplayProvider.Grok,
-            $"{ProviderIdentity.DisplayName(DisplayProvider.Grok)} + {ProviderIdentity.DisplayName(DisplayProvider.Cursor)}",
+            SharedSubscription.Name(),
             DrawerLooks.PhaseLabel(phase),
             detail,
             Tasks(running),

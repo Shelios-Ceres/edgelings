@@ -28,7 +28,7 @@ internal static class DrawerMenu
         var pixel = Looks.Pixel;
         var dark = Brand.IsDark();
         var menu = new MenuFlyout();
-        var title = new MenuFlyoutItem { Text = ProviderIdentity.DisplayName(provider) };
+        var title = new MenuFlyoutItem { Text = SharedSubscription.CharacterName(provider, merged) };
         title.Click += (_, _) => SettingsWindow.Open(provider);
         if (pixel) title.Icon = new ImageIcon { Source = PixelIcons.Face(provider) };
         else _ = SetMarkAsync(title, provider, dark);
@@ -65,7 +65,7 @@ internal static class DrawerMenu
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Show in drawer"), Icon = MenuHost.Glyph("\uE890") };
         foreach (var (other, on) in DrawerVisibility.Switches(requestedVisibility, merged))
         {
-            var item = new ToggleMenuFlyoutItem { Text = ProviderIdentity.DisplayName(other), IsChecked = on };
+            var item = new ToggleMenuFlyoutItem { Text = SharedSubscription.CharacterName(other, merged), IsChecked = on };
             AutomationProperties.SetAutomationId(item, $"Drawer.Show.{other.RawValue()}");
             item.Click += (_, _) =>
             {

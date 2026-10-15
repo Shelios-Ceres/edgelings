@@ -36,6 +36,8 @@ public sealed class DrawerStore : INotifyPropertyChanged
     private const string LockedKey = "AgentIsland.drawer.locked";
     private const string PinnedTopKey = "AgentIsland.drawer.pinnedTop";
     private const string OrderKey = "AgentIsland.drawer.order";
+    private const string SharedNameKey = "AgentIsland.drawer.sharedName";
+    private const string SharedCustomNameKey = "AgentIsland.drawer.sharedCustomName";
 
     public static DrawerStore Shared { get; } = new();
 
@@ -181,6 +183,31 @@ public sealed class DrawerStore : INotifyPropertyChanged
             if (value is { } top) Preferences.Set(PinnedTopKey, top);
             else Preferences.Remove(PinnedTopKey);
             Raise(nameof(PinnedTop));
+        }
+    }
+
+    /// What the character Grok and Cursor share is called (SharedSubscription.Name).
+    public SharedName SharedName
+    {
+        get => Enum.TryParse<SharedName>(Preferences.Get<string?>(SharedNameKey), out var name) ? name : SharedName.Both;
+        set
+        {
+            if (SharedName == value) return;
+            Preferences.Set(SharedNameKey, value.ToString());
+            Raise(nameof(SharedName));
+        }
+    }
+
+    /// The user's own name for the shared character, used when SharedName is Custom.
+    public string SharedCustomName
+    {
+        get => Preferences.Get<string?>(SharedCustomNameKey) ?? "";
+        set
+        {
+            var clean = SharedSubscription.Clean(value);
+            if (SharedCustomName == clean) return;
+            Preferences.Set(SharedCustomNameKey, clean);
+            Raise(nameof(SharedCustomName));
         }
     }
 

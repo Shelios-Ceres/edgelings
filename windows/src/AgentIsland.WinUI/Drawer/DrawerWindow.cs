@@ -212,6 +212,8 @@ internal sealed class DrawerWindow : Window
             ApplyLock();
             UpdateCap();
             Layout();
+            // An open card picks up a new name for the shared character.
+            RefreshCard();
         });
         Watch(IslandTargetDisplayStore.Shared, Layout);
         Watch(UsageStore.Shared, RefreshCard);

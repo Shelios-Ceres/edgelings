@@ -74,7 +74,10 @@ internal static class OrderList
             using var english = Looks.English();
             for (var i = 0; i < items.Count; i++)
             {
-                if (list.ContainerFromIndex(i) is ListViewItem { ContentTemplateRoot: Grid { Tag: Row row } }) row.Show(items[i], i, items.Count, Shown(items[i].Provider));
+                if (list.ContainerFromIndex(i) is not ListViewItem { ContentTemplateRoot: Grid { Tag: Row row } } container) continue;
+                var name = SharedSubscription.CharacterName(items[i].Provider, merged);
+                row.Show(items[i], i, items.Count, Shown(items[i].Provider), name);
+                AutomationProperties.SetName(container, name);
             }
         }
 
@@ -105,8 +108,9 @@ internal static class OrderList
             if (args.InRecycleQueue || args.Item is not Entry entry || args.ItemContainer.ContentTemplateRoot is not Grid root) return;
             using var english = Looks.English();
             var row = root.Tag as Row ?? new Row(root, Move, SetShown);
-            row.Show(entry, items.IndexOf(entry), items.Count, Shown(entry.Provider));
-            AutomationProperties.SetName(args.ItemContainer, ProviderIdentity.DisplayName(entry.Provider));
+            var name = SharedSubscription.CharacterName(entry.Provider, merged);
+            row.Show(entry, items.IndexOf(entry), items.Count, Shown(entry.Provider), name);
+            AutomationProperties.SetName(args.ItemContainer, name);
             args.Handled = true;
         };
         list.DragItemsCompleted += (_, _) =>
@@ -208,10 +212,9 @@ internal static class OrderList
 
         public Button Down { get; }
 
-        public void Show(Entry entry, int index, int count, bool shown)
+        public void Show(Entry entry, int index, int count, bool shown, string name)
         {
             Entry = entry;
-            var name = ProviderIdentity.DisplayName(entry.Provider);
             _name.Text = name;
             // A hidden character keeps its place, faded.
             _name.Foreground = Res<Brush>(shown ? "TextFillColorPrimaryBrush" : "TextFillColorTertiaryBrush");

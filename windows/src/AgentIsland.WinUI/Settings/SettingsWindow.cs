@@ -371,6 +371,39 @@ internal sealed class SettingsWindow : Window
         return card;
     }
 
+    /// While Grok and Cursor share a character: the name the drawer gives it,
+    /// one of theirs, both, or the user's own.
+    private static SettingsCard SharedNameCard(DrawerStore store)
+    {
+        var custom = new TextBox
+        {
+            Text = store.SharedCustomName,
+            PlaceholderText = L10n.Tr("Name"),
+            MaxLength = SharedSubscription.MaxNameLength,
+            Width = 160,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = store.SharedName == SharedName.Custom ? Visibility.Visible : Visibility.Collapsed,
+        };
+        // Setting cards bring a text box style of their own.
+        if (Shell.Looks.Pixel) custom.Style = Res<Style>("PixelTextBoxStyle");
+        AutomationProperties.SetName(custom, L10n.Tr("Custom name"));
+        AutomationProperties.SetAutomationId(custom, "Settings.Drawer.SharedName.Custom");
+        custom.TextChanged += (_, _) => store.SharedCustomName = custom.Text;
+        var choices = new[] { SharedName.Both, SharedName.Grok, SharedName.Cursor, SharedName.Custom };
+        var combo = Combo(choices.Select(choice => choice == SharedName.Custom ? L10n.Tr("Custom") : SharedSubscription.Name(choice, null)).ToList(),
+            Array.IndexOf(choices, store.SharedName), index =>
+            {
+                store.SharedName = choices[index];
+                custom.Visibility = choices[index] == SharedName.Custom ? Visibility.Visible : Visibility.Collapsed;
+            });
+        AutomationProperties.SetAutomationId(combo, "Settings.Drawer.SharedName");
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        content.Children.Add(custom);
+        content.Children.Add(combo);
+        return Card(L10n.Tr("Shared character's name"),
+            L10n.Tr("Grok and Cursor are one character while they share a subscription"), "\uE77B", content);
+    }
+
     private void Watch(INotifyPropertyChanged source)
     {
         PropertyChangedEventHandler handler = (_, _) => _dirty = true;
@@ -586,6 +619,7 @@ internal sealed class SettingsWindow : Window
         ShowLock();
         body.Children.Add(position);
         body.Children.Add(OrderCard(store));
+        if (SharedSubscription.GrokWithCursor()) body.Children.Add(SharedNameCard(store));
         FollowDrawerStore(ShowLock);
 
         body.Children.Add(Section(L10n.Tr("Cards")));
