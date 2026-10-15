@@ -31,11 +31,13 @@ internal sealed class CostWindow : Window
 
     private static CostWindow? _shared;
 
-    private readonly SelectorBar _periods = new();
-    private readonly StackPanel _body = new() { Spacing = 12, MaxWidth = 1100, Padding = new Thickness(40, 4, 40, 40) };
-    private readonly TextBlock _scanned = new();
-    private readonly TextBlock _periodRange = new() { TextWrapping = TextWrapping.Wrap };
-    private readonly TextBlock _calendarNote = new() { TextWrapping = TextWrapping.Wrap };
+    // Built for the look the window wears (Build).
+    private SelectorBar _periods = null!;
+    private StackPanel _body = null!;
+    private TextBlock _scanned = null!;
+    private TextBlock _periodRange = null!;
+    private TextBlock _calendarNote = null!;
+    private bool _pixel;
     private readonly List<Action> _teardown = new();
     private readonly DispatcherQueue _queue;
     private Period _period;
@@ -43,8 +45,11 @@ internal sealed class CostWindow : Window
 
     public static void Open()
     {
+        // A closed window was only hidden (Chrome.HideOnClose): it comes back
+        // in the current look and language.
+        if (_shared is { AppWindow.IsVisible: false } hidden) hidden.Build();
         _shared ??= new CostWindow();
-        _shared.Activate();
+        Chrome.Show(_shared);
     }
 
     /// AGENTISLAND_DEBUG_SNAPSHOT: each period, rendered by the app itself.
@@ -64,26 +69,65 @@ internal sealed class CostWindow : Window
     private CostWindow()
     {
         _queue = DispatcherQueue;
-        var root = Chrome.Apply(this, "Agent Island — " + L10n.Tr("Cost"), 1040, 760, 640, 480);
+        Build();
+        Watch(CostStore.Shared);
+        Watch(ProviderVisibilityStore.Shared);
+        Watch(TokenCountModeStore.Shared);
+        // The other character style brings the other look.
+        PropertyChangedEventHandler look = (_, e) =>
+        {
+            if (e.PropertyName == nameof(DrawerStore.Theme) && Looks.Pixel != _pixel) _queue.TryEnqueue(Rebuild);
+        };
+        DrawerStore.Shared.PropertyChanged += look;
+        _teardown.Add(() => DrawerStore.Shared.PropertyChanged -= look);
+        // Closing hides the window; its numbers go until it opens again.
+        Chrome.HideOnClose(this, () => _body.Children.Clear());
+        Closed += (_, _) =>
+        {
+            foreach (var teardown in _teardown) teardown();
+            _shared = null;
+        };
+    }
+
+    /// The frame, the header and the numbers in the current look: when the
+    /// window opens, and again on every switch.
+    private void Build()
+    {
+        using var english = Looks.English();
+        var title = "Agent Island — " + L10n.Tr("Cost");
+        var root = Content is null
+            ? Chrome.Apply(this, title, 1040, 760, 640, 480)
+            : Chrome.Restyle(this, title);
+        _pixel = Looks.Pixel;
+        _periods = new SelectorBar();
+        _body = new StackPanel { Spacing = 12, MaxWidth = 1100, Padding = new Thickness(40, 4, 40, 40) };
+        _scanned = new TextBlock();
+        _periodRange = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        _calendarNote = new TextBlock { TextWrapping = TextWrapping.Wrap };
         // The title and the period picker stay put; the numbers scroll.
         var page = new Grid();
         page.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         page.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         page.Children.Add(Header());
         var scroll = new ScrollViewer { Content = _body, HorizontalScrollMode = ScrollMode.Disabled };
-        Grid.SetRow(scroll, 1);
-        page.Children.Add(scroll);
-        Chrome.SetBody(root, page);
-
-        Watch(CostStore.Shared);
-        Watch(ProviderVisibilityStore.Shared);
-        Watch(TokenCountModeStore.Shared);
-        Closed += (_, _) =>
+        // Under Pixel the numbers sit on a layer panel below the title strip.
+        FrameworkElement body = scroll;
+        if (_pixel)
         {
-            foreach (var teardown in _teardown) teardown();
-            _shared = null;
-        };
+            _body.Padding = new Thickness(40, 20, 40, 40);
+            body = new Border { Style = Res<Style>("PixelLayerStyle"), Child = scroll };
+        }
+        Grid.SetRow(body, 1);
+        page.Children.Add(body);
+        Chrome.SetBody(root, page);
         Render();
+    }
+
+    /// In place: closing the window for a new one would leak GDI objects
+    /// (Chrome.Restyle). A hidden window is rebuilt when it opens.
+    private static void Rebuild()
+    {
+        if (_shared is { AppWindow.IsVisible: true } window) window.Build();
     }
 
     private void Watch(INotifyPropertyChanged source)
@@ -96,7 +140,7 @@ internal sealed class CostWindow : Window
             _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
             {
                 _pending = false;
-                Render();
+                if (AppWindow.IsVisible) Render();
             });
         };
         source.PropertyChanged += handler;
@@ -111,13 +155,16 @@ internal sealed class CostWindow : Window
     {
         foreach (var (label, glyph) in new[] { ("Today", "\uE823"), ("Last 7 days", "\uE787"), ("This month", "\uE8BF") })
         {
-            _periods.Items.Add(new SelectorBarItem { Text = L10n.Tr(label), Icon = Icon(glyph) });
+            var item = new SelectorBarItem { Text = L10n.Tr(label), Icon = Icon(glyph) };
+            if (Looks.Pixel) item.Style = Res<Style>("PixelSelectorBarItemStyle");
+            _periods.Items.Add(item);
         }
         _period = Enum.TryParse<Period>(Preferences.Get<string?>(PeriodKey), out var saved) ? saved : Period.Today;
         _periods.SelectedItem = _periods.Items[(int)_period];
-        _periods.SelectionChanged += (_, _) =>
+        var periods = _periods;
+        periods.SelectionChanged += (_, _) =>
         {
-            _period = (Period)Math.Max(0, _periods.Items.IndexOf(_periods.SelectedItem));
+            _period = (Period)Math.Max(0, periods.Items.IndexOf(periods.SelectedItem));
             Preferences.Set(PeriodKey, _period.ToString());
             Render();
         };
@@ -159,12 +206,14 @@ internal sealed class CostWindow : Window
 
     private void Render()
     {
+        using var english = Looks.English();
         _body.Children.Clear();
         _scanned.Text = CostStore.Shared.LastUpdated is { } updated
             ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
             : L10n.Tr("Not scanned yet");
 
-        var shown = DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsShown).ToList();
+        // In the drawer's order.
+        var shown = DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown).ToList();
         var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(SliceFor).ToList();
         UpdatePeriodCaption(slices);
         _body.Children.Add(Totals(slices));
@@ -172,8 +221,9 @@ internal sealed class CostWindow : Window
         var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12, Margin = new Thickness(0, 8, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var cards = slices.Select(AgentCard).ToList();
-        if (shown.Contains(DisplayProvider.Antigravity)) cards.Add(NoLogCard(DisplayProvider.Antigravity));
+        var cards = shown.Select(provider => provider == DisplayProvider.Antigravity
+            ? NoLogCard(provider)
+            : AgentCard(slices.First(slice => slice.Provider == provider))).ToList();
         for (var i = 0; i < cards.Count; i++)
         {
             if (i % 2 == 0) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -281,7 +331,7 @@ internal sealed class CostWindow : Window
         }
         var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.Models).Count(Unpriced);
         Stat(0, L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
-            ? L10n.TrFormat("{0} models have no price and count as $0", unpriced)
+            ? L10n.TrFormat(unpriced == 1 ? "{0} model has no price and counts as $0" : "{0} models have no price and count as $0", unpriced)
             : L10n.Tr("At API list prices"));
         Stat(1, L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
             TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode));
@@ -327,8 +377,8 @@ internal sealed class CostWindow : Window
         // Bars wear the agent's character colour, as in the drawer.
         var swatch = App.Current.Drawer?.SwatchOf(slice.Provider)
             ?? DrawerLooks.Swatch(slice.Provider, DrawerLooks.For(slice.Provider).Color, DrawerStore.Shared.Theme);
-        var accent = Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
-        if (slice.AsOf is not null && slice.Bars.Count > 0) panel.Children.Add(Chart(slice, accent));
+        var accent = Looks.Pixel ? PixelTokens.Agent(slice.Provider, Brand.IsDark()) : Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
+        if (slice.AsOf is not null && slice.Bars.Count > 0) panel.Children.Add(Looks.Pixel ? PixelChart(slice, accent) : Chart(slice, accent));
 
         var models = slice.Models.Take(3).ToList();
         if (models.Count > 0)
@@ -345,14 +395,21 @@ internal sealed class CostWindow : Window
                 var line = new Grid { ColumnSpacing = 8 };
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                line.Children.Add(new TextBlock { Text = model.Model, TextTrimming = TextTrimming.CharacterEllipsis, FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12 });
+                var modelName = new TextBlock { Text = model.Model, TextTrimming = TextTrimming.CharacterEllipsis };
+                // The pixel face is the kit's only type; Fluent shows names in a mono face.
+                if (!Looks.Pixel)
+                {
+                    modelName.FontFamily = new FontFamily("Cascadia Mono, Consolas");
+                    modelName.FontSize = 12;
+                }
+                line.Children.Add(modelName);
                 var price = !slice.Dollars ? "" : Unpriced(model) ? "  ·  " + L10n.Tr("no price") : "  ·  " + Formatting.Money(model.Dollars);
                 var amount = new TextBlock
                 {
                     Text = Formatting.CompactTokens(billable ? model.BillableTokens : model.Tokens) + price,
-                    FontSize = 12,
                     Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
                 };
+                if (!Looks.Pixel) amount.FontSize = 12;
                 Grid.SetColumn(amount, 1);
                 line.Children.Add(amount);
                 panel.Children.Add(line);
@@ -390,6 +447,29 @@ internal sealed class CostWindow : Window
         return grid;
     }
 
+    /// Under Pixel: stacks of 4-DIP blocks, at most 12 (72 DIP) in the
+    /// agent's colour; an idle hour or day keeps one faint block.
+    private static FrameworkElement PixelChart(Slice slice, Windows.UI.Color accent)
+    {
+        var max = slice.Bars.Max(b => b.Value);
+        var dark = Brand.IsDark();
+        var fill = new SolidColorBrush(accent);
+        var idle = new SolidColorBrush(PixelTokens.OverPaper(PixelTokens.Get("Text3", dark), 0.35, dark));
+        var grid = new Grid { Height = ChartHeight, ColumnSpacing = slice.Bars.Count > 20 ? 2 : 4 };
+        for (var i = 0; i < slice.Bars.Count; i++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var (label, value) = slice.Bars[i];
+            var blocks = value > 0 && max > 0 ? Math.Clamp((int)Math.Round(value / max * 12), 1, 12) : 0;
+            var column = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Bottom, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            for (var b = 0; b < Math.Max(1, blocks); b++) column.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Height = 4, Fill = blocks > 0 ? fill : idle });
+            ToolTipService.SetToolTip(column, Tip($"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}"));
+            Grid.SetColumn(column, i);
+            grid.Children.Add(column);
+        }
+        return grid;
+    }
+
     private static FrameworkElement NoLogCard(DisplayProvider provider)
     {
         var mark = new Image { Width = 20, Height = 20 };
@@ -419,18 +499,39 @@ internal sealed class CostWindow : Window
         });
     }
 
-    private static Border Surface(UIElement child) => new()
+    /// A card: rounded Fluent, or under Pixel a stepped plate.
+    private static FrameworkElement Surface(UIElement child)
     {
-        Child = child,
-        Padding = new Thickness(16, 14, 16, 14),
-        CornerRadius = new CornerRadius(8),
-        Background = Res<Brush>("CardBackgroundFillColorDefaultBrush"),
-        BorderBrush = Res<Brush>("CardStrokeColorDefaultBrush"),
-        BorderThickness = new Thickness(1),
-    };
+        if (Looks.Pixel)
+        {
+            return new Grid
+            {
+                Children =
+                {
+                    new PixelSurface { Fill = Res<Brush>("PixelPaper"), Outline = Res<Brush>("PixelLine") },
+                    new Border { Child = child, Padding = new Thickness(16, 14, 16, 14) },
+                },
+            };
+        }
+        return new Border
+        {
+            Child = child,
+            Padding = new Thickness(16, 14, 16, 14),
+            CornerRadius = new CornerRadius(8),
+            Background = Res<Brush>("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = Res<Brush>("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+        };
+    }
 
+    /// The brand's mark, or under Pixel the agent's pixel bot face.
     private static async Task SetMark(Image image, DisplayProvider provider)
     {
+        if (Looks.Pixel)
+        {
+            image.Source = PixelIcons.Face(provider);
+            return;
+        }
         if (await Brand.MarkAsync(provider, Brand.IsDark()) is { } mark) image.Source = mark;
     }
 }

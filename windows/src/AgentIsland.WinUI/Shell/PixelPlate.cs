@@ -120,7 +120,7 @@ internal sealed class PixelPlate : Canvas
         });
     }
 
-    private static PathFigure Figure(List<Point> points)
+    internal static PathFigure Figure(List<Point> points)
     {
         var segment = new PolyLineSegment();
         foreach (var point in points.Skip(1)) segment.Points.Add(point);
@@ -131,15 +131,17 @@ internal sealed class PixelPlate : Canvas
 /// A quota bar in pixel blocks, the pixel theme's QuotaBar: the shown share
 /// fills whole blocks in the agent's colour (at least one when any is shown)
 /// over a track tinted with that colour; the warning ink once nearly used up.
-internal sealed class PixelBar : StackPanel
+internal sealed class PixelBar : StackPanel, IQuotaBar
 {
-    private const int Blocks = 14;
+    private readonly int _blocks;
 
-    public PixelBar()
+    /// 14 blocks on the drawer's cards, 30 (178 DIP) in Settings.
+    public PixelBar(int blocks = 14)
     {
         Orientation = Orientation.Horizontal;
         Spacing = PixelPlate.Cell;
-        for (var i = 0; i < Blocks; i++)
+        _blocks = blocks;
+        for (var i = 0; i < blocks; i++)
         {
             Children.Add(new Rectangle { Width = 2 * PixelPlate.Cell, Height = 3 * PixelPlate.Cell });
         }
@@ -148,11 +150,11 @@ internal sealed class PixelBar : StackPanel
     /// ratio null means the window failed to load: a faded, empty track.
     public void Set(double? ratio, Color color, bool warn, bool dark)
     {
-        var filled = ratio is { } r ? Math.Clamp((int)Math.Round(r * Blocks), r > 0 ? 1 : 0, Blocks) : 0;
+        var filled = ratio is { } r ? Math.Clamp((int)Math.Round(r * _blocks), r > 0 ? 1 : 0, _blocks) : 0;
         var ink = warn ? Fluent.Resource<SolidColorBrush>("SystemFillColorCriticalBrush", dark).Color : color;
         var fill = new SolidColorBrush(ink);
         var track = new SolidColorBrush(Color.FromArgb((byte)(dark ? 0x40 : 0x2E), ink.R, ink.G, ink.B));
-        for (var i = 0; i < Blocks; i++) ((Rectangle)Children[i]).Fill = i < filled ? fill : track;
+        for (var i = 0; i < _blocks; i++) ((Rectangle)Children[i]).Fill = i < filled ? fill : track;
         Opacity = ratio is null ? 0.5 : 1;
     }
 }

@@ -209,6 +209,7 @@ internal sealed class DrawerWindow : Window
         Watch(DrawerStore.Shared, () =>
         {
             ApplyTheme();
+            ApplyLock();
             UpdateCap();
             Layout();
         });
@@ -296,7 +297,7 @@ internal sealed class DrawerWindow : Window
 
     public async void DebugCard(int? index, string? snapshot)
     {
-        var visible = _bots.Where(b => b.Visible).ToList();
+        var visible = Ordered(_bots.Where(b => b.Visible)).ToList();
         OpenCard(index is { } n && n < visible.Count ? visible[n] : null);
         if (snapshot is null) return;
         await Task.Delay(1500);
@@ -434,7 +435,7 @@ internal sealed class DrawerWindow : Window
             _bots.ToDictionary(b => b.Provider, b => visibility.IsShown(b.Provider)), _merged);
         foreach (var bot in _bots) bot.Visible = shown[bot.Provider];
 
-        var visible = _bots.Where(b => b.Visible).ToList();
+        var visible = Ordered(_bots.Where(b => b.Visible)).ToList();
         var left = store.Side == DrawerSide.Right ? InnerInset : EdgeInset;
         for (var i = 0; i < visible.Count; i++)
         {
@@ -447,7 +448,7 @@ internal sealed class DrawerWindow : Window
         var height = (int)Math.Ceiling(WindowHeightDip(visible.Count) * scale);
         var work = screen.Work;
         var x = store.Side == DrawerSide.Right ? work.Right - width : work.Left;
-        var y = work.Top + (int)Math.Round(store.Offset * Math.Max(0, work.Bottom - work.Top - height));
+        var y = DrawerPlacement.Top(work.Top, work.Bottom, height, scale, store.Offset, store.Locked ? store.PinnedTop : null);
         AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
 
         // Only the characters take clicks: the window region is their circles.
@@ -468,6 +469,31 @@ internal sealed class DrawerWindow : Window
         // A bubble beside a character that moved would point at nothing.
         if (before.Left != x || before.Top != y || !before.Shown.SequenceEqual(_scene.Shown)) Hush();
         RefreshCard();
+    }
+
+    /// Bots in the order the user set, top first.
+    private static IEnumerable<Bot> Ordered(IEnumerable<Bot> bots)
+    {
+        var order = DrawerStore.Shared.Order.ToList();
+        return bots.OrderBy(bot => order.IndexOf(bot.Provider));
+    }
+
+    /// Locking pins the drawer's top where it stands; unlocking turns that
+    /// back into an offset, so neither moves it.
+    private void ApplyLock()
+    {
+        var store = DrawerStore.Shared;
+        if (_screen is not { } screen) return;
+        var top = AppWindow.Position.Y;
+        if (store.Locked && store.PinnedTop is null)
+        {
+            store.PinnedTop = DrawerPlacement.PinFor(top, screen.Work.Top, screen.Scale);
+        }
+        else if (!store.Locked && store.PinnedTop is not null)
+        {
+            store.Offset = DrawerPlacement.OffsetFor(top, screen.Work.Top, screen.Work.Bottom, AppWindow.Size.Height);
+            store.PinnedTop = null;
+        }
     }
 
     private void Publish(int x, int y, double scale)
@@ -956,8 +982,7 @@ internal sealed class DrawerWindow : Window
         List<(StatusCard, uint)> sections;
         using (pixel ? L10n.English() : null)
         {
-            sections = _bots
-                .Where(b => b.Visible && (_cardBot is null || b == _cardBot))
+            sections = Ordered(_bots.Where(b => b.Visible && (_cardBot is null || b == _cardBot)))
                 .Select(b => (CardFor(b), Brand.Readable(SwatchOf(b), dark)))
                 .ToList();
         }
@@ -1067,12 +1092,14 @@ internal sealed class DrawerWindow : Window
             ? new PointInt32(scene.Left + (int)(bot.Bounds.X * scene.Scale), scene.Top + (int)(bot.Bounds.Bottom * scene.Scale))
             : null;
         DrawerMenu.Show(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
-            _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(),
+            _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(), _merged,
             (shape, color) => ChangeLook(bot, shape, color), keepOpen, at);
     }
 
     private void Drag()
     {
+        // A locked drawer stays put; the press still counts as a click.
+        if (DrawerStore.Shared.Locked) return;
         Win32.GetCursorPos(out var cursor);
         var dy = cursor.Y - _pressY;
         if (!_dragging && Math.Abs(dy) < DragThreshold * _scene.Scale) return;

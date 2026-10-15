@@ -9,6 +9,7 @@ using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -33,19 +34,19 @@ internal sealed class SettingsWindow : Window
     }
 
     private const string PageKey = "Settings.page";
-    private const string RepositoryUrl = "https://github.com/tristan666666/agent-island";
+    // This edition, and the original Agent Island it builds on.
+    private const string Edition = "Shelios V1.0.0";
+    private const string OriginalUrl = "https://github.com/tristan666666/agent-island";
 
     private static SettingsWindow? _shared;
 
-    private readonly NavigationView _nav = new()
-    {
-        PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
-        IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
-        IsSettingsVisible = false,
-        IsPaneToggleButtonVisible = false,
-        OpenPaneLength = 260,
-    };
-    private readonly ScrollViewer _scroll = new() { HorizontalScrollMode = ScrollMode.Disabled };
+    // Built for the look the window wears (Build); under Pixel the pages are
+    // a pixel list instead of a NavigationView.
+    private NavigationView _nav = null!;
+    private bool _pixel;
+    private ListView _pages = null!;
+    private List<IconElement> _pageIcons = new();
+    private ScrollViewer _scroll = null!;
     private readonly Dictionary<DisplayProvider, AgentSection> _agents = new();
     private readonly List<Action> _teardown = new();
     private readonly DispatcherQueueTimer _tick;
@@ -55,9 +56,16 @@ internal sealed class SettingsWindow : Window
 
     public static void Open(DisplayProvider? focus = null)
     {
+        // A closed window was only hidden (Chrome.HideOnClose): it comes back
+        // in the current look and language, on its last page.
+        if (_shared is { AppWindow.IsVisible: false } hidden)
+        {
+            hidden.Build();
+            hidden._tick.Start();
+        }
         _shared ??= new SettingsWindow();
         if (focus is { } provider) _shared.Focus(provider);
-        _shared.Activate();
+        Shell.Chrome.Show(_shared);
     }
 
     /// AGENTISLAND_DEBUG_SNAPSHOT: every page, rendered by the app itself.
@@ -68,7 +76,7 @@ internal sealed class SettingsWindow : Window
         Directory.CreateDirectory(directory);
         foreach (var page in Enum.GetValues<Page>())
         {
-            if (page != Page.Agents || focus is null) window._nav.SelectedItem = window._nav.MenuItems[(int)page];
+            if (page != Page.Agents || focus is null) window.SelectPage(page);
             if (page == Page.Agents && focus is { } provider) window.Focus(provider);
             await Task.Delay(1500);
             if (window.Content is { } content) await Shell.Snapshot.SaveAsync(content, Path.Combine(directory, $"settings-{page}.png"));
@@ -76,36 +84,120 @@ internal sealed class SettingsWindow : Window
         }
     }
 
-    /// Rebuilds the open window in the current language, on the same page.
+    /// AGENTISLAND_DEBUG_STATES: the kit's controls at rest, in hover, pressed
+    /// and keyboard focus, and a dragged order row, rendered by the app
+    /// itself; each with its card, so a focus ring outside the control shows.
+    public static async Task SnapshotStatesAsync(string directory)
+    {
+        Open();
+        if (_shared is not { } window || !window._pixel) return;
+        Directory.CreateDirectory(directory);
+        async Task Shoot(UIElement frame, string name) =>
+            await Shell.Snapshot.SaveAsync(frame, Path.Combine(directory, name + ".png"));
+        async Task States(Control control, string name)
+        {
+            var frame = (UIElement?)Above<SettingsCard>(control) ?? control;
+            await Shoot(frame, $"{name}-rest");
+            foreach (var state in new[] { "PointerOver", "Pressed" })
+            {
+                VisualStateManager.GoToState(control, state, false);
+                await Task.Delay(200);
+                await Shoot(frame, $"{name}-{state.ToLowerInvariant()}");
+            }
+            VisualStateManager.GoToState(control, "Normal", false);
+            control.Focus(FocusState.Keyboard);
+            await Task.Delay(400);
+            await Shoot(frame, $"{name}-focus");
+        }
+
+        window.SelectPage(Page.Drawer);
+        await Task.Delay(1500);
+        var page = (DependencyObject)window._scroll.Content;
+        if (Below<ToggleSwitch>(page) is { } toggle) await States(toggle, "toggle");
+        if (Below<ComboBox>(page) is { } combo) await States(combo, "combo");
+        if (Below<ListView>(page, list => AutomationProperties.GetAutomationId(list) == "Settings.Drawer.Order") is { } order)
+        {
+            if (Below<Button>(order, arrow => arrow.IsEnabled) is { } arrow) await States(arrow, "icon-button");
+            if (order.ContainerFromIndex(1) is ListViewItem row && Above<SettingsCard>(row) is { } card)
+            {
+                VisualStateManager.GoToState(row, "Dragging", false);
+                await Task.Delay(200);
+                await Shoot(card, "order-dragged");
+                VisualStateManager.GoToState(row, "NotDragging", false);
+            }
+        }
+
+        window.SelectPage(Page.Usage);
+        await Task.Delay(1500);
+        page = (DependencyObject)window._scroll.Content;
+        if (Below<Button>(page) is { } button)
+        {
+            await States(button, "button");
+            if (Below<Button>(page, other => other != button) is { } accent) await States(accent, "accent-button");
+        }
+        // The page list: another page's item in hover and pressed, the open
+        // page's item in keyboard focus.
+        if (window._pages.ContainerFromIndex(0) is ListViewItem item)
+        {
+            foreach (var state in new[] { "PointerOver", "Pressed" })
+            {
+                VisualStateManager.GoToState(item, state, false);
+                await Task.Delay(200);
+                await Shoot(window._pages, $"nav-{state.ToLowerInvariant()}");
+            }
+            VisualStateManager.GoToState(item, "Normal", false);
+        }
+        if (window._pages.ContainerFromIndex((int)Page.Usage) is ListViewItem open)
+        {
+            open.Focus(FocusState.Keyboard);
+            await Task.Delay(400);
+            await Shoot(window._pages, "nav-focus");
+        }
+    }
+
+    private static T? Below<T>(DependencyObject root, Func<T, bool>? match = null) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T found && (match is null || match(found))) return found;
+            if (Below(child, match) is { } deeper) return deeper;
+        }
+        return null;
+    }
+
+    private static T? Above<T>(DependencyObject element) where T : DependencyObject
+    {
+        for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is T found) return found;
+        }
+        return null;
+    }
+
+    /// Rebuilds the open window in the current language and look, on the
+    /// same page. In place: closing it for a new one would leak GDI objects
+    /// (Chrome.Restyle). A hidden window is rebuilt when it opens.
     public static void Relocalize()
     {
-        if (_shared is not { } open) return;
-        open.Close();
-        Open();
+        if (_shared is { AppWindow.IsVisible: true } window) window.Build();
     }
 
     private SettingsWindow()
     {
-        var root = Shell.Chrome.Apply(this, "Agent Island — " + L10n.Tr("Settings"), 980, 720, 720, 520);
-        Shell.Chrome.SetBody(root, _nav);
-
-        foreach (var (page, label, glyph) in new[]
-        {
-            (Page.Agents, "Agents", "\uE99A"),
-            (Page.Drawer, "Drawer", "\uE7F4"),
-            (Page.Usage, "Usage & cost", "\uE9D2"),
-            (Page.General, "General", "\uE713"),
-        })
-        {
-            _nav.MenuItems.Add(new NavigationViewItem { Content = L10n.Tr(label), Icon = Icon(glyph), Tag = page });
-        }
-        _nav.Content = _scroll;
-        _nav.SelectionChanged += (_, e) =>
-        {
-            if (e.SelectedItem is NavigationViewItem { Tag: Page page }) Show(page);
-        };
         _page = Enum.TryParse<Page>(Preferences.Get<string?>(PageKey), out var saved) ? saved : Page.Agents;
-        _nav.SelectedItem = _nav.MenuItems[(int)_page];
+        Build();
+        // The other character style brings the other look.
+        PropertyChangedEventHandler look = (_, e) =>
+        {
+            if (e.PropertyName == nameof(DrawerStore.Theme) && Shell.Looks.Pixel != _pixel) DispatcherQueue.TryEnqueue(Relocalize);
+        };
+        DrawerStore.Shared.PropertyChanged += look;
+        _teardown.Add(() => DrawerStore.Shared.PropertyChanged -= look);
+        // Hiding, showing or reordering an agent regroups the Agents page.
+        PropertyChangedEventHandler regroup = (_, _) => DispatcherQueue.TryEnqueue(Regroup);
+        ProviderVisibilityStore.Shared.PropertyChanged += regroup;
+        _teardown.Add(() => ProviderVisibilityStore.Shared.PropertyChanged -= regroup);
 
         Watch(UsageStore.Shared);
         Watch(AntigravityUsageStore.Shared);
@@ -124,12 +216,159 @@ internal sealed class SettingsWindow : Window
         _tick.Tick += (_, _) => Tick();
         _tick.Start();
 
+        // Closing hides the window; its pages and their updates go until it
+        // opens again.
+        Shell.Chrome.HideOnClose(this, () =>
+        {
+            _tick.Stop();
+            FollowDrawerStore(null);
+            _agents.Clear();
+            _scroll.Content = null;
+        });
+        _teardown.Add(() => FollowDrawerStore(null));
         Closed += (_, _) =>
         {
             _tick.Stop();
             foreach (var teardown in _teardown) teardown();
             _shared = null;
         };
+    }
+
+    /// The frame and the pages in the current look and language, on the
+    /// open page: when the window opens, and again on every switch.
+    private void Build()
+    {
+        using var english = Shell.Looks.English();
+        var title = "Agent Island — " + L10n.Tr("Settings");
+        var root = Content is null
+            ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520)
+            : Shell.Chrome.Restyle(this, title);
+        _pixel = Shell.Looks.Pixel;
+        _nav = new NavigationView
+        {
+            PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
+            IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
+            IsSettingsVisible = false,
+            IsPaneToggleButtonVisible = false,
+            OpenPaneLength = 200,
+        };
+        _pages = new ListView { SelectionMode = ListViewSelectionMode.Single, Margin = new Thickness(4) };
+        _pageIcons = new List<IconElement>();
+        _scroll = new ScrollViewer { HorizontalScrollMode = ScrollMode.Disabled };
+        var pages = new[]
+        {
+            (Page.Agents, "Agents", "\uE99A"),
+            (Page.Drawer, "Drawer", "\uE7F4"),
+            (Page.Usage, "Usage & cost", "\uE9D2"),
+            (Page.General, "General", "\uE713"),
+        };
+        if (_pixel)
+        {
+            Shell.Chrome.SetBody(root, PixelPages(pages));
+        }
+        else
+        {
+            Shell.Chrome.SetBody(root, _nav);
+            foreach (var (page, label, glyph) in pages)
+            {
+                _nav.MenuItems.Add(new NavigationViewItem { Content = L10n.Tr(label), Icon = Icon(glyph), Tag = page });
+            }
+            _nav.Content = _scroll;
+            _nav.SelectionChanged += (_, e) =>
+            {
+                if (e.SelectedItem is NavigationViewItem { Tag: Page page }) Show(page);
+            };
+        }
+        SelectPage(_page);
+        // Pixel type is crisp only on whole pixels. WinUI draws the scrolled
+        // page snapped, but a drop-down's list takes the page's exact place,
+        // so a scroll that settles between pixels blurs it: settle on one.
+        if (_pixel)
+        {
+            var scroll = _scroll;
+            scroll.ViewChanged += (_, e) =>
+            {
+                if (e.IsIntermediate) return;
+                var scale = scroll.XamlRoot?.RasterizationScale ?? 1;
+                var exact = scroll.VerticalOffset * scale;
+                var whole = Math.Round(exact) / scale > scroll.ScrollableHeight ? Math.Floor(exact) : Math.Round(exact);
+                if (Math.Abs(whole - exact) > 0.001) scroll.ChangeView(null, whole / scale, null, disableAnimation: true);
+            };
+        }
+    }
+
+    /// The pixel kit's page list: a 200-DIP pane on desk, the page on a layer
+    /// panel beside it; the open page's icon turns to the accent.
+    private FrameworkElement PixelPages(IEnumerable<(Page Page, string Label, string Glyph)> pages)
+    {
+        _pages.ItemContainerStyle = Res<Style>("PixelNavItemStyle");
+        foreach (var (_, label, glyph) in pages)
+        {
+            var icon = Icon(glyph);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            _pageIcons.Add(icon);
+            var item = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 16,
+                Children = { icon, new TextBlock { Text = L10n.Tr(label), VerticalAlignment = VerticalAlignment.Center } },
+            };
+            AutomationProperties.SetName(item, L10n.Tr(label));
+            _pages.Items.Add(item);
+        }
+        var list = _pages;
+        var icons = _pageIcons;
+        list.SelectionChanged += (_, _) =>
+        {
+            if (list.SelectedIndex < 0) return;
+            for (var i = 0; i < icons.Count; i++) icons[i].Foreground = Res<Brush>(i == list.SelectedIndex ? "PixelAccent" : "PixelText");
+            Show((Page)list.SelectedIndex);
+        };
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        body.Children.Add(_pages);
+        var page = new Border { Style = Res<Style>("PixelLayerStyle"), Child = _scroll };
+        Grid.SetColumn(page, 1);
+        body.Children.Add(page);
+        return body;
+    }
+
+    private void SelectPage(Page page)
+    {
+        if (_pixel) _pages.SelectedIndex = (int)page;
+        else _nav.SelectedItem = _nav.MenuItems[(int)page];
+    }
+
+    // The Drawer page's live controls follow the store through one handler,
+    // replaced whenever the page is rebuilt and removed with the pages.
+    private PropertyChangedEventHandler? _drawerPage;
+
+    private void FollowDrawerStore(Action? update)
+    {
+        DrawerStore.Shared.PropertyChanged -= _drawerPage;
+        _drawerPage = update is null ? null : (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            using var english = Shell.Looks.English();
+            update();
+        });
+        DrawerStore.Shared.PropertyChanged += _drawerPage;
+    }
+
+    private static SettingsCard OrderCard(DrawerStore store)
+    {
+        var card = Card(L10n.Tr("Order"), L10n.Tr("Drag or use the arrows; the first stands at the top. Switch one off to hide it everywhere."), "\uE8CB", null);
+        if (Shell.Looks.Pixel)
+        {
+            card.Style = Res<Style>("PixelSettingsCardVerticalStyle");
+        }
+        else
+        {
+            card.ContentAlignment = CommunityToolkit.WinUI.Controls.ContentAlignment.Vertical;
+            card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        }
+        card.Content = OrderList.Create(store);
+        return card;
     }
 
     private void Watch(INotifyPropertyChanged source)
@@ -141,7 +380,7 @@ internal sealed class SettingsWindow : Window
 
     private void Focus(DisplayProvider provider)
     {
-        _nav.SelectedItem = _nav.MenuItems[(int)Page.Agents];
+        SelectPage(Page.Agents);
         Show(Page.Agents);
         if (!_agents.TryGetValue(provider, out var section)) return;
         section.Expander.IsExpanded = true;
@@ -156,6 +395,7 @@ internal sealed class SettingsWindow : Window
     private void Tick()
     {
         if (_page != Page.Agents) return;
+        using var english = Shell.Looks.English();
         // Reports read a few small files (Codex's account); the clock-driven
         // "synced" captions refresh every fifth second.
         if (_dirty || ++_ticks % 5 == 0)
@@ -168,6 +408,7 @@ internal sealed class SettingsWindow : Window
 
     private void Show(Page page)
     {
+        using var english = Shell.Looks.English();
         _page = page;
         Preferences.Set(PageKey, page.ToString());
         _agents.Clear();
@@ -197,8 +438,9 @@ internal sealed class SettingsWindow : Window
     {
         body.Children.Add(PageTitle(L10n.Tr("Agents")));
         body.Children.Add(PageIntro(L10n.Tr("Quota, tokens and live activity for every coding agent on this computer. Each one shown in the drawer gets a character.")));
-        var detected = DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsDetected).ToList();
-        var missing = DisplayProviders.All.Except(detected).ToList();
+        // In the drawer's order; agents the user hid wait at the bottom.
+        var (detected, missing, hidden) = AgentGroups();
+        _agentGroups = GroupsKey(detected, missing, hidden);
         void Add(DisplayProvider provider)
         {
             var section = new AgentSection(provider, () => Content?.XamlRoot);
@@ -211,6 +453,74 @@ internal sealed class SettingsWindow : Window
         foreach (var provider in detected) Add(provider);
         if (missing.Count > 0) body.Children.Add(Section(L10n.Tr("Not detected")));
         foreach (var provider in missing) Add(provider);
+        if (hidden.Count > 0)
+        {
+            body.Children.Add(Section(L10n.Tr("Hidden agents")));
+            body.Children.Add(HiddenAgents(hidden));
+        }
+    }
+
+    private static (IReadOnlyList<DisplayProvider> Detected, IReadOnlyList<DisplayProvider> Missing, IReadOnlyList<DisplayProvider> Hidden) AgentGroups()
+    {
+        var visibility = ProviderVisibilityStore.Shared;
+        return DrawerVisibility.Groups(DrawerStore.Shared.Order, visibility.IsHidden, visibility.IsDetected);
+    }
+
+    private static string GroupsKey(params IReadOnlyList<DisplayProvider>[] groups) =>
+        string.Join("|", groups.Select(group => string.Join(",", group)));
+
+    // The groups the Agents page was built with; hiding, showing or
+    // reordering an agent rebuilds it, keeping its scroll and open sections.
+    private string _agentGroups = "";
+
+    private void Regroup()
+    {
+        if (_page != Page.Agents || !AppWindow.IsVisible) return;
+        var (detected, missing, hidden) = AgentGroups();
+        if (GroupsKey(detected, missing, hidden) == _agentGroups) return;
+        var offset = _scroll.VerticalOffset;
+        var open = _agents.Where(pair => pair.Value.Expander.IsExpanded).Select(pair => pair.Key).ToList();
+        Show(Page.Agents);
+        foreach (var provider in open)
+        {
+            if (_agents.TryGetValue(provider, out var section)) section.Expander.IsExpanded = true;
+        }
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => _scroll.ChangeView(null, offset, null, disableAnimation: true));
+    }
+
+    /// Hidden agents, collapsed into one list where each can come back.
+    private static SettingsExpander HiddenAgents(IReadOnlyList<DisplayProvider> hidden)
+    {
+        var list = new SettingsExpander
+        {
+            Header = L10n.TrFormat("{0} hidden", hidden.Count),
+            Description = L10n.Tr("Out of the drawer, its menus and the Cost window"),
+            HeaderIcon = Icon("\uE890"),
+        };
+        AutomationProperties.SetAutomationId(list, "Settings.Agents.Hidden");
+        foreach (var provider in hidden)
+        {
+            var show = Button(L10n.Tr("Show"), () => ProviderVisibilityStore.Shared.SetShown(provider, true));
+            AutomationProperties.SetAutomationId(show, $"Settings.Agents.Hidden.{provider.RawValue()}");
+            AutomationProperties.SetName(show, $"{ProviderIdentity.DisplayName(provider)} · {L10n.Tr("Show")}");
+            list.Items.Add(new SettingsCard { Header = ProviderIdentity.DisplayName(provider), HeaderIcon = Mark(provider), Content = show });
+        }
+        return list;
+    }
+
+    /// An agent's mark for a list row: its pixel face under Pixel, else the
+    /// brand's.
+    private static ImageIcon Mark(DisplayProvider provider)
+    {
+        var icon = new ImageIcon();
+        if (Shell.Looks.Pixel) icon.Source = Shell.PixelIcons.Face(provider);
+        else _ = SetMarkAsync(icon, provider);
+        return icon;
+    }
+
+    private static async Task SetMarkAsync(ImageIcon icon, DisplayProvider provider)
+    {
+        if (await Shell.Brand.MarkAsync(provider, Shell.Brand.IsDark()) is { } mark) icon.Source = mark;
     }
 
     // MARK: - Drawer
@@ -244,8 +554,24 @@ internal sealed class SettingsWindow : Window
         body.Children.Add(Card(L10n.Tr("Display"), L10n.Tr("A pinned display falls back to automatic while it is unplugged"), "\uE7F4",
             Combo(labels, Math.Max(0, selected), index =>
                 IslandTargetDisplayStore.Shared.Choice = index == 0 ? "auto" : screens[index - 1].Device)));
-        body.Children.Add(Card(L10n.Tr("Position"), L10n.Tr("Drag any character up or down to move the drawer"), "\uE7C2",
-            Button(L10n.Tr("Center on the edge"), () => store.Offset = 0.5)));
+        var lockToggle = Toggle(store.Locked, on => store.Locked = on);
+        AutomationProperties.SetAutomationId(lockToggle, "Settings.Drawer.Locked");
+        AutomationProperties.SetName(lockToggle, L10n.Tr("Lock position"));
+        body.Children.Add(Card(L10n.Tr("Lock position"),
+            L10n.Tr("Characters stay put: dragging won't move the drawer, and a character appearing or leaving won't shift the ones above it"),
+            "\uE72E", lockToggle));
+        var center = Button(L10n.Tr("Center on the edge"), () => store.Offset = 0.5);
+        var position = Card(L10n.Tr("Position"), null, "\uE7C2", center);
+        void ShowLock()
+        {
+            lockToggle.IsOn = store.Locked;
+            center.IsEnabled = !store.Locked;
+            SetDescription(position, L10n.Tr(store.Locked ? "Unlock the drawer to move it" : "Drag any character up or down to move the drawer"));
+        }
+        ShowLock();
+        body.Children.Add(position);
+        body.Children.Add(OrderCard(store));
+        FollowDrawerStore(ShowLock);
 
         body.Children.Add(Section(L10n.Tr("Cards")));
         var quota = QuotaDisplayModeStore.Shared;
@@ -300,6 +626,7 @@ internal sealed class SettingsWindow : Window
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         actions.Children.Add(Button(L10n.Tr("Scan now"), () =>
         {
+            using var english = Shell.Looks.English();
             CostStore.Shared.Refresh();
             Caption();
         }));
@@ -320,7 +647,9 @@ internal sealed class SettingsWindow : Window
 
         body.Children.Add(Section(L10n.Tr("Language")));
         var language = AppLanguageStore.Load();
-        body.Children.Add(Card(L10n.Tr("App language"), null, "\uF2B7",
+        // Under Pixel these windows read in English whatever this says.
+        var languageNote = Shell.Looks.Pixel ? L10n.Tr("The pixel style shows Settings in English") : null;
+        body.Children.Add(Card(L10n.Tr("App language"), languageNote, "\uF2B7",
             Combo(new[] { L10n.Tr("Same as Windows"), "English", "简体中文" },
                 language switch { L10n.Language.English => 1, L10n.Language.SimplifiedChinese => 2, _ => 0 },
                 index =>
@@ -334,17 +663,26 @@ internal sealed class SettingsWindow : Window
                 })));
 
         body.Children.Add(Section(L10n.Tr("About")));
-        var version = typeof(SettingsWindow).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "";
         var about = new SettingsExpander
         {
             Header = "Agent Island",
-            Description = L10n.TrFormat("Version {0}", version),
-            HeaderIcon = new ImageIcon { Source = new BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "agentisland_logo_small.png"))) },
+            Description = Edition,
+            HeaderIcon = new ImageIcon
+            {
+                Source = Shell.Looks.Pixel
+                    ? Shell.PixelIcons.Logo()
+                    : new BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "agentisland_logo_small.png"))),
+            },
         };
         about.Items.Add(new SettingsCard
         {
-            Header = L10n.Tr("Source code"),
-            Content = new HyperlinkButton { Content = "github.com/tristan666666/agent-island", NavigateUri = new Uri(RepositoryUrl) },
+            Header = L10n.Tr("Thanks"),
+            Description = new TextBlock
+            {
+                Text = L10n.Tr("Built on Agent Island by Tristan Tang (MIT License). Pixel face: Ark Pixel by TakWolf (SIL Open Font License 1.1)."),
+                TextWrapping = TextWrapping.Wrap,
+            },
+            Content = new HyperlinkButton { Content = "github.com/tristan666666/agent-island", NavigateUri = new Uri(OriginalUrl) },
         });
         about.Items.Add(new SettingsCard
         {

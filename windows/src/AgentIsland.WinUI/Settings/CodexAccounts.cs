@@ -1,5 +1,6 @@
 using AgentIsland.Localization;
 using AgentIsland.Usage;
+using AgentIsland.WinUI.Shell;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -15,6 +16,7 @@ internal static class CodexAccounts
     {
         var menu = new MenuFlyout();
         var button = new DropDownButton { Content = L10n.Tr("Switch"), Flyout = menu };
+        if (Looks.Pixel) button.Style = SettingsUi.Res<Style>("PixelDropDownButtonStyle");
         AutomationProperties.SetName(button, L10n.Tr("Switch Codex account"));
         AutomationProperties.SetAutomationId(button, "Agent.codex.SwitchAccount");
         menu.Opening += (_, _) => Fill(menu, root);
@@ -23,6 +25,7 @@ internal static class CodexAccounts
 
     private static void Fill(MenuFlyout menu, Func<XamlRoot?> root)
     {
+        using var english = Looks.English();
         menu.Items.Clear();
         var accounts = CodexAccountSwitcher.Accounts();
         var active = CodexAccountSwitcher.ActiveLabel();
@@ -47,6 +50,7 @@ internal static class CodexAccounts
             choices.Add((account.Label, item));
             item.Click += async (_, _) =>
             {
+                using var english = Looks.English();
                 var activated = CodexAccountSwitcher.Activate(account);
                 RestoreChecks();
                 if (!activated)
@@ -85,30 +89,30 @@ internal static class CodexAccounts
         var auto = new ToggleMenuFlyoutItem { Text = L10n.Tr("Auto-switch when exhausted"), IsChecked = CodexAccountSwitcher.AutoSwitchEnabled };
         auto.Click += (_, _) => CodexAccountSwitcher.AutoSwitchEnabled = auto.IsChecked;
         menu.Items.Add(auto);
+        if (Looks.Pixel) MenuHost.Pixelate(menu);
     }
 
     private static async Task SaveCurrent(XamlRoot root)
     {
+        using var english = Looks.English();
         var name = new TextBox { PlaceholderText = L10n.Tr("work / personal"), MaxLength = 40 };
+        if (Looks.Pixel) name.Style = SettingsUi.Res<Style>("PixelTextBoxStyle");
         AutomationProperties.SetName(name, L10n.Tr("Save current account"));
         AutomationProperties.SetAutomationId(name, "Agent.codex.AccountLabel");
-        var dialog = new ContentDialog
+        var dialog = SettingsUi.Dialog(root);
+        dialog.Title = L10n.Tr("Save current account");
+        dialog.Content = new StackPanel
         {
-            XamlRoot = root,
-            Title = L10n.Tr("Save current account"),
-            Content = new StackPanel
+            Spacing = 12,
+            Children =
             {
-                Spacing = 12,
-                Children =
-                {
-                    new TextBlock { Text = L10n.Tr("Give this login a name so you can switch back to it later"), TextWrapping = TextWrapping.Wrap },
-                    name,
-                },
+                new TextBlock { Text = L10n.Tr("Give this login a name so you can switch back to it later"), TextWrapping = TextWrapping.Wrap },
+                name,
             },
-            PrimaryButtonText = L10n.Tr("Save"),
-            CloseButtonText = L10n.Tr("Cancel"),
-            DefaultButton = ContentDialogButton.Primary,
         };
+        dialog.PrimaryButtonText = L10n.Tr("Save");
+        dialog.CloseButtonText = L10n.Tr("Cancel");
+        dialog.DefaultButton = ContentDialogButton.Primary;
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         if (!CodexAccountSwitcher.ParkCurrent(string.IsNullOrWhiteSpace(name.Text) ? null : name.Text))
             await SettingsUi.Alert(root, L10n.Tr("Couldn't save account"),

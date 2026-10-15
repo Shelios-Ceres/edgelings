@@ -24,10 +24,17 @@ internal static class MenuHost
     /// keepOpen is for the verification hooks, which have no click to grant
     /// the host the foreground.
     /// at is a screen point in physical pixels; the pointer by default.
-    public static void Show(MenuFlyout menu, bool keepOpen = false, PointInt32? at = null)
+    public static void Show(MenuFlyout menu, bool keepOpen = false, PointInt32? at = null, bool pixel = false)
     {
         Ensure();
         _open?.Hide();
+        // The tray's menu stays Fluent; only a pixel menu brings the kit.
+        _root!.Resources.MergedDictionaries.Clear();
+        if (pixel)
+        {
+            _root.Resources.MergedDictionaries.Add(Looks.NewKit(Win32.GetDpiForWindow(_hwnd) / 96.0));
+            Pixelate(menu);
+        }
         _keepOpen = keepOpen;
         Win32.GetCursorPos(out var cursor);
         var point = at ?? new PointInt32(cursor.X, cursor.Y);
@@ -40,11 +47,15 @@ internal static class MenuHost
         Win32.SetForegroundWindow(_hwnd);
 
         _open = menu;
-        menu.Closed += (_, _) =>
+        // The menu comes from sender: a handler that captured it would form a
+        // cycle through WinUI that keeps the menu, popup window and all,
+        // alive until a full GC.
+        menu.Closed += (sender, _) =>
         {
-            if (_open != menu) return;
+            if (!ReferenceEquals(sender, _open)) return;
             _open = null;
-            _window.AppWindow.Hide();
+            // Quitting from this menu closes the host before the menu.
+            _window.AppWindow?.Hide();
         };
         // The host's content loads after its first activation; a flyout
         // shown before that has no root and fails fast.
@@ -90,6 +101,47 @@ internal static class MenuHost
         {
             if (e.WindowActivationState == WindowActivationState.Deactivated && !_keepOpen) _open?.Hide();
         };
+        // Alt+F4 on the host closes its menu, not the host: a closed host
+        // has no AppWindow left for the next menu.
+        _window.AppWindow.Closing += (_, e) =>
+        {
+            e.Cancel = true;
+            _open?.Hide();
+        };
+    }
+
+    /// The pixel kit for a menu: its presenter, each item's style by kind,
+    /// and the kit's drawing for every glyph it has one for. Menus open in
+    /// popups, beyond any window's styles, so nothing here is implicit.
+    public static void Pixelate(MenuFlyout menu)
+    {
+        menu.MenuFlyoutPresenterStyle = (Style)Looks.Resource("PixelMenuFlyoutPresenterStyle");
+        Pixelate(menu.Items);
+    }
+
+    private static void Pixelate(IList<MenuFlyoutItemBase> items)
+    {
+        foreach (var item in items)
+        {
+            item.Style = (Style)Looks.Resource(item switch
+            {
+                MenuFlyoutSubItem => "PixelMenuFlyoutSubItemStyle",
+                ToggleMenuFlyoutItem => "PixelToggleMenuFlyoutItemStyle",
+                RadioMenuFlyoutItem => "PixelRadioMenuFlyoutItemStyle",
+                MenuFlyoutSeparator => "PixelMenuFlyoutSeparatorStyle",
+                _ => "PixelMenuFlyoutItemStyle",
+            });
+            switch (item)
+            {
+                case MenuFlyoutSubItem sub:
+                    if (sub.Icon is FontIcon { Glyph: var subGlyph } && PixelIcons.NameFor(subGlyph) is { } subName) sub.Icon = PixelIcons.Icon(subName);
+                    Pixelate(sub.Items);
+                    break;
+                case MenuFlyoutItem { Icon: FontIcon { Glyph: var glyph } } plain when PixelIcons.NameFor(glyph) is { } name:
+                    plain.Icon = PixelIcons.Icon(name);
+                    break;
+            }
+        }
     }
 
     /// A Segoe Fluent Icons glyph for a menu item.

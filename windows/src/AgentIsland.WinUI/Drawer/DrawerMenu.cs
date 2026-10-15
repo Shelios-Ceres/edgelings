@@ -18,16 +18,20 @@ internal static class DrawerMenu
         string color,
         IReadOnlyList<string>? shapes,
         IReadOnlyList<string>? colors,
-        IReadOnlyList<(DisplayProvider Provider, bool Visible)> requestedVisibility,
+        IReadOnlyList<(DisplayProvider Provider, bool Requested)> requestedVisibility,
+        bool merged,
         Action<string, string> changeLook,
         bool keepOpen = false,
         Windows.Graphics.PointInt32? at = null)
     {
+        using var english = Looks.English();
+        var pixel = Looks.Pixel;
         var dark = Brand.IsDark();
         var menu = new MenuFlyout();
         var title = new MenuFlyoutItem { Text = ProviderIdentity.DisplayName(provider) };
         title.Click += (_, _) => SettingsWindow.Open(provider);
-        _ = SetMarkAsync(title, provider, dark);
+        if (pixel) title.Icon = new ImageIcon { Source = PixelIcons.Face(provider) };
+        else _ = SetMarkAsync(title, provider, dark);
         menu.Items.Add(title);
         menu.Items.Add(new MenuFlyoutSeparator());
 
@@ -59,14 +63,26 @@ internal static class DrawerMenu
         }
 
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Show in drawer"), Icon = MenuHost.Glyph("\uE890") };
-        foreach (var (other, visible) in requestedVisibility)
+        foreach (var (other, on) in DrawerVisibility.Switches(requestedVisibility, merged))
         {
-            var item = new ToggleMenuFlyoutItem { Text = ProviderIdentity.DisplayName(other), IsChecked = visible };
+            var item = new ToggleMenuFlyoutItem { Text = ProviderIdentity.DisplayName(other), IsChecked = on };
             AutomationProperties.SetAutomationId(item, $"Drawer.Show.{other.RawValue()}");
-            item.Click += (_, _) => DrawerStore.Shared.SetShown(other, item.IsChecked);
+            item.Click += (_, _) =>
+            {
+                foreach (var choice in DrawerVisibility.SetBy(other, merged)) DrawerStore.Shared.SetShown(choice, item.IsChecked);
+            };
             shownMenu.Items.Add(item);
         }
         menu.Items.Add(shownMenu);
+        var locked = new ToggleMenuFlyoutItem
+        {
+            Text = L10n.Tr("Lock position"),
+            Icon = MenuHost.Glyph("\uE72E"),
+            IsChecked = DrawerStore.Shared.Locked,
+        };
+        AutomationProperties.SetAutomationId(locked, "Drawer.Locked");
+        locked.Click += (_, _) => DrawerStore.Shared.Locked = locked.IsChecked;
+        menu.Items.Add(locked);
         var right = DrawerStore.Shared.Side == DrawerSide.Right;
         menu.Items.Add(MenuHost.Item(
             L10n.Tr(right ? "Dock to the left edge" : "Dock to the right edge"), "\uE8AB",
@@ -74,7 +90,7 @@ internal static class DrawerMenu
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(MenuHost.Item(L10n.Tr("Cost…"), "\uE8C7", () => Cost.CostWindow.Open()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
-        MenuHost.Show(menu, keepOpen, at);
+        MenuHost.Show(menu, keepOpen, at, pixel);
     }
 
     private static PathIcon Dot(uint rgb) => new()

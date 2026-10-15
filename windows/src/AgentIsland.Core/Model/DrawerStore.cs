@@ -33,6 +33,9 @@ public sealed class DrawerStore : INotifyPropertyChanged
     private const string SaveBatteryKey = "AgentIsland.drawer.saveBattery";
     private const string SpeechKey = "AgentIsland.drawer.speech";
     private const string ThemeKey = "AgentIsland.drawer.theme";
+    private const string LockedKey = "AgentIsland.drawer.locked";
+    private const string PinnedTopKey = "AgentIsland.drawer.pinnedTop";
+    private const string OrderKey = "AgentIsland.drawer.order";
 
     public static DrawerStore Shared { get; } = new();
 
@@ -83,6 +86,10 @@ public sealed class DrawerStore : INotifyPropertyChanged
         if (_hidden.Contains(raw)) return false;
         return _shown.Contains(raw) || detected;
     }
+
+    /// Hidden by the user, as opposed to off for want of the agent on this
+    /// computer.
+    public bool IsHidden(DisplayProvider provider) => _hidden.Contains(provider.RawValue());
 
     public void SetShown(DisplayProvider provider, bool shown)
     {
@@ -149,6 +156,45 @@ public sealed class DrawerStore : INotifyPropertyChanged
             Preferences.Set(ThemeKey, value.ToString());
             Raise(nameof(Theme));
         }
+    }
+
+    /// The characters stay put: dragging does not move the drawer, and a
+    /// character appearing or leaving does not shift the ones above it.
+    public bool Locked
+    {
+        get => Preferences.Get<bool?>(LockedKey) ?? false;
+        set
+        {
+            if (Locked == value) return;
+            Preferences.Set(LockedKey, value);
+            Raise(nameof(Locked));
+        }
+    }
+
+    /// While locked: the drawer's top edge, in DIPs below the work area's top.
+    public double? PinnedTop
+    {
+        get => Preferences.Get<double?>(PinnedTopKey);
+        set
+        {
+            if (PinnedTop == value) return;
+            if (value is { } top) Preferences.Set(PinnedTopKey, top);
+            else Preferences.Remove(PinnedTopKey);
+            Raise(nameof(PinnedTop));
+        }
+    }
+
+    /// The characters' order down the drawer, top first (DrawerPlacement.Order).
+    public IReadOnlyList<DisplayProvider> Order => DrawerPlacement.Order(Preferences.Get<List<string>?>(OrderKey));
+
+    /// Providers left out keep their slots (DrawerPlacement.Reordered).
+    public void SetOrder(IEnumerable<DisplayProvider> order)
+    {
+        var current = Order;
+        var next = DrawerPlacement.Reordered(current, order);
+        if (next.SequenceEqual(current)) return;
+        Preferences.Set(OrderKey, next.Select(provider => provider.RawValue()).ToList());
+        Raise(nameof(Order));
     }
 
     /// "shape/color" engine ids, or null to use the provider's default.

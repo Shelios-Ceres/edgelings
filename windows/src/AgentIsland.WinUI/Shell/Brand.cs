@@ -27,9 +27,19 @@ internal static class Brand
 
     private static readonly Windows.UI.ViewManagement.UISettings Settings = new();
 
+    /// AGENTISLAND_DEBUG_THEME=light|dark: verification renders in a theme
+    /// other than Windows'.
+    public static bool? ForcedDark { get; } = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_THEME") switch
+    {
+        "light" => false,
+        "dark" => true,
+        _ => null,
+    };
+
     /// The system app theme right now (it can change while the app runs).
     public static bool IsDark()
     {
+        if (ForcedDark is { } forced) return forced;
         var background = Settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
         return background.R + background.G + background.B < 3 * 128;
     }

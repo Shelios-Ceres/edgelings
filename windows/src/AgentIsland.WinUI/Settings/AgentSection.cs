@@ -22,10 +22,13 @@ internal sealed class AgentSection
     private readonly TextBlock _plan = new();
     private readonly Border _planBadge;
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
+    // Under Pixel the status is rich text, to carry the kit's warning sign.
+    private readonly bool _pixel = Looks.Pixel;
+    private readonly RichTextBlock? _pixelStatus;
     private readonly ToggleSwitch _shown;
     private readonly SettingsCard _activity;
     private readonly TextBlock _activityText = new() { TextWrapping = TextWrapping.Wrap };
-    private readonly List<(SettingsCard Card, QuotaBar Bar, TextBlock Value)> _meters = new();
+    private readonly List<(SettingsCard Card, IQuotaBar Bar, TextBlock Value)> _meters = new();
     private readonly SettingsCard _tokens;
     private readonly TextBlock _tokensText = new();
     private readonly SettingsCard _note;
@@ -34,12 +37,14 @@ internal sealed class AgentSection
     private readonly SettingsCard _signIn;
     private readonly Button _signInButton = new();
     private readonly ProgressRing _signInRing = new() { Width = 16, Height = 16, IsActive = false, Margin = new Thickness(0, 0, 10, 0) };
+    private readonly PixelSpinner _signInSpinner = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private bool _updating;
 
     public AgentSection(DisplayProvider provider, Func<XamlRoot?> root)
     {
         _provider = provider;
-        _planBadge = Badge(_plan);
+        if (_pixel) _pixelStatus = PixelStatusText();
+        _planBadge = Badge(_plan, provider);
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         AutomationProperties.SetName(header, ProviderIdentity.DisplayName(provider));
         header.Children.Add(new TextBlock { Text = ProviderIdentity.DisplayName(provider), VerticalAlignment = VerticalAlignment.Center });
@@ -51,13 +56,16 @@ internal sealed class AgentSection
             ProviderVisibilityStore.Shared.SetShown(provider, on);
             if (on) AgentReports.RefreshNow(provider);
         });
-        ToolTipService.SetToolTip(_shown, L10n.Tr("Show in drawer"));
+        // Off hides the agent everywhere, not only from the drawer.
+        _shown.OnContent = L10n.Tr("Shown");
+        _shown.OffContent = L10n.Tr("Hidden");
+        ToolTipService.SetToolTip(_shown, Tip(L10n.Tr("Show in the drawer, its menus and the Cost window")));
         Name(_shown, "ShowInDrawer", L10n.Tr("Show in drawer"));
 
         Expander = new SettingsExpander
         {
             Header = header,
-            Description = _status,
+            Description = _pixelStatus is null ? _status : _pixelStatus,
             HeaderIcon = new ImageIcon(),
             Content = _shown,
         };
@@ -83,12 +91,17 @@ internal sealed class AgentSection
         {
             _signInButton.Click += async (_, _) =>
             {
+                using var english = Looks.English();
                 if (AgentReports.StartSignIn(provider) || root() is not { } xamlRoot) return;
                 await Alert(xamlRoot, L10n.Tr("Sign in"), L10n.Tr(provider == DisplayProvider.Claude
                     ? "Claude Code CLI not found. Log in from a terminal with: claude /login"
                     : "Codex CLI not found. Log in from a terminal with: codex login"));
             };
-            _signIn.Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { _signInRing, _signInButton } };
+            _signIn.Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Children = { Looks.Pixel ? _signInSpinner : _signInRing, _signInButton },
+            };
         }
         Expander.Items.Add(_signIn);
         if (provider == DisplayProvider.Claude) Expander.Items.Add(PromptHookCard(root));
@@ -106,16 +119,19 @@ internal sealed class AgentSection
         _updating = true;
         _plan.Text = report.Plan ?? "";
         _planBadge.Visibility = string.IsNullOrEmpty(report.Plan) ? Visibility.Collapsed : Visibility.Visible;
-        SetStatus(_status, report.Status, report.Warning);
+        if (_pixelStatus is not null) SetStatus(_pixelStatus, report.Status, report.Warning);
+        else SetStatus(_status, report.Status, report.Warning);
         _shown.IsOn = ProviderVisibilityStore.Shared.IsShown(_provider);
 
         while (_meters.Count < report.Meters.Count)
         {
-            var bar = new QuotaBar(8) { Width = 180, VerticalAlignment = VerticalAlignment.Center };
+            FrameworkElement bar = Looks.Pixel
+                ? new PixelBar(30) { VerticalAlignment = VerticalAlignment.Center }
+                : new QuotaBar(8) { Width = 180, VerticalAlignment = VerticalAlignment.Center };
             var value = new TextBlock { MinWidth = 64, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { bar, value } };
             var card = new SettingsCard { HeaderIcon = Icon("\uE9D2"), Content = content };
-            _meters.Add((card, bar, value));
+            _meters.Add((card, (IQuotaBar)bar, value));
             Expander.Items.Insert(_meters.Count, card);
         }
         for (var i = 0; i < _meters.Count; i++)
@@ -145,8 +161,9 @@ internal sealed class AgentSection
         _accountText.Text = report.Account ?? L10n.Tr("Not saved yet");
 
         _signIn.Description = report.SignInHint;
-        _signInRing.IsActive = report.SignIn == SignInOffer.Waiting;
-        _signInRing.Visibility = report.SignIn == SignInOffer.Waiting ? Visibility.Visible : Visibility.Collapsed;
+        var waiting = report.SignIn == SignInOffer.Waiting;
+        _signInRing.IsActive = _signInSpinner.IsActive = waiting;
+        _signInRing.Visibility = _signInSpinner.Visibility = waiting ? Visibility.Visible : Visibility.Collapsed;
         _signInButton.IsEnabled = report.SignIn != SignInOffer.Waiting;
         _signInButton.Content = L10n.Tr(report.SignIn switch
         {
@@ -155,7 +172,9 @@ internal sealed class AgentSection
             _ => "Sign in again",
         });
         Name(_signInButton, "SignIn", _signInButton.Content.ToString()!);
-        _signInButton.Style = report.SignIn == SignInOffer.Available ? Res<Style>("AccentButtonStyle") : null;
+        // Cleared rather than null, so the window's own button style applies.
+        if (report.SignIn == SignInOffer.Available) _signInButton.Style = Res<Style>("AccentButtonStyle");
+        else _signInButton.ClearValue(FrameworkElement.StyleProperty);
 
         _activity.Visibility = report.Detected ? Visibility.Visible : Visibility.Collapsed;
         _updating = false;
@@ -197,6 +216,7 @@ internal sealed class AgentSection
     /// Bars wear the agent's character colour, as in the drawer.
     private Windows.UI.Color Accent()
     {
+        if (Looks.Pixel) return PixelTokens.Agent(_provider, Brand.IsDark());
         var swatch = App.Current.Drawer?.SwatchOf(_provider)
             ?? DrawerLooks.Swatch(_provider, DrawerLooks.For(_provider).Color, DrawerStore.Shared.Theme);
         return Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
@@ -216,12 +236,14 @@ internal sealed class AgentSection
     private static SettingsCard PromptHookCard(Func<XamlRoot?> root)
     {
         var toggle = new ToggleSwitch { IsOn = ClaudeHooks.IsInstalled(), OnContent = L10n.Tr("On"), OffContent = L10n.Tr("Off") };
+        Pixelate(toggle);
         AutomationProperties.SetName(toggle, $"Claude · {L10n.Tr("Permission prompts")}");
         AutomationProperties.SetAutomationId(toggle, "Agent.claude.PermissionPrompts");
         var settling = false;
         toggle.Toggled += async (_, _) =>
         {
             if (settling) return;
+            using var english = Looks.English();
             var wanted = toggle.IsOn;
             var error = await Task.Run(() => ClaudeHooks.SetInstalled(wanted));
             if (error is null) return;
@@ -247,10 +269,12 @@ internal sealed class AgentSection
     {
         var (shape, color) = drawer.LookOf(_provider);
         var shapeBox = new ComboBox { MinWidth = 130 };
+        Pixelate(shapeBox);
         Name(shapeBox, "Shape", L10n.Tr("Shape"));
         foreach (var option in shapes) shapeBox.Items.Add(DrawerLooks.ShapeLabel(option));
         shapeBox.SelectedIndex = Math.Max(0, shapes.ToList().IndexOf(shape));
         var colorBox = new ComboBox { MinWidth = 150 };
+        Pixelate(colorBox);
         Name(colorBox, "Color", L10n.Tr("Color"));
         var dark = Brand.IsDark();
         foreach (var option in colors)
@@ -291,8 +315,14 @@ internal sealed class AgentSection
         };
     }
 
+    /// The brand's mark, or under Pixel the agent's pixel bot face.
     private async Task LoadMarkAsync()
     {
+        if (Looks.Pixel)
+        {
+            Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider) };
+            return;
+        }
         if (await Brand.MarkAsync(_provider, Brand.IsDark()) is { } mark) Expander.HeaderIcon = new ImageIcon { Source = mark };
     }
 }

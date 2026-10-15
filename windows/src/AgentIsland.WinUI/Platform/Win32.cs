@@ -86,6 +86,47 @@ internal static class Win32
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+
+    /// The primary display's DPI, where the notification area lives.
+    public static uint PrimaryDpi() =>
+        GetDpiForMonitor(MonitorFromPoint(new POINT(), 1 /* MONITOR_DEFAULTTOPRIMARY */), 0, out var dpi, out _) == 0 ? dpi : 96;
+
+    public const int SmCxIcon = 11;
+    public const int SmCxSmIcon = 49;
+    public const uint WmSetIcon = 0x80;
+    public const int IconSmall = 0;
+    public const int IconBig = 1;
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "LoadImageW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadImage(IntPtr instance, string name, uint type, int width, int height, uint flags);
+
+    /// One entry of an .ico file at exactly this size (IMAGE_ICON,
+    /// LR_LOADFROMFILE); zero if the file can't be read.
+    public static IntPtr LoadIconFile(string path, int size) => LoadImage(IntPtr.Zero, path, 1, size, size, 0x10);
+
+    [DllImport("user32.dll")]
+    public static extern bool DestroyIcon(IntPtr icon);
+
+    [DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? className, string? windowName);
+
+    /// The size the taskbar draws button icons at, in DIP: 24, or 16 with
+    /// Windows 11's smaller taskbar buttons, whose taskbar is 32 DIP thick
+    /// instead of 48.
+    public static int TaskbarIconDip()
+    {
+        var bar = FindWindow("Shell_TrayWnd", null);
+        if (bar == IntPtr.Zero || !GetWindowRect(bar, out var rect)) return 24;
+        var dpi = GetDpiForWindow(bar);
+        var thickness = Math.Min(rect.Right - rect.Left, rect.Bottom - rect.Top) * 96.0 / (dpi == 0 ? 96 : dpi);
+        return thickness < 40 ? 16 : 24;
+    }
+
     [DllImport("gdi32.dll")]
     public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
 
@@ -266,6 +307,14 @@ internal sealed class TransparentBackdrop : Microsoft.UI.Xaml.Media.SystemBackdr
         base.OnTargetDisconnected(target);
         target.SystemBackdrop = null;
         if (_subclass is not null && _hwnd != IntPtr.Zero) Win32.RemoveWindowSubclass(_hwnd, _subclass, 1);
+    }
+
+    /// WinUI calls this on a window's backdrop with a null target, once at
+    /// startup and again on every light/dark switch, and the base rejects
+    /// that with an ArgumentException. A clear backdrop has no material for
+    /// the default configuration to steer, so the base is never needed.
+    protected override void OnDefaultSystemBackdropConfigurationChanged(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop target, Microsoft.UI.Xaml.XamlRoot xamlRoot)
+    {
     }
 
     private IntPtr Subclass(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, IntPtr id, IntPtr data)

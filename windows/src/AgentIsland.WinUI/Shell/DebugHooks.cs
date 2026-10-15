@@ -45,6 +45,11 @@ internal static class DebugHooks
                 Cost.CostWindow.Open();
             }
         }
+        // AGENTISLAND_DEBUG_STATES=<dir>: the pixel kit's control states.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_STATES") is { Length: > 0 } states)
+        {
+            _ = SettingsWindow.SnapshotStatesAsync(states);
+        }
         // AGENTISLAND_DEBUG_MENU=tray|drawer: open that menu at the pointer.
         switch (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_MENU"))
         {

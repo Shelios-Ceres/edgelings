@@ -17,13 +17,14 @@ namespace AgentIsland.WinUI.Shell;
 internal sealed class TrayIcon : IDisposable
 {
     private readonly TaskbarIcon _icon;
-    private readonly System.Drawing.Icon _image;
+    private System.Drawing.Icon _image;
+    private (string File, int Size) _imageKey;
     private readonly DispatcherQueue _queue = DispatcherQueue.GetForCurrentThread();
 
     public TrayIcon()
     {
-        var size = Win32.GetSystemMetricsForDpi(49, 96 * 2); // SM_CXSMICON at 200%, downscaled by the shell
-        _image = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "AgentIsland.ico"), size, size);
+        _imageKey = ImageKey();
+        _image = Load(_imageKey);
         _icon = new TaskbarIcon
         {
             Icon = _image,
@@ -37,7 +38,43 @@ internal sealed class TrayIcon : IDisposable
         UsageStore.Shared.PropertyChanged += OnDataChanged;
         ActivityMonitor.Shared.PropertyChanged += OnDataChanged;
         ProviderVisibilityStore.Shared.PropertyChanged += OnDataChanged;
+        DrawerStore.Shared.PropertyChanged += OnLookChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
         Update();
+    }
+
+    /// Classic's icon is drawn smooth, so the shell may shrink its 200 %
+    /// size. The pixel icon turns soft when scaled, so it comes at exactly
+    /// the small-icon size of the primary display, where the notification
+    /// area lives.
+    private static (string File, int Size) ImageKey() => Looks.Pixel
+        ? ("AgentIsland-pixel.ico", Win32.GetSystemMetricsForDpi(Win32.SmCxSmIcon, Win32.PrimaryDpi()))
+        : ("AgentIsland.ico", Win32.GetSystemMetricsForDpi(Win32.SmCxSmIcon, 96 * 2));
+
+    private static System.Drawing.Icon Load((string File, int Size) key)
+    {
+        var image = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", key.File), key.Size, key.Size);
+        DebugTrace.Write($"tray icon {key.File} {image.Width}x{image.Height}");
+        return image;
+    }
+
+    private void OnLookChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DrawerStore.Theme)) _queue.TryEnqueue(Reload);
+    }
+
+    private void OnDisplayChanged(object? sender, EventArgs e) => _queue.TryEnqueue(Reload);
+
+    /// The other character style, or a new scale on the primary display.
+    private void Reload()
+    {
+        var key = ImageKey();
+        if (key == _imageKey) return;
+        var old = _image;
+        _image = Load(key);
+        _imageKey = key;
+        _icon.Icon = _image;
+        old.Dispose();
     }
 
     public void ShowMenu(bool keepOpen = false)
@@ -46,7 +83,8 @@ internal sealed class TrayIcon : IDisposable
         menu.Items.Add(MenuHost.Item(L10n.Tr("Show / Hide drawer"), "\uE890", () => App.Current.ToggleDrawer()));
         var agents = new MenuFlyoutSubItem { Text = L10n.Tr("Agents"), Icon = MenuHost.Glyph("\uE99A") };
         AutomationProperties.SetAutomationId(agents, "Tray.Agents");
-        foreach (var provider in DisplayProviders.All)
+        // In the drawer's order, without the agents the user hid.
+        foreach (var provider in DrawerStore.Shared.Order.Where(provider => !ProviderVisibilityStore.Shared.IsHidden(provider)))
         {
             var phase = App.Current.Drawer?.PhaseOf(provider).Phase ?? AgentPhase.Idle;
             var item = MenuHost.Item($"{ProviderIdentity.DisplayName(provider)} · {DrawerLooks.PhaseLabel(phase)}", null,
@@ -73,7 +111,7 @@ internal sealed class TrayIcon : IDisposable
         var monitor = ActivityMonitor.Shared;
         var worst = ActivityState.Idle;
         var parts = new List<string>();
-        foreach (var provider in DisplayProviders.All.Where(ProviderVisibilityStore.Shared.IsShown))
+        foreach (var provider in DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown))
         {
             var window = ProviderUsage.For(provider).FiveHour;
             if (!window.HasError && StatusCards.Meters(provider).Count > 0)
@@ -103,6 +141,8 @@ internal sealed class TrayIcon : IDisposable
         UsageStore.Shared.PropertyChanged -= OnDataChanged;
         ActivityMonitor.Shared.PropertyChanged -= OnDataChanged;
         ProviderVisibilityStore.Shared.PropertyChanged -= OnDataChanged;
+        DrawerStore.Shared.PropertyChanged -= OnLookChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
         _icon.Dispose();
         _image.Dispose();
     }

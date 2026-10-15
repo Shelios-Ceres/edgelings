@@ -8,7 +8,7 @@ namespace AgentIsland.WinUI.Shell;
 /// A filled quota bar: a rounded track tinted with the agent's colour and a
 /// solid fill for the share used (or left). A fill under one bar-height
 /// still shows as a dot, so a small share never disappears into the track.
-internal sealed class QuotaBar : Grid
+internal sealed class QuotaBar : Grid, IQuotaBar
 {
     private readonly Border _fill;
     private double _ratio;
@@ -43,4 +43,11 @@ internal sealed class QuotaBar : Grid
         _fill.Visibility = _ratio > 0 ? Visibility.Visible : Visibility.Collapsed;
         _fill.Width = Math.Max(Height, _ratio * ActualWidth);
     }
+}
+
+/// A quota bar in either look: the rounded Fluent one or the pixel blocks.
+internal interface IQuotaBar
+{
+    /// ratio null means the window failed to load.
+    void Set(double? ratio, Color color, bool warn, bool dark);
 }

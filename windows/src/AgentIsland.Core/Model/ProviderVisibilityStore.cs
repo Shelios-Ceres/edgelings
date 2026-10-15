@@ -49,6 +49,10 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
 
     public void SetShown(DisplayProvider provider, bool shown) => DrawerStore.Shared.SetShown(provider, shown);
 
+    /// Hidden by the user: out of the drawer, its menus, the Cost window and
+    /// the Agents page's own groups.
+    public bool IsHidden(DisplayProvider provider) => DrawerStore.Shared.IsHidden(provider);
+
     public bool ClaudeDetected => IsDetected(DisplayProvider.Claude);
     public bool CodexDetected => IsDetected(DisplayProvider.Codex);
     public bool AntigravityDetected => IsDetected(DisplayProvider.Antigravity);

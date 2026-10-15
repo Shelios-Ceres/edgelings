@@ -16,6 +16,7 @@ public sealed partial class App : Application
 
     public App()
     {
+        if (Brand.ForcedDark is { } dark) RequestedTheme = dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
         InitializeComponent();
         // The drawer and tray outlive every window; quitting is explicit.
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;

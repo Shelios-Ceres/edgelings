@@ -84,6 +84,7 @@ public static class Program
             QuotaRetentionTests.RunAll();
             PixelThemeTests.RunAll();
             SharedSubscriptionTests.RunAll();
+            DrawerPlacementTests.RunAll();
             SecurityGuardTests.RunAll();
             FormattingTests.RunAll();
             LaunchAtLoginTests.RunAll();
