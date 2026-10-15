@@ -24,16 +24,16 @@ internal static class MenuHost
     /// keepOpen is for the verification hooks, which have no click to grant
     /// the host the foreground.
     /// at is a screen point in physical pixels; the pointer by default.
-    public static void Show(MenuFlyout menu, bool keepOpen = false, PointInt32? at = null, bool pixel = false)
+    /// kit dresses the menu in the current look; the tray's menu stays Fluent.
+    public static void Show(MenuFlyout menu, bool keepOpen = false, PointInt32? at = null, bool kit = false)
     {
         Ensure();
         _open?.Hide();
-        // The tray's menu stays Fluent; only a pixel menu brings the kit.
         _root!.Resources.MergedDictionaries.Clear();
-        if (pixel)
+        if (kit)
         {
             _root.Resources.MergedDictionaries.Add(Looks.NewKit(Win32.GetDpiForWindow(_hwnd) / 96.0));
-            Pixelate(menu);
+            UseKit(menu);
         }
         _keepOpen = keepOpen;
         Win32.GetCursorPos(out var cursor);
@@ -110,34 +110,36 @@ internal static class MenuHost
         };
     }
 
-    /// The pixel kit for a menu: its presenter, each item's style by kind,
-    /// and the kit's drawing for every glyph it has one for. Menus open in
-    /// popups, beyond any window's styles, so nothing here is implicit.
-    public static void Pixelate(MenuFlyout menu)
+    /// The current kit for a menu: its presenter, each item's style by kind,
+    /// and under Pixel the kit's drawing for every glyph it has one for.
+    /// Menus open in popups, beyond any window's styles, so nothing here is
+    /// implicit.
+    public static void UseKit(MenuFlyout menu)
     {
-        menu.MenuFlyoutPresenterStyle = (Style)Looks.Resource("PixelMenuFlyoutPresenterStyle");
-        Pixelate(menu.Items);
+        menu.MenuFlyoutPresenterStyle = Looks.Kit<Style>("MenuFlyoutPresenterStyle");
+        UseKit(menu.Items, Looks.Pixel);
     }
 
-    private static void Pixelate(IList<MenuFlyoutItemBase> items)
+    private static void UseKit(IList<MenuFlyoutItemBase> items, bool pixel)
     {
         foreach (var item in items)
         {
-            item.Style = (Style)Looks.Resource(item switch
+            // An item may bring a kit style of its own (the drawer menu's title).
+            if (item.Style is null) item.Style = Looks.Kit<Style>(item switch
             {
-                MenuFlyoutSubItem => "PixelMenuFlyoutSubItemStyle",
-                ToggleMenuFlyoutItem => "PixelToggleMenuFlyoutItemStyle",
-                RadioMenuFlyoutItem => "PixelRadioMenuFlyoutItemStyle",
-                MenuFlyoutSeparator => "PixelMenuFlyoutSeparatorStyle",
-                _ => "PixelMenuFlyoutItemStyle",
+                MenuFlyoutSubItem => "MenuFlyoutSubItemStyle",
+                ToggleMenuFlyoutItem => "ToggleMenuFlyoutItemStyle",
+                RadioMenuFlyoutItem => "RadioMenuFlyoutItemStyle",
+                MenuFlyoutSeparator => "MenuFlyoutSeparatorStyle",
+                _ => "MenuFlyoutItemStyle",
             });
             switch (item)
             {
                 case MenuFlyoutSubItem sub:
-                    if (sub.Icon is FontIcon { Glyph: var subGlyph } && PixelIcons.NameFor(subGlyph) is { } subName) sub.Icon = PixelIcons.Icon(subName);
-                    Pixelate(sub.Items);
+                    if (pixel && sub.Icon is FontIcon { Glyph: var subGlyph } && PixelIcons.NameFor(subGlyph) is { } subName) sub.Icon = PixelIcons.Icon(subName);
+                    UseKit(sub.Items, pixel);
                     break;
-                case MenuFlyoutItem { Icon: FontIcon { Glyph: var glyph } } plain when PixelIcons.NameFor(glyph) is { } name:
+                case MenuFlyoutItem { Icon: FontIcon { Glyph: var glyph } } plain when pixel && PixelIcons.NameFor(glyph) is { } name:
                     plain.Icon = PixelIcons.Icon(name);
                     break;
             }

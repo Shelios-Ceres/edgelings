@@ -10,10 +10,10 @@ using WinRT.Interop;
 
 namespace AgentIsland.WinUI.Shell;
 
-/// The app windows' shared frame: Mica, a tall title bar drawn by the
-/// content with the app's mark, centred on the work area. Under Pixel: an
-/// opaque desk, square corners inside a pixel frame, a 32-DIP title bar
-/// with the pixel logo, and the pixel app icon.
+/// The app windows' shared frame: a 32-DIP title bar drawn by the content
+/// with the app's mark, centred on the work area, and the look's kit. Under
+/// Classic: Mica and Windows' corners. Under Pixel: an opaque desk, square
+/// corners inside a pixel frame, the pixel logo and the pixel app icon.
 internal static class Chrome
 {
     private const int DwmWindowCornerPreference = 33;
@@ -113,10 +113,10 @@ internal static class Chrome
             };
         }
         icons.Show(pixel, root);
+        var kit = Looks.NewKit(scale);
+        root.Resources.MergedDictionaries.Add(kit);
         if (pixel)
         {
-            var kit = Looks.NewKit(scale);
-            root.Resources.MergedDictionaries.Add(kit);
             root.Style = (Style)kit["PixelWindowStyle"];
             window.SystemBackdrop = null;
             Pixelate(window, hwnd);
@@ -127,13 +127,13 @@ internal static class Chrome
             if (Pixelated.Remove(hwnd)) Unpixelate(window, hwnd);
             if (window.SystemBackdrop is not MicaBackdrop) window.SystemBackdrop = new MicaBackdrop();
         }
-        window.AppWindow.TitleBar.PreferredHeightOption = pixel ? TitleBarHeightOption.Standard : TitleBarHeightOption.Tall;
+        window.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
 
-        var bar = new Grid { Padding = new Thickness(pixel ? 12 : 16, 0, 0, 0) };
+        var bar = new Grid { Padding = new Thickness(pixel ? 12 : 14, 0, 0, 0) };
         bar.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = pixel ? 8 : 12,
+            Spacing = 8,
             VerticalAlignment = VerticalAlignment.Center,
             Children =
             {
@@ -142,8 +142,8 @@ internal static class Chrome
                     Source = pixel
                         ? PixelIcons.Logo()
                         : new BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "agentisland_logo_small.png"))),
-                    Width = pixel ? 20 : 18,
-                    Height = pixel ? 20 : 18,
+                    Width = pixel ? 20 : 16,
+                    Height = pixel ? 20 : 16,
                 },
                 new TextBlock
                 {
@@ -153,7 +153,7 @@ internal static class Chrome
                 },
             },
         });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(pixel ? 32 : 48) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(bar);
         if (pixel)

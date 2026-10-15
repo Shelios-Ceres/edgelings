@@ -156,8 +156,7 @@ internal sealed class CostWindow : Window
     {
         foreach (var (label, glyph) in new[] { ("Today", "\uE823"), ("Last 7 days", "\uE787"), ("This month", "\uE8BF") })
         {
-            var item = new SelectorBarItem { Text = L10n.Tr(label), Icon = Icon(glyph) };
-            if (Looks.Pixel) item.Style = Res<Style>("PixelSelectorBarItemStyle");
+            var item = new SelectorBarItem { Text = L10n.Tr(label), Icon = Icon(glyph), Style = Looks.Kit<Style>("SelectorBarItemStyle") };
             _periods.Items.Add(item);
         }
         _period = Enum.TryParse<Period>(Preferences.Get<string?>(PeriodKey), out var saved) ? saved : Period.Today;
@@ -170,7 +169,7 @@ internal sealed class CostWindow : Window
             Render();
         };
 
-        var header = new Grid { ColumnSpacing = 16, MaxWidth = 1100, Padding = new Thickness(40, 20, 40, 8) };
+        var header = new Grid { ColumnSpacing = 16, MaxWidth = 1100, Padding = new Thickness(40, _pixel ? 20 : 24, 40, 8) };
         header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -178,10 +177,17 @@ internal sealed class CostWindow : Window
         var titles = new StackPanel();
         titles.Children.Add(PageTitle(L10n.Tr("Cost")));
         titles.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.")));
-        titles.Children.Add(_periods);
+        if (_pixel)
+        {
+            titles.Children.Add(_periods);
+        }
+        else
+        {
+            titles.Children.Add(new Border { Style = Looks.Kit<Style>("TrackStyle"), Margin = new Thickness(0, 10, 0, 0), Child = _periods });
+        }
         _periodRange.Style = Res<Style>("CaptionTextBlockStyle");
         _periodRange.Foreground = Res<Brush>("TextFillColorSecondaryBrush");
-        _periodRange.Margin = new Thickness(0, 8, 0, 0);
+        _periodRange.Margin = new Thickness(0, _pixel ? 8 : 12, 0, 0);
         _calendarNote.Style = Res<Style>("CaptionTextBlockStyle");
         _calendarNote.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
         var captions = new StackPanel { Children = { _periodRange, _calendarNote } };
@@ -315,18 +321,32 @@ internal sealed class CostWindow : Window
         var scanned = slices.Any(s => s.AsOf is not null);
         var row = new Grid { ColumnSpacing = 12 };
         for (var i = 0; i < 3; i++) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        void Stat(int column, string label, string value, string caption)
+        void Stat(int column, string label, string value, string caption, DisplayProvider? face = null)
         {
+            var number = new TextBlock { Text = value, Style = Res<Style>(_pixel ? "SubtitleTextBlockStyle" : "ClassicHeroTextStyle") };
+            FrameworkElement shown = number;
+            if (!_pixel && face is { } provider)
+            {
+                number.VerticalAlignment = VerticalAlignment.Center;
+                shown = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 10,
+                    Children = { new FaceChip(22, ClassicTokens.Identity(provider, Brand.IsDark()), lookRight: true) { VerticalAlignment = VerticalAlignment.Center }, number },
+                };
+            }
+            var labelText = new TextBlock { Text = label, Foreground = Res<Brush>("TextFillColorSecondaryBrush") };
+            if (!_pixel) labelText.Style = Res<Style>("CaptionTextBlockStyle");
             var card = Surface(new StackPanel
             {
                 Spacing = 2,
                 Children =
                 {
-                    new TextBlock { Text = label, Foreground = Res<Brush>("TextFillColorSecondaryBrush") },
-                    new TextBlock { Text = value, Style = Res<Style>("SubtitleTextBlockStyle") },
+                    labelText,
+                    shown,
                     new TextBlock { Text = caption, TextWrapping = TextWrapping.Wrap, Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") },
                 },
-            });
+            }, totals: true);
             Grid.SetColumn(card, column);
             row.Children.Add(card);
         }
@@ -336,10 +356,11 @@ internal sealed class CostWindow : Window
             : L10n.Tr("At API list prices"));
         Stat(1, L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
             TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode));
+        var active = busiest is { } top && (billable ? top.Billable : top.Tokens) > 0;
         Stat(2, L10n.Tr("Busiest agent"),
-            busiest is { } top && (billable ? top.Billable : top.Tokens) > 0 ? ProviderIdentity.DisplayName(top.Provider) : "—",
-            busiest is { } b && (billable ? b.Billable : b.Tokens) > 0 ? L10n.TrFormat("{0} tokens", Tokens(b))
-                : L10n.Tr(scanned ? "No activity yet" : "Not scanned yet"));
+            active ? ProviderIdentity.DisplayName(busiest!.Provider) : "—",
+            active ? L10n.TrFormat("{0} tokens", Tokens(busiest!)) : L10n.Tr(scanned ? "No activity yet" : "Not scanned yet"),
+            active ? busiest!.Provider : null);
         return row;
     }
 
@@ -350,9 +371,7 @@ internal sealed class CostWindow : Window
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var mark = new Image { Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center };
-        _ = SetMark(mark, slice.Provider);
-        head.Children.Add(mark);
+        head.Children.Add(Mark(slice.Provider));
         var name = new TextBlock { Text = ProviderIdentity.DisplayName(slice.Provider), Style = Res<Style>("BodyStrongTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(name, 1);
         head.Children.Add(name);
@@ -423,25 +442,37 @@ internal sealed class CostWindow : Window
         return Surface(panel);
     }
 
-    /// Bars scaled to the period's largest; each carries its value as a
-    /// tooltip.
+    /// Bars scaled to the period's largest, rounded more at the top, at
+    /// most 22 wide and at least 6 tall; an idle hour or day is a faint dot.
+    /// Each carries its value as a tooltip.
     private static FrameworkElement Chart(Slice slice, Windows.UI.Color accent)
     {
         var max = slice.Bars.Max(b => b.Value);
-        var grid = new Grid { Height = ChartHeight, ColumnSpacing = slice.Bars.Count > 20 ? 2 : 4 };
+        var fill = new SolidColorBrush(accent);
+        var idle = Res<Brush>("TextFillColorTertiaryBrush");
+        var grid = new Grid { Height = ChartHeight, ColumnSpacing = slice.Bars.Count > 20 ? 3 : 6 };
         for (var i = 0; i < slice.Bars.Count; i++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var (label, value) = slice.Bars[i];
-            var height = max > 0 ? Math.Max(value > 0 ? 3 : 1.5, value / max * ChartHeight) : 1.5;
-            var column = new Border
-            {
-                Height = height,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                CornerRadius = new CornerRadius(2, 2, 0, 0),
-                Background = new SolidColorBrush(value > 0 ? accent : Brand.Rgb(0x808080, 0x40)),
-            };
-            ToolTipService.SetToolTip(column, $"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}");
+            FrameworkElement column = value > 0 && max > 0
+                ? new Border
+                {
+                    Height = Math.Max(6, value / max * ChartHeight),
+                    MaxWidth = 22,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    CornerRadius = new CornerRadius(6, 6, 3, 3),
+                    Background = fill,
+                }
+                : new Microsoft.UI.Xaml.Shapes.Ellipse
+                {
+                    Width = 4,
+                    Height = 4,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Fill = idle,
+                    Opacity = 0.35,
+                };
+            ToolTipService.SetToolTip(column, Tip($"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}"));
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
         }
@@ -473,8 +504,7 @@ internal sealed class CostWindow : Window
 
     private static FrameworkElement NoLogCard(DisplayProvider provider)
     {
-        var mark = new Image { Width = 20, Height = 20 };
-        _ = SetMark(mark, provider);
+        var mark = Mark(provider);
         return Surface(new StackPanel
         {
             Spacing = 8,
@@ -487,7 +517,7 @@ internal sealed class CostWindow : Window
                     Children =
                     {
                         mark,
-                        new TextBlock { Text = ProviderIdentity.DisplayName(provider), Style = Res<Style>("BodyStrongTextBlockStyle") },
+                        new TextBlock { Text = ProviderIdentity.DisplayName(provider), Style = Res<Style>("BodyStrongTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center },
                     },
                 },
                 new TextBlock
@@ -500,8 +530,9 @@ internal sealed class CostWindow : Window
         });
     }
 
-    /// A card: rounded Fluent, or under Pixel a stepped plate.
-    private static FrameworkElement Surface(UIElement child)
+    /// A card: paper with the card edge, or under Pixel a stepped plate.
+    /// The totals are rounded 14 with 16/14 padding; agent cards 16 with 18/16.
+    private static FrameworkElement Surface(UIElement child, bool totals = false)
     {
         if (Looks.Pixel)
         {
@@ -517,22 +548,23 @@ internal sealed class CostWindow : Window
         return new Border
         {
             Child = child,
-            Padding = new Thickness(16, 14, 16, 14),
-            CornerRadius = new CornerRadius(8),
-            Background = Res<Brush>("CardBackgroundFillColorDefaultBrush"),
-            BorderBrush = Res<Brush>("CardStrokeColorDefaultBrush"),
+            Padding = totals ? new Thickness(16, 14, 16, 14) : new Thickness(18, 16, 18, 16),
+            CornerRadius = new CornerRadius(totals ? 14 : 16),
+            Background = Res<Brush>("ClassicPaper"),
+            BorderBrush = Res<Brush>("ClassicEdge"),
             BorderThickness = new Thickness(1),
         };
     }
 
-    /// The brand's mark, or under Pixel the agent's pixel bot face.
-    private static async Task SetMark(Image image, DisplayProvider provider)
+    /// The agent's puck (its mark on its tint), or under Pixel its pixel bot face.
+    private static FrameworkElement Mark(DisplayProvider provider)
     {
         if (Looks.Pixel)
         {
-            image.Source = PixelIcons.Face(provider);
-            return;
+            return new Image { Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center, Source = PixelIcons.Face(provider) };
         }
-        if (await Brand.MarkAsync(provider, Brand.IsDark()) is { } mark) image.Source = mark;
+        var puck = Puck.Of(provider, 32, 18);
+        puck.VerticalAlignment = VerticalAlignment.Center;
+        return puck;
     }
 }

@@ -30,26 +30,18 @@ internal static class OrderList
         var items = new ObservableCollection<Entry>(store.Order
             .Where(provider => !(merged && provider == DisplayProvider.Cursor))
             .Select(provider => new Entry(provider)));
-        var pixel = Looks.Pixel;
-        var rowStyle = pixel ? Res<Style>("PixelOrderRowStyle") : new Style(typeof(ListViewItem));
-        if (!pixel)
-        {
-            rowStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
-            // Rows are for dragging; Tab walks the arrows.
-            rowStyle.Setters.Add(new Setter(Control.IsTabStopProperty, false));
-        }
         var list = new ListView
         {
             ItemsSource = items,
             ItemTemplate = (DataTemplate)XamlReader.Load(
                 "<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Grid/></DataTemplate>"),
-            ItemContainerStyle = rowStyle,
+            // Rows are for dragging; Tab walks the arrows.
+            ItemContainerStyle = Looks.Kit<Style>("OrderRowStyle"),
             CanReorderItems = true,
             CanDragItems = true,
             AllowDrop = true,
             SelectionMode = ListViewSelectionMode.None,
             TabNavigation = KeyboardNavigationMode.Local,
-            Margin = pixel ? new Thickness(0) : new Thickness(-12, 4, 0, 0),
         };
         AutomationProperties.SetAutomationId(list, "Settings.Drawer.Order");
         AutomationProperties.SetName(list, L10n.Tr("Order"));
@@ -149,6 +141,8 @@ internal static class OrderList
     private sealed class Row
     {
         private readonly TextBlock _name = new() { VerticalAlignment = VerticalAlignment.Center };
+        // Classic rows carry the character's face before its name.
+        private readonly FaceChip? _face = Looks.Pixel ? null : new FaceChip(16, Microsoft.UI.Colors.Transparent) { VerticalAlignment = VerticalAlignment.Center };
         private readonly ToggleSwitch _shown = new() { OnContent = "", OffContent = "", MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
         private bool _filling;
 
@@ -162,23 +156,26 @@ internal static class OrderList
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var grip = Icon("\uE76F");
-            if (grip is FontIcon glyph) glyph.FontSize = 14;
+            if (grip is FontIcon glyph) glyph.FontSize = Looks.Pixel ? 14 : 16;
             grip.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
             grip.VerticalAlignment = VerticalAlignment.Center;
             root.Children.Add(grip);
-            Grid.SetColumn(_name, 1);
-            root.Children.Add(_name);
+            FrameworkElement label = _face is null
+                ? _name
+                : new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { _face, _name } };
+            Grid.SetColumn(label, 1);
+            root.Children.Add(label);
             Button Arrow(string glyph, int step)
             {
-                var button = new Button { Content = Icon(glyph) };
-                if (Looks.Pixel) button.Style = Res<Style>("PixelIconButtonStyle");
-                else button.Padding = new Thickness(8, 4, 8, 4);
+                var icon = Icon(glyph);
+                if (icon is FontIcon font) font.FontSize = 14;
+                var button = new Button { Content = icon, Style = Looks.Kit<Style>("IconButtonStyle") };
                 button.Click += (_, _) => move(this, step, button.FocusState);
                 return button;
             }
             Up = Arrow("\uE70E", -1);
             Down = Arrow("\uE70D", 1);
-            Pixelate(_shown);
+            UseKit(_shown);
             _shown.Toggled += (_, _) =>
             {
                 if (!_filling) setShown(this, _shown.IsOn);
@@ -215,6 +212,7 @@ internal static class OrderList
         {
             Entry = entry;
             _name.Text = name;
+            if (_face is not null) _face.Color = ClassicTokens.Identity(entry.Provider, Brand.IsDark());
             // A hidden character keeps its place, faded.
             _name.Foreground = Res<Brush>(shown ? "TextFillColorPrimaryBrush" : "TextFillColorTertiaryBrush");
             _filling = true;

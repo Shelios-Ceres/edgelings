@@ -1160,9 +1160,9 @@ internal sealed class DrawerWindow : Window
         PointInt32? at = keepOpen
             ? new PointInt32(scene.Left + (int)(bot.Bounds.X * scene.Scale), scene.Top + (int)(bot.Bounds.Bottom * scene.Scale))
             : null;
-        DrawerMenu.Show(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
+        _ = DrawerMenu.ShowAsync(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
             _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(), _merged,
-            (shape, color) => ChangeLook(bot, shape, color), keepOpen, at);
+            (shape, color) => ChangeLook(bot, shape, color), keepOpen, at, scene.Scale);
     }
 
     private void Drag()

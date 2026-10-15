@@ -10,10 +10,10 @@ using Windows.Foundation;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// A character's line: a small pane of the hover card's glass beside it,
-/// growing out of the side facing the character and fading away on its own.
-/// With the pixel bots it is a pixel panel pointing at its speaker, the
-/// line in English in the pixel face.
+/// A character's line beside it, growing out of the side facing the
+/// character and fading away on its own: paper like the hover card's, its
+/// tail centred on the speaker. With the pixel bots it is a pixel panel
+/// pointing at its speaker, the line in English in the pixel face.
 internal sealed class SpeechBubble
 {
     private const double MaxWidth = 240;
@@ -25,31 +25,36 @@ internal sealed class SpeechBubble
 
     private readonly Panel _root;
     private static readonly Thickness TextPadding = new(14, 9, 14, 10);
+    private static readonly Thickness PaperTextPadding = new(15, 9, 15, 10);
+    private const double TailReach = 7;
+    // The popup window leaves room around the pane for the paper's shadow.
+    private static readonly Thickness ShadowRoom = new(16, 12, 16, 24);
 
     private readonly Popup _popup;
     private readonly Border _pane;
     private readonly Grid _content = new();
     private readonly PixelPlate _plate = new() { Visibility = Visibility.Collapsed };
+    private readonly PaperPlate _paper = new() { Visibility = Visibility.Collapsed };
     private readonly TextBlock _text = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxWidth = MaxWidth - 28 };
     private readonly Compositor _compositor;
     private readonly CompositionEasingFunction _easeOut;
     private readonly DispatcherQueueTimer _linger;
     private readonly DispatcherQueueTimer _close;
-    private bool? _glassDark;
     private bool _reduced;
 
-    public SpeechBubble(Panel root)
+    public SpeechBubble(Panel root, bool inWindow = false)
     {
         _root = root;
         _content.Children.Add(_plate);
+        _content.Children.Add(_paper);
         _content.Children.Add(_text);
-        _pane = new Border
+        _pane = new Border { Child = _content, Padding = TextPadding };
+        _popup = new Popup
         {
-            Child = _content,
-            Padding = TextPadding,
-            CornerRadius = new CornerRadius(8),
+            Child = new Border { Child = _pane, Padding = ShadowRoom },
+            ShouldConstrainToRootBounds = inWindow,
+            IsHitTestVisible = false,
         };
-        _popup = new Popup { Child = _pane, ShouldConstrainToRootBounds = false, IsHitTestVisible = false };
         root.Children.Add(_popup);
         _compositor = CompositionTarget.GetCompositorForCurrentThread();
         _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 1f), new Vector2(0.68f, 1f));
@@ -68,45 +73,34 @@ internal sealed class SpeechBubble
 
     /// anchor and area are in the drawer window's DIPs; characterRight means
     /// the character is to the bubble's right.
-    /// swatch is the speaking character's colour, washed through the glass or
-    /// outlining the pixel panel.
+    /// swatch is the speaking character's colour, outlining the pixel panel.
     public void Say(string line, uint swatch, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
     {
         if (_root.XamlRoot is not { } xamlRoot) return;
         _popup.XamlRoot = xamlRoot;
         var scale = xamlRoot.RasterizationScale;
         var dark = Brand.IsDark();
+        // The pane's padding on the speaker's side holds the pointer or tail.
+        var reach = pixel ? PixelPlate.PointerReach : TailReach + 1;
+        _pane.Padding = characterRight ? new Thickness(0, 0, reach, 0) : new Thickness(reach, 0, 0, 0);
         if (pixel)
         {
-            _glassDark = null;
-            _popup.SystemBackdrop = null;
-            _pane.Background = null;
-            _pane.CornerRadius = new CornerRadius(0);
-            // The pane's padding on the speaker's side holds the pointer.
-            _pane.Padding = characterRight
-                ? new Thickness(0, 0, PixelPlate.PointerReach, 0)
-                : new Thickness(PixelPlate.PointerReach, 0, 0, 0);
             _text.Margin = TextPadding;
             _text.FontFamily = PixelPlate.Font;
             _text.FontSize = PixelPlate.FontSize(scale);
-            _plate.Visibility = Visibility.Visible;
+            _text.ClearValue(TextBlock.LineHeightProperty);
+            _text.Foreground = Fluent.Resource<Brush>("TextFillColorPrimaryBrush", dark);
         }
         else
         {
-            if (_glassDark != dark)
-            {
-                _glassDark = dark;
-                _popup.SystemBackdrop = new GlassBackdrop(dark);
-            }
-            _pane.Background = GlassBackdrop.Wash(swatch, dark);
-            _pane.CornerRadius = new CornerRadius(8);
-            _pane.Padding = TextPadding;
-            _text.Margin = new Thickness(0);
+            _text.Margin = PaperTextPadding;
             _text.ClearValue(TextBlock.FontFamilyProperty);
             _text.FontSize = 13;
-            _plate.Visibility = Visibility.Collapsed;
+            _text.LineHeight = 18;
+            _text.Foreground = ClassicTokens.Brush("Text", dark);
         }
-        _text.Foreground = Fluent.Resource<Brush>("TextFillColorPrimaryBrush", dark);
+        _plate.Visibility = pixel ? Visibility.Visible : Visibility.Collapsed;
+        _paper.Visibility = pixel ? Visibility.Collapsed : Visibility.Visible;
         _text.Text = line;
 
         _pane.Measure(new Size(MaxWidth, double.PositiveInfinity));
@@ -118,8 +112,14 @@ internal sealed class SpeechBubble
             _plate.Set(size.Width - PixelPlate.PointerReach, size.Height, Brand.Rgb(swatch), HoverCard.PixelFill(dark),
                 pointLeft: !characterRight, pointerY: aim - top);
         }
-        _popup.HorizontalOffset = GlassBackdrop.Snap(characterRight ? anchor.Left - Gap - size.Width : anchor.Right + Gap, scale);
-        _popup.VerticalOffset = GlassBackdrop.Snap(top, scale);
+        else
+        {
+            _paper.Set(size.Width - reach, size.Height, radius: 12, halfBase: 6, reach: TailReach, pointLeft: !characterRight,
+                tailY: aim - top, ClassicTokens.Get("Paper", dark), ClassicTokens.Get("Hairline", dark));
+            _paper.HorizontalAlignment = characterRight ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        }
+        _popup.HorizontalOffset = Pixels.Snap((characterRight ? anchor.Left - Gap - size.Width : anchor.Right + Gap) - ShadowRoom.Left, scale);
+        _popup.VerticalOffset = Pixels.Snap(top - ShadowRoom.Top, scale);
         _pane.CenterPoint = new Vector3((float)(characterRight ? size.Width : 0), (float)Math.Clamp(aim - top, 0, size.Height), 0);
 
         _reduced = reducedMotion;

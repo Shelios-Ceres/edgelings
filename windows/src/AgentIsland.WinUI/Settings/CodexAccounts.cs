@@ -16,7 +16,7 @@ internal static class CodexAccounts
     {
         var menu = new MenuFlyout();
         var button = new DropDownButton { Content = L10n.Tr("Switch"), Flyout = menu };
-        if (Looks.Pixel) button.Style = SettingsUi.Res<Style>("PixelDropDownButtonStyle");
+        button.Style = Looks.Kit<Style>("DropDownButtonStyle");
         AutomationProperties.SetName(button, L10n.Tr("Switch Codex account"));
         AutomationProperties.SetAutomationId(button, "Agent.codex.SwitchAccount");
         menu.Opening += (_, _) => Fill(menu, root);
@@ -89,14 +89,14 @@ internal static class CodexAccounts
         var auto = new ToggleMenuFlyoutItem { Text = L10n.Tr("Auto-switch when exhausted"), IsChecked = CodexAccountSwitcher.AutoSwitchEnabled };
         auto.Click += (_, _) => CodexAccountSwitcher.AutoSwitchEnabled = auto.IsChecked;
         menu.Items.Add(auto);
-        if (Looks.Pixel) MenuHost.Pixelate(menu);
+        MenuHost.UseKit(menu);
     }
 
     private static async Task SaveCurrent(XamlRoot root)
     {
         using var english = Looks.English();
         var name = new TextBox { PlaceholderText = L10n.Tr("work / personal"), MaxLength = 40 };
-        if (Looks.Pixel) name.Style = SettingsUi.Res<Style>("PixelTextBoxStyle");
+        SettingsUi.UseKit(name);
         AutomationProperties.SetName(name, L10n.Tr("Save current account"));
         AutomationProperties.SetAutomationId(name, "Agent.codex.AccountLabel");
         var dialog = SettingsUi.Dialog(root);

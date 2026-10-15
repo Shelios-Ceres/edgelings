@@ -2,6 +2,7 @@ using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Settings;
 using AgentIsland.WinUI.Shell;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -12,7 +13,9 @@ namespace AgentIsland.WinUI.Drawer;
 /// shows, which edge it docks to, and the app's windows.
 internal static class DrawerMenu
 {
-    public static void Show(
+    /// Under Classic the title's mark loads first: an icon swapped in while
+    /// the menu is open closes it.
+    public static async Task ShowAsync(
         DisplayProvider provider,
         string shape,
         string color,
@@ -22,16 +25,27 @@ internal static class DrawerMenu
         bool merged,
         Action<string, string> changeLook,
         bool keepOpen = false,
-        Windows.Graphics.PointInt32? at = null)
+        Windows.Graphics.PointInt32? at = null,
+        double scale = 1)
     {
-        using var english = Looks.English();
         var pixel = Looks.Pixel;
         var dark = Brand.IsDark();
+        var mark = pixel ? null : await Brand.MarkAsync(provider, dark);
+        using var english = Looks.English();
         var menu = new MenuFlyout();
         var title = new MenuFlyoutItem { Text = SharedSubscription.CharacterName(provider, merged) };
         title.Click += (_, _) => SettingsWindow.Open(provider);
-        if (pixel) title.Icon = new ImageIcon { Source = PixelIcons.Face(provider) };
-        else _ = SetMarkAsync(title, provider, dark);
+        if (pixel)
+        {
+            title.Icon = new ImageIcon { Source = PixelIcons.Face(provider) };
+        }
+        else
+        {
+            // The agent's puck: its tint behind the mark, through Tag.
+            title.Style = Looks.Kit<Style>("MenuTitleItemStyle");
+            Puck.SetTint(title, new SolidColorBrush(ClassicTokens.Tint(ClassicTokens.Identity(provider, dark), dark)));
+            if (mark is not null) title.Icon = new ImageIcon { Source = mark, Width = 13, Height = 13 };
+        }
         menu.Items.Add(title);
         menu.Items.Add(new MenuFlyoutSeparator());
 
@@ -52,7 +66,7 @@ internal static class DrawerMenu
                     Text = DrawerLooks.ColorLabel(option),
                     GroupName = "color",
                     IsChecked = option == color,
-                    Icon = Dot(Brand.Readable(DrawerLooks.Swatch(option), dark)),
+                    Icon = new ImageIcon { Source = FaceBitmap.Of(Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(option), dark)), 16, scale) },
                 };
                 item.Click += (_, _) => changeLook(shape, option);
                 colorMenu.Items.Add(item);
@@ -91,17 +105,6 @@ internal static class DrawerMenu
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(MenuHost.Item(L10n.Tr("Cost…"), "\uE8C7", () => Cost.CostWindow.Open()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
-        MenuHost.Show(menu, keepOpen, at, pixel);
-    }
-
-    private static PathIcon Dot(uint rgb) => new()
-    {
-        Data = new EllipseGeometry { Center = new Windows.Foundation.Point(8, 8), RadiusX = 5.5, RadiusY = 5.5 },
-        Foreground = Brand.Brush(rgb),
-    };
-
-    private static async Task SetMarkAsync(MenuFlyoutItem item, DisplayProvider provider, bool dark)
-    {
-        if (await Brand.MarkAsync(provider, dark) is { } mark) item.Icon = new ImageIcon { Source = mark };
+        MenuHost.Show(menu, keepOpen, at, kit: true);
     }
 }

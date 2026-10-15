@@ -36,7 +36,7 @@ internal sealed class AgentSection
     private readonly TextBlock _accountText = new() { IsTextSelectionEnabled = true };
     private readonly SettingsCard _signIn;
     private readonly Button _signInButton = new();
-    private readonly ProgressRing _signInRing = new() { Width = 16, Height = 16, IsActive = false, Margin = new Thickness(0, 0, 10, 0) };
+    private readonly FaceSpinner _signInRing = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly PixelSpinner _signInSpinner = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private bool _updating;
 
@@ -128,7 +128,7 @@ internal sealed class AgentSection
             FrameworkElement bar = Looks.Pixel
                 ? new PixelBar(30) { VerticalAlignment = VerticalAlignment.Center }
                 : new QuotaBar(8) { Width = 180, VerticalAlignment = VerticalAlignment.Center };
-            var value = new TextBlock { MinWidth = 64, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            var value = new TextBlock { MinWidth = Looks.Pixel ? 64 : 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { bar, value } };
             var card = new SettingsCard { HeaderIcon = Icon("\uE9D2"), Content = content };
             _meters.Add((card, (IQuotaBar)bar, value));
@@ -146,8 +146,14 @@ internal sealed class AgentSection
             card.Visibility = Visibility.Visible;
             card.Header = MeterTitle(meter.Label);
             SetDescription(card, meter.Resets);
-            bar.Set(meter.Shown, Accent(), meter.Used >= 0.9, Brand.IsDark());
+            var warn = meter.Used >= 0.9;
+            bar.Set(meter.Shown, Accent(), warn, Brand.IsDark());
             value.Text = meter.Value;
+            if (!_pixel)
+            {
+                value.Foreground = Res<Brush>(warn ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
+                value.FontWeight = warn ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+            }
         }
         _tokens.Visibility = report.Tokens is null ? Visibility.Collapsed : Visibility.Visible;
         if (report.Tokens is { } tokens)
@@ -236,7 +242,7 @@ internal sealed class AgentSection
     private static SettingsCard PromptHookCard(Func<XamlRoot?> root)
     {
         var toggle = new ToggleSwitch { IsOn = ClaudeHooks.IsInstalled(), OnContent = L10n.Tr("On"), OffContent = L10n.Tr("Off") };
-        Pixelate(toggle);
+        UseKit(toggle);
         AutomationProperties.SetName(toggle, $"Claude · {L10n.Tr("Permission prompts")}");
         AutomationProperties.SetAutomationId(toggle, "Agent.claude.PermissionPrompts");
         var settling = false;
@@ -269,12 +275,12 @@ internal sealed class AgentSection
     {
         var (shape, color) = drawer.LookOf(_provider);
         var shapeBox = new ComboBox { MinWidth = 130 };
-        Pixelate(shapeBox);
+        UseKit(shapeBox);
         Name(shapeBox, "Shape", L10n.Tr("Shape"));
         foreach (var option in shapes) shapeBox.Items.Add(DrawerLooks.ShapeLabel(option));
         shapeBox.SelectedIndex = Math.Max(0, shapes.ToList().IndexOf(shape));
         var colorBox = new ComboBox { MinWidth = 150 };
-        Pixelate(colorBox);
+        UseKit(colorBox);
         Name(colorBox, "Color", L10n.Tr("Color"));
         var dark = Brand.IsDark();
         foreach (var option in colors)
@@ -285,13 +291,7 @@ internal sealed class AgentSection
                 Spacing = 8,
                 Children =
                 {
-                    new Ellipse
-                    {
-                        Width = 12,
-                        Height = 12,
-                        Fill = Brand.Brush(Brand.Readable(DrawerLooks.Swatch(option), dark)),
-                        VerticalAlignment = VerticalAlignment.Center,
-                    },
+                    new FaceChip(14, Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(option), dark))) { VerticalAlignment = VerticalAlignment.Center },
                     new TextBlock { Text = DrawerLooks.ColorLabel(option), VerticalAlignment = VerticalAlignment.Center },
                 },
             };
@@ -315,7 +315,8 @@ internal sealed class AgentSection
         };
     }
 
-    /// The brand's mark, or under Pixel the agent's pixel bot face.
+    /// The brand's mark in the agent's puck, or under Pixel the agent's
+    /// pixel bot face.
     private async Task LoadMarkAsync()
     {
         if (Looks.Pixel)
@@ -323,6 +324,8 @@ internal sealed class AgentSection
             Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider) };
             return;
         }
-        if (await Brand.MarkAsync(_provider, Brand.IsDark()) is { } mark) Expander.HeaderIcon = new ImageIcon { Source = mark };
+        var dark = Brand.IsDark();
+        Puck.SetTint(Expander, new SolidColorBrush(ClassicTokens.Tint(ClassicTokens.Identity(_provider, dark), dark)));
+        if (await Brand.MarkAsync(_provider, dark) is { } mark) Expander.HeaderIcon = new ImageIcon { Source = mark, Width = 18, Height = 18 };
     }
 }

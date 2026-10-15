@@ -12,21 +12,27 @@ using Microsoft.UI.Xaml.Shapes;
 namespace AgentIsland.WinUI.Settings;
 
 /// Building blocks for the settings pages, in the Windows 11 Settings
-/// idiom: a page title, section headers, and setting cards. Under Pixel the
-/// same blocks come in the pixel kit (Shell/PixelTheme.xaml).
+/// idiom: a page title, section headers, and setting cards, in the current
+/// look's kit (Shell/PixelTheme.xaml or Shell/ClassicTheme.xaml).
 internal static class SettingsUi
 {
-    /// The glyph, or under Pixel the kit's drawing of it.
+    /// The glyph at 16 DIP, or under Pixel the kit's drawing of it.
     public static IconElement Icon(string glyph) =>
-        Looks.Pixel && PixelIcons.NameFor(glyph) is { } name ? PixelIcons.Icon(name) : new FontIcon { Glyph = glyph };
+        Looks.Pixel && PixelIcons.NameFor(glyph) is { } name ? PixelIcons.Icon(name) : new FontIcon { Glyph = glyph, FontSize = 16 };
+
+    /// Cards and rows stand this far apart on a page.
+    public static double CardGap => Looks.Pixel ? 4 : 6;
 
     public static T Res<T>(string key) => (T)Looks.Resource(key);
 
+    // Margins add to the page's card gap: Classic's title sits 4 above the
+    // intro, the intro 6 above the first section, a section 22 below the
+    // last card and 8 above its own.
     public static TextBlock PageTitle(string text) => new()
     {
         Text = text,
         Style = Res<Style>("TitleTextBlockStyle"),
-        Margin = new Thickness(0, 0, 0, 4),
+        Margin = new Thickness(0, 0, 0, Looks.Pixel ? 4 : -2),
     };
 
     public static TextBlock PageIntro(string text) => new()
@@ -34,7 +40,7 @@ internal static class SettingsUi
         Text = text,
         Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
         TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 0, 0, 8),
+        Margin = new Thickness(0, 0, 0, Looks.Pixel ? 8 : 0),
     };
 
     /// Under Pixel: in the accent, after a small accent square.
@@ -46,7 +52,7 @@ internal static class SettingsUi
             {
                 Text = text,
                 Style = Res<Style>("BodyStrongTextBlockStyle"),
-                Margin = new Thickness(1, 24, 0, 6),
+                Margin = new Thickness(1, 16, 0, 2),
             };
         }
         var accent = Res<Brush>("PixelAccent");
@@ -101,15 +107,7 @@ internal static class SettingsUi
     public static SettingsCard VerticalCard(string header, string? description, string? glyph, object content)
     {
         var card = Card(header, description, glyph, null);
-        if (Looks.Pixel)
-        {
-            card.Style = Res<Style>("PixelSettingsCardVerticalStyle");
-        }
-        else
-        {
-            card.ContentAlignment = CommunityToolkit.WinUI.Controls.ContentAlignment.Vertical;
-            card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        }
+        card.Style = Looks.Kit<Style>("SettingsCardVerticalStyle");
         card.Content = content;
         return card;
     }
@@ -145,7 +143,7 @@ internal static class SettingsUi
     public static ComboBox Combo(IReadOnlyList<string> items, int selected, Action<int> changed)
     {
         var combo = new ComboBox { MinWidth = 180 };
-        Pixelate(combo);
+        UseKit(combo);
         foreach (var item in items) combo.Items.Add(item);
         combo.SelectedIndex = Math.Clamp(selected, 0, Math.Max(0, items.Count - 1));
         combo.SelectionChanged += (_, _) =>
@@ -158,22 +156,18 @@ internal static class SettingsUi
     public static ToggleSwitch Toggle(bool on, Action<bool> changed)
     {
         var toggle = new ToggleSwitch { IsOn = on, OnContent = L10n.Tr("On"), OffContent = L10n.Tr("Off") };
-        Pixelate(toggle);
+        UseKit(toggle);
         toggle.Toggled += (_, _) => changed(toggle.IsOn);
         return toggle;
     }
 
-    /// Setting cards hand toggles and drop-downs styles of their own; under
-    /// Pixel an explicit one keeps the kit's.
-    public static void Pixelate(ToggleSwitch toggle)
-    {
-        if (Looks.Pixel) toggle.Style = Res<Style>("PixelToggleSwitchStyle");
-    }
+    /// Setting cards hand toggles, drop-downs and text boxes styles of their
+    /// own; an explicit one keeps the kit's.
+    public static void UseKit(ToggleSwitch toggle) => toggle.Style = Looks.Kit<Style>("ToggleSwitchStyle");
 
-    public static void Pixelate(ComboBox combo)
-    {
-        if (Looks.Pixel) combo.Style = Res<Style>("PixelComboBoxStyle");
-    }
+    public static void UseKit(ComboBox combo) => combo.Style = Looks.Kit<Style>("ComboBoxStyle");
+
+    public static void UseKit(TextBox box) => box.Style = Looks.Kit<Style>("TextBoxStyle");
 
     public static Button Button(string text, Action click, bool accent = false)
     {
@@ -183,8 +177,8 @@ internal static class SettingsUi
         return button;
     }
 
-    /// A small tag for plan tiers: rounded and grey, or under Pixel a square
-    /// chip in the agent's colour.
+    /// A small tag for plan tiers in the agent's tint: an 18-DIP pill, or
+    /// under Pixel a square chip.
     public static Border Badge(TextBlock text, DisplayProvider provider)
     {
         if (Looks.Pixel)
@@ -204,35 +198,52 @@ internal static class SettingsUi
                 VerticalAlignment = VerticalAlignment.Center,
             };
         }
-        text.FontSize = 11;
-        text.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-        text.Foreground = Res<Brush>("TextFillColorSecondaryBrush");
+        var isDark = Brand.IsDark();
+        Chip(text);
         return new Border
         {
             Child = text,
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(6, 1, 6, 2),
+            Height = 18,
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(7, 0, 7, 0),
             Margin = new Thickness(8, 0, 0, 0),
-            Background = Res<Brush>("SubtleFillColorSecondaryBrush"),
-            BorderBrush = Res<Brush>("CardStrokeColorDefaultBrush"),
-            BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(ClassicTokens.Tint(ClassicTokens.Identity(provider, isDark), isDark)),
             VerticalAlignment = VerticalAlignment.Center,
         };
     }
 
-    /// Secondary text with an optional warning after it; the pixel face has
-    /// no warning sign, so under Pixel the warning keeps only its colour.
+    /// Chip type: 10/14, semibold, spaced out, in ink.
+    public static void Chip(TextBlock text)
+    {
+        text.FontSize = 10;
+        text.LineHeight = 14;
+        text.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        text.CharacterSpacing = 40;
+        text.Foreground = Res<Brush>("TextFillColorPrimaryBrush");
+        text.VerticalAlignment = VerticalAlignment.Center;
+    }
+
+    /// Secondary text with an optional warning after it: the warning glyph
+    /// and its text in the caution ink. The pixel face has no warning sign,
+    /// so under Pixel the warning keeps only its colour.
     public static void SetStatus(TextBlock block, string status, string? warning)
     {
         block.Inlines.Clear();
         block.Inlines.Add(new Run { Text = status });
         if (warning is null) return;
+        var caution = Res<Brush>("SystemFillColorCautionBrush");
         block.Inlines.Add(new Run { Text = "  ·  " });
-        block.Inlines.Add(new Run
+        if (!Looks.Pixel)
         {
-            Text = Looks.Pixel ? warning : "⚠ " + warning,
-            Foreground = Res<Brush>("SystemFillColorCautionBrush"),
-        });
+            block.Inlines.Add(new Run
+            {
+                Text = "\uE7BA ",
+                FontFamily = new FontFamily("Segoe Fluent Icons,Segoe MDL2 Assets"),
+                FontSize = 12,
+                Foreground = caution,
+            });
+        }
+        block.Inlines.Add(new Run { Text = warning, Foreground = caution });
     }
 
     /// The pixel kit's status line: rich text, so the warning can carry the
@@ -269,8 +280,7 @@ internal static class SettingsUi
 
     /// A tooltip in the current look; tooltips open in popups, beyond the
     /// window's styles.
-    public static object Tip(string text) =>
-        Looks.Pixel ? new ToolTip { Content = text, Style = Res<Style>("PixelToolTipStyle") } : text;
+    public static object Tip(string text) => new ToolTip { Content = text, Style = Looks.Kit<Style>("ToolTipStyle") };
 
     public static async Task Alert(XamlRoot root, string title, string message)
     {
@@ -283,16 +293,16 @@ internal static class SettingsUi
     }
 
     /// A dialog in the current look: a dialog lives outside the window's
-    /// tree, so under Pixel it carries a kit of its own.
+    /// tree, so it carries a kit of its own.
     public static ContentDialog Dialog(XamlRoot root)
     {
         var dialog = new ContentDialog { XamlRoot = root };
-        if (Looks.Pixel && root.Content is FrameworkElement content)
+        if (root.Content is FrameworkElement content)
         {
             dialog.Resources.MergedDictionaries.Add(Looks.NewKit(root.RasterizationScale));
-            dialog.Style = Res<Style>("PixelContentDialogStyle");
-            dialog.PrimaryButtonStyle = Res<Style>("PixelAccentButtonStyle");
-            dialog.CloseButtonStyle = Res<Style>("PixelButtonStyle");
+            dialog.Style = Looks.Kit<Style>("ContentDialogStyle");
+            dialog.PrimaryButtonStyle = Looks.Kit<Style>("AccentButtonStyle");
+            dialog.CloseButtonStyle = Looks.Kit<Style>("ButtonStyle");
             dialog.RequestedTheme = content.ActualTheme;
         }
         return dialog;

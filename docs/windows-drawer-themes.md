@@ -8,7 +8,8 @@ chosen in **Settings → Drawer → Character style** and switched live:
 | | Pixel (default) | Classic |
 |---|---|---|
 | Characters | Seven pixel bots, one per agent, from a bundled engine | Recolourable shapes from the local Grok Bot engine copy; plain discs where it is absent |
-| Panels | Opaque pixel panels, English, in the Ark Pixel font | Frosted glass, in the app language |
+| Panels | Opaque pixel panels, English, in the Ark Pixel font | Paper with a soft tail and shadow, in the app language |
+| Settings, Cost and menus | The pixel kit (`Shell/PixelTheme.xaml`) | The Classic kit (`Shell/ClassicTheme.xaml`): rounder Fluent with the Sky accent |
 | Agent colour | Each bot's own colour | The colour picked in the bot's right-click menu |
 
 This document is the contract for adding a theme: what it **must** provide,
@@ -196,7 +197,7 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
 - Shapes, palettes, animation, fidgets, gaze and poke reactions.
 - Surface chrome: plate fill, outline, corner shape, pointer, padding, quota
   bar style, dividers, type and the language of the text (§6).
-- Card width: 252 DIP for glass and 272 for pixel today. Keep it under about
+- Card width: 264 DIP for paper and 272 for pixel today. Keep it under about
   300, since the card sits beside the drawer and must fit on screen.
 - A frame-rate ceiling: stepped pixel motion needs no more than 30 fps;
   smooth vector motion may follow the display.
@@ -208,8 +209,10 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   the agent's name and phase, its detail, its running tasks, each quota
   window (label, bar and value), today's and this month's tokens, then its
   notes: warnings first, then the quota's age, reset cards and agent notes.
-- **Interaction.** Hover opens the card, click pokes, drag moves the drawer,
-  right-click opens the menu, and only the bots' circles take clicks.
+- **Interaction.** A pointer resting on a bot for 200 ms opens its card; a
+  click pokes the bot and opens its agent in Settings; a drag moves the
+  drawer, and a locked drawer says so instead; right-click opens the menu;
+  and only the bots' circles take clicks.
 - **Geometry.** A 44-DIP box per bot, 10-DIP gaps, the drawer's edge layout.
 - **Reduced motion.** With animations off in Windows, bots step at 12 fps
   (6 when calm) and never fidget.
@@ -254,9 +257,11 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 5. **Engine choice and pacing.** Create the host in
    `DrawerWindow.CreateEngine`; give the theme its frame-rate rule in `Step`
    and `Pace`, and aliased drawing in `OnDraw` if it is grid-based.
-6. **Surfaces.** Reuse the glass or pixel style, or add one in `HoverCard`
-   and `SpeechBubble`, with helpers like `Shell/PixelPlate.cs`. Both take a
-   `pixel` flag today; a third style turns that flag into the theme.
+6. **Surfaces.** Reuse the paper or pixel style, or add one in `HoverCard`
+   and `SpeechBubble`, with helpers like `Shell/PaperPlate.cs` and
+   `Shell/PixelPlate.cs`. Both take a `pixel` flag today; a third style turns
+   that flag into the theme. Settings, Cost and the drawer menu take their
+   controls from the theme's kit through `Shell/Looks.cs`.
 7. **Settings.** Add the option to Character style in
    `Settings/SettingsWindow.cs`, and its strings to `L10n` (English key and
    Chinese).
@@ -280,7 +285,9 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   |---|---|
   | `AGENTISLAND_DEBUG_BUBBLE=<n>` or `all` | Opens the card of visible bot `n` (counting from 0), or every agent's card |
   | `AGENTISLAND_DEBUG_SNAPSHOT=<dir>` | With the above, saves that card as a PNG rendered off-screen; with `AGENTISLAND_DEBUG_OPEN_SETTINGS=1`, saves every settings page |
-  | `AGENTISLAND_DEBUG_SAY=<Phase>` | Makes the first bot say that phase's line |
+  | `AGENTISLAND_DEBUG_SAY=<Phase>` or `Locked` | Makes the first bot say that phase's line, or the line a locked drawer answers a drag with |
+  | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
+  | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
 
   The drawer itself is drawn by Win2D and cannot be snapshotted. Capture it
@@ -321,3 +328,34 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   padding, and linger 4.5 s.
 - **Type**: Ark Pixel 10px Prop latin (OFL-1.1), 13⅓ DIP at 150 %, regular
   weight, English.
+
+## 10. Reference: the Classic theme
+
+- **Engine**: the local Grok Bot engine copy (`GrokEngineLocator`), which is
+  not shipped. Without it the drawer draws plain discs.
+- **Swatches**: the colour picked in each bot's menu (`DrawerLooks.Swatch`);
+  on dark surfaces a near-black one is lifted to `#D6D6D6`.
+- **Panel colours**:
+
+  | Token | Light | Dark |
+  |---|---|---|
+  | Paper (card and bubble fill) | `#FFFFFF` | `#2A2B31` |
+  | Hairline (edge) | ink `#17191F` at 8 % | white at 7 % |
+  | Text | `#17191F` | `#F3F4F6` |
+  | Secondary and tertiary text | `#50545E`, `#62666F` | `#C4C7CE`, `#A9ADB5` |
+  | Divider, all-agents card | `#E4E6EB` | `#393A41` |
+  | Bar track and plan chip | the agent's colour at 14 % over paper | at 24 % |
+  | Warning, 90 % and over | `#C42B1C` | `#FF99A4` |
+  | Shadow | 0/8 blur 14, ink at 13 %; 0/1 blur 2 at 10 % | 0/8 blur 16, black at 45 %; 0/1 blur 2 at 35 % |
+
+- **Geometry**: one path, a rounded rectangle with a soft tail toward the
+  bot (`Shell/PaperPlate.cs`), its shadow following the tail. The card is
+  264 DIP wide, rounded 16, with 16/13/16/14 DIP padding; its tail is
+  centred on the bot (half-base 10, reach 9) and kept clear of the corners,
+  and the all-agents card has none. Rows indent 24 DIP past a 16-DIP face,
+  in 40 · * · 58 DIP columns 8 apart; bars are 6-DIP pills with a 6-DIP
+  minimum fill. Bubbles are at most 240 DIP wide, rounded 12 (less on a
+  one-line bubble, so the tail fits), with a tail of half-base 6 and reach
+  7 and 15/9/15/10 DIP text padding; they linger 4.5 s.
+- **Type**: Segoe UI Variable in the app language: the agent's name 13/18
+  semibold, rows 12/16, bubbles 13/18.

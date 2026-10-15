@@ -56,7 +56,7 @@ internal sealed class HoverCardPreview : Window
         _surface.Background = Brand.Brush(dark ? 0x18212Bu : 0xEAF0F5u);
         _surface.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
         Content = _surface;
-        _card = new HoverCard(_surface);
+        _card = new HoverCard(_surface, inWindow: true);
 
         var heading = new TextBlock
         {
@@ -85,7 +85,7 @@ internal sealed class HoverCardPreview : Window
         actions.Children.Add(ActionButton("回收检查", CollectGarbage));
         actions.Children.Add(ActionButton("气泡检查", () =>
         {
-            _bubble ??= new SpeechBubble(_surface);
+            _bubble ??= new SpeechBubble(_surface, inWindow: true);
             _bubble.Say("Synthetic bubble", Swatches[0], pixel: false, characterRight: true, Anchor(0), Area, false);
         }));
         Place(actions, 24, 85);

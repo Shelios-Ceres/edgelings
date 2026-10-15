@@ -40,9 +40,8 @@ internal sealed class SettingsWindow : Window
 
     private static SettingsWindow? _shared;
 
-    // Built for the look the window wears (Build); under Pixel the pages are
-    // a pixel list instead of a NavigationView.
-    private NavigationView _nav = null!;
+    // Built for the look the window wears (Build): the pages are a list in
+    // the kit's style.
     private bool _pixel;
     private ListView _pages = null!;
     private List<IconElement> _pageIcons = new();
@@ -90,7 +89,7 @@ internal sealed class SettingsWindow : Window
     public static async Task SnapshotStatesAsync(string directory)
     {
         Open();
-        if (_shared is not { } window || !window._pixel) return;
+        if (_shared is not { } window) return;
         Directory.CreateDirectory(directory);
         async Task Shoot(UIElement frame, string name) =>
             await Shell.Snapshot.SaveAsync(frame, Path.Combine(directory, name + ".png"));
@@ -244,15 +243,7 @@ internal sealed class SettingsWindow : Window
             ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520)
             : Shell.Chrome.Restyle(this, title);
         _pixel = Shell.Looks.Pixel;
-        _nav = new NavigationView
-        {
-            PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
-            IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
-            IsSettingsVisible = false,
-            IsPaneToggleButtonVisible = false,
-            OpenPaneLength = 200,
-        };
-        _pages = new ListView { SelectionMode = ListViewSelectionMode.Single, Margin = new Thickness(4) };
+        _pages = new ListView { SelectionMode = ListViewSelectionMode.Single, Margin = _pixel ? new Thickness(4) : new Thickness(6, 4, 6, 4) };
         _pageIcons = new List<IconElement>();
         _scroll = PageScroller();
         var pages = new[]
@@ -262,31 +253,15 @@ internal sealed class SettingsWindow : Window
             (Page.Usage, "Usage & cost", "\uE9D2"),
             (Page.General, "General", "\uE713"),
         };
-        if (_pixel)
-        {
-            Shell.Chrome.SetBody(root, PixelPages(pages));
-        }
-        else
-        {
-            Shell.Chrome.SetBody(root, _nav);
-            foreach (var (page, label, glyph) in pages)
-            {
-                _nav.MenuItems.Add(new NavigationViewItem { Content = L10n.Tr(label), Icon = Icon(glyph), Tag = page });
-            }
-            _nav.Content = _scroll;
-            _nav.SelectionChanged += (_, e) =>
-            {
-                if (e.SelectedItem is NavigationViewItem { Tag: Page page }) Show(page);
-            };
-        }
+        Shell.Chrome.SetBody(root, Pages(pages));
         SelectPage(_page);
     }
 
-    /// The pixel kit's page list: a 200-DIP pane on desk, the page on a layer
-    /// panel beside it; the open page's icon turns to the accent.
-    private FrameworkElement PixelPages(IEnumerable<(Page Page, string Label, string Glyph)> pages)
+    /// The page list: a 200-DIP pane, the page on a layer panel beside it;
+    /// the open page's icon turns to the accent.
+    private FrameworkElement Pages(IEnumerable<(Page Page, string Label, string Glyph)> pages)
     {
-        _pages.ItemContainerStyle = Res<Style>("PixelNavItemStyle");
+        _pages.ItemContainerStyle = Shell.Looks.Kit<Style>("NavItemStyle");
         foreach (var (_, label, glyph) in pages)
         {
             var icon = Icon(glyph);
@@ -295,7 +270,7 @@ internal sealed class SettingsWindow : Window
             var item = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 16,
+                Spacing = _pixel ? 16 : 12,
                 Children = { icon, new TextBlock { Text = L10n.Tr(label), VerticalAlignment = VerticalAlignment.Center } },
             };
             AutomationProperties.SetName(item, L10n.Tr(label));
@@ -303,27 +278,25 @@ internal sealed class SettingsWindow : Window
         }
         var list = _pages;
         var icons = _pageIcons;
+        var chosen = _pixel ? "PixelAccent" : "ClassicAccentText";
+        var rest = Shell.Looks.Prefix + "Text";
         list.SelectionChanged += (_, _) =>
         {
             if (list.SelectedIndex < 0) return;
-            for (var i = 0; i < icons.Count; i++) icons[i].Foreground = Res<Brush>(i == list.SelectedIndex ? "PixelAccent" : "PixelText");
+            for (var i = 0; i < icons.Count; i++) icons[i].Foreground = Res<Brush>(i == list.SelectedIndex ? chosen : rest);
             Show((Page)list.SelectedIndex);
         };
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         body.Children.Add(_pages);
-        var page = new Border { Style = Res<Style>("PixelLayerStyle"), Child = _scroll };
+        var page = new Border { Style = Shell.Looks.Kit<Style>("LayerStyle"), Child = _scroll };
         Grid.SetColumn(page, 1);
         body.Children.Add(page);
         return body;
     }
 
-    private void SelectPage(Page page)
-    {
-        if (_pixel) _pages.SelectedIndex = (int)page;
-        else _nav.SelectedItem = _nav.MenuItems[(int)page];
-    }
+    private void SelectPage(Page page) => _pages.SelectedIndex = (int)page;
 
     // The Drawer page's live controls follow the store through one handler,
     // replaced whenever the page is rebuilt and removed with the pages.
@@ -358,7 +331,7 @@ internal sealed class SettingsWindow : Window
             Visibility = store.SharedName == SharedName.Custom ? Visibility.Visible : Visibility.Collapsed,
         };
         // Setting cards bring a text box style of their own.
-        if (Shell.Looks.Pixel) custom.Style = Res<Style>("PixelTextBoxStyle");
+        UseKit(custom);
         AutomationProperties.SetName(custom, L10n.Tr("Custom name"));
         AutomationProperties.SetAutomationId(custom, "Settings.Drawer.SharedName.Custom");
         custom.TextChanged += (_, _) => store.SharedCustomName = custom.Text;
@@ -416,7 +389,7 @@ internal sealed class SettingsWindow : Window
         _page = page;
         Preferences.Set(PageKey, page.ToString());
         _agents.Clear();
-        var body = new StackPanel { Spacing = 4, MaxWidth = 1000, Padding = new Thickness(40, 28, 40, 40) };
+        var body = new StackPanel { Spacing = CardGap, MaxWidth = 1000, Padding = new Thickness(40, 28, 40, 40) };
         switch (page)
         {
             case Page.Agents:
@@ -519,7 +492,14 @@ internal sealed class SettingsWindow : Window
             var show = Button(L10n.Tr("Show"), () => ProviderVisibilityStore.Shared.SetShown(provider, true));
             AutomationProperties.SetAutomationId(show, $"Settings.Agents.Hidden.{provider.RawValue()}");
             AutomationProperties.SetName(show, L10n.TrFormat("Show {0}", ProviderIdentity.DisplayName(provider)));
-            list.Items.Add(new SettingsCard { Header = ProviderIdentity.DisplayName(provider), HeaderIcon = Mark(provider), Content = show });
+            var row = new SettingsCard { Header = ProviderIdentity.DisplayName(provider), HeaderIcon = Mark(provider), Content = show };
+            // Under Classic each sits in its 24-DIP puck.
+            if (!Shell.Looks.Pixel)
+            {
+                var dark = Shell.Brand.IsDark();
+                Shell.Puck.SetTint(row, new SolidColorBrush(Shell.ClassicTokens.Tint(Shell.ClassicTokens.Identity(provider, dark), dark)));
+            }
+            list.Items.Add(row);
         }
         return list;
     }
@@ -529,8 +509,15 @@ internal sealed class SettingsWindow : Window
     private static ImageIcon Mark(DisplayProvider provider)
     {
         var icon = new ImageIcon();
-        if (Shell.Looks.Pixel) icon.Source = Shell.PixelIcons.Face(provider);
-        else _ = SetMarkAsync(icon, provider);
+        if (Shell.Looks.Pixel)
+        {
+            icon.Source = Shell.PixelIcons.Face(provider);
+        }
+        else
+        {
+            icon.Width = icon.Height = 14;
+            _ = SetMarkAsync(icon, provider);
+        }
         return icon;
     }
 

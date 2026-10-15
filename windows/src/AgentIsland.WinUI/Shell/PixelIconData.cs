@@ -373,6 +373,20 @@ internal static partial class PixelIcons
             "..........",
             "..........",
         }),
+        // The eye closed, lashes down: a slash through the eye breaks up at 10 cells.
+        ["eyeOff"] = ("ED1A", new[]
+        {
+            "..........",
+            "..........",
+            "..........",
+            "#........#",
+            ".##....##.",
+            "...####...",
+            ".#..##..#.",
+            "..........",
+            "..........",
+            "..........",
+        }),
         ["clock"] = ("E823", new[]
         {
             "..######..",
