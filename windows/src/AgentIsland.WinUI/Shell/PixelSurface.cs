@@ -81,6 +81,15 @@ public sealed class PixelSurface : Grid
         set => SetValue(OutlineOnlyProperty, value);
     }
 
+    /// A backdrop takes the room its control gives it and asks for none: its
+    /// paths measure to the last drawing, which would hold a card whose
+    /// content shrank (a collapsed expander) at its old height.
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        base.MeasureOverride(availableSize);
+        return new Size(0, 0);
+    }
+
     private static DependencyProperty Brush(string name, int layer) => DependencyProperty.Register(
         name, typeof(Brush), typeof(PixelSurface), new PropertyMetadata(null, (d, e) =>
         {

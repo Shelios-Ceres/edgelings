@@ -589,15 +589,15 @@ internal static partial class PixelIcons
 
     private static readonly (string[] Rows, (char Key, uint Rgb)[] Colors) LogoGrid = (new[]
     {
-        "..xxxxxx..",
-        ".xwwOOwwx.",
-        "xwwwOOwwwx",
-        "xBBwwwwVVx",
-        "xBBwwwwVVx",
-        "xwwwwwwwwx",
-        "xwKKwwGGwx",
-        "xwKKwwGGwx",
-        ".xwwwwwwx.",
-        "..xxxxxx..",
-    }, new[] { ('B', 0x1084FEu), ('G', 0x808080u), ('K', 0x1A1A1Au), ('O', 0xFF6A00u), ('V', 0x9156F5u), ('w', 0xFFFDF7u), ('x', 0x2B2B33u) });
+        ".....o....",
+        ".....x....",
+        "xxxxxxxxxx",
+        "xvvvvvvvvx",
+        "xvvvvvvvvx",
+        "xvvevvevvx",
+        "xvvevvevvx",
+        "xvvvvvvvvx",
+        "xvvvvvvvvx",
+        "xxxxxxxxxx",
+    }, new[] { ('e', 0xFFFFFFu), ('o', 0xFF6A00u), ('v', 0x7B5CF0u), ('x', 0x2B2B33u) });
 }

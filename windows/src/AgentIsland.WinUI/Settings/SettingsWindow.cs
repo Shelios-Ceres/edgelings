@@ -677,12 +677,7 @@ internal sealed class SettingsWindow : Window
         about.Items.Add(new SettingsCard
         {
             Header = L10n.Tr("Thanks"),
-            Description = new TextBlock
-            {
-                Text = L10n.Tr("Built on Agent Island by Tristan Tang (MIT License). Pixel face: Ark Pixel by TakWolf (SIL Open Font License 1.1)."),
-                TextWrapping = TextWrapping.Wrap,
-            },
-            Content = new HyperlinkButton { Content = "github.com/tristan666666/agent-island", NavigateUri = new Uri(OriginalUrl) },
+            Description = Credits(),
         });
         about.Items.Add(new SettingsCard
         {
@@ -701,5 +696,34 @@ internal sealed class SettingsWindow : Window
             Content = Button(L10n.Tr("Quit"), () => App.Current.Quit()),
         });
         body.Children.Add(about);
+    }
+
+    /// The Thanks row: each credit's name on a line of its own, what it is
+    /// below. Names stand out in bold, or under Pixel, whose face has one
+    /// weight, in full ink against the grey.
+    private static StackPanel Credits()
+    {
+        var credits = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+        void Credit(string name, string detail, double gap)
+        {
+            credits.Children.Add(new TextBlock
+            {
+                Text = name,
+                Margin = new Thickness(0, gap, 0, 0),
+                Foreground = Res<Brush>("TextFillColorPrimaryBrush"),
+                FontWeight = Shell.Looks.Pixel ? Microsoft.UI.Text.FontWeights.Normal : Microsoft.UI.Text.FontWeights.SemiBold,
+            });
+            credits.Children.Add(new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap });
+        }
+        Credit("Agent Island", L10n.TrFormat("The original app, by {0} · MIT License", "Tristan Tang"), 0);
+        credits.Children.Add(new HyperlinkButton
+        {
+            Content = "github.com/tristan666666/agent-island",
+            NavigateUri = new Uri(OriginalUrl),
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        });
+        Credit("Ark Pixel", L10n.TrFormat("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf"), 12);
+        return credits;
     }
 }
