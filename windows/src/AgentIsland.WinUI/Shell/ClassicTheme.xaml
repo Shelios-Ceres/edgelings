@@ -640,11 +640,11 @@
         <Setter Property="Padding" Value="14,0,12,0" />
         <Setter Property="Foreground" Value="{ThemeResource ClassicText}" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
-        <Setter Property="FocusVisualMargin" Value="-2" />
+        <Setter Property="FocusVisualMargin" Value="-4" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource ClassicAccent}" />
         <Setter Property="FocusVisualPrimaryThickness" Value="2" />
-        <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
-        <Setter Property="FocusVisualSecondaryThickness" Value="0" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource ClassicDesk}" />
+        <Setter Property="FocusVisualSecondaryThickness" Value="2" />
         <Setter Property="CornerRadius" Value="20" />
         <Setter Property="Template">
             <Setter.Value>
