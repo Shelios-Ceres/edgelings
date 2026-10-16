@@ -95,7 +95,7 @@ internal sealed class TrayIcon : IDisposable
             agents.Items.Add(item);
         }
         menu.Items.Add(agents);
-        menu.Items.Add(MenuHost.Item(L10n.Tr("Cost…"), "\uE8C7", () => Cost.CostWindow.Open()));
+        menu.Items.Add(MenuHost.Item(L10n.Tr("Usage & cost…"), "\uE8C7", () => SettingsWindow.OpenUsage()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(MenuHost.Item(L10n.Tr("Quit Agent Island"), "\uE7E8", () => App.Current.Quit()));

@@ -12,12 +12,13 @@ using static AgentIsland.WinUI.Settings.SettingsUi;
 
 namespace AgentIsland.WinUI.Cost;
 
-/// What the local logs say each agent used: a period picker, totals, and one
-/// card per agent with its spend or tokens, a bar chart and its top models.
-/// Dollars are API list-price estimates; agents without published prices
-/// (Cursor, Kimi Code, DeepSeek) show tokens only, and Antigravity keeps no
-/// local log.
-internal sealed partial class CostWindow : Window
+/// What the local logs say each agent used, on Settings' Usage & cost page:
+/// a period picker, totals, and one card per agent with its spend or tokens,
+/// a bar chart and its top models. Dollars are API list-price estimates;
+/// agents without published prices (Cursor, Kimi Code, DeepSeek) show tokens
+/// only, and Antigravity keeps no local log. The page builds one for each
+/// showing and disposes of it when it goes.
+internal sealed partial class CostPage : IDisposable
 {
     private enum Period
     {
@@ -28,111 +29,48 @@ internal sealed partial class CostWindow : Window
 
     private const string PeriodKey = "Cost.period";
     private const double ChartHeight = 72;
+    // Narrower than these, the totals and the agents' cards stand in one column.
+    private const double ThreeTotals = 600;
+    private const double TwoColumns = 560;
 
-    private static CostWindow? _shared;
-
-    // Built for the look the window wears (Build).
-    private SelectorBar _periods = null!;
-    private StackPanel _body = null!;
-    private TextBlock _scanned = null!;
-    private TextBlock _periodRange = null!;
-    private TextBlock _calendarNote = null!;
-    private bool _pixel;
+    private readonly SelectorBar _periods = new();
+    private readonly StackPanel _body = new() { Spacing = 12 };
+    private readonly TextBlock _scanned = new();
+    // The period's dates and the time zone, each moving whole to the next line.
+    private readonly Border _periodRange = new();
+    private readonly TextBlock _calendarNote = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly bool _pixel = Looks.Pixel;
     private readonly List<Action> _teardown = new();
     private readonly DispatcherQueue _queue;
+    private readonly Func<bool> _visible;
+    private readonly Action _showAgents;
     private Period _period;
     private bool _pending;
 
-    public static void Open()
+    /// visible says whether the page is on screen: only then do its numbers
+    /// move (M17) and follow a new scan. showAgents turns to the Agents page.
+    public CostPage(DispatcherQueue queue, Func<bool> visible, Action showAgents)
     {
-        // A closed window was only hidden (Chrome.HideOnClose): it comes back
-        // in the current look and language.
-        if (_shared is { AppWindow.IsVisible: false } hidden) hidden.Build();
-        _shared ??= new CostWindow();
-        Chrome.Show(_shared);
-    }
-
-    /// AGENTISLAND_DEBUG_SNAPSHOT: each period, rendered by the app itself.
-    public static async Task SnapshotAsync(string directory)
-    {
-        Open();
-        if (_shared is not { } window) return;
-        Directory.CreateDirectory(directory);
-        foreach (var period in Enum.GetValues<Period>())
-        {
-            window._periods.SelectedItem = window._periods.Items[(int)period];
-            await Task.Delay(1200);
-            if (window.Content is { } content) await Snapshot.SaveAsync(content, Path.Combine(directory, $"cost-{period}.png"));
-            // The whole page, below the fold too.
-            await Snapshot.SaveAsync(window._body, Path.Combine(directory, $"cost-{period}-full.png"));
-        }
-    }
-
-    private CostWindow()
-    {
-        _queue = DispatcherQueue;
-        Build();
+        _queue = queue;
+        _visible = visible;
+        _showAgents = showAgents;
+        View = new StackPanel { Spacing = 12, Children = { Header(), _body } };
+        Render();
         Watch(CostStore.Shared);
         Watch(ProviderVisibilityStore.Shared);
         Watch(TokenCountModeStore.Shared);
-        // The other character style brings the other look.
-        PropertyChangedEventHandler look = (_, e) =>
-        {
-            if (e.PropertyName == nameof(DrawerStore.Theme) && Looks.Pixel != _pixel) _queue.TryEnqueue(Rebuild);
-        };
-        DrawerStore.Shared.PropertyChanged += look;
-        _teardown.Add(() => DrawerStore.Shared.PropertyChanged -= look);
-        // Closing hides the window; its numbers go until it opens again.
-        Chrome.HideOnClose(this, () => _body.Children.Clear());
-        Closed += (_, _) =>
-        {
-            foreach (var teardown in _teardown) teardown();
-            _shared = null;
-        };
     }
 
-    /// The frame, the header and the numbers in the current look: when the
-    /// window opens, and again on every switch.
-    private void Build()
+    /// The period tabs, the period's dates beside the scan, the totals and
+    /// the agents' cards.
+    public FrameworkElement View { get; }
+
+    public void Dispose()
     {
         _count?.Stop();
         _glide?.Stop();
-        using var english = Looks.English();
-        var title = "Agent Island — " + L10n.Tr("Cost");
-        var root = Content is null
-            ? Chrome.Apply(this, title, 1040, 760, 640, 480)
-            : Chrome.Restyle(this, title);
-        _pixel = Looks.Pixel;
-        _periods = new SelectorBar();
-        _body = new StackPanel { Spacing = 12, MaxWidth = 1100, Padding = new Thickness(40, 4, 40, 40) };
-        _scanned = new TextBlock();
-        _periodRange = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        _calendarNote = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        // The title and the period picker stay put; the numbers scroll.
-        var page = new Grid();
-        page.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        page.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        page.Children.Add(Header());
-        var scroll = PageScroller();
-        SetPage(scroll, _body);
-        // Under Pixel the numbers sit on a layer panel below the title strip.
-        FrameworkElement body = scroll;
-        if (_pixel)
-        {
-            _body.Padding = new Thickness(40, 20, 40, 40);
-            body = new Border { Style = Res<Style>("PixelLayerStyle"), Child = scroll };
-        }
-        Grid.SetRow(body, 1);
-        page.Children.Add(body);
-        Chrome.SetBody(root, page);
-        Render();
-    }
-
-    /// In place: closing the window for a new one would leak GDI objects
-    /// (Chrome.Restyle). A hidden window is rebuilt when it opens.
-    private static void Rebuild()
-    {
-        if (_shared is { AppWindow.IsVisible: true } window) window.Build();
+        foreach (var teardown in _teardown) teardown();
+        _teardown.Clear();
     }
 
     private void Watch(INotifyPropertyChanged source)
@@ -145,7 +83,7 @@ internal sealed partial class CostWindow : Window
             _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
             {
                 _pending = false;
-                if (AppWindow.IsVisible) Recount();
+                if (_visible()) Recount();
             });
         };
         source.PropertyChanged += handler;
@@ -161,6 +99,8 @@ internal sealed partial class CostWindow : Window
         public (long Tokens, long Billable)? Cursor { get; init; }
     }
 
+    /// The period tabs, and under them the period's dates beside the scan
+    /// and when it last ran.
     private FrameworkElement Header()
     {
         foreach (var (label, glyph) in new[] { ("Today", "\uE823"), ("Last 7 days", "\uE787"), ("This month", "\uE8BF") })
@@ -179,37 +119,26 @@ internal sealed partial class CostWindow : Window
             SwitchPeriod((int)before, (int)_period);
         };
 
-        var header = new Grid { ColumnSpacing = 16, MaxWidth = 1100, Padding = new Thickness(40, _pixel ? 20 : 24, 40, 8) };
+        var header = new Grid { ColumnSpacing = 16 };
         header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var titles = new StackPanel();
-        titles.Children.Add(PageTitle(L10n.Tr("Cost")));
-        titles.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.")));
         _tabs = new Grid();
         _tabMarker = TabMarker();
         _tabs.Children.Add(_tabMarker);
         _tabs.Children.Add(_periods);
-        if (_pixel)
-        {
-            titles.Children.Add(_tabs);
-        }
-        else
-        {
-            titles.Children.Add(new Border { Style = Looks.Kit<Style>("TrackStyle"), Margin = new Thickness(0, 10, 0, 0), Child = _tabs });
-        }
-        _periodRange.Style = Res<Style>("CaptionTextBlockStyle");
-        _periodRange.Foreground = Res<Brush>("TextFillColorSecondaryBrush");
+        FrameworkElement tabs = _pixel ? _tabs : new Border { Style = Looks.Kit<Style>("TrackStyle"), Child = _tabs };
+        tabs.HorizontalAlignment = HorizontalAlignment.Left;
+        Grid.SetColumnSpan(tabs, 2);
+        header.Children.Add(tabs);
         _periodRange.Margin = new Thickness(0, _pixel ? 8 : 12, 0, 0);
         _calendarNote.Style = Res<Style>("CaptionTextBlockStyle");
         _calendarNote.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
         var captions = new StackPanel { Children = { _periodRange, _calendarNote } };
         Grid.SetRow(captions, 1);
-        Grid.SetColumnSpan(captions, 2);
         header.Children.Add(captions);
-        header.Children.Add(titles);
-        var side = new StackPanel { Spacing = 8, MaxWidth = 160, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom };
+        var side = new StackPanel { Spacing = 8, MaxWidth = 160, Margin = _periodRange.Margin, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
         var rescan = Button(L10n.Tr("Scan now"), () => CostStore.Shared.Refresh());
         rescan.HorizontalAlignment = HorizontalAlignment.Right;
         side.Children.Add(rescan);
@@ -218,8 +147,8 @@ internal sealed partial class CostWindow : Window
         _scanned.HorizontalAlignment = HorizontalAlignment.Right;
         _scanned.TextWrapping = TextWrapping.Wrap;
         _scanned.TextAlignment = TextAlignment.Right;
-        _scanned.Margin = new Thickness(0, 0, 0, 10);
         side.Children.Add(_scanned);
+        Grid.SetRow(side, 1);
         Grid.SetColumn(side, 1);
         header.Children.Add(side);
         return header;
@@ -237,7 +166,7 @@ internal sealed partial class CostWindow : Window
         foreach (var part in page) _body.Children.Add(part);
     }
 
-    /// The page for the chosen period, built apart from the window; its
+    /// The numbers for the chosen period, built apart from the page; its
     /// numbers and chart columns are kept for counting (M17).
     private List<UIElement> Compose()
     {
@@ -253,22 +182,37 @@ internal sealed partial class CostWindow : Window
         var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(CharacterSlice).ToList();
         UpdatePeriodCaption(slices);
         var page = new List<UIElement> { Totals(slices) };
-
-        var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12, Margin = new Thickness(0, 8, 0, 0) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var cards = shown.Select(provider => provider == DisplayProvider.Antigravity
-            ? NoLogCard(provider)
+            ? NoLogCard(provider, _showAgents)
             : AgentCard(slices.First(slice => slice.Provider == provider))).ToList();
-        for (var i = 0; i < cards.Count; i++)
-        {
-            if (i % 2 == 0) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            Grid.SetRow(cards[i], i / 2);
-            Grid.SetColumn(cards[i], i % 2);
-            grid.Children.Add(cards[i]);
-        }
-        page.Add(grid);
+        page.Add(Columns(cards, 2, TwoColumns, new Thickness(0, 8, 0, 0)));
         return page;
+    }
+
+    /// Cards in count equal columns, or in one where the page is narrower
+    /// than narrow: the totals three to a row, the agents' cards two.
+    private static Grid Columns(IReadOnlyList<FrameworkElement> cards, int count, double narrow, Thickness margin = default)
+    {
+        var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12, Margin = margin };
+        var columns = 0;
+        void Lay(int count)
+        {
+            if (count == columns) return;
+            columns = count;
+            grid.ColumnDefinitions.Clear();
+            grid.RowDefinitions.Clear();
+            for (var c = 0; c < count; c++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (var i = 0; i < cards.Count; i++)
+            {
+                if (i % count == 0) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetRow(cards[i], i / count);
+                Grid.SetColumn(cards[i], i % count);
+            }
+        }
+        Lay(count);
+        foreach (var card in cards) grid.Children.Add(card);
+        grid.SizeChanged += (_, e) => Lay(e.NewSize.Width < narrow ? 1 : count);
+        return grid;
     }
 
     private void UpdatePeriodCaption(IReadOnlyList<Slice> slices)
@@ -281,13 +225,28 @@ internal sealed partial class CostWindow : Window
         };
         var stamps = slices.Where(s => s.AsOf is not null).Select(s => s.AsOf!.Value).ToList();
         var ranges = stamps.Select(stamp => TokenDisplayText.PeriodRange(period, stamp)).Distinct().ToList();
-        _periodRange.Text = L10n.TrFormat("{0} · Local time zone: {1}",
+        var dates = L10n.TrFormat("{0} · Local time zone: {1}",
             ranges.Count == 0 ? L10n.Tr("Not scanned yet") : string.Join(" / ", ranges),
             TokenDisplayText.TimeZoneLabel(stamps.Count == 0 ? DateTimeOffset.Now : stamps.Max()));
+        _periodRange.Child = Drawer.PhraseFlow.Of(
+            dates.Split(" · ").Select(part => (FrameworkElement)Drawer.PhraseFlow.Words(part.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Dated))).ToList(),
+            () => Dated("·", new Thickness(4, 0, 4, 0)));
         _calendarNote.Text = L10n.Tr(ranges.Count > 1
             ? "Snapshot dates differ; scan to refresh them together."
             : "Today starts at this computer's midnight. Previous days stay in history.");
     }
+
+    /// A word of the period's caption.
+    private static TextBlock Dated(string word) => Dated(word, default);
+
+    private static TextBlock Dated(string word, Thickness margin) => new()
+    {
+        Text = word,
+        Margin = margin,
+        Style = Res<Style>("CaptionTextBlockStyle"),
+        Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
+        TextWrapping = TextWrapping.Wrap,
+    };
 
     /// A character's numbers: Grok's carry Cursor's tokens too.
     private Slice CharacterSlice(DisplayProvider provider)
@@ -365,9 +324,8 @@ internal sealed partial class CostWindow : Window
         var busiest = slices.OrderByDescending(s => billable ? s.Billable : s.Tokens).FirstOrDefault();
         var scanned = slices.Any(s => s.AsOf is not null);
         var tokensFormat = L10n.Tr("{0} tokens");
-        var row = new Grid { ColumnSpacing = 12 };
-        for (var i = 0; i < 3; i++) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        void Stat(int column, string label, string value, string caption, DisplayProvider? face = null,
+        var stats = new List<FrameworkElement>();
+        void Stat(string label, string value, string caption, DisplayProvider? face = null,
             (string Key, double Value, Func<double, string> Format)? count = null, (string Key, double Value, Func<double, string> Format)? captionCount = null)
         {
             var number = new TextBlock { Text = value, Style = Res<Style>(_pixel ? "SubtitleTextBlockStyle" : "ClassicHeroTextStyle") };
@@ -392,24 +350,23 @@ internal sealed partial class CostWindow : Window
                 Spacing = 2,
                 Children = { labelText, shown, captionText },
             }, totals: true);
-            Grid.SetColumn(card, column);
-            row.Children.Add(card);
+            stats.Add(card);
         }
         var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.Models).Count(Unpriced);
-        Stat(0, L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
+        Stat(L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
             ? L10n.TrFormat(unpriced == 1 ? "{0} model has no price and counts as $0" : "{0} models have no price and count as $0", unpriced)
             : L10n.Tr("At API list prices"),
             count: scanned ? ("cost", spend, Formatting.Money) : null);
-        Stat(1, L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
+        Stat(L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
             TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode),
             count: scanned ? ("tokens", tokens, CountedTokens) : null);
         var active = busiest is { } top && (billable ? top.Billable : top.Tokens) > 0;
-        Stat(2, L10n.Tr("Busiest agent"),
+        Stat(L10n.Tr("Busiest agent"),
             active ? ProviderIdentity.DisplayName(busiest!.Provider) : "—",
             active ? L10n.TrFormat("{0} tokens", Tokens(busiest!)) : L10n.Tr(scanned ? "No activity yet" : "Not scanned yet"),
             active ? busiest!.Provider : null,
             captionCount: active ? ($"busiest-{busiest!.Provider}", billable ? busiest!.Billable : busiest!.Tokens, v => string.Format(tokensFormat, CountedTokens(v))) : null);
-        return row;
+        return Columns(stats, 3, ThreeTotals);
     }
 
     private FrameworkElement AgentCard(Slice slice)
@@ -591,9 +548,12 @@ internal sealed partial class CostWindow : Window
     /// A counted token figure reads as the page does, in whole tokens.
     private static string CountedTokens(double tokens) => Formatting.CompactTokens((long)Math.Round(tokens));
 
-    private static FrameworkElement NoLogCard(DisplayProvider provider)
+    /// Antigravity's card: no log to count, and the way to its quota.
+    private static FrameworkElement NoLogCard(DisplayProvider provider, Action showAgents)
     {
         var mark = Mark(provider);
+        var agents = new HyperlinkButton { Content = L10n.Tr("See its quota on the Agents page"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left };
+        agents.Click += (_, _) => showAgents();
         return Surface(new StackPanel
         {
             Spacing = 8,
@@ -611,10 +571,11 @@ internal sealed partial class CostWindow : Window
                 },
                 new TextBlock
                 {
-                    Text = L10n.Tr("Antigravity keeps no local usage log; its quota is on the Agents page in Settings."),
+                    Text = L10n.Tr("Antigravity keeps no local usage log."),
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
                 },
+                agents,
             },
         });
     }

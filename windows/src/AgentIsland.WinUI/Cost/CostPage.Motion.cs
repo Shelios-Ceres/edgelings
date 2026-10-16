@@ -10,15 +10,15 @@ using static AgentIsland.WinUI.Settings.SettingsUi;
 
 namespace AgentIsland.WinUI.Cost;
 
-/// The Cost window's motion (M17). A new period: the tabs' marker glides to
+/// The usage numbers' motion (M17). A new period: the tabs' marker glides to
 /// it, the charts grow and the numbers count from what was shown. A new scan
 /// counts the same columns and numbers to their new values. Pixel steps on
 /// its 30-tick clock: the underline on in2, columns and numbers on count4,
 /// the columns in three groups a tick apart. Classic eases: the puck over 333
 /// ms on inOut with a 10 % stretch, the old bars down over 167 ms, the new up
 /// over 500 ms 10 ms apart, idle dots popping in, numbers over 500 ms.
-/// Nothing moves as the window opens; reduced motion goes at once.
-internal sealed partial class CostWindow
+/// Nothing moves as the page comes; reduced motion goes at once.
+internal sealed partial class CostPage
 {
     // The tabs sit over one marker of their own (Classic's paper puck, Pixel's
     // accent underline), which glides to a new period while the tab's own
@@ -44,58 +44,12 @@ internal sealed partial class CostWindow
     /// (its blocks), an idle one a single faint block.
     private sealed record Column(DisplayProvider Provider, int Index, int Of, FrameworkElement Element, double Size, bool Idle);
 
-    /// AGENTISLAND_DEBUG_COST_FILM=<dir>: M17 stepped by hand on the shared
-    /// clock and printed frame by frame, the window's top 620 DIP: Today to
-    /// the last 7 days, to this month, and a scan counting (what was shown
-    /// first taken down, as an older scan would have left it).
-    public static async Task FilmAsync(string directory)
-    {
-        Open();
-        if (_shared is not { } window) return;
-        Directory.CreateDirectory(directory);
-        var pixel = Looks.Pixel;
-        var name = (pixel ? "pixel" : "classic") + "-" + (Brand.IsDark() ? "dark" : "light") + (Motion.ReducedMotion ? "-reduced" : "");
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
-        await Task.Delay(1500);
-        var scale = window.Content.XamlRoot?.RasterizationScale ?? 1;
-        var height = (int)(620 * scale);
-        List<(byte[] Pixels, int Left, int Top, int Width, int Height)> Capture()
-        {
-            if (WindowPrint.Client(hwnd) is not { } shot) return new();
-            var rows = Math.Min(height, shot.Height);
-            var pixels = new byte[shot.Width * rows * 4];
-            Buffer.BlockCopy(shot.Pixels, 0, pixels, 0, pixels.Length);
-            return new() { (pixels, 0, 0, shot.Width, rows) };
-        }
-        window._periods.SelectedItem = window._periods.Items[0];
-        await Task.Delay(1200);
-        UiMoment.Manual = true;
-        try
-        {
-            async Task Film(string moment, Action start)
-            {
-                await PopupPrint.FilmSequenceAsync(System.IO.Path.Combine(directory, $"{moment}-{name}.png"), start, pixel, Capture);
-                UiMoment.Finish();
-                await Task.Delay(600);
-            }
-            await Film("m17-week", () => window._periods.SelectedItem = window._periods.Items[1]);
-            await Film("m17-month", () => window._periods.SelectedItem = window._periods.Items[2]);
-            await Film("m17-scan", window.DebugScan);
-        }
-        catch (Exception error)
-        {
-            DebugTrace.Write("cost film failed: " + error);
-        }
-        finally
-        {
-            UiMoment.Manual = false;
-        }
-        DebugTrace.Write("cost film saved in " + directory);
-    }
+    /// AGENTISLAND_DEBUG_COST_FILM: a period chosen as a click chooses it.
+    internal void DebugPeriod(int index) => _periods.SelectedItem = _periods.Items[index];
 
     /// The film's scan: the numbers shown taken down to two thirds and the
     /// columns to half, then counted back up as a new scan counts.
-    private void DebugScan()
+    internal void DebugScan()
     {
         foreach (var key in _shown.Keys.ToList()) _shown[key] *= 2.0 / 3;
         foreach (var provider in _shownBars.Keys.ToList())
@@ -232,7 +186,7 @@ internal sealed partial class CostWindow
     private void SwitchPeriod(int from, int to)
     {
         _count?.Stop();
-        if (!AppWindow.IsVisible || Motion.ReducedMotion)
+        if (!_visible() || Motion.ReducedMotion)
         {
             Render();
             return;
@@ -294,7 +248,7 @@ internal sealed partial class CostWindow
         var bars = new Dictionary<DisplayProvider, IReadOnlyList<double>>(_shownBars);
         var page = Compose();
         Commit(page);
-        if (!AppWindow.IsVisible || Motion.ReducedMotion || counted.Count == 0)
+        if (!_visible() || Motion.ReducedMotion || counted.Count == 0)
         {
             Remember();
             return;

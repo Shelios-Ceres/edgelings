@@ -53,21 +53,28 @@ internal sealed partial class SettingsWindow : Window
     private bool _dirty = true;
     private int _ticks;
 
-    public static void Open(DisplayProvider? focus = null)
+    public static void Open(DisplayProvider? focus = null) => Open(focus, null);
+
+    /// On the Usage & cost page, where the drawer's and the tray's menus go.
+    public static void OpenUsage() => Open(null, Page.Usage);
+
+    private static void Open(DisplayProvider? focus, Page? page)
     {
-        // A window already on screen moves to the agent (M19); one that is
-        // appearing opens with the agent ready.
+        // A window already on screen moves to the agent (M19) or the page
+        // (M8); one that is appearing opens with them ready.
         var onScreen = _shared is { AppWindow.IsVisible: true };
         // A closed window was only hidden (Chrome.HideOnClose): it comes back
         // in the current look and language, on its last page.
         if (_shared is { AppWindow.IsVisible: false } hidden)
         {
+            if (page is { } chosen) hidden._page = chosen;
             hidden.Build();
             hidden._tick.Start();
         }
-        _shared ??= new SettingsWindow();
+        _shared ??= new SettingsWindow(page);
         // Cursor's settings are part of Grok's.
         if (focus is { } provider) _shared.Focus(provider.Character(), animate: onScreen);
+        else if (page is { } next) _shared.SelectPage(next);
         Shell.Chrome.Show(_shared);
     }
 
@@ -84,6 +91,23 @@ internal sealed partial class SettingsWindow : Window
             await Task.Delay(1500);
             if (window.Content is { } content) await Shell.Snapshot.SaveAsync(content, Path.Combine(directory, $"settings-{page}.png"));
             if (window._scroll.Content is UIElement body) await Shell.Snapshot.SaveAsync(body, Path.Combine(directory, $"settings-{page}-full.png"));
+        }
+    }
+
+    /// AGENTISLAND_DEBUG_OPEN_COST with AGENTISLAND_DEBUG_SNAPSHOT: the Usage &
+    /// cost page in each period, rendered by the app itself.
+    public static async Task SnapshotCostAsync(string directory)
+    {
+        OpenUsage();
+        if (_shared is not { } window) return;
+        Directory.CreateDirectory(directory);
+        var periods = new[] { "Today", "Week", "Month" };
+        for (var i = 0; i < periods.Length; i++)
+        {
+            window._costPage?.DebugPeriod(i);
+            await Task.Delay(1200);
+            if (window.Content is { } content) await Shell.Snapshot.SaveAsync(content, Path.Combine(directory, $"cost-{periods[i]}.png"));
+            if (window._scroll.Content is UIElement body) await Shell.Snapshot.SaveAsync(body, Path.Combine(directory, $"cost-{periods[i]}-full.png"));
         }
     }
 
@@ -187,9 +211,9 @@ internal sealed partial class SettingsWindow : Window
         if (_shared is { AppWindow.IsVisible: true } window) window.Build();
     }
 
-    private SettingsWindow()
+    private SettingsWindow(Page? page = null)
     {
-        _page = Enum.TryParse<Page>(Preferences.Get<string?>(PageKey), out var saved) ? saved : Page.Agents;
+        _page = page ?? (Enum.TryParse<Page>(Preferences.Get<string?>(PageKey), out var saved) ? saved : Page.Agents);
         Build();
         // The other character style brings the other look.
         PropertyChangedEventHandler look = (_, e) =>
@@ -227,9 +251,11 @@ internal sealed partial class SettingsWindow : Window
             _tick.Stop();
             FollowDrawerStore(null);
             _agents.Clear();
+            EndCostPage();
             _scroll.Content = null;
         });
         _teardown.Add(() => FollowDrawerStore(null));
+        _teardown.Add(EndCostPage);
         Closed += (_, _) =>
         {
             _tick.Stop();
@@ -363,6 +389,7 @@ internal sealed partial class SettingsWindow : Window
         _lineup = Array.Empty<(DisplayProvider, bool)>();
         _lineupKey = "";
         _drag = null;
+        EndCostPage();
         var body = new StackPanel { Spacing = CardGap, MaxWidth = 1000, Padding = new Thickness(40, 28, 40, 40) };
         switch (page)
         {
@@ -543,7 +570,9 @@ internal sealed partial class SettingsWindow : Window
     private void BuildUsage(StackPanel body)
     {
         body.Children.Add(PageTitle(L10n.Tr("Usage & cost")));
-        body.Children.Add(PageIntro(L10n.Tr("How often quotas are fetched, how tokens are counted, and what your usage would cost at API prices.")));
+        body.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.")));
+        _costPage = new Cost.CostPage(DispatcherQueue, () => AppWindow.IsVisible && _page == Page.Usage, () => SelectPage(Page.Agents));
+        body.Children.Add(_costPage.View);
         body.Children.Add(Section(L10n.Tr("Quota")));
         var presets = RefreshIntervalStore.Presets;
         body.Children.Add(Card(L10n.Tr("Refresh interval"),
@@ -561,22 +590,15 @@ internal sealed partial class SettingsWindow : Window
         body.Children.Add(Card(L10n.Tr("Token counting"), L10n.Tr("Excludes cache reads; new input written to cache still counts. History is kept."), "\uE8EF",
             Combo(new[] { TokenDisplayText.ModeLabel(TokenCountMode.All), TokenDisplayText.ModeLabel(TokenCountMode.Billable) }, counting.Mode == TokenCountMode.All ? 0 : 1,
                 index => counting.Mode = index == 0 ? TokenCountMode.All : TokenCountMode.Billable)));
+    }
 
-        body.Children.Add(Section(L10n.Tr("Cost")));
-        var scanned = new TextBlock();
-        void Caption() => scanned.Text = CostStore.Shared.LastUpdated is { } updated
-            ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
-            : L10n.Tr("Not scanned yet");
-        Caption();
-        var scan = Button(L10n.Tr("Scan now"), () =>
-        {
-            using var english = Shell.Looks.English();
-            CostStore.Shared.Refresh();
-            Caption();
-        });
-        var card = Card(L10n.Tr("Local logs"), null, "\uE8C7", SideBySide(scan, Button(L10n.Tr("Open cost"), () => Cost.CostWindow.Open(), accent: true)));
-        card.Description = scanned;
-        body.Children.Add(card);
+    // The usage numbers on the Usage & cost page, while it shows.
+    private Cost.CostPage? _costPage;
+
+    private void EndCostPage()
+    {
+        _costPage?.Dispose();
+        _costPage = null;
     }
 
     // MARK: - General

@@ -542,6 +542,7 @@ public static class L10n
         ["Agents"] = "智能体",
         ["Drawer"] = "抽屉",
         ["Usage & cost"] = "用量与成本",
+        ["Usage & cost…"] = "用量与成本…",
         ["On"] = "开",
         ["Off"] = "关",
         ["Quota, tokens and live activity for every coding agent on this computer, in the drawer's order. Drag a card by its grip or use its arrows to move it; switch one off to hide it everywhere."] = "这台电脑上每个编程智能体的配额、Token 和实时动态，按抽屉里的顺序排列。拖动卡片左侧的手柄或用箭头调整顺序；关掉开关即可在各处隐藏它。",
@@ -596,7 +597,6 @@ public static class L10n
         ["Animation"] = "动画",
         ["With Windows animation effects off, characters slow down and stop following the pointer"] = "关闭 Windows 动画效果后，角色会放慢，也不再跟随指针",
         ["Windows animation settings"] = "Windows 动画设置",
-        ["How often quotas are fetched, how tokens are counted, and what your usage would cost at API prices."] = "配额多久拉取一次、Token 怎么计数，以及按 API 价格算你的用量值多少钱。",
         ["Quota"] = "配额",
         ["Providers rate-limit their usage endpoints, so nothing shorter than five minutes is offered"] = "各家的用量接口都有频率限制，所以最短只提供 5 分钟",
         ["Every {0} minutes"] = "每 {0} 分钟",
@@ -610,7 +610,6 @@ public static class L10n
         ["{0} · Local time zone: {1}"] = "{0} · 本机时区：{1}",
         ["Today starts at this computer's midnight. Previous days stay in history."] = "今天从本机午夜开始累计，之前的数据仍保留在历史中。",
         ["Snapshot dates differ; scan to refresh them together."] = "部分智能体的统计日期不同，可立即扫描以同步更新。",
-        ["Local logs"] = "本机日志",
         ["Last scanned {0}"] = "上次扫描：{0}",
         ["Not scanned yet"] = "还没扫描",
         ["Characters"] = "角色",
@@ -632,7 +631,6 @@ public static class L10n
         ["Classic"] = "经典",
         ["Quota updated {0}"] = "额度更新于 {0}",
         ["Scan now"] = "立即扫描",
-        ["Open cost"] = "打开成本",
         ["Startup"] = "启动",
         ["Start Agent Island when you sign in to Windows"] = "登录 Windows 时自动启动 Agent Island",
         ["App language"] = "应用语言",
@@ -698,7 +696,8 @@ public static class L10n
         ["Models, last 5 hours"] = "模型（最近 5 小时）",
         ["no price"] = "无价格",
         ["No sessions in this period"] = "这段时间没有会话",
-        ["Antigravity keeps no local usage log; its quota is on the Agents page in Settings."] = "Antigravity 不在本机保存用量日志，它的配额在设置的「智能体」页。",
+        ["Antigravity keeps no local usage log."] = "Antigravity 不在本机保存用量日志。",
+        ["See its quota on the Agents page"] = "在「智能体」页查看它的配额",
     };
     /// English display overrides, mirroring macOS en.lproj where key and
     /// value diverge: the key namespace is frozen history, the values carry

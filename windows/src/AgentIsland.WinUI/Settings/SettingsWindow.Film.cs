@@ -274,6 +274,50 @@ internal sealed partial class SettingsWindow
         DebugTrace.Write("settings film saved in " + directory);
     }
 
+    /// AGENTISLAND_DEBUG_COST_FILM=<dir>: the usage numbers' motion (M17) on
+    /// the Usage & cost page, stepped by hand on the shared clock and printed
+    /// frame by frame, the page's top 620 DIP: Today to the last 7 days, to
+    /// this month, and a scan counting (what was shown first taken down, as
+    /// an older scan would have left it).
+    public static async Task FilmCostAsync(string directory)
+    {
+        OpenUsage();
+        if (_shared is not { } window) return;
+        Directory.CreateDirectory(directory);
+        var pixel = Looks.Pixel;
+        var name = (pixel ? "pixel" : "classic") + "-" + (Brand.IsDark() ? "dark" : "light") + (Motion.ReducedMotion ? "-reduced" : "");
+        await Task.Delay(1500);
+        var size = window.Content is FrameworkElement content ? new Size(content.ActualWidth, content.ActualHeight) : new Size(980, 720);
+        var page = Region(window, new Rect(200, 0, size.Width - 200, Math.Min(size.Height, 620)));
+        window._costPage?.DebugPeriod(0);
+        await Task.Delay(1200);
+        UiMoment.Manual = true;
+        try
+        {
+            async Task Film(string moment, Action start)
+            {
+                await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"{moment}-{name}.png"), start, pixel, page);
+                UiMoment.Finish();
+                await Task.Delay(600);
+            }
+            if (window._costPage is { } cost)
+            {
+                await Film("m17-week", () => cost.DebugPeriod(1));
+                await Film("m17-month", () => cost.DebugPeriod(2));
+                await Film("m17-scan", cost.DebugScan);
+            }
+        }
+        catch (Exception error)
+        {
+            DebugTrace.Write("cost film failed: " + error);
+        }
+        finally
+        {
+            UiMoment.Manual = false;
+        }
+        DebugTrace.Write("cost film saved in " + directory);
+    }
+
     /// The storyboard that flips a switch from where it stands now (M12).
     private static Storyboard? Flip(ToggleSwitch toggle)
     {

@@ -9,7 +9,7 @@ chosen in **Settings → Drawer → Character style** and switched live:
 |---|---|---|
 | Characters | Seven pixel bots, one per agent, from a bundled engine | Twelve recolourable shapes in eleven colours, from a bundled engine |
 | Panels | Opaque pixel panels, English, in the Ark Pixel font | Paper with a soft tail and shadow, in the app language |
-| Settings, Cost and menus | The pixel kit (`Shell/PixelTheme.xaml`) | The Classic kit (`Shell/ClassicTheme.xaml`): rounder Fluent with the Sky accent |
+| Settings and menus | The pixel kit (`Shell/PixelTheme.xaml`) | The Classic kit (`Shell/ClassicTheme.xaml`): rounder Fluent with the Sky accent |
 | Agent colour | Each bot's own colour | The colour picked in the bot's right-click menu |
 
 This document is the contract for adding a theme: what it **must** provide,
@@ -26,7 +26,7 @@ the third, and may reuse an existing style for the second.
 2. **Surfaces**: the chrome of the hover card and the speech bubbles (plate,
    outline, corners, pointer, quota bars, type).
 3. **Identity**: one colour per agent (its *swatch*), which tints the card,
-   the bubbles, the cost window's charts and the meters in Settings.
+   the bubbles, and the usage charts and the meters in Settings.
 
 ## 2. Workflow
 
@@ -221,15 +221,15 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   `Shell/MenuMotion.cs`), and the kits' tooltips, dialogs and drop-downs
   (`Shell/ControlMotion.cs`, switched on by the kits' styles). They play on
   the UI thread through `Shell/UiMoment.cs`, on the same clock and curves.
-- The numbers of Settings' and the Cost window's moments: the page switch,
-  the Agents page's cards gliding as an agent is hidden, shown or moved (by
-  its arrows or its grip), and an agent opened from the drawer
+- The numbers of Settings' moments: the page switch, the Agents page's
+  cards gliding as an agent is hidden, shown or moved (by its arrows or its
+  grip), and an agent opened from the drawer
   (`Settings/SettingsWindow.Motion.cs`); expanders (`Shell/ExpanderMotion.cs`,
   with `Shell/RevealPanel.cs`); quota bars counting (`Shell/QuotaBar.cs`,
   `PixelBar`); the busy signs (`FaceSpinner`, `PixelSpinner`); a button's
-  press (`Shell/ControlMotion.cs`); the period tabs, charts and numbers
-  (`Cost/CostWindow.Motion.cs`). A switch's flip is keyframes in its kit's
-  template.
+  press (`Shell/ControlMotion.cs`); the Usage & cost page's period tabs,
+  charts and numbers (`Cost/CostPage.Motion.cs`). A switch's flip is
+  keyframes in its kit's template.
 
 ## 5. Fixed (must not change)
 
@@ -290,7 +290,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 6. **Surfaces.** Reuse the paper or pixel style, or add one in `HoverCard`
    and `SpeechBubble`, with helpers like `Shell/PaperPlate.cs` and
    `Shell/PixelPlate.cs`. Both take a `pixel` flag today; a third style turns
-   that flag into the theme. Settings, Cost and the drawer menu take their
+   that flag into the theme. Settings and the drawer menu take their
    controls from the theme's kit through `Shell/Looks.cs`.
 7. **Settings.** Add the option to Character style in
    `Settings/SettingsWindow.cs`, and its strings to `L10n` (English key and
@@ -314,7 +314,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | Variable | Effect |
   |---|---|
   | `AGENTISLAND_DEBUG_BUBBLE=<n>` or `all` | Opens the card of visible bot `n` (counting from 0), or every agent's card |
-  | `AGENTISLAND_DEBUG_SNAPSHOT=<dir>` | With the above, saves that card as a PNG rendered off-screen; with `AGENTISLAND_DEBUG_OPEN_SETTINGS=1`, saves every settings page |
+  | `AGENTISLAND_DEBUG_SNAPSHOT=<dir>` | With the above, saves that card as a PNG rendered off-screen; with `AGENTISLAND_DEBUG_OPEN_SETTINGS=1`, saves every settings page; with `AGENTISLAND_DEBUG_OPEN_COST=1`, the Usage & cost page in each period |
   | `AGENTISLAND_DEBUG_CARD_TEXT=long` | Fills every card with the longest it says (a long phase and detail, several notes, a tip that can't be split), to check how its phrases flow from line to line |
   | `AGENTISLAND_DEBUG_SAY=<Phase>` or `Locked` | Makes the first bot say that phase's line, or the line a locked drawer answers a drag with |
   | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
@@ -325,7 +325,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
   | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings |
   | `AGENTISLAND_DEBUG_SETTINGS_FILM=<dir>` | The same for Settings' own moments: a page switch, expanders, agents hidden and shown, an agent opened from the drawer, a meter counting, an agent card moved by its arrows and one dragged by its grip (taken, held past the next, let go), a switch flipping and a button pressed. It hides, moves and flips for real: restore the settings afterwards. `AGENTISLAND_DEBUG_FILM_ONLY=<names>` films only the strips starting with those comma-separated names |
-  | `AGENTISLAND_DEBUG_COST_FILM=<dir>` | The same for the Cost window: two period switches and a scan counting |
+  | `AGENTISLAND_DEBUG_COST_FILM=<dir>` | The same for the usage numbers on Settings' Usage & cost page: two period switches and a scan counting |
   | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
   | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |
 

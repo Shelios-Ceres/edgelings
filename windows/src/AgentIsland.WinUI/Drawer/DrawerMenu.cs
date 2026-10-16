@@ -99,7 +99,7 @@ internal static class DrawerMenu
             L10n.Tr(right ? "Dock to the left edge" : "Dock to the right edge"), "\uE8AB",
             () => DrawerStore.Shared.Side = right ? DrawerSide.Left : DrawerSide.Right));
         menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(MenuHost.Item(L10n.Tr("Cost…"), "\uE8C7", () => Cost.CostWindow.Open()));
+        menu.Items.Add(MenuHost.Item(L10n.Tr("Usage & cost…"), "\uE8C7", () => SettingsWindow.OpenUsage()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
         MenuHost.Show(menu, keepOpen, at, kit: true);
     }
