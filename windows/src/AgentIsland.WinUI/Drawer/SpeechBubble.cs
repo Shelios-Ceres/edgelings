@@ -11,13 +11,14 @@ using Windows.Foundation;
 namespace AgentIsland.WinUI.Drawer;
 
 /// How a line pops (M5): a finished agent's line hops, a question or a
-/// request knocks, trouble shakes, and the locked drawer's answer just pops.
+/// request knocks, trouble shakes, and lines with nothing to do yet (the
+/// locked drawer's answer, a used-up quota) just pop.
 internal enum LineKind
 {
     Done,
     Waiting,
     Error,
-    Locked,
+    Plain,
 }
 
 /// A character's line beside it: paper like the hover card's, its tail
@@ -80,6 +81,7 @@ internal sealed class SpeechBubble
     {
         AgentPhase.Finished => LineKind.Done,
         AgentPhase.Failed or AgentPhase.NetworkTrouble => LineKind.Error,
+        AgentPhase.RateLimited => LineKind.Plain,
         _ => LineKind.Waiting,
     };
 
@@ -115,8 +117,13 @@ internal sealed class SpeechBubble
         _paper.Visibility = pixel ? Visibility.Collapsed : Visibility.Visible;
         _text.Text = line;
 
+        // The size comes from the text alone, not the last line's plate, and
+        // is rounded up (whole cells on the pixel panel) so layout rounding
+        // never leaves the text a hair too narrow and wraps it again.
+        _plate.Width = _plate.Height = _paper.Width = _paper.Height = 0;
         _pane.Measure(new Size(MaxWidth, double.PositiveInfinity));
-        var size = _pane.DesiredSize;
+        var step = pixel ? PixelPlate.Cell : 1 / scale;
+        var size = new Size(Math.Ceiling(_pane.DesiredSize.Width / step) * step, Math.Ceiling(_pane.DesiredSize.Height / step) * step);
         var aim = anchor.Y + anchor.Height / 2;
         var top = Math.Clamp(aim - size.Height / 2, area.Top + 6, Math.Max(area.Top + 6, area.Bottom - 6 - size.Height));
         _pixel = pixel;

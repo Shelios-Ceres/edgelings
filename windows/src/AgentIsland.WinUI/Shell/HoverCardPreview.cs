@@ -363,7 +363,7 @@ internal sealed class HoverCardPreview : Window
                 {
                     LineKind.Done => "Done — your turn!",
                     LineKind.Error => "Hit an error.",
-                    LineKind.Locked => "Locked in place.\nRight-click to unlock.",
+                    LineKind.Plain => "Locked in place.\nRight-click to unlock.",
                     _ => "Can I run this? Needs your OK.",
                 };
                 await Film(Path.Combine(directory, $"m5-{kind.ToString().ToLowerInvariant()}-{name}.png"), bubble,

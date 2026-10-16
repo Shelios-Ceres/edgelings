@@ -1010,7 +1010,7 @@ internal sealed partial class DrawerWindow : Window
         _cardBot = null;
         string line;
         using (_theme == CharacterTheme.Pixel ? L10n.English() : null) line = L10n.Tr("Locked in place.\nRight-click to unlock.");
-        Say(bot, line, LineKind.Locked);
+        Say(bot, line, LineKind.Plain);
     }
 
     private void Hush()

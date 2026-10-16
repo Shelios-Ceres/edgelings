@@ -324,6 +324,7 @@ internal sealed class HoverCard : IDisposable
                     swapped = true;
                     Present(request);
                     Whole();
+                    SettleHeight();
                 }
                 var to = _bounds.Top;
                 var y = k >= 2 ? to : to - Motion.Cell((to - from) * 0.35);
