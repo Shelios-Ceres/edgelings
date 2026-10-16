@@ -31,6 +31,37 @@ internal static class PopupPrint
         return shots;
     }
 
+    /// One moment's frames, stepped by hand: Pixel every tick (mid-tick),
+    /// Classic every 33 ms, until a frame past its end. `capture` returns
+    /// what to print for a frame; by default every popup of the app.
+    public static async Task FilmAsync(string path, UiMoment moment, bool pixel,
+        Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>>? capture = null)
+    {
+        var step = pixel ? Motion.TickMs : 1000.0 / 30;
+        var count = (int)Math.Ceiling(moment.DurationMs / step - 1e-6) + 2;
+        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
+        for (var k = 0; k < count; k++)
+        {
+            var ms = pixel ? k * step + step / 2 : k * step;
+            if (k > 0) moment.Step(ms);
+            await Task.Delay(150);
+            // PrintWindow waits on the UI thread to compose the popup.
+            frames.Add((pixel ? $"t={k}" : $"{ms:F0} ms", await Task.Run(capture ?? Capture)));
+        }
+        await SaveStrip(path, frames);
+    }
+
+    /// The moment that starts after `before`, waiting up to three seconds.
+    public static async Task<UiMoment?> NextMoment(UiMoment? before)
+    {
+        for (var i = 0; i < 60; i++)
+        {
+            if (UiMoment.Latest is { } latest && latest != before) return latest;
+            await Task.Delay(50);
+        }
+        return null;
+    }
+
     /// Frames side by side, eight to a row, each the union of every frame's
     /// popups so they stay in place from frame to frame.
     public static async Task SaveStrip(string path, IReadOnlyList<(string Label, List<(byte[] Pixels, int Left, int Top, int Width, int Height)> Popups)> frames)

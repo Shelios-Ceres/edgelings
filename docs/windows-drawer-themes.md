@@ -216,6 +216,11 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   in `Shell/Motion.cs`): Pixel steps whole 2-DIP cells on a 30-tick clock,
   and Classic eases on cubic Béziers over Fluent's 83 to 500 ms durations.
   While one plays, the window region opens to the whole window.
+- The numbers of the popups' moments: the card, the speech bubbles and the
+  drawer menu (`Drawer/HoverCard.cs`, `Drawer/SpeechBubble.cs`,
+  `Shell/MenuMotion.cs`), and the kits' tooltips, dialogs and drop-downs
+  (`Shell/ControlMotion.cs`, switched on by the kits' styles). They play on
+  the UI thread through `Shell/UiMoment.cs`, on the same clock and curves.
 
 ## 5. Fixed (must not change)
 
@@ -306,6 +311,9 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
   | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and every bot idle, asking, in orbit, finished and locked |
+  | `AGENTISLAND_DEBUG_POPUP_FILM=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, steps the card's and the bubbles' moments by hand and saves each as a strip of its frames, printed from the test window so the paper's shadow shows |
+  | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
+  | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings |
   | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
   | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |
 

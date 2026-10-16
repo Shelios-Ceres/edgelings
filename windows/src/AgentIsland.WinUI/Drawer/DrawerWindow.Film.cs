@@ -92,30 +92,23 @@ internal sealed partial class DrawerWindow
         UiMoment.Manual = true;
         try
         {
-            async Task<UiMoment?> Next(UiMoment? before)
-            {
-                for (var i = 0; i < 60; i++)
-                {
-                    if (UiMoment.Latest is { } latest && latest != before) return latest;
-                    await Task.Delay(50);
-                }
-                return null;
-            }
+            var pixel = _theme == CharacterTheme.Pixel;
+            var Next = PopupPrint.NextMoment;
             var before = UiMoment.Latest;
             DebugMenu();
             if (await Next(before) is not { } open) return;
-            await FilmPopups(Path.Combine(directory, $"m7-open-{name}.png"), open);
+            await PopupPrint.FilmAsync(Path.Combine(directory, $"m7-open-{name}.png"), open, pixel);
             if (MenuMotion.OpenPanels().SelectMany(panel => panel.Items).OfType<MenuFlyoutSubItem>().FirstOrDefault() is { } sub)
             {
                 before = UiMoment.Latest;
                 (FrameworkElementAutomationPeer.CreatePeerForElement(sub).GetPattern(PatternInterface.ExpandCollapse) as IExpandCollapseProvider)?.Expand();
-                if (await Next(before) is { } submenu) await FilmPopups(Path.Combine(directory, $"m7-submenu-{name}.png"), submenu);
+                if (await Next(before) is { } submenu) await PopupPrint.FilmAsync(Path.Combine(directory, $"m7-submenu-{name}.png"), submenu, pixel);
             }
             if (_theme != CharacterTheme.Pixel && MenuMotion.Menu is { } menu)
             {
                 before = UiMoment.Latest;
                 menu.Hide();
-                if (await Next(before) is { } close) await FilmPopups(Path.Combine(directory, $"m7-close-{name}.png"), close);
+                if (await Next(before) is { } close) await PopupPrint.FilmAsync(Path.Combine(directory, $"m7-close-{name}.png"), close, pixel);
             }
         }
         catch (Exception error)
@@ -127,23 +120,6 @@ internal sealed partial class DrawerWindow
             UiMoment.Manual = false;
         }
         DebugTrace.Write("menu film saved in " + directory);
-    }
-
-    private async Task FilmPopups(string path, UiMoment moment)
-    {
-        var pixel = _theme == CharacterTheme.Pixel;
-        var step = pixel ? TickMs : 1000.0 / 30;
-        var count = (int)Math.Ceiling(moment.DurationMs / step - 1e-6) + 2;
-        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
-        for (var k = 0; k < count; k++)
-        {
-            var ms = pixel ? k * step + step / 2 : k * step;
-            if (k > 0) moment.Step(ms);
-            await Task.Delay(150);
-            // PrintWindow waits on the UI thread to compose the popup.
-            frames.Add((pixel ? $"t={k}" : $"{ms:F0} ms", await Task.Run(PopupPrint.Capture)));
-        }
-        await PopupPrint.SaveStrip(path, frames);
     }
 
     public void DebugFilm(string directory) => _commands.Enqueue(() =>

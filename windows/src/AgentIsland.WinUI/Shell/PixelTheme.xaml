@@ -780,7 +780,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollViewer">
                     <Grid>
-                        <shell:PixelSurface Fill="{ThemeResource PixelPaper}" Outline="{ThemeResource PixelLine}" HardShadow="{ThemeResource PixelShadow}" />
+                        <!-- Plate: M13's ghosts are this plate at the selected row, then half way. -->
+                        <shell:PixelSurface x:Name="Plate" Fill="{ThemeResource PixelPaper}" Outline="{ThemeResource PixelLine}" HardShadow="{ThemeResource PixelShadow}" />
                         <ScrollContentPresenter x:Name="ScrollContentPresenter" ContentTemplate="{TemplateBinding ContentTemplate}" />
                         <ScrollBar x:Name="VerticalScrollBar" Margin="0,4,4,6" HorizontalAlignment="Right" Orientation="Vertical" IsTabStop="False" Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}" Value="{TemplateBinding VerticalOffset}" Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
                     </Grid>
@@ -790,6 +791,7 @@
     </Style>
 
     <Style x:Key="PixelComboBoxStyle" TargetType="ComboBox">
+        <Setter Property="shell:ControlMotion.DropDown" Value="True" />
         <Setter Property="Padding" Value="12,0,36,0" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="MaxDropDownHeight" Value="504" />
@@ -1018,6 +1020,7 @@
 
     <!-- Tooltips: a small surface with a hard shadow. -->
     <Style x:Key="PixelToolTipStyle" TargetType="ToolTip">
+        <Setter Property="shell:ControlMotion.Tip" Value="True" />
         <Setter Property="Foreground" Value="{ThemeResource PixelText}" />
         <Setter Property="Padding" Value="10,4,12,8" />
         <Setter Property="MaxWidth" Value="320" />
@@ -1517,6 +1520,7 @@
 
     <!-- Dialogs: WinUI's own template on a stepped plate with a hard shadow and a layer footer. -->
     <Style x:Key="PixelContentDialogStyle" TargetType="ContentDialog">
+        <Setter Property="shell:ControlMotion.Dialog" Value="True" />
         <Setter Property="Foreground" Value="{ThemeResource PixelText}" />
         <Setter Property="FontFamily" Value="{ThemeResource PixelFontFamily}" />
         <Setter Property="FontSize" Value="{ThemeResource PixelBodySize}" />
@@ -1536,51 +1540,6 @@
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="DialogShowingStates">
 
-                                <VisualStateGroup.Transitions>
-                                    <VisualTransition To="DialogHidden">
-
-                                        <Storyboard>
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="LayoutRoot" Storyboard.TargetProperty="Visibility">
-                                                <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="Visible" />
-                                            </ObjectAnimationUsingKeyFrames>
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="LayoutRoot" Storyboard.TargetProperty="IsHitTestVisible">
-                                                <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="False" />
-                                            </ObjectAnimationUsingKeyFrames>
-                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ScaleTransform" Storyboard.TargetProperty="ScaleX">
-                                                <DiscreteDoubleKeyFrame KeyTime="0:0:0" Value="1.0" />
-                                                <SplineDoubleKeyFrame KeyTime="{StaticResource ControlFastAnimationDuration}" KeySpline="{StaticResource ControlFastOutSlowInKeySpline}" Value="1.05" />
-                                            </DoubleAnimationUsingKeyFrames>
-                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ScaleTransform" Storyboard.TargetProperty="ScaleY">
-                                                <DiscreteDoubleKeyFrame KeyTime="0:0:0" Value="1.0" />
-                                                <SplineDoubleKeyFrame KeyTime="{StaticResource ControlFastAnimationDuration}" KeySpline="{StaticResource ControlFastOutSlowInKeySpline}" Value="1.05" />
-                                            </DoubleAnimationUsingKeyFrames>
-                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="LayoutRoot" Storyboard.TargetProperty="Opacity">
-                                                <DiscreteDoubleKeyFrame KeyTime="0:0:0" Value="1.0" />
-                                                <LinearDoubleKeyFrame KeyTime="{StaticResource ControlFasterAnimationDuration}" Value="0.0" />
-                                            </DoubleAnimationUsingKeyFrames>
-                                        </Storyboard>
-                                    </VisualTransition>
-                                    <VisualTransition To="DialogShowing">
-
-                                        <Storyboard>
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="LayoutRoot" Storyboard.TargetProperty="Visibility">
-                                                <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="Visible" />
-                                            </ObjectAnimationUsingKeyFrames>
-                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ScaleTransform" Storyboard.TargetProperty="ScaleX">
-                                                <DiscreteDoubleKeyFrame KeyTime="0:0:0" Value="1.05" />
-                                                <SplineDoubleKeyFrame KeyTime="{StaticResource ControlNormalAnimationDuration}" KeySpline="{StaticResource ControlFastOutSlowInKeySpline}" Value="1.0" />
-                                            </DoubleAnimationUsingKeyFrames>
-                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ScaleTransform" Storyboard.TargetProperty="ScaleY">
-                                                <DiscreteDoubleKeyFrame KeyTime="0:0:0" Value="1.05" />
-                                                <SplineDoubleKeyFrame KeyTime="{StaticResource ControlNormalAnimationDuration}" KeySpline="{StaticResource ControlFastOutSlowInKeySpline}" Value="1.0" />
-                                            </DoubleAnimationUsingKeyFrames>
-                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="LayoutRoot" Storyboard.TargetProperty="Opacity">
-                                                <DiscreteDoubleKeyFrame KeyTime="0:0:0" Value="0.0" />
-                                                <LinearDoubleKeyFrame KeyTime="{StaticResource ControlFasterAnimationDuration}" Value="1.0" />
-                                            </DoubleAnimationUsingKeyFrames>
-                                        </Storyboard>
-                                    </VisualTransition>
-                                </VisualStateGroup.Transitions>
                                 <VisualState x:Name="DialogHidden" />
                                 <VisualState x:Name="DialogShowing">
                                     <VisualState.Setters>

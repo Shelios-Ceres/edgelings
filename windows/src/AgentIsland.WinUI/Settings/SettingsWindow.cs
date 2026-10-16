@@ -23,7 +23,7 @@ namespace AgentIsland.WinUI.Settings;
 /// Settings in the Windows 11 idiom: Mica, a navigation pane and setting
 /// cards. Agents leads, since that is what the app is about; the drawer,
 /// usage and general preferences follow.
-internal sealed class SettingsWindow : Window
+internal sealed partial class SettingsWindow : Window
 {
     private enum Page
     {

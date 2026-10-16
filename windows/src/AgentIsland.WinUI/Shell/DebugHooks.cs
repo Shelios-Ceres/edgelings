@@ -68,6 +68,8 @@ internal static class DebugHooks
         else if (Enum.TryParse<AgentIsland.Core.AgentPhase>(say, out var phase)) drawer.DebugSay(phase);
         // AGENTISLAND_DEBUG_DRAWER_FILM=<dir>: the drawer moments frame by frame.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_FILM") is { Length: > 0 } film) drawer.DebugFilm(film);
+        // AGENTISLAND_DEBUG_CONTROL_FILM=<dir>: a tooltip's, a drop-down's and a dialog's motion.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_CONTROL_FILM") is { Length: > 0 } controlFilm) _ = SettingsWindow.FilmControlsAsync(controlFilm);
         // AGENTISLAND_DEBUG_MENU_FILM=<dir>: the drawer menu's motion frame by frame.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_MENU_FILM") is { Length: > 0 } menuFilm) drawer.DebugMenuFilm(menuFilm);
         // AGENTISLAND_DEBUG_DRAWER_MOMENTS=1: every drawer moment, live.

@@ -15,6 +15,7 @@ internal sealed class UiMoment
     private readonly Action<double> _apply;
     private readonly Action? _done;
     private bool _running;
+    private bool _landed;
 
     /// AGENTISLAND_DEBUG_POPUP_FILM: moments wait to be stepped by hand.
     internal static bool Manual { get; set; }
@@ -40,7 +41,7 @@ internal sealed class UiMoment
         apply(0);
         if (durationMs <= 0)
         {
-            done?.Invoke();
+            moment.Land();
             return moment;
         }
         if (Manual) return moment;
@@ -63,8 +64,9 @@ internal sealed class UiMoment
     /// moment when ms reaches its end.
     internal void Step(double ms)
     {
+        if (_landed) return;
         _apply(Math.Min(ms, _durationMs));
-        if (ms >= _durationMs) _done?.Invoke();
+        if (ms >= _durationMs) Land();
     }
 
     private void OnRendering(object? sender, object e)
@@ -77,6 +79,14 @@ internal sealed class UiMoment
         }
         Stop();
         _apply(_durationMs);
+        Land();
+    }
+
+    /// `done` runs once, when the moment lands.
+    private void Land()
+    {
+        if (_landed) return;
+        _landed = true;
         _done?.Invoke();
     }
 }
