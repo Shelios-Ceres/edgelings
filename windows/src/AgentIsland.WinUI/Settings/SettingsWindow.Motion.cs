@@ -14,9 +14,9 @@ using static AgentIsland.WinUI.Settings.SettingsUi;
 
 namespace AgentIsland.WinUI.Settings;
 
-/// Settings' own motion: the page switch (M8), the Agents page regrouping
-/// as an agent is hidden or shown (M10), and an agent opened from the
-/// drawer (M19). Expanders open and close by themselves (M9,
+/// Settings' own motion: the page switch (M8), the Agents page's cards
+/// gliding as an agent is hidden or shown (M10) or moved (M11), and an agent
+/// opened from the drawer (M19). Expanders open and close by themselves (M9,
 /// Shell/ExpanderMotion.cs). Pixel steps whole cells on its 30-tick clock;
 /// Classic eases on its curves; reduced motion goes at once.
 internal sealed partial class SettingsWindow
@@ -33,14 +33,12 @@ internal sealed partial class SettingsWindow
     private UiMoment? _regroup;
     private UiMoment? _arrive;
 
-    // The Agents page's parts that M10 and M19 move.
-    private readonly Dictionary<DisplayProvider, RevealPanel> _cards = new();
-    private readonly Dictionary<DisplayProvider, SettingsCard> _hiddenRows = new();
-    private IReadOnlyList<DisplayProvider> _hiddenAgents = Array.Empty<DisplayProvider>();
-    private RevealPanel? _hiddenGroup;
-    private SettingsExpander? _hiddenList;
-    private IconElement? _hiddenEye;
-    private TextBlock? _hiddenCount;
+    // The Agents page's cards, each with its grip, which M10, M11 and M19 move.
+    private readonly Dictionary<DisplayProvider, FrameworkElement> _cards = new();
+    // The agent an arrow or a drag just moved, for the glide that follows,
+    // and whether a drop moved it (the glide then settles it as a drop).
+    private DisplayProvider? _moving;
+    private bool _dropped;
 
     // MARK: - M8 page switch
 
@@ -190,209 +188,364 @@ internal sealed partial class SettingsWindow
         return groups;
     }
 
-    // MARK: - M10 hide and show
+    // MARK: - M10 hide and show, M11 move
 
-    /// Hiding, showing or reordering an agent regroups the Agents page. One
-    /// agent hidden or shown plays M10 around the rebuild; anything else, or
-    /// a change while M10 plays, rebuilds at once.
-    private void Regroup()
+    /// Hiding, showing or moving an agent rearranges the Agents page's list:
+    /// the cards change places, kept as they are (open or not), and each
+    /// glides from where it stood (Glide). A change in which agents are here
+    /// rebuilds the page.
+    private void Rearrange()
     {
-        if (_page != Page.Agents || !AppWindow.IsVisible) return;
-        var (detected, missing, hidden) = AgentGroups();
-        if (GroupsKey(detected, missing, hidden) == _agentGroups) return;
-        var hiding = hidden.Except(_hiddenAgents).ToList();
-        var showing = _hiddenAgents.Except(hidden).ToList();
-        var playing = _regroup is not null;
+        if (_page != Page.Agents || !AppWindow.IsVisible || _drag is not null) return;
+        var lineup = AgentLineup();
+        var key = LineupKey(lineup);
+        if (key == _lineupKey) return;
+        var moving = _moving;
+        var dropped = _dropped;
+        _moving = null;
+        _dropped = false;
+        if (_agentList is not { } list || lineup.Count != _cards.Count || lineup.Any(entry => !_cards.ContainsKey(entry.Provider)))
+        {
+            Rebuild();
+            return;
+        }
         _regroup?.Stop();
-        _regroup = null;
-        if (playing || Motion.ReducedMotion || hiding.Count + showing.Count != 1) Rebuild();
-        else if (hiding.Count == 1) Hiding(hiding[0]);
-        else Showing(showing[0]);
+        var before = _cards.ToDictionary(pair => pair.Key, pair => Top(pair.Value));
+        // The card the user acted on: switched on or off, or moved.
+        var acted = lineup.Where(entry => _lineup.Any(old => old.Provider == entry.Provider && old.Shown != entry.Shown))
+            .Select(entry => (DisplayProvider?)entry.Provider)
+            .FirstOrDefault() ?? moving;
+        var shownCount = lineup.Count(entry => entry.Shown);
+        Reorder(list, lineup.Select(entry => (UIElement)_cards[entry.Provider]).ToList(), acted is { } kept ? _cards[kept] : null);
+        for (var i = 0; i < lineup.Count; i++)
+        {
+            var (provider, shown) = lineup[i];
+            _agents[provider].Place(i, shownCount, shown);
+        }
+        _lineup = lineup;
+        _lineupKey = key;
+        list.UpdateLayout();
+        Glide(before, acted, dropped && acted == moving);
     }
 
-    /// The Agents page anew in its current groups, at once; the scroll, the
-    /// open cards and the hidden list stay as they were.
+    /// The list's children into order, the card acted on never moved itself:
+    /// the others step round it, so nothing disturbs its switch's flip or the
+    /// keyboard focus inside it.
+    private static void Reorder(Panel list, IReadOnlyList<UIElement> order, UIElement? kept)
+    {
+        var children = list.Children;
+        for (var i = 0; i < order.Count; i++)
+        {
+            if (order[i] == kept)
+            {
+                // Whatever still stands before it goes past it.
+                while (children.IndexOf(kept) is var at && at > i) children.Move((uint)i, (uint)at);
+                continue;
+            }
+            var from = children.IndexOf(order[i]);
+            if (from != i) children.Move((uint)from, (uint)i);
+        }
+    }
+
+    /// The Agents page anew, at once; the scroll and the open cards stay as
+    /// they were.
     private void Rebuild()
     {
         var offset = _scroll.VerticalOffset;
         var open = _agents.Where(pair => pair.Value.Expander.IsExpanded).Select(pair => pair.Key).ToList();
-        var hiddenOpen = _hiddenList?.IsExpanded == true;
         Show(Page.Agents, keepOffset: true);
         foreach (var provider in open)
         {
             if (_agents.TryGetValue(provider, out var section)) section.Expander.IsExpanded = true;
         }
-        if (hiddenOpen && _hiddenList is { } list) list.IsExpanded = true;
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => _scroll.ChangeView(null, offset, null, disableAnimation: true));
     }
 
-    /// M10 hide: the agent's card closes and takes its gap with it (Pixel:
-    /// half, then gone; Classic: over 250 ms, fading and shrinking to 0.98),
-    /// then the page regroups: the hidden list's eye hops (Pixel) or blinks
-    /// as the new count fades in (Classic), or for the first hidden agent
-    /// the whole section opens.
-    private void Hiding(DisplayProvider provider)
-    {
-        if (!_cards.TryGetValue(provider, out var host) || !host.IsLoaded || host.Child is not FrameworkElement card)
-        {
-            Rebuild();
-            return;
-        }
-        var first = _hiddenGroup is null;
-        var natural = host.Natural;
-        var gap = CardGap;
-        void Then()
-        {
-            _regroup = null;
-            Rebuild();
-            if (first) OpenHiddenGroup();
-            else NoteHiddenCount();
-        }
-        if (_pixel)
-        {
-            _regroup = UiMoment.Play(2 * Motion.TickMs, t =>
-            {
-                var k = Motion.Tick(t);
-                host.Shown = k == 0 ? natural : k == 1 ? Motion.Cell(natural / 2) : 0;
-                host.Margin = new Thickness(0, 0, 0, k == 0 ? 0 : k == 1 ? -Motion.Cell(gap / 2) : -gap);
-            }, Then);
-            return;
-        }
-        card.CenterPoint = new Vector3((float)(card.ActualWidth / 2), (float)(natural / 2), 0);
-        _regroup = UiMoment.Play(250, t =>
-        {
-            var e = Motion.InOut(t / 250);
-            host.Shown = natural * (1 - e);
-            host.Margin = new Thickness(0, 0, 0, -gap * e);
-            card.Opacity = 1 - e;
-            var scale = (float)(1 - 0.02 * e);
-            card.Scale = new Vector3(scale, scale, 1);
-        }, Then);
-    }
+    /// Where a card stands as seen: its place in the list and any glide or
+    /// drag still on it.
+    private static double Top(UIElement card) => card.ActualOffset.Y + card.Translation.Y;
 
-    /// The first hidden agent's section opens like an expander's rows.
-    private void OpenHiddenGroup()
+    /// M10/M11: every card that changed places glides from where it stood,
+    /// as an arrow move does: Pixel in3 (half, then 15 % of the way left),
+    /// the card acted on riding 2 DIP up in hand over the rest; Classic over
+    /// 333 ms on inOut. A drop settles as M11's drop: Pixel in2, the card
+    /// stepping down from its lift (4, 2, 0), its shadow gone on the last
+    /// frame; Classic over 250 ms on out, its outline fading over 167.
+    /// Reduced: at once.
+    private void Glide(Dictionary<DisplayProvider, double> before, DisplayProvider? acted, bool drop = false)
     {
-        if (_hiddenGroup is not { Child: { } content } group) return;
-        group.Shown = 0;
-        if (_pixel)
+        var lead = acted is { } chosen && _cards.ContainsKey(chosen) ? chosen : (DisplayProvider?)null;
+        var hand = lead is { } inHand ? _agents[inHand] : null;
+        UIElement? held = null;
+        var lift = 0.0;
+        var moves = new List<(UIElement Card, double From)>();
+        foreach (var (provider, card) in _cards)
         {
-            _regroup = UiMoment.Play(3 * Motion.TickMs, t =>
+            var from = before[provider] - card.ActualOffset.Y;
+            if (provider == lead)
             {
-                var k = Motion.Tick(t);
-                group.Shown = k >= 3 ? double.NaN : Motion.Cell(group.Natural * k / 3);
-            }, () => _regroup = null);
-            return;
-        }
-        content.Opacity = 0;
-        _regroup = UiMoment.Play(333, t =>
-        {
-            var e = Motion.Out(t / 333);
-            group.Shown = t >= 333 ? double.NaN : group.Natural * e;
-            content.Opacity = e;
-        }, () => _regroup = null);
-    }
-
-    /// The hidden list's new count: its eye hops a cell (Pixel), or the count
-    /// fades in over 167 ms as the eye blinks over 250 (Classic).
-    private void NoteHiddenCount()
-    {
-        if (_hiddenEye is not { } eye) return;
-        if (_pixel)
-        {
-            _regroup = UiMoment.Play(2 * Motion.TickMs, t =>
-                eye.Translation = new Vector3(0, Motion.Tick(t) == 1 ? -2 : 0, 0), () => _regroup = null);
-            return;
-        }
-        var count = _hiddenCount;
-        if (count is not null) count.Opacity = 0;
-        _regroup = UiMoment.Play(250, t =>
-        {
-            if (count is not null) count.Opacity = Motion.Linear(t / 167);
-            var p = Motion.InOut(t / 250);
-            eye.CenterPoint = new Vector3((float)(eye.ActualWidth / 2), (float)(eye.ActualHeight / 2), 0);
-            eye.Scale = new Vector3(1, (float)(1 - 0.9 * (1 - Math.Abs(2 * p - 1))), 1);
-        }, () => _regroup = null);
-    }
-
-    /// M10 show: the agent's row leaves the hidden list (the whole section
-    /// when it was the last), then the page regroups and the agent's card
-    /// opens in its place. Pixel: the row half, then gone; the card a third,
-    /// two thirds, all. Classic: the row fades as it closes over 250 ms, the
-    /// page regroups at 167 and the card opens over 333, fading in as it
-    /// settles 6 DIP.
-    private void Showing(DisplayProvider provider)
-    {
-        var last = _hiddenAgents.Count == 1;
-        FrameworkElement? leaving = last ? _hiddenGroup
-            : _hiddenList is { IsExpanded: true } && _hiddenRows.TryGetValue(provider, out var row) ? row : null;
-        void Then()
-        {
-            _regroup = null;
-            Rebuild();
-            OpenCard(provider);
-        }
-        if (leaving is not { IsLoaded: true } || leaving.ActualHeight <= 0)
-        {
-            Then();
-            return;
-        }
-        var natural = leaving.ActualHeight;
-        var margin = leaving.Margin;
-        var gap = CardGap;
-        // The last section takes the gap above it; a row only itself.
-        void Cut(double visible, double share)
-        {
-            if (leaving is RevealPanel group)
-            {
-                group.Shown = visible;
-                group.Margin = new Thickness(0, -gap * share, 0, 0);
-                return;
+                held = card;
+                // A dropped card's lift, as far right as up, steps down apart.
+                lift = drop ? hand!.Shifted : 0;
+                from += lift;
             }
-            leaving.Margin = new Thickness(margin.Left, margin.Top, margin.Right, margin.Bottom - (natural - visible));
-            leaving.Clip = new RectangleGeometry { Rect = new Rect(-16, 0, leaving.ActualWidth + 32, Math.Max(0, visible)) };
+            else _agents[provider].Hold(0);
+            card.Translation = Vector3.Zero;
+            Canvas.SetZIndex(card, 0);
+            if (Math.Abs(from) >= 0.5 || provider == lead && drop) moves.Add((card, from));
         }
-        if (_pixel)
+        void Land()
         {
-            _regroup = UiMoment.Play(2 * Motion.TickMs, t =>
-            {
-                var k = Motion.Tick(t);
-                Cut(k == 0 ? natural : k == 1 ? Motion.Cell(natural / 2) : 0, Math.Min(k, 2) / 2.0);
-            }, Then);
+            foreach (var (moved, _) in moves) moved.Translation = Vector3.Zero;
+            if (held is not null) Canvas.SetZIndex(held, 0);
+            hand?.Hold(0);
+            _regroup = null;
+        }
+        if (moves.Count == 0 || Motion.ReducedMotion)
+        {
+            Land();
             return;
         }
-        _regroup = UiMoment.Play(167, t =>
+        if (held is not null) Canvas.SetZIndex(held, 1);
+        // Only a card that moves is carried in hand.
+        var carried = moves.Exists(move => move.Card == held);
+        if (_pixel)
         {
-            var e = Motion.InOut(t / 250);
-            Cut(natural * (1 - e), e);
-            leaving.Opacity = 1 - e;
-        }, Then);
+            var curve = drop ? Motion.In2 : Motion.In3;
+            var ticks = curve.Length;
+            var steps = moves.ToDictionary(move => move.Card, move => Motion.Remaining(move.From, 0, curve));
+            _regroup = UiMoment.Play(ticks * Motion.TickMs, t =>
+            {
+                var k = Math.Min(Motion.Tick(t), ticks);
+                foreach (var (moved, from) in moves)
+                {
+                    var y = k == 0 ? from : steps[moved][k - 1];
+                    var up = moved != held ? 0
+                        : drop ? (k == 0 ? lift : k < ticks ? Math.Min(lift, 2) : 0)
+                        : k > 0 && k < ticks ? 2 : 0;
+                    moved.Translation = new Vector3(0, (float)(y - up), 0);
+                    if (drop && moved == held) hand?.Shift(up);
+                }
+                if (carried) hand?.Hold(k < ticks && (drop || k > 0) ? 1 : 0);
+            }, Land);
+            return;
+        }
+        var duration = drop ? 250 : 333;
+        var ease = drop ? Motion.Out : Motion.InOut;
+        _regroup = UiMoment.Play(duration, t =>
+        {
+            var left = 1 - ease(t / duration);
+            foreach (var (moved, from) in moves) moved.Translation = new Vector3(0, (float)(from * left), 0);
+            if (drop) hand?.Hold(1 - Math.Min(t / 167, 1));
+        }, Land);
     }
 
-    /// A card joining the page opens in place: Pixel a third, two thirds,
-    /// all; Classic over 333 ms, fading in as it settles 6 DIP.
-    private void OpenCard(DisplayProvider provider)
+    // MARK: - M11 drag
+
+    /// A card dragged by its grip: where the pointer took hold (in the list),
+    /// the shown cards' order and places when the drag began, the place it
+    /// would take if let go now, how far the pointer has moved it, and its
+    /// lift (Pixel: as far right as up).
+    private sealed class Drag(DisplayProvider provider, UIElement card, double start,
+        IReadOnlyList<DisplayProvider> order, Dictionary<DisplayProvider, (double Top, double Height)> slots)
     {
-        if (!_cards.TryGetValue(provider, out var host) || host.Child is not { } card) return;
-        host.Shown = 0;
-        if (_pixel)
+        public DisplayProvider Provider { get; } = provider;
+        public UIElement Card { get; } = card;
+        public double Start { get; } = start;
+        public IReadOnlyList<DisplayProvider> Order { get; } = order;
+        public Dictionary<DisplayProvider, (double Top, double Height)> Slots { get; } = slots;
+        public int Target { get; set; } = order.ToList().IndexOf(provider);
+        public double Dy { get; set; }
+        public double Lift { get; set; }
+    }
+
+    private Drag? _drag;
+    // The card in hand lifting, and the others making room around it.
+    private UiMoment? _lift;
+    private UiMoment? _room;
+
+    /// A shown card follows the pointer by its grip, in hand over the others,
+    /// while they make room around where it would go; let go, the list takes
+    /// the new order and the card settles into its place (M11).
+    private void HookDrag(AgentSection section, DisplayProvider provider)
+    {
+        var grip = section.Grip;
+        grip.PointerPressed += (_, e) =>
         {
-            _regroup = UiMoment.Play(3 * Motion.TickMs, t =>
-            {
-                var k = Motion.Tick(t);
-                host.Shown = k >= 3 ? double.NaN : Motion.Cell(host.Natural * k / 3);
-            }, () => _regroup = null);
+            if (_drag is not null || _agentList is not { } list || !e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed) return;
+            if (!_lineup.Any(entry => entry.Provider == provider && entry.Shown) || !grip.CapturePointer(e.Pointer)) return;
+            Take(provider, e.GetCurrentPoint(list).Position.Y);
+            e.Handled = true;
+        };
+        grip.PointerMoved += (_, e) =>
+        {
+            if (_drag is not { } drag || drag.Provider != provider || _agentList is not { } list) return;
+            DragTo(drag, e.GetCurrentPoint(list).Position.Y - drag.Start);
+            KeepInView(e.GetCurrentPoint(_scroll).Position.Y);
+            e.Handled = true;
+        };
+        grip.PointerReleased += (_, e) =>
+        {
+            if (_drag?.Provider != provider) return;
+            grip.ReleasePointerCapture(e.Pointer);
+            Drop();
+        };
+        grip.PointerCaptureLost += (_, _) =>
+        {
+            if (_drag?.Provider == provider) Drop();
+        };
+    }
+
+    /// The card taken in hand: Pixel lifts it 2, then 4 DIP right and up on
+    /// its accent outline and hard shadow; Classic fades its accent outline
+    /// in over 83 ms. Reduced: the look at once, no lift.
+    private void Take(DisplayProvider provider, double start)
+    {
+        if (_agentList is not { } list) return;
+        // A glide in flight lands first, so the places are the cards' own.
+        _regroup?.Stop();
+        _regroup = null;
+        foreach (var (each, card) in _cards)
+        {
+            card.Translation = Vector3.Zero;
+            Canvas.SetZIndex(card, 0);
+            _agents[each].Hold(0);
+        }
+        list.UpdateLayout();
+        var order = _lineup.Where(entry => entry.Shown).Select(entry => entry.Provider).ToList();
+        var drag = _drag = new Drag(provider, _cards[provider], start, order, Slots(order));
+        Canvas.SetZIndex(drag.Card, 1);
+        var hand = _agents[provider];
+        if (Motion.ReducedMotion)
+        {
+            hand.Hold(1);
             return;
         }
-        card.Opacity = 0;
-        _regroup = UiMoment.Play(333, t =>
+        if (_pixel)
         {
-            var e = Motion.Out(t / 333);
-            host.Shown = t >= 333 ? double.NaN : host.Natural * e;
-            card.Opacity = e;
-            card.Translation = new Vector3(0, (float)(6 * (1 - e)), 0);
-        }, () => _regroup = null);
+            _lift = UiMoment.Play(2 * Motion.TickMs, t =>
+            {
+                var k = Math.Min(Motion.Tick(t), 2);
+                drag.Lift = 2 * k;
+                hand.Hold(k > 0 ? 1 : 0);
+                Follow(drag);
+            }, () => _lift = null);
+            return;
+        }
+        _lift = UiMoment.Play(83, t => hand.Hold(t / 83), () => _lift = null);
     }
+
+    /// The shown cards' places in the list, for a drag.
+    private Dictionary<DisplayProvider, (double Top, double Height)> Slots(IEnumerable<DisplayProvider> order) =>
+        order.ToDictionary(p => p, p => ((double)_cards[p].ActualOffset.Y, (double)_cards[p].ActualSize.Y));
+
+    /// The card in hand where the pointer has it, lifted: Pixel on whole
+    /// cells, Classic 1 : 1.
+    private void Follow(Drag drag)
+    {
+        var dy = _pixel ? Motion.Cell(drag.Dy) : drag.Dy;
+        drag.Card.Translation = new Vector3(0, (float)(dy - drag.Lift), 0);
+        _agents[drag.Provider].Shift(drag.Lift);
+    }
+
+    /// The card in hand at dy from where it was taken; past another card's
+    /// middle, the others make room.
+    private void DragTo(Drag drag, double dy)
+    {
+        drag.Dy = dy;
+        Follow(drag);
+        var (top, height) = drag.Slots[drag.Provider];
+        var middle = top + height / 2 + dy;
+        var target = drag.Order.Count(p => p != drag.Provider && drag.Slots[p].Top + drag.Slots[p].Height / 2 < middle);
+        if (target == drag.Target) return;
+        drag.Target = target;
+        MakeRoom(drag);
+    }
+
+    /// The other cards step to the places they would take with the card in
+    /// hand let go here: Pixel on in2, Classic over 250 ms on out. Reduced:
+    /// at once.
+    private void MakeRoom(Drag drag)
+    {
+        var arranged = drag.Order.Where(p => p != drag.Provider).ToList();
+        arranged.Insert(drag.Target, drag.Provider);
+        var moves = new List<(UIElement Card, double From, double To)>();
+        var y = drag.Slots[drag.Order[0]].Top;
+        foreach (var p in arranged)
+        {
+            if (p != drag.Provider) moves.Add((_cards[p], _cards[p].Translation.Y, y - drag.Slots[p].Top));
+            y += drag.Slots[p].Height + CardGap;
+        }
+        _room?.Stop();
+        _room = null;
+        if (Motion.ReducedMotion)
+        {
+            foreach (var (card, _, to) in moves) card.Translation = new Vector3(0, (float)to, 0);
+            return;
+        }
+        if (_pixel)
+        {
+            var steps = moves.Select(move => Motion.Remaining(move.From, move.To, Motion.In2)).ToList();
+            _room = UiMoment.Play(2 * Motion.TickMs, t =>
+            {
+                var k = Math.Min(Motion.Tick(t), 2);
+                for (var i = 0; i < moves.Count; i++) moves[i].Card.Translation = new Vector3(0, (float)(k == 0 ? moves[i].From : steps[i][k - 1]), 0);
+            }, () => _room = null);
+            return;
+        }
+        _room = UiMoment.Play(250, t =>
+        {
+            var share = Motion.Out(t / 250);
+            foreach (var (card, from, to) in moves) card.Translation = new Vector3(0, (float)(from + (to - from) * share), 0);
+        }, () => _room = null);
+    }
+
+    /// Near the page's top or bottom edge, the page scrolls on as the
+    /// pointer moves.
+    private void KeepInView(double y)
+    {
+        const double edge = 48, step = 12;
+        if (y < edge) _scroll.ChangeView(null, Math.Max(0, _scroll.VerticalOffset - step), null, disableAnimation: true);
+        else if (y > _scroll.ViewportHeight - edge) _scroll.ChangeView(null, Math.Min(_scroll.ScrollableHeight, _scroll.VerticalOffset + step), null, disableAnimation: true);
+    }
+
+    /// Let go: a new order is saved and the list rearranges from where the
+    /// cards stand, the card settling as a drop; the same order puts it
+    /// back.
+    private void Drop()
+    {
+        if (_drag is not { } drag) return;
+        _drag = null;
+        _lift?.Stop();
+        _lift = null;
+        _room?.Stop();
+        _room = null;
+        var arranged = drag.Order.Where(p => p != drag.Provider).ToList();
+        arranged.Insert(drag.Target, drag.Provider);
+        if (!arranged.SequenceEqual(drag.Order))
+        {
+            _moving = drag.Provider;
+            _dropped = true;
+            DrawerStore.Shared.SetOrder(arranged);
+            return;
+        }
+        Glide(_cards.ToDictionary(pair => pair.Key, pair => Top(pair.Value)), drag.Provider, drop: true);
+    }
+
+    /// AGENTISLAND_DEBUG_SETTINGS_FILM: a drag by hand, with no pointer: the
+    /// first shown card taken, held dy below where it was, and let go.
+    internal void DebugTake()
+    {
+        var order = _lineup.Where(entry => entry.Shown).Select(entry => entry.Provider).ToList();
+        if (order.Count > 1) Take(order[0], 0);
+    }
+
+    internal void DebugDrag(double dy)
+    {
+        if (_drag is { } drag) DragTo(drag, dy);
+    }
+
+    internal void DebugDrop() => Drop();
 
     // MARK: - M19 arriving from the drawer
 
@@ -401,7 +554,7 @@ internal sealed partial class SettingsWindow
     /// plays M8 to the Agents page if needed, then the card scrolls into
     /// view (Pixel: in one frame; Classic: over 333 ms) and opens with M9;
     /// Classic then lights it with the agent's tint, back to paper over 900
-    /// ms. A hidden agent's way in is the hidden list.
+    /// ms. A hidden agent's card waits at the bottom of the list.
     private void Focus(DisplayProvider provider, bool animate)
     {
         _arrive?.Stop();
@@ -419,9 +572,9 @@ internal sealed partial class SettingsWindow
 
     private void Arrive(DisplayProvider provider, bool animate)
     {
-        var found = _agents.TryGetValue(provider, out var section);
-        if ((found ? section!.Expander : _hiddenList) is not { } expander) return;
-        Control lit = !found && _hiddenRows.TryGetValue(provider, out var row) ? row : expander;
+        if (!_agents.TryGetValue(provider, out var section)) return;
+        var expander = section.Expander;
+        Control lit = expander;
         if (!animate)
         {
             expander.IsExpanded = true;

@@ -55,8 +55,10 @@ internal static class PopupPrint
     /// scroll, then an expander) on the hand clock: `start` sets them off,
     /// then every frame moves the clock a tick (Pixel, mid-tick) or 33 ms
     /// (Classic), until every moment has landed, and a frame more.
+    /// `alongside` takes each frame's reading too, for motion off the hand
+    /// clock (a switch's storyboard).
     public static async Task FilmSequenceAsync(string path, Action start, bool pixel,
-        Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> capture, double limitMs = 3000, bool before = false)
+        Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> capture, double limitMs = 3000, bool before = false, Action<double>? alongside = null)
     {
         UiMoment.ResetClock();
         var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
@@ -71,6 +73,7 @@ internal static class PopupPrint
         {
             var ms = k == 0 ? 0 : pixel ? k * step + step / 2 : k * step;
             if (k > 0) UiMoment.Advance(ms);
+            alongside?.Invoke(ms);
             await Task.Delay(150);
             frames.Add((pixel ? $"t={k}" : $"{ms:F0} ms", await Task.Run(capture)));
             if (!UiMoment.AnyPending) settled++;

@@ -222,10 +222,10 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   (`Shell/ControlMotion.cs`, switched on by the kits' styles). They play on
   the UI thread through `Shell/UiMoment.cs`, on the same clock and curves.
 - The numbers of Settings' and the Cost window's moments: the page switch,
-  hiding and showing an agent, and an agent opened from the drawer
+  the Agents page's cards gliding as an agent is hidden, shown or moved (by
+  its arrows or its grip), and an agent opened from the drawer
   (`Settings/SettingsWindow.Motion.cs`); expanders (`Shell/ExpanderMotion.cs`,
-  with `Shell/RevealPanel.cs`); the Order list's arrows
-  (`Settings/OrderList.cs`); quota bars counting (`Shell/QuotaBar.cs`,
+  with `Shell/RevealPanel.cs`); quota bars counting (`Shell/QuotaBar.cs`,
   `PixelBar`); the busy signs (`FaceSpinner`, `PixelSpinner`); a button's
   press (`Shell/ControlMotion.cs`); the period tabs, charts and numbers
   (`Cost/CostWindow.Motion.cs`). A switch's flip is keyframes in its kit's
@@ -323,7 +323,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_POPUP_FILM=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, steps the card's and the bubbles' moments by hand and saves each as a strip of its frames, printed from the test window so the paper's shadow shows |
   | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
   | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings |
-  | `AGENTISLAND_DEBUG_SETTINGS_FILM=<dir>` | The same for Settings' own moments: a page switch, expanders, agents hidden and shown, an agent opened from the drawer, a meter counting, the Order list's arrows, a switch flipping and a button pressed. It hides, moves and flips for real: restore the settings afterwards. `AGENTISLAND_DEBUG_FILM_ONLY=<names>` films only the strips starting with those comma-separated names |
+  | `AGENTISLAND_DEBUG_SETTINGS_FILM=<dir>` | The same for Settings' own moments: a page switch, expanders, agents hidden and shown, an agent opened from the drawer, a meter counting, an agent card moved by its arrows and one dragged by its grip (taken, held past the next, let go), a switch flipping and a button pressed. It hides, moves and flips for real: restore the settings afterwards. `AGENTISLAND_DEBUG_FILM_ONLY=<names>` films only the strips starting with those comma-separated names |
   | `AGENTISLAND_DEBUG_COST_FILM=<dir>` | The same for the Cost window: two period switches and a scan counting |
   | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
   | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |

@@ -17,14 +17,15 @@ public static class DrawerVisibility
         IReadOnlyList<(DisplayProvider Provider, bool Requested)> requested) =>
         requested.Where(choice => choice.Provider.HasCharacter()).ToList();
 
-    /// The Agents page's groups, each in the user's order: agents on this
-    /// computer, agents not found here, and the ones the user hid.
-    public static (IReadOnlyList<DisplayProvider> Detected, IReadOnlyList<DisplayProvider> Missing, IReadOnlyList<DisplayProvider> Hidden) Groups(
-        IEnumerable<DisplayProvider> order, Func<DisplayProvider, bool> hidden, Func<DisplayProvider, bool> detected)
+    /// The Agents page's one list, in the drawer's order: the characters it
+    /// shows, then the rest at the bottom (hidden, or not on this computer),
+    /// each with the same switch.
+    public static IReadOnlyList<(DisplayProvider Provider, bool Shown)> Lineup(
+        IEnumerable<DisplayProvider> order, Func<DisplayProvider, bool> shown)
     {
         var all = order.Where(p => p.HasCharacter()).ToList();
-        return (all.Where(p => !hidden(p) && detected(p)).ToList(),
-            all.Where(p => !hidden(p) && !detected(p)).ToList(),
-            all.Where(hidden).ToList());
+        return all.Where(shown).Select(p => (p, true))
+            .Concat(all.Where(p => !shown(p)).Select(p => (p, false)))
+            .ToList();
     }
 }

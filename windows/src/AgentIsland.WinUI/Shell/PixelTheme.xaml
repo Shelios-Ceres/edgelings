@@ -615,68 +615,6 @@
     </Style>
     <Style TargetType="tk:SettingsExpander" BasedOn="{StaticResource PixelSettingsExpanderStyle}" />
 
-    <!-- Order list rows: plain until dragged, then on paper with an accent outline and a hard
-         shadow, all inside the row, since the list clips whatever leaves it. -->
-    <Style x:Key="PixelOrderRowStyle" TargetType="ListViewItem">
-        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="IsTabStop" Value="False" />
-        <Setter Property="MinHeight" Value="36" />
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Margin" Value="0,0,0,4" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ListViewItem">
-                    <Grid x:Name="Root" Background="Transparent">
-                        <VisualStateManager.VisualStateGroups>
-                            <VisualStateGroup x:Name="DragStates">
-                                <VisualState x:Name="NotDragging" />
-                                <VisualState x:Name="Dragging">
-                                    <VisualState.Setters>
-                                        <Setter Target="Lifted.Visibility" Value="Visible" />
-                                        <Setter Target="RowContent.Margin" Value="8,2,6,4" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="DraggingTarget" />
-                                <VisualState x:Name="MultipleDraggingPrimary" />
-                                <VisualState x:Name="MultipleDraggingSecondary" />
-                                <VisualState x:Name="DraggedPlaceholder">
-                                    <VisualState.Setters>
-                                        <Setter Target="Root.Opacity" Value="0.4" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="Reordering">
-                                    <VisualState.Setters>
-                                        <Setter Target="Lifted.Visibility" Value="Visible" />
-                                        <Setter Target="RowContent.Margin" Value="8,2,6,4" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="ReorderingTarget">
-                                    <VisualState.Setters>
-                                        <Setter Target="DropLine.Visibility" Value="Visible" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="MultipleReorderingPrimary" />
-                                <VisualState x:Name="ReorderedPlaceholder">
-                                    <VisualState.Setters>
-                                        <Setter Target="Root.Opacity" Value="0.4" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="DragOver">
-                                    <VisualState.Setters>
-                                        <Setter Target="DropLine.Visibility" Value="Visible" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                            </VisualStateGroup>
-                        </VisualStateManager.VisualStateGroups>
-                        <shell:PixelSurface x:Name="Lifted" Visibility="Collapsed" Fill="{ThemeResource PixelPaper}" Outline="{ThemeResource PixelAccent}" HardShadow="{ThemeResource PixelShadow}" />
-                        <ContentPresenter x:Name="RowContent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" Foreground="{ThemeResource PixelText}" LineHeight="20" LineStackingStrategy="BlockLineHeight" />
-                        <Rectangle x:Name="DropLine" Visibility="Collapsed" Height="2" VerticalAlignment="Top" Fill="{ThemeResource PixelAccent}" />
-                    </Grid>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
     <!-- Settings' page list: 40-DIP rows; the open page sits on paper with an accent bar. -->
     <Style x:Key="PixelNavItemStyle" TargetType="ListViewItem">
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />

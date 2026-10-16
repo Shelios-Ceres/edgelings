@@ -1,3 +1,4 @@
+using System.Numerics;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
@@ -38,16 +39,18 @@ internal sealed class AgentSection
     private readonly Button _signInButton = new();
     private readonly FaceSpinner _signInRing = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly PixelSpinner _signInSpinner = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _header;
     private readonly SettingsCard? _cursor;
     private readonly TextBlock _cursorPlan = new() { VerticalAlignment = VerticalAlignment.Center };
     private bool _updating;
 
-    public AgentSection(DisplayProvider provider, Func<XamlRoot?> root)
+    /// move takes a step up (-1) or down (1) the drawer's order.
+    public AgentSection(DisplayProvider provider, Func<XamlRoot?> root, Action<int> move)
     {
         _provider = provider;
         if (_pixel) _pixelStatus = PixelStatusText();
         _planBadge = Badge(_plan, provider);
-        var header = new StackPanel { Orientation = Orientation.Horizontal };
+        var header = _header = new StackPanel { Orientation = Orientation.Horizontal };
         AutomationProperties.SetName(header, ProviderIdentity.DisplayName(provider));
         header.Children.Add(new TextBlock { Text = ProviderIdentity.DisplayName(provider), VerticalAlignment = VerticalAlignment.Center });
         header.Children.Add(_planBadge);
@@ -63,16 +66,52 @@ internal sealed class AgentSection
         _shown.OffContent = L10n.Tr("Hidden");
         AutomationProperties.SetAutomationId(_shown, $"Agent.{provider.RawValue()}.ShowInDrawer");
         NameShownSwitch(_shown, ProviderIdentity.DisplayName(provider));
+        // A step up or down the drawer's order.
+        Button Arrow(string glyph, int step)
+        {
+            var icon = Icon(glyph);
+            if (icon is FontIcon font) font.FontSize = 14;
+            var button = new Button { Content = icon, Style = Looks.Kit<Style>("IconButtonStyle"), VerticalAlignment = VerticalAlignment.Center };
+            button.Click += (_, _) => move(step);
+            return button;
+        }
+        Up = Arrow("\uE70E", -1);
+        Down = Arrow("\uE70D", 1);
+        Name(Up, "Up", L10n.Tr("Move up"));
+        Name(Down, "Down", L10n.Tr("Move down"));
+        var grip = Icon("\uE76F");
+        if (grip is FontIcon gripGlyph) gripGlyph.FontSize = Looks.Pixel ? 14 : 16;
+        grip.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
+        grip.HorizontalAlignment = HorizontalAlignment.Center;
+        grip.VerticalAlignment = VerticalAlignment.Center;
+        Grip = new DragGrip { Width = GripWidth, VerticalAlignment = VerticalAlignment.Top, Children = { grip } };
+        Name(Grip, "Grip", L10n.Tr("Drag to reorder"));
+        ToolTipService.SetToolTip(Grip, L10n.Tr("Drag to reorder"));
+        if (_pixel)
+        {
+            Shadow = new PixelSurface { Fill = Res<Brush>("PixelShadow"), Outline = Res<Brush>("PixelShadow"), Visibility = Visibility.Collapsed };
+        }
+        else
+        {
+            // The paper the shadow is cast from lies under the card, its corners matching.
+            var paper = new Rectangle { RadiusX = 14, RadiusY = 14, Fill = Res<Brush>("ClassicPaper") };
+            Shadow = new Grid { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Children = { new SoftShadow { Kind = "Paper", Target = paper }, paper } };
+            Outline = new Border { BorderBrush = Res<Brush>("ClassicAccent"), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(14), IsHitTestVisible = false, Opacity = 0 };
+        }
 
+        // The arrows stand before the switch, so it keeps its place in every
+        // card, a hidden one's (no arrows) too.
+        _shown.Margin = new Thickness(8, 0, 0, 0);
         Expander = new SettingsExpander
         {
             Header = header,
             Description = _pixelStatus is null ? _status : _pixelStatus,
             HeaderIcon = new ImageIcon(),
-            Content = _shown,
+            Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { Up, Down, _shown } },
         };
         Name(Expander, "Details", L10n.Tr("Settings"));
         _ = LoadMarkAsync();
+        Expander.Loaded += (_, _) => FollowHeader();
 
         _activity = new SettingsCard { Header = L10n.Tr("Right now"), Description = _activityText, HeaderIcon = Icon("\uE9D9") };
         Name(_activity, "Activity", L10n.Tr("Right now"));
@@ -123,6 +162,72 @@ internal sealed class AgentSection
     }
 
     public SettingsExpander Expander { get; }
+
+    /// The grip's column, hanging in the page's margin left of the card.
+    public const double GripWidth = 28;
+
+    /// The handle to drag the card by; only a shown agent's has one.
+    public FrameworkElement Grip { get; }
+
+    public Button Up { get; }
+
+    public Button Down { get; }
+
+    public ToggleSwitch ShownSwitch => _shown;
+
+    /// The card's shadow in hand (M11), to lie under it: Pixel's hard shadow
+    /// a cell right and down, Classic's paper shadow (the hover card's).
+    public FrameworkElement Shadow { get; }
+
+    /// Classic's accent outline in hand, to lie over the card's edge; Pixel
+    /// turns the card's own outline to the accent instead.
+    public FrameworkElement? Outline { get; }
+
+    /// How far the card is in hand, 0 to 1: Pixel's accent outline and hard
+    /// shadow are there or not; Classic's outline and shadow fade with it.
+    /// Put down, it has no lift either.
+    public void Hold(double share)
+    {
+        if (share <= 0) Shift(0);
+        Shadow.Visibility = share > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (Outline is { } outline)
+        {
+            outline.Opacity = Shadow.Opacity = share;
+            return;
+        }
+        if (share <= 0)
+        {
+            Expander.ClearValue(Control.BorderBrushProperty);
+            return;
+        }
+        // One cell right and down, in whole pixels as PixelSurface draws its own.
+        var scale = Shadow.XamlRoot?.RasterizationScale ?? 1;
+        var cell = Math.Round(PixelPlate.Cell * scale) / scale;
+        Shadow.Margin = new Thickness(cell, cell, -cell, -cell);
+        Expander.BorderBrush = Res<Brush>("PixelAccent");
+    }
+
+    /// Where the card stands in the list: a shown agent's arrows step it
+    /// among the shown (none past either end); a hidden one, at the bottom,
+    /// has none and fades. Keyboard focus stays on the arrows as they change.
+    public void Place(int index, int shownCount, bool shown)
+    {
+        var focused = Up.FocusState != FocusState.Unfocused ? Up : Down.FocusState != FocusState.Unfocused ? Down : null;
+        // Hidden from elsewhere too (the drawer's menu): the switch says so at once.
+        _updating = true;
+        _shown.IsOn = shown;
+        _updating = false;
+        Up.Visibility = Down.Visibility = Grip.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        Up.IsEnabled = shown && index > 0;
+        Down.IsEnabled = shown && index < shownCount - 1;
+        _header.Opacity = shown ? 1 : 0.5;
+        if (Expander.HeaderIcon is { } icon) icon.Opacity = _header.Opacity;
+        if (focused is { IsEnabled: false })
+        {
+            var other = focused == Up ? Down : Up;
+            if (other.IsEnabled) other.Focus(focused.FocusState);
+        }
+    }
 
     public void Update(AgentReport report)
     {
@@ -197,6 +302,52 @@ internal sealed class AgentSection
         _activity.Visibility = report.Detected ? Visibility.Visible : Visibility.Collapsed;
         if (_cursor is not null) UpdateCursor(_cursor);
         _updating = false;
+    }
+
+    /// How far right the card in hand is lifted (Pixel).
+    public double Shifted { get; private set; }
+
+    /// The lift to the right goes on the card, its grip and its look, not on
+    /// the page ground under the grip, which stays clear of the card below.
+    public void Shift(double x)
+    {
+        Shifted = x;
+        var offset = new Vector3((float)x, 0, 0);
+        Grip.Translation = Shadow.Translation = Expander.Translation = offset;
+        if (Outline is not null) Outline.Translation = offset;
+    }
+
+    /// The grip stands as tall as the card's header, so its handle sits
+    /// level with it whether the card is open or not.
+    private void FollowHeader()
+    {
+        if (_headerButton is not null || First<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>(Expander) is not { } header) return;
+        _headerButton = header;
+        Grip.Height = header.ActualHeight;
+        header.SizeChanged += (_, e) => Grip.Height = e.NewSize.Height;
+    }
+
+    private Microsoft.UI.Xaml.Controls.Primitives.ToggleButton? _headerButton;
+
+    private static T? First<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T found) return found;
+            if (First<T>(child) is { } deeper) return deeper;
+        }
+        return null;
+    }
+
+    /// A grip shows the move cursor and takes the pointer anywhere in its column.
+    private sealed class DragGrip : Grid
+    {
+        public DragGrip()
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth);
+        }
     }
 
     /// Cursor's line in Grok's card: on one X Subscription with Grok it shares
@@ -376,11 +527,11 @@ internal sealed class AgentSection
     {
         if (Looks.Pixel)
         {
-            Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider) };
+            Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider), Opacity = _header.Opacity };
             return;
         }
         var dark = Brand.IsDark();
         Puck.SetTint(Expander, new SolidColorBrush(ClassicTokens.Tint(ClassicTokens.Identity(_provider, dark), dark)));
-        if (await Brand.MarkAsync(_provider, dark) is { } mark) Expander.HeaderIcon = new ImageIcon { Source = mark, Width = 18, Height = 18 };
+        if (await Brand.MarkAsync(_provider, dark) is { } mark) Expander.HeaderIcon = new ImageIcon { Source = mark, Width = 18, Height = 18, Opacity = _header.Opacity };
     }
 }

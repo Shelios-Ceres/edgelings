@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Foundation;
 using WinRT.Interop;
 
@@ -83,10 +84,10 @@ internal sealed partial class SettingsWindow
     /// agent on this computer hidden and shown again (M10); that agent opened
     /// from the drawer while the window shows another page, scrolled to from
     /// the top of a long page, and a hidden agent opened (M19); a meter
-    /// counting (M16); a row moved by its arrows (M11); a switch flipping
-    /// both ways and, under Classic, a button pressed (M12); and the first
-    /// agent hidden, which opens the hidden section (M10). The run hides and
-    /// moves agents, and flips a switch: run it on settings you restore.
+    /// counting (M16); a card moved by its arrows, and one taken by its grip,
+    /// held past the next and let go (M11); and a switch flipping both ways
+    /// and, under Classic, a button pressed (M12). The run hides and moves
+    /// agents, and flips a switch: run it on settings you restore.
     /// AGENTISLAND_DEBUG_FILM_ONLY=<names>: only the moments whose strips
     /// start with one of these comma-separated names.
     public static async Task FilmSettingsAsync(string directory)
@@ -145,17 +146,41 @@ internal sealed partial class SettingsWindow
                 await Film("m9-close", () => first.IsExpanded = false, card);
             }
 
-            var (detected, _, hiddenAgents) = AgentGroups();
+            var lineup = AgentLineup();
+            var detected = lineup.Where(entry => entry.Shown).Select(entry => entry.Provider).ToList();
+            var hiddenAgents = lineup.Where(entry => !entry.Shown).Select(entry => entry.Provider).ToList();
+            // M10 by the card's own switch, as a click flips it: its flip (M12),
+            // a storyboard, is stepped with the glide.
+            async Task FilmSwitch(string moment, DisplayProvider agent)
+            {
+                if (!Wanted(moment)) return;
+                var toggle = window._agents[agent].ShownSwitch;
+                var flip = Flip(toggle);
+                var length = pixel ? 3 * Motion.TickMs : 367;
+                await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"{moment}-{name}.png"), () =>
+                {
+                    toggle.IsOn = !toggle.IsOn;
+                    flip?.Pause();
+                }, pixel, page, before: true, alongside: ms => flip?.SeekAlignedToLastTick(TimeSpan.FromMilliseconds(Math.Min(ms, length))));
+                flip?.Resume();
+                await Settle();
+            }
             if (detected.Count > 1)
             {
+                foreach (var section in window._agents.Values) section.Expander.IsExpanded = false;
+                await Settle();
+                // The last shown agent's card glides to the bottom, and back;
+                // then the first, past all the others.
                 var agent = detected[^1];
                 window._scroll.ChangeView(null, window._scroll.ScrollableHeight, null, disableAnimation: true);
                 await Settle();
-                await Film("m10-hide", () => visibility.SetShown(agent, false), page);
-                if (window._hiddenList is { } hidden) hidden.IsExpanded = true;
-                window._scroll.ChangeView(null, window._scroll.ScrollableHeight, null, disableAnimation: true);
+                await FilmSwitch("m10-hide", agent);
+                await FilmSwitch("m10-show", agent);
+                window._scroll.ChangeView(null, 0, null, disableAnimation: true);
                 await Settle();
-                await Film("m10-show", () => visibility.SetShown(agent, true), page);
+                await FilmSwitch("m10-first-hide", detected[0]);
+                await FilmSwitch("m10-first-show", detected[0]);
+                await LiveFlipAsync(window, agent, Wanted("m12-live"));
 
                 await Go(Page.Drawer);
                 await Film("m19-open", () => Open(agent), whole);
@@ -186,21 +211,34 @@ internal sealed partial class SettingsWindow
                 await Film("m16-count-down", () => counted.DebugCount(0.3), page);
             }
 
-            // M11 and M12 on the Drawer page: the Order list's first row down
-            // and back up; the first switch off and on; a button pressed.
-            await Go(Page.Drawer);
-            var body = (DependencyObject)window._scroll.Content;
-            if (Below<ListView>(body, list => AutomationProperties.GetAutomationId(list) == "Settings.Drawer.Order") is { } order)
+            // M11 on the Agents page: the first card down by its arrow and
+            // back up, then taken by its grip past the second and let go.
+            if (detected.Count > 1 && window._agentList is { } list)
             {
-                order.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false, VerticalAlignmentRatio = 0.3 });
+                foreach (var section in window._agents.Values) section.Expander.IsExpanded = false;
                 await Settle();
-                var rows = Around(order, 16);
-                // The first row's down arrow, then its new row's up arrow.
-                Button? Arrow(string end) => Below<Button>(order, arrow => arrow.IsEnabled && AutomationProperties.GetAutomationId(arrow).EndsWith(end));
-                if (Arrow(".Down") is { } down) await Film("m11-down", () => new ButtonAutomationPeer(down).Invoke(), rows);
+                window._scroll.ChangeView(null, 0, null, disableAnimation: true);
+                await Settle();
+                var lead = detected[0];
+                var cards = Around(list, 16);
+                await Film("m11-down", () => new ButtonAutomationPeer(window._agents[lead].Down).Invoke(), cards);
                 await Task.Delay(600);
-                if (Arrow(".Up") is { } up) await Film("m11-up", () => new ButtonAutomationPeer(up).Invoke(), rows);
+                await Film("m11-up", () => new ButtonAutomationPeer(window._agents[lead].Up).Invoke(), cards);
+                if (Wanted("m11-drag"))
+                {
+                    var height = window._cards[lead].ActualSize.Y;
+                    await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m11-drag-lift-{name}.png"), window.DebugTake, pixel, cards, before: true);
+                    await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m11-drag-room-{name}.png"), () => window.DebugDrag(height * 1.2), pixel, cards, before: true);
+                    await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m11-drag-drop-{name}.png"), window.DebugDrop, pixel, cards, before: true);
+                    await Settle();
+                    // Back as it was, for the rest of the run.
+                    DrawerStore.Shared.SetOrder(detected);
+                    await Settle();
+                }
             }
+
+            // M12 on the Drawer page: the first switch off and on; a button pressed.
+            await Go(Page.Drawer);
             window._scroll.ChangeView(null, 0, null, disableAnimation: true);
             await Settle();
             if (Below<ToggleSwitch>((DependencyObject)window._scroll.Content) is { } toggle)
@@ -223,23 +261,6 @@ internal sealed partial class SettingsWindow
                     await Film("m12-release", () => ControlMotion.Press(button, down: false), around);
                 }
             }
-
-            // Last, as it shows every hidden agent: hiding one then opens the
-            // section, in a window tall enough for the whole page.
-            if (detected.Count > 1 && hiddenAgents.Count > 0 && Wanted("m10-first"))
-            {
-                await Go(Page.Agents);
-                foreach (var hidden in hiddenAgents) visibility.SetShown(hidden, true);
-                await Task.Delay(800);
-                UiMoment.Finish();
-                var normal = window.AppWindow.Size;
-                window.AppWindow.Resize(new Windows.Graphics.SizeInt32(normal.Width, normal.Height * 8 / 5));
-                window._scroll.ChangeView(null, 0, null, disableAnimation: true);
-                await Settle();
-                var tall = window.Content is FrameworkElement grown ? new Size(grown.ActualWidth, grown.ActualHeight) : size;
-                await Film("m10-first", () => visibility.SetShown(detected[^1], false), Region(window, new Rect(200, 0, tall.Width - 200, tall.Height)));
-                window.AppWindow.Resize(normal);
-            }
         }
         catch (Exception error)
         {
@@ -253,18 +274,59 @@ internal sealed partial class SettingsWindow
         DebugTrace.Write("settings film saved in " + directory);
     }
 
+    /// The storyboard that flips a switch from where it stands now (M12).
+    private static Storyboard? Flip(ToggleSwitch toggle)
+    {
+        var from = toggle.IsOn ? "On" : "Off";
+        var to = toggle.IsOn ? "Off" : "On";
+        return VisualTreeHelper.GetChildrenCount(toggle) > 0 && VisualTreeHelper.GetChild(toggle, 0) is FrameworkElement root
+            ? VisualStateManager.GetVisualStateGroups(root).FirstOrDefault(group => group.Name == "ToggleStates")?.Transitions
+                .FirstOrDefault(transition => transition.From == from && transition.To == to)?.Storyboard
+            : null;
+    }
+
+    /// M12 on the real clock while the card glides (M10): an agent's switch
+    /// flipped off and on as a click flips it, the knob's offset and the
+    /// card's each rendered frame written to the trace.
+    private static async Task LiveFlipAsync(SettingsWindow window, DisplayProvider agent, bool wanted)
+    {
+        var knob = ControlMotion.Find<FrameworkElement>(window._agents[agent].ShownSwitch, "SwitchKnob")?.RenderTransform switch
+        {
+            TranslateTransform alone => alone,
+            TransformGroup group => group.Children.OfType<TranslateTransform>().FirstOrDefault(),
+            _ => null,
+        };
+        if (!wanted || knob is null) return;
+        var toggle = window._agents[agent].ShownSwitch;
+        var card = window._cards[agent];
+        UiMoment.Manual = false;
+        try
+        {
+            foreach (var on in new[] { false, true })
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var frames = new List<string>();
+                void Sample(object? sender, object e) => frames.Add($"{clock.ElapsedMilliseconds}:{knob.X:F0}/{card.Translation.Y:F0}");
+                CompositionTarget.Rendering += Sample;
+                toggle.IsOn = on;
+                await Task.Delay(700);
+                CompositionTarget.Rendering -= Sample;
+                DebugTrace.Write($"m12 live, switched {(on ? "on" : "off")} (ms:knob x/card y): " + string.Join(" ", frames));
+            }
+        }
+        finally
+        {
+            UiMoment.Manual = true;
+        }
+    }
+
     /// A switch's flip (M12) is a storyboard in its kit's template: paused as
     /// it starts and moved by hand, Pixel every tick (mid-tick), Classic every
     /// 33 ms, past its end.
     private static async Task FilmFlipAsync(string path, ToggleSwitch toggle, bool pixel,
         Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> capture)
     {
-        var from = toggle.IsOn ? "On" : "Off";
-        var to = toggle.IsOn ? "Off" : "On";
-        var flip = VisualTreeHelper.GetChildrenCount(toggle) > 0 && VisualTreeHelper.GetChild(toggle, 0) is FrameworkElement root
-            ? VisualStateManager.GetVisualStateGroups(root).FirstOrDefault(group => group.Name == "ToggleStates")?.Transitions
-                .FirstOrDefault(transition => transition.From == from && transition.To == to)?.Storyboard
-            : null;
+        var flip = Flip(toggle);
         toggle.IsOn = !toggle.IsOn;
         flip?.Pause();
         var step = pixel ? Motion.TickMs : 1000.0 / 30;

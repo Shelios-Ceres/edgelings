@@ -88,7 +88,7 @@ internal sealed partial class SettingsWindow : Window
     }
 
     /// AGENTISLAND_DEBUG_STATES: the kit's controls at rest, in hover, pressed
-    /// and keyboard focus, and a dragged order row, rendered by the app
+    /// and keyboard focus, and an agent's card in hand, rendered by the app
     /// itself; each with its card, so a focus ring outside the control shows.
     public static async Task SnapshotStatesAsync(string directory)
     {
@@ -97,9 +97,9 @@ internal sealed partial class SettingsWindow : Window
         Directory.CreateDirectory(directory);
         async Task Shoot(UIElement frame, string name) =>
             await Shell.Snapshot.SaveAsync(frame, Path.Combine(directory, name + ".png"));
-        async Task States(Control control, string name)
+        async Task States(Control control, string name, UIElement? around = null)
         {
-            var frame = (UIElement?)Above<SettingsCard>(control) ?? control;
+            var frame = around ?? (UIElement?)Above<SettingsCard>(control) ?? control;
             await Shoot(frame, $"{name}-rest");
             foreach (var state in new[] { "PointerOver", "Pressed" })
             {
@@ -118,16 +118,17 @@ internal sealed partial class SettingsWindow : Window
         var page = (DependencyObject)window._scroll.Content;
         if (Below<ToggleSwitch>(page) is { } toggle) await States(toggle, "toggle");
         if (Below<ComboBox>(page) is { } combo) await States(combo, "combo");
-        if (Below<ListView>(page, list => AutomationProperties.GetAutomationId(list) == "Settings.Drawer.Order") is { } order)
+
+        // An agent card's arrow, and the card in hand (M11).
+        window.SelectPage(Page.Agents);
+        await Task.Delay(1500);
+        if (window._agents.Values.FirstOrDefault(agent => agent.Down.IsEnabled) is { } first && window._agentList is { } list)
         {
-            if (Below<Button>(order, arrow => arrow.IsEnabled) is { } arrow) await States(arrow, "icon-button");
-            if (order.ContainerFromIndex(1) is ListViewItem row && Above<SettingsCard>(row) is { } card)
-            {
-                VisualStateManager.GoToState(row, "Dragging", false);
-                await Task.Delay(200);
-                await Shoot(card, "order-dragged");
-                VisualStateManager.GoToState(row, "NotDragging", false);
-            }
+            await States(first.Down, "icon-button", first.Expander);
+            first.Hold(1);
+            await Task.Delay(200);
+            await Shoot(list, "card-in-hand");
+            first.Hold(0);
         }
 
         window.SelectPage(Page.Usage);
@@ -197,8 +198,8 @@ internal sealed partial class SettingsWindow : Window
         };
         DrawerStore.Shared.PropertyChanged += look;
         _teardown.Add(() => DrawerStore.Shared.PropertyChanged -= look);
-        // Hiding, showing or reordering an agent regroups the Agents page.
-        PropertyChangedEventHandler regroup = (_, _) => DispatcherQueue.TryEnqueue(Regroup);
+        // Hiding, showing or reordering an agent rearranges the Agents page.
+        PropertyChangedEventHandler regroup = (_, _) => DispatcherQueue.TryEnqueue(Rearrange);
         ProviderVisibilityStore.Shared.PropertyChanged += regroup;
         _teardown.Add(() => ProviderVisibilityStore.Shared.PropertyChanged -= regroup);
 
@@ -329,10 +330,6 @@ internal sealed partial class SettingsWindow : Window
         DrawerStore.Shared.PropertyChanged += _drawerPage;
     }
 
-    private static SettingsCard OrderCard(DrawerStore store) =>
-        VerticalCard(L10n.Tr("Order"), L10n.Tr("Drag or use the arrows; the first stands at the top. Switch one off to hide it everywhere."), "\uE8CB",
-            OrderList.Create(store));
-
     private void Watch(INotifyPropertyChanged source)
     {
         PropertyChangedEventHandler handler = (_, _) => _dirty = true;
@@ -362,12 +359,10 @@ internal sealed partial class SettingsWindow : Window
         Preferences.Set(PageKey, page.ToString());
         _agents.Clear();
         _cards.Clear();
-        _hiddenRows.Clear();
-        _hiddenAgents = Array.Empty<DisplayProvider>();
-        _hiddenGroup = null;
-        _hiddenList = null;
-        _hiddenEye = null;
-        _hiddenCount = null;
+        _agentList = null;
+        _lineup = Array.Empty<(DisplayProvider, bool)>();
+        _lineupKey = "";
+        _drag = null;
         var body = new StackPanel { Spacing = CardGap, MaxWidth = 1000, Padding = new Thickness(40, 28, 40, 40) };
         switch (page)
         {
@@ -406,103 +401,71 @@ internal sealed partial class SettingsWindow : Window
     private void BuildAgents(StackPanel body)
     {
         body.Children.Add(PageTitle(L10n.Tr("Agents")));
-        body.Children.Add(PageIntro(L10n.Tr("Quota, tokens and live activity for every coding agent on this computer. Each one shown in the drawer gets a character.")));
-        // In the drawer's order; agents the user hid wait at the bottom.
-        var (detected, missing, hidden) = AgentGroups();
-        _agentGroups = GroupsKey(detected, missing, hidden);
-        void Add(DisplayProvider provider)
+        body.Children.Add(PageIntro(L10n.Tr("Quota, tokens and live activity for every coding agent on this computer, in the drawer's order. Drag a card by its grip or use its arrows to move it; switch one off to hide it everywhere.")));
+        // The shown in the drawer's order, then the rest at the bottom.
+        var lineup = _lineup = AgentLineup();
+        _lineupKey = LineupKey(lineup);
+        var list = _agentList = StartsSection(new StackPanel { Spacing = CardGap });
+        var shownCount = lineup.Count(entry => entry.Shown);
+        for (var i = 0; i < lineup.Count; i++)
         {
-            var section = new AgentSection(provider, () => Content?.XamlRoot);
+            var (provider, shown) = lineup[i];
+            var section = new AgentSection(provider, () => Content?.XamlRoot, step => MoveAgent(provider, step));
             _agents[provider] = section;
             section.Update(AgentReports.For(provider));
             section.UpdateActivity();
-            var card = new Shell.RevealPanel { Child = section.Expander };
-            _cards[provider] = card;
-            body.Children.Add(card);
+            section.Place(i, shownCount, shown);
+            var row = AgentRow(section);
+            HookDrag(section, provider);
+            _cards[provider] = row;
+            list.Children.Add(row);
         }
-        if (detected.Count > 0) body.Children.Add(Section(L10n.Tr("On this computer")));
-        foreach (var provider in detected) Add(provider);
-        if (missing.Count > 0) body.Children.Add(Section(L10n.Tr("Not detected")));
-        foreach (var provider in missing) Add(provider);
-        _hiddenAgents = hidden;
-        if (hidden.Count > 0)
-        {
-            var group = new StackPanel { Spacing = CardGap };
-            group.Children.Add(Section(L10n.Tr("Hidden agents")));
-            group.Children.Add(HiddenAgents(hidden));
-            _hiddenGroup = StartsSection(new Shell.RevealPanel { Child = group });
-            body.Children.Add(_hiddenGroup);
-        }
+        body.Children.Add(list);
     }
 
-    private static (IReadOnlyList<DisplayProvider> Detected, IReadOnlyList<DisplayProvider> Missing, IReadOnlyList<DisplayProvider> Hidden) AgentGroups()
+    /// A card with its grip hanging in the page's margin to its left, and
+    /// its look in hand: the shadow under it, Classic's outline over it. The
+    /// grip's column is on page ground, so a card passing over another covers
+    /// that one's grip too.
+    private static Grid AgentRow(AgentSection section)
     {
-        var visibility = ProviderVisibilityStore.Shared;
-        return DrawerVisibility.Groups(DrawerStore.Shared.Order, visibility.IsHidden, visibility.IsCharacterDetected);
+        var row = new Grid { Margin = new Thickness(-AgentSection.GripWidth, 0, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(AgentSection.GripWidth) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.Children.Add(new Border { Background = Shell.Looks.Kit<Brush>("Layer"), IsHitTestVisible = false });
+        row.Children.Add(section.Grip);
+        foreach (var layer in new[] { section.Shadow, section.Expander, section.Outline })
+        {
+            if (layer is null) continue;
+            Grid.SetColumn(layer, 1);
+            row.Children.Add(layer);
+        }
+        return row;
     }
 
-    private static string GroupsKey(params IReadOnlyList<DisplayProvider>[] groups) =>
-        string.Join("|", groups.Select(group => string.Join(",", group)));
+    private static IReadOnlyList<(DisplayProvider Provider, bool Shown)> AgentLineup() =>
+        DrawerVisibility.Lineup(DrawerStore.Shared.Order, ProviderVisibilityStore.Shared.IsShown);
 
-    // The groups the Agents page was built with; hiding, showing or
-    // reordering an agent rebuilds it (Regroup), keeping its scroll and open
-    // sections.
-    private string _agentGroups = "";
+    private static string LineupKey(IEnumerable<(DisplayProvider Provider, bool Shown)> lineup) =>
+        string.Join(",", lineup.Select(entry => $"{entry.Provider}:{entry.Shown}"));
 
-    /// Hidden agents, collapsed into one list where each can come back. Its
-    /// count and eye are kept for M10.
-    private SettingsExpander HiddenAgents(IReadOnlyList<DisplayProvider> hidden)
+    // The list the Agents page shows; hiding, showing or moving an agent
+    // rearranges it (Rearrange), and a change in which agents are here
+    // rebuilds it, keeping its scroll and open cards.
+    private StackPanel? _agentList;
+    private IReadOnlyList<(DisplayProvider Provider, bool Shown)> _lineup = Array.Empty<(DisplayProvider, bool)>();
+    private string _lineupKey = "";
+
+    /// A shown agent's arrow: a step up or down among the shown.
+    private void MoveAgent(DisplayProvider provider, int step)
     {
-        _hiddenCount = new TextBlock { Text = L10n.TrFormat("{0} hidden", hidden.Count), LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
-        _hiddenEye = Icon("\uE890");
-        var list = new SettingsExpander
-        {
-            Header = _hiddenCount,
-            Description = L10n.Tr("Out of the drawer, its menus and the Cost window"),
-            HeaderIcon = _hiddenEye,
-        };
-        _hiddenList = list;
-        AutomationProperties.SetAutomationId(list, "Settings.Agents.Hidden");
-        foreach (var provider in hidden)
-        {
-            var show = Button(L10n.Tr("Show"), () => ProviderVisibilityStore.Shared.SetShown(provider, true));
-            AutomationProperties.SetAutomationId(show, $"Settings.Agents.Hidden.{provider.RawValue()}");
-            AutomationProperties.SetName(show, L10n.TrFormat("Show {0}", ProviderIdentity.DisplayName(provider)));
-            var row = new SettingsCard { Header = ProviderIdentity.DisplayName(provider), HeaderIcon = Mark(provider), Content = show };
-            _hiddenRows[provider] = row;
-            // Under Classic each sits in its 24-DIP puck; the last row's
-            // corners follow the card's, for M19's glow.
-            if (!Shell.Looks.Pixel)
-            {
-                var dark = Shell.Brand.IsDark();
-                Shell.Puck.SetTint(row, new SolidColorBrush(Shell.ClassicTokens.Tint(Shell.ClassicTokens.Identity(provider, dark), dark)));
-                if (provider == hidden[^1]) row.CornerRadius = new CornerRadius(0, 0, 13, 13);
-            }
-            list.Items.Add(row);
-        }
-        return list;
-    }
-
-    /// An agent's mark for a list row: its pixel face under Pixel, else the
-    /// brand's.
-    private static ImageIcon Mark(DisplayProvider provider)
-    {
-        var icon = new ImageIcon();
-        if (Shell.Looks.Pixel)
-        {
-            icon.Source = Shell.PixelIcons.Face(provider);
-        }
-        else
-        {
-            icon.Width = icon.Height = 14;
-            _ = SetMarkAsync(icon, provider);
-        }
-        return icon;
-    }
-
-    private static async Task SetMarkAsync(ImageIcon icon, DisplayProvider provider)
-    {
-        if (await Shell.Brand.MarkAsync(provider, Shell.Brand.IsDark()) is { } mark) icon.Source = mark;
+        var order = _lineup.Where(entry => entry.Shown).Select(entry => entry.Provider).ToList();
+        var from = order.IndexOf(provider);
+        var to = from + step;
+        if (from < 0 || to < 0 || to >= order.Count) return;
+        (order[from], order[to]) = (order[to], order[from]);
+        _moving = provider;
+        DrawerStore.Shared.SetOrder(order);
     }
 
     // MARK: - Drawer
@@ -560,8 +523,6 @@ internal sealed partial class SettingsWindow : Window
         body.Children.Add(position);
         FollowDrawerStore(ShowLock);
 
-        body.Children.Add(Section(L10n.Tr("Lineup")));
-        body.Children.Add(OrderCard(store));
 
         body.Children.Add(Section(L10n.Tr("Motion")));
         var rates = new[] { 0, 120, 60 };

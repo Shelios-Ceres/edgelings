@@ -15,7 +15,7 @@ public static class DrawerPresentationTests
             ("Cursor never gets a character of its own", TestVisibilityChoices),
             ("empty drawer fallback does not overwrite visibility choices", TestVisibilityFallback),
             ("one switch per character, none for Cursor", TestSwitches),
-            ("the Agents page groups follow the order, hidden agents apart", TestGroups),
+            ("the Agents page lists the shown in order, the rest below", TestLineup),
             ("pixel card rebuilds across DPI changes", TestPixelScale),
             ("glass card keeps its DPI-independent content cache", TestGlassScale),
         };
@@ -83,16 +83,16 @@ public static class DrawerPresentationTests
         Expect(requested.All(pair => !pair.Value), "fallback does not masquerade as a saved preference");
     }
 
-    private static void TestGroups()
+    private static void TestLineup()
     {
         var order = new[] { DisplayProvider.Codex, DisplayProvider.Claude, DisplayProvider.Cursor, DisplayProvider.Kimi, DisplayProvider.DeepSeek, DisplayProvider.Grok };
-        var (detected, missing, hidden) = DrawerVisibility.Groups(order,
-            provider => provider is DisplayProvider.Claude or DisplayProvider.Grok,
-            provider => provider is not (DisplayProvider.DeepSeek or DisplayProvider.Grok));
-        Expect(detected.SequenceEqual(new[] { DisplayProvider.Codex, DisplayProvider.Kimi }), "detected agents keep the order");
-        Expect(missing.SequenceEqual(new[] { DisplayProvider.DeepSeek }), "agents not found here form their own group");
-        Expect(hidden.SequenceEqual(new[] { DisplayProvider.Claude, DisplayProvider.Grok }), "hidden agents wait apart, found or not");
-        Expect(!detected.Concat(missing).Concat(hidden).Contains(DisplayProvider.Cursor), "Cursor is on Grok's card, not its own");
+        var lineup = DrawerVisibility.Lineup(order, provider => provider is not (DisplayProvider.Claude or DisplayProvider.DeepSeek));
+        Expect(lineup.Select(e => e.Provider).SequenceEqual(new[]
+            {
+                DisplayProvider.Codex, DisplayProvider.Kimi, DisplayProvider.Grok, DisplayProvider.Claude, DisplayProvider.DeepSeek,
+            }), "the shown keep the order, the rest follow in it");
+        Expect(lineup.Select(e => e.Shown).SequenceEqual(new[] { true, true, true, false, false }), "each says whether it shows");
+        Expect(lineup.All(e => e.Provider != DisplayProvider.Cursor), "Cursor is on Grok's card, not its own");
     }
 
     private static void TestSwitches()
