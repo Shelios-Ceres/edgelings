@@ -209,6 +209,13 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   300, since the card sits beside the drawer and must fit on screen.
 - A frame-rate ceiling: stepped pixel motion needs no more than 30 fps;
   smooth vector motion may follow the display.
+- The numbers of the drawer's moments: how bots slide in and out (reveal,
+  hide, a bot shown or hidden, an edge switch), lift and land when the
+  drawer is dragged, refuse a locked drag, and change look. The moments
+  themselves are the app's (`Drawer/DrawerMoment.cs`, on the clock and curves
+  in `Shell/Motion.cs`): Pixel steps whole 2-DIP cells on a 30-tick clock,
+  and Classic eases on cubic Béziers over Fluent's 83 to 500 ms durations.
+  While one plays, the window region opens to the whole window.
 
 ## 5. Fixed (must not change)
 
@@ -298,10 +305,14 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
+  | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and every bot idle, asking, in orbit, finished and locked |
+  | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
+  | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |
 
-  The drawer itself is drawn by Win2D and cannot be snapshotted. Capture it
-  over a plain window of your own, and check the capture's corner pixels
-  before looking at it.
+  The live drawer is drawn by Win2D and cannot be snapshotted; the film
+  draws the same bots with the same painter. To see the live drawer,
+  capture it over a plain window of your own, and check the capture's
+  corner pixels before looking at it.
 - **Before release**, check every phase on every bot; light and dark mode;
   100, 150 and 200 % scaling (and 125 % for grid themes); reduced motion;
   switching to and from the theme live; and idle CPU in line with Pixel.

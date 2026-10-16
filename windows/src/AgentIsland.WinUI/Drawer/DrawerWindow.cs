@@ -29,8 +29,10 @@ namespace AgentIsland.WinUI.Drawer;
 /// provider, each playing its agent's live phase. Win2D draws them on its
 /// own game-loop thread, at the display's refresh rate while any of them is
 /// busy; only the characters' circles take clicks. The character set is a
-/// theme: the bundled pixel bots, or the Classic recolourable shapes.
-internal sealed class DrawerWindow : Window
+/// theme: the bundled pixel bots, or the Classic recolourable shapes. The
+/// drawer's own moments (reveal, roster changes, drag, edge switch, a new
+/// look) play in the same loop.
+internal sealed partial class DrawerWindow : Window
 {
     private const double BotSize = 44;
     private const double Gap = 10;
@@ -144,13 +146,26 @@ internal sealed class DrawerWindow : Window
     private int _pressY;
     private int _pressTop;
     private bool _closed;
+    // The drawer moment playing (M1, M2, M6, M18, M20): the loop draws its
+    // bots in their poses instead of the scene. Set on the UI thread.
+    private volatile DrawerMoment? _moment;
+    private Action? _afterMoment;
+    // Ends a moment the loop never saw finish (the loop normally does).
+    private readonly DispatcherQueueTimer _momentGuard;
+    // Classic's locked-drag tug, in DIP, while the pointer pulls.
+    private volatile float _tug;
+    // What the window was last laid out as, to tell what a layout changes.
+    private (int[] Shown, RectInt32 Rect, DrawerSide Side, double Scale)? _laidOut;
+    // A roster or edge moment has yet to put the window where it ends up.
+    private bool _layoutPending;
+    private CanvasDevice? _loopDevice;
 
     public DrawerWindow()
     {
         Title = "Agent Island";
         _hwnd = WindowNative.GetWindowHandle(this);
         _queue = DispatcherQueue;
-        _reducedMotion = !_uiSettings.AnimationsEnabled;
+        _reducedMotion = ReducedMotion();
         UpdateCap();
 
         _theme = _loopTheme = DrawerStore.Shared.Theme;
@@ -210,6 +225,8 @@ internal sealed class DrawerWindow : Window
         _guard = Timer(TimeSpan.FromSeconds(1), Guard);
         _cardClose = Timer(TimeSpan.FromMilliseconds(250), CloseCardUnlessHovered);
         _cardIntent = Timer(HoverIntent, OpenCardIfStillHovered);
+        _momentGuard = Timer(TimeSpan.FromSeconds(1), () => EndMoment(_moment));
+        _momentGuard.IsRepeating = false;
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_STATS") is { Length: > 0 } statsPath)
         {
             _stats = new DrawerStats(statsPath);
@@ -245,25 +262,57 @@ internal sealed class DrawerWindow : Window
         ApplyVisibility();
     }
 
+    /// Windows' animation effects are off, or AGENTISLAND_DEBUG_REDUCED_MOTION=1
+    /// says to act as if they were.
+    private bool ReducedMotion() =>
+        !_uiSettings.AnimationsEnabled || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REDUCED_MOTION") == "1";
+
     /// Hidden from the tray menu, as opposed to stepping aside for a full-screen app.
     public bool DeliberatelyHidden => _deliberatelyHidden;
 
-    /// Tray menu: hide the drawer, or bring it back.
+    /// Tray menu: hide the drawer, or bring it back (M1).
     public void ToggleDeliberately()
     {
         _deliberatelyHidden = !_deliberatelyHidden;
-        ApplyVisibility();
+        ApplyVisibility(animate: true);
     }
 
     /// Bring the drawer back and briefly show every character's status at
-    /// once — the one place the cards appear together.
+    /// once — the one place the cards appear together. A hidden drawer
+    /// slides in first and the card opens as its last bot lands.
     public void Reveal()
     {
         _deliberatelyHidden = false;
-        ApplyVisibility();
-        OpenCard(null);
-        _cardClose.Interval = TimeSpan.FromSeconds(4);
-        _cardClose.Start();
+        var hidden = !_shown;
+        ApplyVisibility(animate: true);
+        var delay = hidden && _moment is { } moment
+            ? DrawerMoves.CardAfterReveal(moment.Pixel, moment.Bots.Length)
+            : 0;
+        After(delay, () =>
+        {
+            OpenCard(null);
+            _cardClose.Interval = TimeSpan.FromSeconds(4);
+            _cardClose.Start();
+        });
+    }
+
+    /// Runs an action on the UI thread after ms, or now.
+    private void After(double ms, Action action)
+    {
+        if (ms <= 0)
+        {
+            action();
+            return;
+        }
+        var timer = _queue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(ms);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!_closed) action();
+        };
+        timer.Start();
     }
 
     public void Relocalize() => RefreshCard();
@@ -276,6 +325,7 @@ internal sealed class DrawerWindow : Window
         _guard.Stop();
         _cardClose.Stop();
         _cardIntent.Stop();
+        _momentGuard.Stop();
         _card.Dispose();
         Hush();
         foreach (var teardown in _teardown) teardown();
@@ -453,22 +503,20 @@ internal sealed class DrawerWindow : Window
 
     private double WindowHeightDip(int count) => VerticalPadding * 2 + count * BotSize + Math.Max(0, count - 1) * Gap;
 
-    private void Layout()
+    /// Where the drawer goes: which bots it shows, top first, and its window.
+    private sealed record Plan(List<Bot> Visible, RectInt32 Rect, DrawerSide Side, double Scale)
+    {
+        public int[] Shown { get; } = Visible.Select(b => b.Index).ToArray();
+    }
+
+    private Plan PlanLayout()
     {
         var visibility = ProviderVisibilityStore.Shared;
         var store = DrawerStore.Shared;
         _merged = SharedSubscription.GrokWithCursor();
         var shown = DrawerVisibility.Characters(
             _bots.ToDictionary(b => b.Provider, b => visibility.IsShown(b.Provider)), _merged);
-        foreach (var bot in _bots) bot.Visible = shown[bot.Provider];
-
-        var visible = Ordered(_bots.Where(b => b.Visible)).ToList();
-        var left = store.Side == DrawerSide.Right ? InnerInset : EdgeInset;
-        for (var i = 0; i < visible.Count; i++)
-        {
-            visible[i].Bounds = new Rect(left, VerticalPadding + i * (BotSize + Gap), BotSize, BotSize);
-        }
-
+        var visible = Ordered(_bots.Where(b => shown[b.Provider])).ToList();
         var screen = _screen = ResolveScreen();
         var scale = screen.Scale;
         var width = (int)Math.Ceiling((InnerInset + BotSize + EdgeInset) * scale);
@@ -476,11 +524,74 @@ internal sealed class DrawerWindow : Window
         var work = screen.Work;
         var x = store.Side == DrawerSide.Right ? work.Right - width : work.Left;
         var y = DrawerPlacement.Top(work.Top, work.Bottom, height, scale, store.Offset, store.Locked ? store.PinnedTop : null);
-        AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
+        return new Plan(visible, new RectInt32(x, y, width, height), store.Side, scale);
+    }
 
-        // Only the characters take clicks: the window region is their circles.
+    /// Lays the drawer out. A bot shown or hidden (M2) and a new edge (M18)
+    /// play as moments while the drawer is on screen; anything else moves at once.
+    private void Layout()
+    {
+        var plan = PlanLayout();
+        var actual = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+        if (_laidOut is { } last && last.Shown.SequenceEqual(plan.Shown) && last.Rect.Equals(plan.Rect)
+            && last.Side == plan.Side && last.Scale == plan.Scale && (_moment is not null || actual.Equals(plan.Rect)))
+        {
+            RefreshCard();
+            return;
+        }
+        var animate = _laidOut is { } before && _shown && !_reducedMotion && _moment is not { Holds: true }
+            && before.Scale == plan.Scale;
+        if (animate && _laidOut!.Value.Side != plan.Side)
+        {
+            SwitchEdge(plan);
+            return;
+        }
+        if (animate && !_laidOut!.Value.Shown.Order().SequenceEqual(plan.Shown.Order()))
+        {
+            ChangeRoster(plan);
+            return;
+        }
+        // A move alone keeps a moment playing: its bots are placed in the
+        // window (a drop lands while the new position is saved).
+        var moveOnly = _laidOut is { } previous && previous.Shown.SequenceEqual(plan.Shown) && previous.Side == plan.Side
+            && previous.Scale == plan.Scale;
+        if (_moment is not null && (!moveOnly || _layoutPending)) ClearMoment();
+        Apply(plan);
+    }
+
+    /// Puts the plan on screen at once.
+    private void Apply(Plan plan)
+    {
+        _layoutPending = false;
+        foreach (var bot in _bots) bot.Visible = plan.Visible.Contains(bot);
+        Place(plan, plan.Rect);
+        AppWindow.MoveAndResize(plan.Rect);
+        _laidOut = (plan.Shown, plan.Rect, plan.Side, plan.Scale);
+        var before = _scene;
+        Publish(plan.Rect.X, plan.Rect.Y, plan.Scale);
+        if (_moment is null) ApplyRegion();
+        // A bubble beside a character that moved would point at nothing.
+        if (before.Left != plan.Rect.X || before.Top != plan.Rect.Y || !before.Shown.SequenceEqual(_scene.Shown)) Hush();
+        RefreshCard();
+    }
+
+    /// The plan's bots in their slots, in the DIPs of a window at `window`.
+    private void Place(Plan plan, RectInt32 window)
+    {
+        var left = plan.Side == DrawerSide.Right ? InnerInset : EdgeInset;
+        var top = (plan.Rect.Y - window.Y) / plan.Scale;
+        for (var i = 0; i < plan.Visible.Count; i++)
+        {
+            plan.Visible[i].Bounds = new Rect(left, top + VerticalPadding + i * (BotSize + Gap), BotSize, BotSize);
+        }
+    }
+
+    /// Only the characters take clicks: the window region is their circles.
+    private void ApplyRegion()
+    {
+        var scale = _scene.Scale;
         var region = Win32.CreateRectRgn(0, 0, 0, 0);
-        foreach (var bot in visible)
+        foreach (var bot in _bots.Where(b => b.Visible))
         {
             var b = bot.Bounds;
             var circle = Win32.CreateEllipticRgn(
@@ -490,12 +601,75 @@ internal sealed class DrawerWindow : Window
             Win32.DeleteObject(circle);
         }
         Win32.SetWindowRgn(_hwnd, region, true);
+    }
 
-        var before = _scene;
-        Publish(x, y, scale);
-        // A bubble beside a character that moved would point at nothing.
-        if (before.Left != x || before.Top != y || !before.Shown.SequenceEqual(_scene.Shown)) Hush();
+    /// M2: bots leave, the rest close the gap or make room, and newcomers
+    /// slide in. The window covers the old and the new column meanwhile, so
+    /// every bot starts where it was on screen; it settles on the new one after.
+    private void ChangeRoster(Plan plan)
+    {
+        var old = _scene;
+        var scale = plan.Scale;
+        var from = OnScreenNow();
+        // The window as it stands, which may already be mid-change.
+        var window = Union(new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height), plan.Rect);
+        // Where each bot is drawn now, in screen DIPs.
+        var drawnTop = old.Shown.ToDictionary(s => s.Index, s => old.Top / scale + s.Y + (from?.Invoke(s.Index)?.Y ?? 0));
+        var drawnLeft = old.Shown.ToDictionary(s => s.Index, s => s.X);
+        Hush();
+        foreach (var bot in _bots) bot.Visible = plan.Visible.Contains(bot);
+        Place(plan, window);
+        AppWindow.MoveAndResize(window);
+        // Where the moment ends up, so a layout meanwhile sees no change.
+        _laidOut = (plan.Shown, plan.Rect, plan.Side, scale);
+        Publish(window.X, window.Y, scale);
+        _layoutPending = true;
+        var leaving = old.Shown.Select(s => s.Index).Where(i => !plan.Shown.Contains(i)).ToList();
+        var entering = plan.Visible.Where(b => !drawnTop.ContainsKey(b.Index)).Select(b => b.Index).ToList();
+        var dy = plan.Visible.Where(b => drawnTop.ContainsKey(b.Index))
+            .ToDictionary(b => b.Index, b => (float)(drawnTop[b.Index] - (window.Y / scale + b.Bounds.Y)));
+        var bots = _scene.Shown
+            .Concat(leaving.Select(i => (i, drawnLeft[i], (float)(drawnTop[i] - window.Y / scale))))
+            .ToArray();
+        Play(DrawerMoves.Roster(NewMoment(bots, plan.Side), leaving, dy, entering, from), () => Apply(PlanLayout()));
         RefreshCard();
+    }
+
+    private static RectInt32 Union(RectInt32 a, RectInt32 b)
+    {
+        var left = Math.Min(a.X, b.X);
+        var top = Math.Min(a.Y, b.Y);
+        return new RectInt32(left, top, Math.Max(a.X + a.Width, b.X + b.Width) - left, Math.Max(a.Y + a.Height, b.Y + b.Height) - top);
+    }
+
+    /// M18: the bots leave by the old edge, the window crosses the screen,
+    /// and they slide in from the new one.
+    private void SwitchEdge(Plan plan)
+    {
+        _card.Hide();
+        _cardBot = null;
+        Hush();
+        var shown = _scene.Shown;
+        var side = _laidOut!.Value.Side;
+        _laidOut = (plan.Shown, plan.Rect, plan.Side, plan.Scale);
+        _layoutPending = true;
+        var hide = NewMoment(shown, side, holds: true);
+        Play(DrawerMoves.Hide(hide, TopDown(shown), staggered: false, OnScreenNow()), () =>
+        {
+            Apply(PlanLayout());
+            var now = _scene.Shown;
+            var reveal = NewMoment(now, DrawerStore.Shared.Side);
+            Play(DrawerMoves.Reveal(reveal, TopDown(now), staggered: !reveal.Pixel));
+        });
+    }
+
+    /// A roster or edge moment cut short by another trigger still leaves the
+    /// drawer laid out where it was going, before the new moment starts.
+    private void Settle()
+    {
+        if (!_layoutPending) return;
+        ClearMoment();
+        Apply(PlanLayout());
     }
 
     /// Bots in the order the user set, top first.
@@ -548,7 +722,7 @@ internal sealed class DrawerWindow : Window
     /// topmost now and then, since fullscreen and topmost apps park above it.
     private void Guard()
     {
-        _reducedMotion = !_uiSettings.AnimationsEnabled;
+        _reducedMotion = ReducedMotion();
         UpdateCap();
         var monitor = Win32.MonitorFromWindow(_hwnd, Win32.MonitorDefaultToNearest);
         var foreground = Win32.GetForegroundWindow();
@@ -586,13 +760,20 @@ internal sealed class DrawerWindow : Window
         _activeCap = cap;
     }
 
-    private void ApplyVisibility()
+    /// Shows or hides the drawer: a deliberate change from the tray slides
+    /// the bots in or out (M1); stepping aside for a full-screen app does not.
+    private void ApplyVisibility(bool animate = false)
     {
         var show = !_deliberatelyHidden && !_coveredByFullscreen;
         if (show == _shown) return;
+        Settle();
         _shown = show;
+        var moving = animate && !_reducedMotion;
         if (show)
         {
+            var shown = _scene.Shown;
+            if (moving) Play(DrawerMoves.Reveal(NewMoment(shown, DrawerStore.Shared.Side), TopDown(shown), from: OnScreenNow()));
+            else if (_moment is not null) ClearMoment();
             AppWindow.Show(false);
             KeepOnTop();
             _canvas.Paused = false;
@@ -601,9 +782,76 @@ internal sealed class DrawerWindow : Window
         {
             _card.Hide();
             Hush();
-            _canvas.Paused = true;
-            AppWindow.Hide();
+            var shown = _scene.Shown;
+            if (moving) Play(DrawerMoves.Hide(NewMoment(shown, DrawerStore.Shared.Side, holds: true), TopDown(shown), from: OnScreenNow()), HideWindow);
+            else HideWindow();
         }
+    }
+
+    private void HideWindow()
+    {
+        _canvas.Paused = true;
+        AppWindow.Hide();
+    }
+
+    // MARK: - Moments
+
+    private DrawerMoment NewMoment((int Index, float X, float Y)[] bots, DrawerSide side, bool holds = false, bool tug = false) => new()
+    {
+        Bots = bots,
+        Start = _clock.Elapsed.TotalSeconds,
+        Pixel = _theme == CharacterTheme.Pixel,
+        Dark = Brand.IsDark(),
+        Edge = side == DrawerSide.Right ? 1 : -1,
+        Holds = holds,
+        Tug = tug,
+    };
+
+    private static List<int> TopDown((int Index, float X, float Y)[] bots) =>
+        bots.OrderBy(b => b.Y).Select(b => b.Index).ToList();
+
+    /// The pose each bot is drawn in now, for a moment that takes over.
+    private DrawerMoves.OnScreen? OnScreenNow() =>
+        _moment is { } moment ? moment.OnScreenAt((_clock.Elapsed.TotalSeconds - moment.Start) * 1000) : null;
+
+    /// Plays a moment, replacing any in flight (it starts from the frame on
+    /// screen; nothing queues). Bots move past their circles meanwhile, so
+    /// the window region is the whole window until the moment ends; then the
+    /// circles return and `after` runs, on the UI thread.
+    private void Play(DrawerMoment moment, Action? after = null)
+    {
+        if (_moment is { } old) _commands.Enqueue(old.RunRest);
+        _afterMoment = after;
+        _moment = moment;
+        Win32.SetWindowRgn(_hwnd, IntPtr.Zero, true);
+        _momentGuard.Stop();
+        _momentGuard.Interval = TimeSpan.FromMilliseconds(moment.DurationMs + 500);
+        _momentGuard.Start();
+        DebugTrace.Write($"drawer moment {moment.DurationMs:F0} ms, {moment.Bots.Length} bots{(moment.Holds ? ", held" : "")}");
+    }
+
+    /// The loop drew the moment's last frame (or the guard gave up waiting).
+    private void EndMoment(DrawerMoment? moment)
+    {
+        if (moment is null || _moment != moment) return;
+        _momentGuard.Stop();
+        DebugTrace.Write($"drawer moment ended {(_clock.Elapsed.TotalSeconds - moment.Start) * 1000:F0} ms in, planned {moment.DurationMs:F0}");
+        var after = _afterMoment;
+        _afterMoment = null;
+        after?.Invoke();
+        if (_moment != moment || moment.Holds) return;
+        _moment = null;
+        ApplyRegion();
+    }
+
+    /// Jumps a moment to its end, as reduced motion does.
+    private void ClearMoment()
+    {
+        _momentGuard.Stop();
+        if (_moment is { } old) _commands.Enqueue(old.RunRest);
+        _moment = null;
+        _afterMoment = null;
+        ApplyRegion();
     }
 
     // MARK: - Phases
@@ -775,12 +1023,16 @@ internal sealed class DrawerWindow : Window
     private void OnUpdate(ICanvasAnimatedControl sender, CanvasAnimatedUpdateEventArgs args)
     {
         var started = Stopwatch.GetTimestamp();
+        _loopDevice = sender.Device;
         while (_commands.TryDequeue(out var command)) command();
         var scene = _scene;
         var reduced = _reducedMotion;
         // Each character steps on its own schedule, with a few ms of vsync
         // tolerance so callbacks landing early are not dropped.
         var now = _clock.Elapsed.TotalSeconds;
+        var moment = _moment;
+        var momentMs = moment is null ? 0 : (now - moment.Start) * 1000;
+        moment?.RunDue(momentMs);
         _due.Clear();
         foreach (var (index, _, _) in scene.Shown)
         {
@@ -788,7 +1040,7 @@ internal sealed class DrawerWindow : Window
         }
         var near = !reduced && _engine is not null && UpdateGaze(scene);
         if (_due.Count > 0) Step(now, near, reduced);
-        Pace(scene, near, reduced);
+        Pace(scene, near, reduced, moment is not null && moment.Moving(momentMs));
         _stats?.Frame(_due.Count, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 
@@ -877,9 +1129,10 @@ internal sealed class DrawerWindow : Window
         return anyNear;
     }
 
-    /// The loop runs on vsync only while a character is busy; otherwise at
+    /// The loop runs on vsync only while a character is busy or a drawer
+    /// moment plays (Pixel's 30-tick clock for pixel moments); otherwise at
     /// the calm rate the characters need.
-    private void Pace(Scene scene, bool near, bool reduced)
+    private void Pace(Scene scene, bool near, bool reduced, bool moving)
     {
         var theme = _loopTheme;
         var busy = false;
@@ -889,7 +1142,7 @@ internal sealed class DrawerWindow : Window
         }
         var pixel = theme == CharacterTheme.Pixel;
         var active = pixel ? (_activeCap == 0 ? 30 : Math.Min(_activeCap, 30)) : _activeCap;
-        var fps = busy ? (reduced ? 12 : active) : near ? (pixel ? 30 : 60) : (reduced ? 6 : 30);
+        var fps = moving ? active : busy ? (reduced ? 12 : active) : near ? (pixel ? 30 : 60) : (reduced ? 6 : 30);
         if (fps == _pace) return;
         _pace = fps;
         _queue.TryEnqueue(() =>
@@ -918,12 +1171,19 @@ internal sealed class DrawerWindow : Window
         // whole-pixel, unfiltered, even at scalings like 125 %.
         var pixel = theme == CharacterTheme.Pixel;
         var scale = sender.Dpi / 96f;
-        foreach (var (index, x, y) in _scene.Shown)
+        // A drawer moment draws its own bots, each in its pose.
+        var moment = _moment;
+        var ms = moment is null ? 0 : (time - moment.Start) * 1000;
+        var tug = moment is { Tug: true } ? _tug : 0;
+        foreach (var (index, x, y) in moment?.Bots ?? _scene.Shown)
         {
             var slot = _slots[index];
+            var pose = moment?.Pose(index, ms) ?? BotPose.Rest;
+            if (tug != 0) pose = pose with { Y = pose.Y + tug };
+            var edge = moment?.Edge ?? 1;
             if (slot.Svg is not { } svg)
             {
-                ds.Transform = Matrix3x2.CreateTranslation(x, y);
+                ds.Transform = BotPainter.Transform(x, y, pose, pixel, edge, scale);
                 DrawFallback(ds, slot, time, theme);
                 ds.Transform = Matrix3x2.Identity;
                 continue;
@@ -944,12 +1204,14 @@ internal sealed class DrawerWindow : Window
                 }
                 slot.RenderedSvg = svg;
             }
-            if (pixel)
-            {
-                var at = new Vector2(MathF.Round(x * scale) / scale, MathF.Round(y * scale) / scale);
-                ds.DrawImage(slot.Rendered, at, slot.Rendered.Bounds, 1, CanvasImageInterpolation.NearestNeighbor);
-            }
-            else ds.DrawImage(slot.Rendered, x, y);
+            BotPainter.Draw(ds, slot.Rendered, svg, _svg, x, y, pose, pixel, moment?.Dark ?? false, edge, scale, circle: moment is not null);
+        }
+        // The last frame is on screen: the UI thread can move on (hide the
+        // window, cross the screen, give the circles back).
+        if (moment is { Ended: false } && ms >= moment.DurationMs)
+        {
+            moment.Ended = true;
+            _queue.TryEnqueue(() => EndMoment(moment));
         }
         _stats?.Drew(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
@@ -1122,13 +1384,8 @@ internal sealed class DrawerWindow : Window
             if (_pressed is not { } bot) return;
             _pressed = null;
             _root.ReleasePointerCapture(e.Pointer);
-            if (_dragging)
-            {
-                var work = _screen!.Work;
-                var travel = work.Bottom - work.Top - AppWindow.Size.Height;
-                DrawerStore.Shared.Offset = travel > 0 ? (double)(AppWindow.Position.Y - work.Top) / travel : 0.5;
-            }
-            else if (!_refused)
+            if (_dragging || _refused) EndPress();
+            else
             {
                 var index = bot.Index;
                 _commands.Enqueue(() =>
@@ -1146,7 +1403,12 @@ internal sealed class DrawerWindow : Window
             }
             e.Handled = true;
         };
-        _root.PointerCaptureLost += (_, _) => _pressed = null;
+        _root.PointerCaptureLost += (_, _) =>
+        {
+            if (_pressed is null) return;
+            _pressed = null;
+            EndPress();
+        };
         _root.RightTapped += (_, e) =>
         {
             if (BotAt(e.GetPosition(_root)) is not { } bot) return;
@@ -1173,14 +1435,20 @@ internal sealed class DrawerWindow : Window
 
     private void Drag()
     {
-        if (_refused) return;
         Win32.GetCursorPos(out var cursor);
         var dy = cursor.Y - _pressY;
+        if (_refused)
+        {
+            // Classic's rubber band follows the pointer while it pulls.
+            if (_moment is { Tug: true }) _tug = DrawerMoves.Rubber(dy / _scene.Scale, DragThreshold);
+            return;
+        }
         if (!_dragging && Math.Abs(dy) < DragThreshold * _scene.Scale) return;
         if (DrawerStore.Shared.Locked)
         {
             _refused = true;
             if (_pressed is { } bot) SayLocked(bot);
+            Refuse(dy / _scene.Scale);
             return;
         }
         if (!_dragging)
@@ -1188,6 +1456,13 @@ internal sealed class DrawerWindow : Window
             _dragging = true;
             _card.Hide();
             Hush();
+            // M6: the column lifts off the edge while it is dragged.
+            Settle();
+            if (_shown && !_reducedMotion)
+            {
+                var shown = _scene.Shown;
+                Play(DrawerMoves.Lift(NewMoment(shown, DrawerStore.Shared.Side, holds: true), TopDown(shown), OnScreenNow()));
+            }
         }
         var work = _screen!.Work;
         var height = AppWindow.Size.Height;
@@ -1197,6 +1472,45 @@ internal sealed class DrawerWindow : Window
         Publish(left, top, _scene.Scale);
     }
 
+    /// M6, refused: Pixel shakes the column; Classic tugs it a little after
+    /// the pointer and springs it home on release.
+    private void Refuse(double pullDip)
+    {
+        if (!_shown || _reducedMotion) return;
+        Settle();
+        var shown = _scene.Shown;
+        var side = DrawerStore.Shared.Side;
+        if (_theme == CharacterTheme.Pixel)
+        {
+            Play(DrawerMoves.Shake(NewMoment(shown, side), TopDown(shown)));
+            return;
+        }
+        _tug = DrawerMoves.Rubber(pullDip, DragThreshold);
+        Play(NewMoment(shown, side, holds: true, tug: true));
+    }
+
+    /// The press is over: a dragged drawer is dropped where it is (and lands,
+    /// M6); a tugged one springs home.
+    private void EndPress()
+    {
+        var shown = _scene.Shown;
+        var side = DrawerStore.Shared.Side;
+        if (_dragging)
+        {
+            var work = _screen!.Work;
+            var travel = work.Bottom - work.Top - AppWindow.Size.Height;
+            DrawerStore.Shared.Offset = travel > 0 ? (double)(AppWindow.Position.Y - work.Top) / travel : 0.5;
+        }
+        if (_moment is null || (!_dragging && !_refused)) return;
+        if (_reducedMotion) ClearMoment();
+        else if (_dragging) Play(DrawerMoves.Drop(NewMoment(shown, side), TopDown(shown), OnScreenNow()));
+        else if (_moment is { Tug: true })
+        {
+            Play(DrawerMoves.Spring(NewMoment(shown, side), TopDown(shown), _tug));
+            _tug = 0;
+        }
+    }
+
     private void ChangeLook(Bot bot, string shape, string color)
     {
         bot.Shape = shape;
@@ -1204,12 +1518,18 @@ internal sealed class DrawerWindow : Window
         DrawerStore.Shared.SetLook(bot.Provider, shape, color);
         var index = bot.Index;
         var swatch = SwatchOf(bot);
-        _commands.Enqueue(() =>
+        void Swap()
         {
             _engine?.SetLook(index, shape, color);
             _slots[index].Swatch = swatch;
             _slots[index].NextStep = 0;
-        });
+        }
+        // M20: the bot turns like a coin and its new look swaps in edge-on.
+        if (_shown && bot.Visible && !_reducedMotion && _theme == CharacterTheme.Classic && _moment is null)
+        {
+            Play(DrawerMoves.Flip(NewMoment(_scene.Shown, DrawerStore.Shared.Side), index, Swap));
+        }
+        else _commands.Enqueue(Swap);
     }
 
     /// AGENTISLAND_DEBUG_DRAWER_STATS: game-loop rate and process CPU, once a
