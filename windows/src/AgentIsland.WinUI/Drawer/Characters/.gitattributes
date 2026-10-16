@@ -1,4 +1,4 @@
-# The approved engines ship byte-identical (pixel sha256 7fe41c54...,
+# The approved engines ship byte-identical (pixel sha256 f919eff7...,
 # classic 589fa571...), so their line endings are never converted.
 characters.mjs -text
 classic.mjs -text

@@ -296,27 +296,102 @@ function pixels(cv, c, opacity = 1) {
   return group(O(opacity), out);
 }
 
+// MARK: - The drawer's circle
+
+// The drawer shows each bot only inside its 44-DIP box's inscribed circle,
+// 22 DIP from the centre, white rim included (the user's call, 2026-10-15).
+// SAFE marks the cells that may hold paint: the cell and its whole rim ring
+// fall inside the circle.
+const SAFE = (() => {
+  const far = v => (v <= 10 ? 11 - v : v - 10);
+  const inside = (x, y) => x >= 0 && y >= 0 && x < GRID && y < GRID && far(x) ** 2 + far(y) ** 2 <= 121;
+  return Array.from({ length: GRID }, (_, y) => Array.from({ length: GRID }, (_, x) =>
+    [-1, 0, 1].every(i => [-1, 0, 1].every(j => inside(x + i, y + j)))));
+})();
+const safe = (x, y) => SAFE[y]?.[x] === true;
+const allSafe = cv => [...cv.cells.keys()].every(k => { const [x, y] = k.split(',').map(Number); return safe(x, y); });
+
+// The smallest whole-cell shift that brings every cell inside, preferring
+// sideways steps toward the middle, and a spot clear of `clear` (the body)
+// before any spot at all.
+function fitShift(cells, clear) {
+  const fits = (dx, dy) => cells.every(([x, y]) => safe(x + dx, y + dy));
+  if (fits(0, 0)) return [0, 0];
+  const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
+  const sx = (Math.min(...xs) + Math.max(...xs) + 1) / 2 > GRID / 2 ? -1 : 1;
+  const sy = (Math.min(...ys) + Math.max(...ys) + 1) / 2 > GRID / 2 ? -1 : 1;
+  const free = (dx, dy) => cells.every(([x, y]) => !clear.has(x + dx, y + dy));
+  for (const strict of clear ? [true, false] : [false]) {
+    for (let d = 1; d <= 12; d++) {
+      for (let i = d; i >= 0; i--) {
+        for (const [dx, dy] of [[sx * i, sy * (d - i)], [sx * i, -sy * (d - i)]]) {
+          if (fits(dx, dy) && (!strict || free(dx, dy))) return [dx, dy];
+        }
+      }
+    }
+  }
+  return [0, 0];
+}
+
+// Paints `draw` into `into`, moved as little as it takes to fit the circle.
+// A prop that ends up touching the body gets a white sticker border, so it
+// still reads as its own badge. Pass clear = null for props that sit on the
+// body on purpose (a page held up, a keyboard, a tear).
+function fitDraw(into, draw, clear = into) {
+  const tmp = canvas();
+  draw(tmp);
+  const cells = [...tmp.cells].map(([k, color]) => { const [x, y] = k.split(',').map(Number); return [x, y, color]; });
+  if (!cells.length) return;
+  const [dx, dy] = fitShift(cells, clear);
+  const moved = cells.map(([x, y, color]) => [x + dx, y + dy, color]);
+  if (clear) {
+    const own = new Set(moved.map(([x, y]) => `${x},${y}`));
+    const ring = [];
+    for (const [x, y] of moved) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      if (!own.has(`${x + i},${y + j}`)) ring.push([x + i, y + j]);
+    }
+    if (ring.some(([x, y]) => clear.has(x, y))) for (const [x, y] of ring) if (safe(x, y)) into.put(x, y, '#FFFFFF');
+  }
+  for (const [x, y, color] of moved) into.put(x, y, color);
+}
+
+// The pose's body offset, cut back until the body fits: each bot gets the
+// room its own shape leaves it.
+function settle(p, draw) {
+  // At rest every body fits (tools/fit.mjs checks it), so there's nothing to try.
+  if (!p.dx && !p.dy && !p.lift) return p;
+  for (const k of [1, 0.75, 0.5, 0.25, 0]) {
+    const q = k === 1 ? p : { ...p, dx: p.dx * k, dy: p.dy * k, lift: (p.lift ?? 0) * k };
+    const test = canvas();
+    draw(test, q);
+    if (allSafe(test)) return q;
+  }
+  return { ...p, dx: 0, dy: 0, lift: 0 };
+}
+
 // MARK: - Glyphs
 
+// Sized for the room the drawer's circle leaves over a head: five rows at
+// most, most of them four.
 const PIX = {
-  q: ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'],
-  excl: ['#', '#', '#', '#', '.', '#'],
+  q: ['.##.', '#..#', '..#.', '....', '..#.'],
+  excl: ['#', '#', '#', '.', '#'],
   z: ['####', '..#.', '.#..', '####'],
   zs: ['###', '.#.', '###'],
   note: ['..###', '..#.#', '..#..', '###..', '###..'],
-  check: ['......#', '.....##', '#...##.', '##.##..', '.###...', '..#....'],
+  check: ['....#', '#..##', '####.', '.##..'],
   spark: ['.#.', '###', '.#.'],
   puff: ['.##.', '####', '.##.'],
-  arrow: ['#.....', '##....', '#w#...', '#ww#..', '#www#.', '#ww##.', '#.#w#.', '...##.'],
-  lock: ['.###.', '.#.#.', '#####', '##w##', '##w##', '#####'],
+  arrow: ['#...', '##..', '#w#.', '#ww#', '#.#.'],
+  lock: ['.###.', '#...#', '#####', '##w##', '#####'],
   env: ['#######', '#w###w#', '##w#w##', '###w###', '#######'],
   prompt: ['#....', '.#...', '..#..', '.#...', '#.###'],
   wifi: ['.#####.', '#.....#', '..###..', '.#...#.', '...#...'],
   hammerUp: ['###', '###', '.#.', '.#.', '.#.'],
   hammerDown: ['##...', '#####', '##...'],
-  mag: ['.###..', '#www#.', '#www#.', '#www#.', '.###..', '....#.', '.....#'],
+  mag: ['.##..', '#ww#.', '#ww#.', '.##..', '...##'],
   tear: ['#', '#'],
-  bubble: ['.#######.', '#ddddddd#', '#ddddddd#', '#ddddddd#', '.#######.', '..#......', '.#.......'],
+  bubble: ['.#####.', '#ddddd#', '#ddddd#', '.#####.', '.#.....'],
   globe: [
     ['.###.', '#.#.#', '#####', '#.#.#', '.###.'],
     ['.###.', '##..#', '#####', '##..#', '.###.'],
@@ -460,137 +535,159 @@ const PIXEL_CYCLE = {
 // Draws the prop named in p.prop around a body. `a` is where the body ended
 // up (mid column, top row, right/left edges, ground row); `pal` its colours
 // and its mini-me. Returns false for props a character draws itself.
+// Every prop stays inside the drawer's circle: floating ones go through
+// fitDraw, which slides them in as little as it takes, clear of the body
+// where there's room.
 function pxProp(cv, back, p, a, pal, c) {
   const T = c.T, t = p.propT;
   const WHITE = '#FFFFFF', GRAY = '#8D8C94', SKY = '#7FB4FF';
   const top = a.top, mid = a.mid;
+  const float = draw => fitDraw(cv, draw);
   switch (p.prop) {
-    case 'bubble': {
-      const x = clamp(mid + 1, 0, GRID - 9), y = Math.max(0, top - 7);
-      cv.glyph(PIX.bubble, x, y, pal.ink ?? '#C9C2BE', { d: WHITE });
-      for (let i = 0; i < 3; i++) cv.put(x + 2 + i * 2, y + 2, Math.floor(t * 6) % 3 === i ? pal.main : '#C9C2BE');
+    case 'bubble':
+      float(g => {
+        const x = mid + 1, y = top - 6;
+        g.glyph(PIX.bubble, x, y, pal.ink ?? '#C9C2BE', { d: WHITE });
+        for (let i = 0; i < 3; i++) g.put(x + 1 + i * 2, y + 1, Math.floor(t * 6) % 3 === i ? pal.main : '#C9C2BE');
+      });
       return true;
-    }
-    case 'page': {
-      const x = clamp(mid - 4, 1, GRID - 11), y = a.front ?? top + 4;
-      cv.rect(x, y, 10, 6, pal.paper ?? '#FFF8F2');
-      for (let j = 0; j < 2; j++) cv.rect(x + 2, y + 1 + j * 2, [6, 4, 5][(j + Math.floor(t * 1.2)) % 3], 1, GRAY);
-      if (a.hands) { cv.rect(x - 1, y + 2, 1, 2, pal.body); cv.rect(x + 10, y + 2, 1, 2, pal.body); }
+    case 'page':
+      fitDraw(cv, g => {
+        // Held just under the eyes (a.front), so they peek over it.
+        const x = a.pageX ?? mid - 4, y = a.front ?? top + 4;
+        g.rect(x, y, 8, 5, pal.paper ?? '#FFF8F2');
+        for (let j = 0; j < 2; j++) g.rect(x + 1, y + 1 + j * 2, [6, 4, 5][(j + Math.floor(t * 1.2)) % 3], 1, GRAY);
+        if (a.hands) { g.rect(x - 1, y + 2, 1, 2, pal.body); g.rect(x + 8, y + 2, 1, 2, pal.body); }
+      }, null);
       return true;
-    }
     case 'mag': {
       const dir = p.propU < 0 ? -1 : 1;
-      const gx = clamp(dir > 0 ? a.right - 3 : a.left - 3, 0, GRID - 6), gy = Math.max(0, top - 7);
-      cv.glyph(PIX.mag, gx, gy, pal.dark, { w: WHITE }, dir < 0);
-      if (Math.floor(t * 3) % 2) cv.put(gx + (dir > 0 ? 2 : 3), gy + 1, '#CFE3FF');
+      float(g => {
+        const gx = dir > 0 ? a.right - 3 : a.left - 2, gy = top - 5;
+        g.glyph(PIX.mag, gx, gy, pal.dark, { w: WHITE }, dir < 0);
+        if (Math.floor(t * 3) % 2) g.put(gx + (dir > 0 ? 1 : 3), gy + 1, '#CFE3FF');
+      });
       return true;
     }
     case 'globe':
-      cv.glyph(PIX.globe[Math.floor(t * 4) % 3], mid - 2, Math.max(0, top - 6), SKY);
+      float(g => g.glyph(PIX.globe[Math.floor(t * 4) % 3], mid - 2, top - 6, SKY));
       return true;
-    case 'keys': {
-      const kx = clamp(mid - 7, 0, GRID - 14), ky = Math.min(GRID - 3, a.ground);
-      cv.rect(kx, ky, 14, 3, '#5E5D66');
-      for (let i = 0; i < 6; i++) cv.put(kx + 1 + i * 2, ky + 1, Math.floor(t * 8 + i * 3) % 7 === 0 ? WHITE : '#A5A4AD');
+    case 'keys':
+      // A small keyboard in front of the feet.
+      fitDraw(cv, g => {
+        const kx = mid - 5, ky = a.ground - 1;
+        g.rect(kx, ky, 10, 2, '#5E5D66');
+        for (let i = 0; i < 4; i++) g.put(kx + 1 + i * 2, ky, Math.floor(t * 8 + i * 3) % 5 === 0 ? WHITE : '#A5A4AD');
+      }, null);
       return true;
-    }
     case 'run': {
       const u = frac(t * 2.5);
-      cv.glyph(PIX.puff, Math.max(0, a.left - 5 - rnd(u * 3)), a.ground - 3, '#D9D3CF');
-      cv.glyph(PIX.prompt, mid - 2, Math.max(0, top - 7), pal.dark);
-      if (Math.floor(t * 3) % 2) cv.rect(mid + 1, Math.max(4, top - 3), 2, 1, pal.main);
+      fitDraw(back, g => g.glyph(PIX.puff, a.left - 3 - rnd(u * 2), a.ground - 3, '#D9D3CF'), null);
+      float(g => {
+        g.glyph(PIX.prompt, mid - 2, top - 6, pal.dark);
+        if (Math.floor(t * 3) % 2) g.rect(mid + 1, top - 2, 2, 1, pal.main);
+      });
       return true;
     }
     case 'mouse': {
-      const spots = [[GRID - 6, top + 6], [GRID - 7, Math.max(0, top - 8)], [1, Math.max(0, top - 6)]];
+      // The pointer visits three spots round the head and clicks at each.
+      const spots = [[a.right - 2, top + 4], [mid + 2, top - 5], [a.left - 1, top - 3]];
       const i = Math.floor(t / 1.2) % 3, prev = spots[(i + 2) % 3], here = spots[i];
       const m = smooth(clamp(p.propU / 0.4));
-      cv.glyph(PIX.arrow, rnd(lerp(prev[0], here[0], m)), rnd(lerp(prev[1], here[1], m)), pal.dark, { w: WHITE });
-      if (p.propU > 0.55 && p.propU < 0.8) for (const [dx, dy] of [[-2, 0], [0, -2], [2, -1], [-1, 2]]) cv.put(here[0] + dx, here[1] + dy, pal.main);
+      float(g => {
+        const x = rnd(lerp(prev[0], here[0], m)), y = rnd(lerp(prev[1], here[1], m));
+        g.glyph(PIX.arrow, x, y, pal.dark, { w: WHITE });
+        if (p.propU > 0.55 && p.propU < 0.8) for (const [dx, dy] of [[-1, -1], [1, -2], [3, 0]]) g.put(x + dx, y + dy, pal.main);
+      });
       return true;
     }
     case 'bud': {
+      // A mini-me buds on the shoulder and hops up and away.
       const u = p.propU;
-      const x0 = clamp(a.right - 6, 0, GRID - 8), y0 = Math.max(0, top - 6);
-      if (u < 0.3) { if (u > 0.1) cv.rect(x0 + 3, y0 + 3, 2, 2, pal.main); return true; }
+      const x0 = a.right - 5, y0 = top - 4;
+      if (u < 0.3) { if (u > 0.1) float(g => g.rect(x0 + 2, y0 + 2, 2, 2, pal.main)); return true; }
       const v = (u - 0.3) / 0.7;
-      const hop = Math.floor(v * 4);
-      if (u < 0.92) pal.mini(cv, x0 + hop * 3, y0 - hop - (frac(v * 4) < 0.5 ? 1 : 0));
+      const hop = Math.floor(v * 3);
+      if (u < 0.92) float(g => pal.mini(g, x0 - hop * 2, y0 - hop - (frac(v * 3) < 0.5 ? 1 : 0)));
       return true;
     }
-    case 'orbit': {
+    case 'orbit':
       for (let i = 0; i < 3; i++) {
         const ang = steps(T, 6) * 1.3 + i * TAU / 3;
-        const x = rnd(mid - 4 + Math.cos(ang) * 7), y = rnd(a.midY - 2 + Math.sin(ang) * 2.5);
-        pal.mini(Math.sin(ang) < 0 ? back : cv, x, y);
+        const x = rnd(mid - 4 + Math.cos(ang) * 5), y = rnd(a.midY - 2 + Math.sin(ang) * 2);
+        fitDraw(Math.sin(ang) < 0 ? back : cv, g => pal.mini(g, x, y), null);
       }
       return true;
-    }
     case 'mail': {
+      // The letter lifts from the hand and flies up over the head.
       const u = p.propU;
-      if (u < 0.3) { cv.glyph(PIX.env, clamp(a.right - 2, 0, GRID - 7), Math.max(0, top - 6), WHITE, { w: GRAY }); return true; }
-      const v = clamp((u - 0.3) / 0.6);
-      if (v < 1) cv.glyph(PIX.env, rnd(lerp(a.right - 2, 23, v)), rnd(lerp(top - 6, -6, v) - 2 * bump(v)), WHITE, { w: GRAY });
+      const from = [a.right - 3, top - 4], to = [mid - 3, top - 7];
+      if (u < 0.3) { float(g => g.glyph(PIX.env, from[0], from[1], WHITE, { w: GRAY })); return true; }
+      const v = clamp((u - 0.3) / 0.5);
+      if (v < 1) float(g => g.glyph(PIX.env, rnd(lerp(from[0], to[0], v)), rnd(lerp(from[1], to[1], v)), WHITE, { w: GRAY }));
+      else if (u < 0.88) float(g => g.glyph(PIX.spark, mid - 1, top - 6, pal.main));
       return true;
     }
     case 'q':
-      cv.glyph(PIX.q, clamp(mid + 4, 0, GRID - 5), Math.max(0, top - 8 - (p.propU > 0.5 ? 1 : 0)), pal.accent ?? pal.main);
+      float(g => g.glyph(PIX.q, mid + 3, top - 6 - (p.propU > 0.5 ? 1 : 0), pal.accent ?? pal.main));
       return true;
     case 'sign': {
+      // A green tick held up, pulsing.
       const pulse = Math.floor(t * 2.5) % 2;
-      const x = clamp(mid - 4, 0, GRID - 9), y = Math.max(0, top - 8);
-      cv.rect(x, y, 9, 7, pulse ? WHITE : '#F4F1EC');
-      cv.glyph(PIX.check, x + 1, y, '#3A9F5B');
-      cv.put(x + 2, y + 7, pal.body);
-      cv.put(x + 6, y + 7, pal.body);
+      float(g => g.glyph(PIX.check, mid - 2, top - 5, pulse ? '#3A9F5B' : '#5BBF7A'));
       return true;
     }
-    case 'inward': {
+    case 'inward':
       for (let i = 0; i < 6; i++) {
         const u = frac(steps(t, 8) / 0.9 + i / 6);
         const ang = i * 60 + 15;
-        const r = lerp(10, 5, u);
-        cv.put(rnd(mid + 0.5 + Math.sin(rad(ang)) * r), rnd(a.midY - Math.cos(rad(ang)) * r * 0.8), pal.light);
+        const r = lerp(9, 4, u);
+        const x = rnd(mid + 0.5 + Math.sin(rad(ang)) * r), y = rnd(a.midY - Math.cos(rad(ang)) * r * 0.8);
+        if (safe(x, y)) cv.put(x, y, pal.light);
       }
       return true;
-    }
     case 'hammer': {
       const up = p.propU;
-      const hx = clamp(a.right, 0, GRID - 5), hy = up ? Math.max(0, top - 5) : top + 2;
-      cv.glyph(up ? PIX.hammerUp : PIX.hammerDown, hx, hy, GRAY);
-      if (!up) for (const [dx, dy] of [[5, -1], [6, 1], [4, 2]]) cv.put(hx + dx, hy + dy, Math.floor(t * 8) % 2 ? '#FFD36B' : WHITE);
+      float(g => {
+        const hx = a.right - 1, hy = up ? top - 4 : top + 2;
+        g.glyph(up ? PIX.hammerUp : PIX.hammerDown, hx, hy, GRAY);
+        if (!up) for (const [dx, dy] of [[5, -1], [6, 1], [4, 2]]) g.put(hx + dx, hy + dy, Math.floor(t * 8) % 2 ? '#FFD36B' : WHITE);
+      });
       return true;
     }
     case 'sparks':
-      if (t < 1.4) for (const [dx, dy, k] of [[a.left - 4, top - 3, 0], [a.right + 2, top - 4, 1], [a.left - 5, top + 3, 2], [a.right + 3, top + 2, 3]]) {
-        if (Math.floor(t * 6 + k) % 2) cv.glyph(PIX.spark, clamp(dx, 0, GRID - 3), clamp(dy, 0, GRID - 3), k % 2 ? '#FFD36B' : pal.main);
+      if (t < 1.4) for (const [dx, dy, k] of [[a.left - 2, top - 3, 0], [a.right - 1, top - 4, 1], [a.left - 3, top + 2, 2], [a.right + 1, top + 1, 3]]) {
+        if (Math.floor(t * 6 + k) % 2) float(g => g.glyph(PIX.spark, dx, dy, k % 2 ? '#FFD36B' : pal.main));
       }
       return true;
     case 'smoke': {
       const u = frac(t / 0.9);
-      cv.glyph(PIX.puff, mid - 2 + (Math.floor(t * 3) % 2), Math.max(0, top - 4 - rnd(u * 3)), '#BDB7B4');
+      float(g => g.glyph(PIX.puff, mid - 2 + (Math.floor(t * 3) % 2), top - 4 - rnd(u * 2), '#BDB7B4'));
       return true;
     }
     case 'tear': {
       const u = frac(t / 1.6);
-      if (u < 0.7 && a.eyes) cv.glyph(PIX.tear, a.eyes[0][0], a.eyes[0][1] + 2 + rnd(u * 4), SKY);
+      if (u < 0.7 && a.eyes) fitDraw(cv, g => g.glyph(PIX.tear, a.eyes[0][0], a.eyes[0][1] + 2 + rnd(u * 3), SKY), null);
       return true;
     }
     case 'nowifi': {
       const on = Math.floor(t * 2) % 2;
-      const x = clamp(mid - 3, 0, GRID - 7), y = Math.max(0, top - 7);
-      cv.glyph(PIX.wifi, x, y, on ? pal.dark : GRAY);
-      if (on) for (const [dx, dy] of [[0, 0], [1, 1], [3, 2], [5, 3], [6, 4]]) cv.put(x + dx, y + dy, '#D9534F');
+      float(g => {
+        const x = mid - 3, y = top - 6;
+        g.glyph(PIX.wifi, x, y, on ? pal.dark : GRAY);
+        if (on) for (const [dx, dy] of [[0, 0], [1, 1], [3, 2], [5, 3], [6, 4]]) g.put(x + dx, y + dy, '#D9534F');
+      });
       return true;
     }
     case 'zz':
+      // Two z's rise from beside the head.
       for (let i = 0; i < 2; i++) {
         const u = frac(t / 2.4 + i / 2);
-        if (u < 0.85) cv.glyph(i ? PIX.zs : PIX.z, clamp(a.right + rnd(u * 3) + i * 2 - 1, 0, GRID - 4), Math.max(0, top - 2 - rnd(u * 6) - i * 2), pal.light);
+        if (u < 0.85) float(g => g.glyph(i ? PIX.zs : PIX.z, a.right - 4 + i * 2, top - 2 - rnd(u * 4) - i * 2, pal.light));
       }
       return true;
     case 'lock':
-      cv.glyph(PIX.lock, clamp(mid + 2 + (Math.floor(t * 3) % 2), 0, GRID - 5), Math.max(0, top - 8), '#C9A23A', { w: pal.dark });
+      float(g => g.glyph(PIX.lock, mid + 1 + (Math.floor(t * 3) % 2), top - 6, '#C9A23A', { w: pal.dark }));
       return true;
     default:
       return false;
@@ -610,7 +707,8 @@ function pxProp(cv, back, p, a, pal, c) {
   const DULL = '#A98272';
   const DARK = '#21120C';
   const LIGHT = '#F2A585';
-  const W0 = 12, H0 = 8, X0 = 5, Y0 = 9;
+  // One row up from round 3, so the idle bob keeps the feet inside the circle.
+  const W0 = 12, H0 = 8, X0 = 5, Y0 = 8;
   const SPINNER = [
     ['.....', '.....', '..#..', '.....', '.....'],
     ['.....', '..#..', '.###.', '..#..', '.....'],
@@ -662,91 +760,105 @@ function pxProp(cv, back, p, a, pal, c) {
     draw(p, c) {
       const color = p.dim > 0.5 ? DULL : ORANGE;
       const back = canvas(), cv = canvas();
-      const a = clawd(cv, p, c, color);
+      const q = settle(p, (g, q) => clawd(g, q, c, color));
+      const a = clawd(cv, q, c, color);
       const body = { ...pal, body: color };
-      if (p.prop === 'think') cv.glyph(SPINNER[Math.floor(p.propT * 7) % SPINNER.length], a.mid - 2, a.top - 7, ORANGE);
-      else pxProp(cv, back, p, a, body, c);
+      if (q.prop === 'think') fitDraw(cv, g => g.glyph(SPINNER[Math.floor(q.propT * 7) % SPINNER.length], a.mid - 2, a.top - 7, ORANGE));
+      else pxProp(cv, back, q, a, body, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
-// MARK: - Codex · the pixel cloud
+// MARK: - Codex · the pixel puff cloud
 //
-// A gray-white pixel cloud with tiny arms: the OpenAI blossom's soft,
-// six-fold calm turned into weather. It thinks under a ring of six dots,
-// sends tokens out a pixel at a time, writes between braces, turns into a
-// storm cloud when something fails and rains a little when it is sad.
+// The classic cloud: a big puff and a small one on a flat base, pale with
+// the logo's grey line and the family's slit eyes. It floats, and sprouts
+// little arms only to wave, cheer or type. It thinks under a ring of six
+// dots, drizzles tokens as it streams, types a line between < and > as it
+// writes, turns into a storm cloud when something fails and rains a little
+// when it is sad. (Round 4, 2026-10-15: the user's pick over a cloud on
+// feet; round 3's cloud with arms retired.) 14 cells wide so it and its
+// weather fit inside the drawer's circle.
 
 (() => {
-  const BODY = '#ECEDF1';
-  const SHADE = '#CDD0D8';
-  const LINE = '#7A7D88';
-  const STORM = '#8E919C';
-  const STORM_SHADE = '#767985';
-  const DARK = '#26272D';
+  const FILL = '#F6F7F9', SHADE = '#E2E4EA', LINE = '#7D808B', INK = '#2E3038';
+  const STORM = '#B4B7C0', STORM_SHADE = '#A3A6B0', STORM_LINE = '#6E717C';
   const GREEN = '#10A37F';
-  const X0 = 3, Y0 = 9;
-  const HEX = [[1, 0], [3, 0], [4, 2], [3, 4], [1, 4], [0, 2]];
-  const MINI = ['...ooo..', '.oo###o.', 'o######o', 'o#e##e#o', '.oooooo.'];
+  const X0 = 4, Y0 = 6;
+  // The six-dot ring, 4 × 3, over the big puff.
+  const RING = [[1, 0], [2, 0], [3, 1], [2, 2], [1, 2], [0, 1]];
+  const PUFF = [
+    '.......####...',
+    '......######..',
+    '.##...######..',
+    '####.########.',
+    '##############',
+    '##############',
+    '##############',
+    '.############.',
+    '..##########..',
+  ];
+  const PUFF_SMALL = [
+    '.....###..',
+    '.##.#####.',
+    '##########',
+    '##########',
+    '.########.',
+  ];
+  const MINI = ['...##..', '.##oo#.', '#ooooo#', '#oeoeo#', '.#####.'];
   const pal = {
-    main: '#B9BCC6', body: BODY, dark: DARK, light: '#B9BCC6', accent: DARK, ink: LINE,
-    mini: (cv, x, y) => cv.glyph(MINI, x, y, BODY, { o: LINE, e: DARK }),
+    main: '#9EA1AB', body: FILL, dark: INK, light: '#B9BCC6', accent: INK, ink: LINE,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, LINE, { o: FILL, e: INK }),
   };
+  // Arms only when the pose reaches: out and down keep the cloud's outline.
+  // They rise straight up, which is all the room the circle leaves.
+  const ARMS = { up: [[0, 0], [0, -1]], high: [[0, 0], [0, -1], [0, -2]], wave: [[0, 0], [0, -1], [0, -2]], tap: [[0, 0]] };
 
-  // Hand-drawn so the three bumps keep their dips at this size.
-  const CLOUD = [
-    '......####......',
-    '..###.######.##.',
-    '.##############.',
-    '################',
-    '################',
-    '################',
-    '################',
-    '.##############.',
-    '..############..',
-  ];
-  const SMALL = [
-    '....###.....',
-    '.##.####.##.',
-    '############',
-    '############',
-    '############',
-    '.##########.',
-    '..########..',
-  ];
-
-  function cloud(cv, p, c) {
-    const small = p.sq > 0.5;
-    const rows = small ? SMALL : CLOUD;
-    const x0 = X0 + rnd(p.dx) + (small ? 2 : 0), y0 = Y0 + rnd(p.dy) + (small ? 2 : 0);
-    const stormy = p.dim > 0.5;
-    const shade = stormy ? STORM_SHADE : SHADE, fill = stormy ? STORM : BODY;
+  // Paints the rows, shade on the last two, and returns the cells.
+  function paint(cv, rows, x0, y0, fill, shade) {
     const cells = [];
     rows.forEach((row, j) => [...row].forEach((ch, i) => {
       if (ch !== '#') return;
       cv.put(x0 + i, y0 + j, j >= rows.length - 2 ? shade : fill);
       cells.push([x0 + i, y0 + j]);
     }));
-    if (!stormy) for (const [dx, dy] of small ? [[5, 1]] : [[7, 1], [8, 1], [3, 2]]) cv.put(x0 + dx, y0 + dy, '#FAFAFC');
-    // Arm nubs, then the outline round body and arms together.
-    const ay = y0 + (small ? 3 : 5);
-    const arm = (side, mode) => {
-      const left = cells.reduce((m, [x, y]) => y === ay ? Math.min(m, x) : m, 99);
-      const right = cells.reduce((m, [x, y]) => y === ay ? Math.max(m, x) : m, -99);
-      const ax = side < 0 ? left - 1 : right + 1;
-      const out = side < 0 ? ax - 1 : ax + 1;
-      const list = mode === 'up' ? [[ax, ay - 1]] : mode === 'high' ? [[ax, ay - 1], [ax, ay - 2]]
-        : mode === 'down' ? [[ax, ay + 1]] : mode === 'wave' ? [[ax, ay - 1], [out, ay - 2]] : mode === 'tap' ? [[ax, ay + 1]] : [[ax, ay]];
-      for (const [x, y] of list) { cv.put(x, y, fill); cells.push([x, y]); }
+    return cells;
+  }
+
+  // One line round the cells, corners included: the shared outline steps
+  // round corners only, which breaks the logo's stroke into dots on the
+  // cloud's diagonal edges.
+  function outline8(cv, list, color) {
+    const mine = new Set(list.map(([x, y]) => `${x},${y}`));
+    for (const [x, y] of list) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!mine.has(`${x + dx},${y + dy}`) && !cv.has(x + dx, y + dy)) cv.put(x + dx, y + dy, color);
+    }
+  }
+
+  function cloud(cv, p, c) {
+    const stormy = p.dim > 0.5, small = p.sq > 0.5;
+    const fill = stormy ? STORM : FILL;
+    const rows = small ? PUFF_SMALL : PUFF;
+    const x0 = X0 + rnd(p.dx) + (small ? 2 : 0), y0 = Y0 + rnd(p.dy) + (small ? 4 : 0);
+    const cells = paint(cv, rows, x0, y0, fill, stormy ? STORM_SHADE : SHADE);
+    if (!stormy && !small) for (const [dx, dy] of [[8, 1], [9, 1], [7, 2], [1, 3]]) cv.put(x0 + dx, y0 + dy, '#FFFFFF');
+    const w = rows[0].length, ay = y0 + (small ? 3 : 6);
+    for (const [side, mode] of [[-1, p.armL], [1, p.armR]]) {
+      const sx = side < 0 ? x0 - 1 : x0 + w;
+      for (const [dx, dy] of ARMS[mode] ?? []) {
+        cv.put(sx + dx * side, ay + dy, fill);
+        cells.push([sx + dx * side, ay + dy]);
+      }
+    }
+    outline8(cv, cells, stormy ? STORM_LINE : LINE);
+    const eyes = small ? [[x0 + 3, y0 + 2], [x0 + 6, y0 + 2]] : [[x0 + 4, y0 + 5], [x0 + 9, y0 + 5]];
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    return {
+      x0, y0, w, eyes, hands: true,
+      mid: x0 + w / 2, top: y0 - 1, left: x0, right: x0 + w - 1, ground: y0 + rows.length + 1,
+      midY: y0 + 5, front: y0 + 7,
     };
-    arm(-1, p.armL);
-    arm(1, p.armR);
-    cv.outline(cells, LINE);
-    const eyes = small ? [[x0 + 3, y0 + 2], [x0 + 8, y0 + 2]] : [[x0 + 5, y0 + 4], [x0 + 10, y0 + 4]];
-    pxEyes(cv, eyes, c, p.eyes, DARK);
-    const top = cells.reduce((m, [, y]) => Math.min(m, y), 99) - 1;
-    return { mid: x0 + rows[0].length / 2, top, left: x0, right: x0 + rows[0].length, ground: y0 + rows.length + 1, midY: y0 + 4, front: y0 + 4, eyes, hands: true, x0, y0 };
   }
 
   CHARACTERS.codex = {
@@ -760,51 +872,55 @@ function pxProp(cv, back, p, a, pal, c) {
       switch (s) {
         case 'streaming': return { ...b, prop: 'tokens' };
         case 'writing': return { ...b, dy: -1, prop: 'braces' };
-        case 'failed': return { ...b, prop: 'bolt' };
-        case 'broken': return { ...b, dy: 1, prop: 'rain' };
         case 'running': return { ...b, dy: Math.floor(t * 10) % 2 ? 0 : -1, prop: 'run' };
+        case 'failed': return { ...b, prop: 'bolt' };
+        case 'broken': return { ...b, prop: 'rain' };
         default: return b;
       }
     },
     draw(p, c) {
       const back = canvas(), cv = canvas();
-      const a = cloud(cv, p, c);
-      const t = p.propT;
-      switch (p.prop) {
+      const q = settle(p, (g, q) => cloud(g, q, c));
+      const a = cloud(cv, q, c);
+      const t = q.propT;
+      switch (q.prop) {
         case 'think': {
-          const x = a.mid - 2, y = Math.max(0, a.top - 6);
-          HEX.forEach(([dx, dy], i) => cv.put(x + dx, y + dy, i === Math.floor(t * 8) % 6 ? GREEN : i === (Math.floor(t * 8) + 5) % 6 ? '#7FCDB7' : '#C5C8D0'));
+          const k = Math.floor(t * 8) % 6;
+          fitDraw(cv, g => RING.forEach(([dx, dy], i) => g.put(a.x0 + 7 + dx, a.y0 - 4 + dy, i === k ? GREEN : i === (k + 5) % 6 ? '#7FCDB7' : '#C5C8D0')));
           break;
         }
         case 'tokens':
+          // A drizzle of tokens from under the cloud.
           for (let i = 0; i < 3; i++) {
-            const u = frac(steps(t, 8) * 0.8 + i / 3);
-            cv.rect(Math.min(GRID - 2, a.right + 1 + rnd(u * 5)), a.y0 + 3 + i * 2, 2, 1, i === 1 ? GREEN : '#9EA1AB');
+            const k = rnd(frac(steps(t, 8) * 0.8 + i / 3) * 2);
+            fitDraw(cv, g => g.rect(a.x0 + 3 + i * 3, a.ground + k, 2, 1, i === 1 ? GREEN : '#9EA1AB'), null);
           }
           break;
-        case 'braces': {
-          const by = Math.max(0, a.top - 4);
-          cv.glyph(['.##', '.#.', '#..', '.#.', '.##'], a.left, by, LINE);
-          cv.glyph(['##.', '.#.', '..#', '.#.', '##.'], a.right - 3, by, LINE);
-          const len = Math.floor(frac(t / 2) * 12);
-          cv.rect(a.mid - 6, a.ground, len, 1, DARK);
-          if (Math.floor(t * 3) % 2) cv.rect(a.mid - 6 + len, a.ground - 1, 1, 3, GREEN);
+        case 'braces':
+          // A line types itself out between < and >, under the cloud.
+          fitDraw(cv, g => {
+            const y = a.ground;
+            g.glyph(['.#', '#.', '.#'], a.x0 + 1, y, LINE);
+            g.glyph(['#.', '.#', '#.'], a.x0 + 11, y, LINE);
+            const len = Math.floor(frac(t / 2) * 8);
+            g.rect(a.x0 + 3, y + 1, len, 1, INK);
+            if (Math.floor(t * 3) % 2) g.rect(a.x0 + 3 + len, y, 1, 3, GREEN);
+          }, null);
           break;
-        }
         case 'bolt':
-          if (t > 0.3 && Math.floor(t * 6) % 3 !== 0) cv.glyph(['.##', '.#.', '##.', '.#.', '#..'], a.mid - 1, a.ground - 1, '#F2C230');
+          if (t > 0.3 && Math.floor(t * 6) % 3 !== 0) fitDraw(cv, g => g.glyph(['.##', '.#.', '##.', '.#.', '#..'], a.mid - 1, a.ground - 1, '#F2C230'), null);
           break;
         case 'rain':
           for (let i = 0; i < 4; i++) {
             const u = frac(steps(t, 8) * 1.2 + i / 4);
-            cv.rect(a.x0 + 2 + i * 3, a.ground - 1 + rnd(u * 4), 1, 2, '#7FB4FF');
+            fitDraw(cv, g => g.rect(a.left + 2 + i * 3, a.ground - 1 + rnd(u * 2), 1, 2, '#7FB4FF'), null);
           }
           break;
         case 'sparks':
-          pxProp(cv, back, p, a, { ...pal, main: GREEN }, c);
+          pxProp(cv, back, q, a, { ...pal, main: GREEN }, c);
           break;
         default:
-          pxProp(cv, back, p, a, pal, c);
+          pxProp(cv, back, q, a, pal, c);
       }
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -824,22 +940,22 @@ function pxProp(cv, back, p, a, pal, c) {
   const GRAY = '#9EA3AE';
   const DARK = '#1E2033';
   const SHADOW = '#2A2E3A';
-  const GROUND = 21, X0 = 4;
+  // 12 × 10 and hovering over a shadow on row 17, so it and its weather fit
+  // inside the drawer's circle (round 3 drew 14 × 12 over row 21).
+  const GROUND = 17, X0 = 5;
   const ARCH = [
-    '......##......',
-    '.....####.....',
-    '....######....',
-    '...########...',
-    '...########...',
-    '..##########..',
-    '..##########..',
-    '.############.',
-    '.############.',
-    '##############',
-    '#####....#####',
-    '####......####',
+    '.....##.....',
+    '....####....',
+    '...######...',
+    '..########..',
+    '..########..',
+    '.##########.',
+    '.##########.',
+    '############',
+    '####....####',
+    '###......###',
   ];
-  const SQUAT = ARCH.filter((_, j) => j !== 3 && j !== 6);
+  const SQUAT = ARCH.filter((_, j) => j !== 3 && j !== 5);
   const MINI = ['..##..', '.####.', '######', '##..##'];
   const ARCS = [['.###.', '#...#'], ['..###..', '.#...#.', '#.....#'], ['...###...', '.##...##.', '#.......#']];
   const pal = {
@@ -859,17 +975,17 @@ function pxProp(cv, back, p, a, pal, c) {
       if (ch !== '#') return;
       // Lift a foot off the ground while walking.
       const foot = j >= rows.length - 2;
-      if (foot && j === rows.length - 1 && ((p.legs === 'walk1' && i < 7) || (p.legs === 'walk2' && i >= 7))) return;
+      if (foot && j === rows.length - 1 && ((p.legs === 'walk1' && i < 6) || (p.legs === 'walk2' && i >= 6))) return;
       const band = ((Math.floor(j * 6 / rows.length) + flow) % 6 + 6) % 6;
       cv.put(x0 + i, y0 + j, gray > 0.5 ? mixHex(BANDS[band], GRAY, 0.75) : BANDS[band]);
     }));
     // Its shadow: narrower and fainter the higher it floats.
-    const w = clamp(12 - lift * 2, 4, 12);
-    shadowCv.rect(x0 + 7 - w / 2, GROUND, w, 1, SHADOW);
+    const w = clamp(10 - lift * 2, 4, 10);
+    shadowCv.rect(x0 + 6 - w / 2, GROUND, w, 1, SHADOW);
     const eyeRow = y0 + Math.round(rows.length * 0.42);
-    const eyes = [[x0 + 4, eyeRow], [x0 + 9, eyeRow]];
+    const eyes = [[x0 + 3, eyeRow], [x0 + 8, eyeRow]];
     pxEyes(cv, eyes, c, p.eyes, DARK);
-    return { mid: x0 + 7, top: y0, left: x0, right: x0 + 14, ground: GROUND, midY: y0 + 6, front: y0 + 7, eyes, x0, y0 };
+    return { mid: x0 + 6, top: y0, left: x0, right: x0 + 12, ground: GROUND, midY: y0 + 5, front: y0 + 6, eyes, x0, y0 };
   }
 
   CHARACTERS.antigravity = {
@@ -901,112 +1017,126 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas(), cv = canvas(), shade = canvas();
-      const a = arch(cv, shade, p, c);
-      const t = p.propT;
-      switch (p.prop) {
+      const q = settle(p, (g, q) => arch(g, canvas(), q, c));
+      const a = arch(cv, shade, q, c);
+      const t = q.propT;
+      // Single-cell particles only show where the circle allows.
+      const dot = (x, y, color) => { if (safe(x, y)) cv.put(x, y, color); };
+      switch (q.prop) {
         case 'think':
-          if (Math.floor(t * 4) % 2) cv.glyph(PIX.spark, a.mid - 1, Math.max(0, a.top - 4), BANDS[Math.floor(t * 4) % 6]);
+          if (Math.floor(t * 4) % 2) fitDraw(cv, g => g.glyph(PIX.spark, a.mid - 2, a.top - 4, BANDS[Math.floor(t * 4) % 6]));
           break;
         case 'confetti':
           for (let i = 0; i < 5; i++) {
             const u = frac(steps(t, 8) * 0.9 + i / 5);
             const dir = i % 2 ? 1 : -1;
-            cv.put(a.mid + dir * rnd(u * (3 + i)), a.top - 1 - rnd(u * 5) + rnd(u * u * 4), BANDS[i % 6]);
+            dot(a.mid + dir * rnd(u * (2 + i)), a.top - 1 - rnd(u * 4) + rnd(u * u * 3), BANDS[i % 6]);
           }
           break;
         case 'arcs': {
-          const k = Math.floor(t * 3) % 4;
-          for (let i = 0; i < Math.min(k, 3); i++) {
+          // Two Wi-Fi arcs over the apex, the room the circle leaves.
+          const k = Math.floor(t * 3) % 3;
+          for (let i = 0; i < k; i++) {
             const g = ARCS[i];
-            cv.glyph(g, a.mid - (g[0].length >> 1), Math.max(0, a.top - 2 - i * 2 - g.length + 1), BANDS[i * 2]);
+            fitDraw(cv, h => h.glyph(g, a.mid - 1 - (g[0].length >> 1), a.top - 1 - i * 2 - g.length + 1, BANDS[i * 2]));
           }
           break;
         }
         case 'rocket': {
-          const u = p.propU;
+          const u = q.propU;
           if (u > 0.25 && u < 0.6) {
-            const y = rnd(lerp(a.top - 2, 1, (u - 0.25) / 0.35));
-            cv.rect(a.mid - 1, y, 2, 2, BANDS[2]);
-            cv.put(a.mid - 1, y + 2, BANDS[1]);
-            cv.put(a.mid, y + 3, BANDS[0]);
+            const y = rnd(lerp(a.top - 2, 2, (u - 0.25) / 0.35));
+            fitDraw(cv, g => { g.rect(a.mid - 1, y, 2, 2, BANDS[2]); g.put(a.mid - 1, y + 2, BANDS[1]); g.put(a.mid, y + 3, BANDS[0]); });
           } else if (u >= 0.6 && u < 0.9) {
-            const r = rnd((u - 0.6) / 0.3 * 4) + 1;
-            [[-r, 0], [r, 0], [0, -r], [0, r]].forEach(([dx, dy], i) => cv.put(a.mid + dx, 2 + dy, BANDS[[0, 2, 3, 5][i]]));
+            const r = rnd((u - 0.6) / 0.3 * 3) + 1;
+            [[-r, 0], [r, 0], [0, -r], [0, r]].forEach(([dx, dy], i) => dot(a.mid + dx, 4 + dy, BANDS[[0, 2, 3, 5][i]]));
           }
           break;
         }
         case 'sparks':
-          pxProp(cv, back, p, a, { ...pal, main: BANDS[0] }, c);
+          pxProp(cv, back, q, a, { ...pal, main: BANDS[0] }, c);
           break;
         default:
-          pxProp(cv, back, p, a, pal, c);
+          pxProp(cv, back, q, a, pal, c);
       }
       return pixels(shade, { ...c, rim: 0 }, 0.22) + pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
-// MARK: - Grok · the pixel ring bot
+// MARK: - Grok · the slashed ring
 //
-// Grok's slashed ring as a little robot: a black pixel ring round a pale
-// face, the slash turned into a diagonal antenna, two tiny legs. Cheeky and
-// cosmic: the antenna picks up signals to think and sparks as it talks; the
-// ring becomes a magnifier to search, wears a planet's ring for the web,
-// rides a rocket to run and collapses into a black hole to compact.
+// Grok's own ⊘ as a character, in the Grok Bot spirit: a black ring round a
+// pale face, the slash passing behind it and out at both ends, dark pill
+// eyes and no limbs. Its eyes do the talking: three dots walk across them
+// while it thinks, they go wide to search, turn into a "!" to ask and close
+// in sleep. It searches with a ring that steps outward, wears a planet's
+// ring for the web, rides a flame to run and swirls inward to compact.
+// (Round 4, 2026-10-15: the user's pick over a solid orb; round 3's ring
+// bot with antenna and legs retired.)
 
 (() => {
-  const INK = '#0B0B0C';
-  const FACE = '#EFEFEC';
-  const DIM_INK = '#5A5A60';
-  const DIM_FACE = '#CFCFCB';
-  const CX = 11, CY = 12;
-  const MINI = ['.....##', '.###.#.', '#fff#..', '#efe#..', '#fff#..', '.###...'];
+  const INK = '#0B0B0C', DIM_INK = '#5A5A60', FACE = '#F4F4F1', DIM_FACE = '#CFCFCB', DOT = '#B4B4B0';
+  // Centred in the box, so the slash reaches two cells out at both ends and
+  // stays inside the drawer's circle.
+  const CX = 11, CY = 11;
+  const MINI = ['..#.#', '.###.', '#w#w#', '#www#', '.###.', '#....'];
   const pal = {
     main: INK, body: INK, dark: INK, light: '#9A9AA0', accent: INK,
-    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { f: FACE, e: INK }),
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { w: FACE }),
   };
+  const lookOf = c => [clamp(rnd(c.eye.look[0] * 1.3), -1, 1), clamp(rnd(c.eye.look[1] * 1.2), -1, 1)];
 
-  function ringBot(cv, back, p, c) {
+  // Pill eyes, 2 wide and `h` tall, centred on cx + 0.5; they morph with the
+  // mood and the phase.
+  function pillEyes(cv, cx, cy, p, c, ink, dim, h) {
+    const [lx, ly] = lookOf(c);
+    const top = cy - 2 + ly;
+    const xs = [cx - 3 + lx, cx + 2 + lx];
+    const e = c.eye, t = p.propT;
+    if (p.face === 'dots') {
+      // Thinking: three dots across the face, the lit one walking.
+      const k = Math.floor(t * 4) % 3;
+      [cx - 4, cx, cx + 4].forEach((x, i) => cv.rect(x + lx, cy - 1 + ly, 2, 2, i === k ? ink : dim));
+      return;
+    }
+    if (p.face === 'bang') {
+      cv.rect(cx, cy - 4, 2, 4, ink);
+      cv.rect(cx, cy + 1, 2, 2, ink);
+      return;
+    }
+    xs.forEach((x, i) => {
+      const right = i === 1;
+      const mood = e.cross > 0.5 ? 'cross' : (e.happy > 0.5 || (right && e.wink > 0.5)) ? 'happy' : e.sleep > 0.5 ? 'closed'
+        : e.open < 0.45 ? 'blink' : p.eyes;
+      if (mood === 'cross') for (const [dx, dy] of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, 2], [1, 2], [-1, 3], [2, 3]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'happy') for (const [dx, dy] of [[-1, 2], [0, 1], [1, 1], [2, 2]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'closed') cv.rect(x - (right ? 0 : 1), top + 3, 3, 1, ink);
+      else if (mood === 'blink') cv.rect(x, top + 2, 2, 1, ink);
+      else if (mood === 'focus') cv.rect(x, top + 1, 2, 2, ink);
+      else if (mood === 'wide') cv.rect(x, top - 1, 2, h + 1, ink);
+      else if (mood === 'sad') { cv.rect(x, top + 2, 2, 2, ink); cv.put(right ? x : x + 1, top + 1, ink); }
+      else cv.rect(x, top, 2, h, ink);
+    });
+  }
+
+  function ring(cv, p, c) {
     const cx = CX + rnd(p.dx), cy = CY + rnd(p.dy) - rnd(p.lift);
     const dim = p.dim > 0.5;
     const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
-    const inner = p.sq > 0.5 ? 3.2 : 4.4;
+    const inner = p.sq > 0.5 ? 3.4 : 4.5;
     const tick = Math.floor(c.T * 6);
-    cv.shape((x, y) => {
-      const d = Math.hypot(x - cx - 0.5, y - cy - 0.5);
-      return d <= 6.4;
-    }, cx - 7, cy - 7, 15, 15, (x, y) => {
+    // The slash, behind the face: out past the ring at both ends.
+    for (const [dx, dy] of [[5, -5], [6, -6], [-5, 5], [-6, 6]]) cv.put(cx + dx, cy + dy, ink);
+    cv.shape((x, y) => Math.hypot(x - cx - 0.5, y - cy - 0.5) <= 6.5, cx - 7, cy - 7, 15, 15, (x, y) => {
       const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
       if (d < inner) return face;
       if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + tick) % 2) return face;
       return ink;
     });
-    // Legs and arm nubs.
-    const legs = { stand: [2, 2], walk1: [1, 2], walk2: [2, 1], jump: [1, 1], tuck: [0, 0] }[p.legs] ?? [2, 2];
-    if (!p.rocket) [[cx - 2, legs[0]], [cx + 2, legs[1]]].forEach(([x, h]) => h && cv.rect(x, cy + 7, 1, h, ink));
-    const arm = (side, mode) => {
-      const x = side < 0 ? cx - 7 : cx + 7;
-      const dy = { out: 0, up: -1, high: -2, down: 1, wave: -2, tap: 1 }[mode] ?? 0;
-      cv.put(x, cy + dy, ink);
-      if (mode === 'high' || mode === 'wave') cv.put(x + (mode === 'wave' ? side : 0), cy + dy - 1, ink);
-    };
-    arm(-1, p.armL);
-    arm(1, p.armR);
-    // The antenna: up and jaunty, flopped over, or folded away.
-    const knob = [];
-    if (p.antenna !== 'off') {
-      const droop = p.antenna === 'droop';
-      // Steep, like an antenna, so the head never reads as a ♂ sign.
-      const stalk = droop ? [[cx + 4, cy - 6], [cx + 5, cy - 6], [cx + 6, cy - 5]] : [[cx + 3, cy - 7], [cx + 3, cy - 8], [cx + 4, cy - 9]];
-      for (const [x, y] of stalk) cv.put(x, y, ink);
-      const [kx, ky] = droop ? [cx + 7, cy - 5] : [cx + 4, cy - 11];
-      const glow = p.glow && Math.floor(c.T * 4) % 2;
-      cv.rect(kx, ky, 2, 2, glow ? '#F5BE2E' : ink);
-      knob.push(kx, ky);
-    }
-    const eyes = [[cx - 2, cy - 1], [cx + 2, cy - 1]];
-    pxEyes(cv, eyes, c, p.eyes, ink);
-    return { mid: cx, top: cy - 7, left: cx - 7, right: cx + 7, ground: cy + 9, midY: cy, front: cy + 1, eyes, knob, cx, cy, hands: false };
+    if (p.glow && Math.floor(c.T * 4) % 2) cv.put(cx + 5, cy - 7, '#F5BE2E');
+    pillEyes(cv, cx, cy, p, c, ink, DOT, 3);
+    return { mid: cx, top: cy - 8, left: cx - 7, right: cx + 8, ground: cy + 8, midY: cy, front: cy + 1, eyes: [[cx - 3, cy - 2], [cx + 2, cy - 2]], cx, cy, hands: false };
   }
 
   CHARACTERS.grok = {
@@ -1014,91 +1144,70 @@ function pxProp(cv, back, p, a, pal, c) {
     swatch: 0x0B0B0C,
     fidgets: ['wink', 'hop', 'peek'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, antenna: 'up', glow: 0, lift: 0, rocket: 0, dashed: 0 },
+    rest: { ...PIXEL_REST, face: '', glow: 0, lift: 0, dashed: 0 },
     pose(s, t, T) {
       const b = basePose(s, t, T);
       switch (s) {
-        case 'thinking': return { ...b, glow: 1, prop: 'signal' };
-        case 'reading': return { ...b, prop: 'scan' };
-        case 'streaming': return { ...b, prop: 'zap' };
-        case 'searching': return { ...b, antenna: 'off', eyes: 'wide', prop: 'lens' };
+        case 'thinking': return { ...b, face: 'dots', glow: 1, prop: '' };
+        case 'searching': return { ...b, dx: 0, legs: 'stand', eyes: 'wide', prop: 'radar' };
         case 'web': return { ...b, dy: 0, prop: 'planet' };
-        case 'running': return { ...b, rocket: 1, lift: 2 + (Math.floor(t * 10) % 2), dy: 0, prop: 'flame' };
+        case 'running': return { ...b, lift: 2 + (Math.floor(t * 10) % 2), dy: 0, prop: 'flame' };
         case 'compacting': return { ...b, prop: 'swirl' };
-        case 'failed': return { ...b, antenna: t > 0.3 ? 'droop' : 'up' };
-        case 'broken': return { ...b, antenna: 'droop' };
-        case 'sleeping': return { ...b, antenna: 'droop' };
-        case 'offline': return { ...b, dashed: 1, prop: 'nosignal' };
+        case 'asking': return { ...b, face: 'bang', prop: '' };
         case 'approving': return { ...b, glow: 1 };
-        case 'finished': return { ...b, wink: t > 0.3 && t < 1.4 ? 1 : 0, happy: 0, glow: 1 };
-        case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, glow: t < 1.3 ? 1 : 0, gazeW: 0.3 };
+        case 'offline': return { ...b, dashed: 1 };
+        case 'finished': return { ...b, glow: 1 };
+        case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, gazeW: 0.3 };
         default: return b;
       }
     },
     draw(p, c) {
       const back = canvas(), cv = canvas();
-      const a = ringBot(cv, back, p, c);
-      const t = p.propT;
-      const [kx, ky] = a.knob;
-      switch (p.prop) {
-        case 'signal':
-          if (kx !== undefined) {
-            const k = Math.floor(t * 3) % 3;
-            if (k >= 1) { cv.put(kx + 3, ky - 1, INK); cv.put(kx + 3, ky, INK); cv.put(kx + 2, ky - 2, INK); }
-            if (k >= 2) { cv.put(kx + 5, ky - 2, INK); cv.put(kx + 5, ky - 1, INK); cv.put(kx + 5, ky, INK); cv.put(kx + 4, ky - 3, INK); }
+      const q = settle(p, (g, q) => ring(g, q, c));
+      const a = ring(cv, q, c);
+      const t = q.propT;
+      // Rings, lines and sparks show only where the circle allows.
+      const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
+      switch (q.prop) {
+        case 'radar': {
+          // A ring steps outward from the body, then again.
+          const k = Math.floor(t * 4) % 3;
+          const r = [7.2, 8.2, 9.2][k];
+          for (let x = 0; x < GRID; x++) for (let y = 0; y < GRID; y++) {
+            const d = Math.hypot(x + 0.5 - a.cx - 0.5, y + 0.5 - a.cy - 0.5);
+            if (Math.abs(d - r) < 0.5 && !cv.has(x, y)) dot(k === 2 ? back : cv, x, y, k === 0 ? '#8D8C94' : '#B9B9C0');
           }
-          break;
-        case 'zap':
-          if (kx !== undefined) for (let i = 0; i < 3; i++) {
-            const u = frac(steps(t, 8) * 1.2 + i / 3);
-            const x = kx + 1 + rnd(u * 4) * [1, 1, 0][i], y = ky - rnd(u * 4) * [0, 1, 1][i];
-            if (u < 0.8) cv.put(clamp(x, 0, GRID - 1), Math.max(0, y), i === 1 ? '#F5BE2E' : INK);
-          }
-          break;
-        case 'scan': {
-          const row = a.cy - 3 + Math.floor(t * 4) % 7;
-          for (let x = a.cx - 4; x <= a.cx + 4; x++) if (Math.hypot(x - a.cx, row - a.cy) < 4.4) cv.put(x, row, '#7FB4FF');
-          break;
-        }
-        case 'lens': {
-          for (const [dx, dy] of [[5, 5], [6, 6], [7, 7], [6, 5], [7, 6]]) cv.put(a.cx + dx, a.cy + dy, INK);
-          for (const [dx, dy] of [[-2, -3], [-3, -2], [-3, -3]]) cv.put(a.cx + dx, a.cy + dy, '#FFFFFF');
           break;
         }
         case 'planet': {
           const y = a.cy + 1;
           for (let x = 0; x < GRID; x++) {
             const inFace = Math.abs(x - a.cx) <= 6;
-            (inFace ? cv : back).put(x, inFace ? y + 1 : y, INK);
+            dot(inFace ? cv : back, x, inFace ? y + 1 : y, INK);
           }
           const m = Math.floor(t * 6) % 26;
           const mx = m < 13 ? m * 2 - 2 : (25 - m) * 2 - 2;
-          if (mx >= 0 && mx < GRID) (m < 13 ? cv : back).rect(mx, (m < 13 ? y + 2 : y - 2), 2, 2, '#9A9AA0');
+          for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(m < 13 ? cv : back, mx + dx, (m < 13 ? y + 2 : y - 2) + dy, '#9A9AA0');
           break;
         }
         case 'flame':
           for (let i = 0; i < 3; i++) {
             const flick = (Math.floor(t * 12) + i) % 2;
-            cv.put(a.cx - 1 + i, a.cy + 7, '#F5BE2E');
-            cv.put(a.cx - 1 + i, a.cy + 8 + flick, '#F2832B');
-            if (i === 1) cv.put(a.cx, a.cy + 9 + flick, '#F2483B');
+            dot(cv, a.cx - 1 + i, a.cy + 7, '#F5BE2E');
+            dot(cv, a.cx - 1 + i, a.cy + 8 + flick, '#F2832B');
+            if (i === 1) dot(cv, a.cx, a.cy + 9 + flick, '#F2483B');
           }
           break;
         case 'swirl':
           for (let i = 0; i < 6; i++) {
             const u = frac(steps(t, 8) / 1.1 + i / 6);
             const ang = i * 60 + u * 220;
-            const r = lerp(10, 5, u);
-            cv.put(rnd(a.cx + 0.5 + Math.sin(rad(ang)) * r), rnd(a.cy + 0.5 - Math.cos(rad(ang)) * r), INK);
-          }
-          break;
-        case 'nosignal':
-          if (kx !== undefined && Math.floor(t * 2.5) % 2) {
-            for (const [dx, dy] of [[3, -2], [5, -2], [4, -1], [3, 0], [5, 0]]) cv.put(kx + dx, ky + dy, '#D9534F');
+            const r = lerp(9, 4, u);
+            dot(cv, rnd(a.cx + 0.5 + Math.sin(rad(ang)) * r), rnd(a.cy + 0.5 - Math.cos(rad(ang)) * r), INK);
           }
           break;
         default:
-          pxProp(cv, back, p, a, pal, c);
+          pxProp(cv, back, q, a, pal, c);
       }
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -1119,15 +1228,17 @@ function pxProp(cv, back, p, a, pal, c) {
   const WHITE = '#F2F2F5';
   const DARK = '#1A1A20';
   const RED = '#D9534F';
-  const X0 = 5, Y0 = 6;
+  // One row up from round 3, so the idle bob keeps the legs inside the circle.
+  const X0 = 5, Y0 = 5;
   const ARROW = ['#...', '##..', '###.', '####', '..#.', '...#'];
+  // Compact signs, sized for the room the circle leaves round the cube.
   const HOURGLASS = [
-    ['#####', '#sss#', '.#s#.', '..#..', '.#.#.', '#...#', '#####'],
-    ['#####', '#.s.#', '.#s#.', '..#..', '.#s#.', '#.s.#', '#####'],
-    ['#####', '#...#', '.#.#.', '..#..', '.#s#.', '#sss#', '#####'],
+    ['#####', '.#s#.', '..#..', '.#.#.', '#####'],
+    ['#####', '.#.#.', '..s..', '.#.#.', '#####'],
+    ['#####', '.#.#.', '..#..', '.#s#.', '#####'],
   ];
   const NOPE = ['.###.', '#..##', '#.#.#', '##..#', '.###.'];
-  const IBEAM = ['###', '.#.', '.#.', '.#.', '.#.', '###'];
+  const IBEAM = ['###', '.#.', '.#.', '###'];
   const MINI = ['..tt..', 'tttttt', 'llttrr', 'lllrrr', 'lllrrr', '.llrr.'];
   const pal = {
     main: LEFT, body: LEFT, dark: DARK, light: '#C4C4CE', accent: DARK,
@@ -1177,7 +1288,7 @@ function pxProp(cv, back, p, a, pal, c) {
     // Slit eyes painted on the left face, stepping down its slope.
     const eyes = [[x0 + 1, y0 + 6], [x0 + 3, y0 + 7]];
     pxEyes(cv, eyes, c, p.eyes, dim ? '#C9C9CF' : WHITE);
-    return { mid: x0 + 6, top: y0, left: x0, right: x0 + 12, ground: bottom + 2, midY: y0 + 6, front: y0 + 5, eyes, x0, y0, hands: false };
+    return { mid: x0 + 6, top: y0, left: x0, right: x0 + 12, ground: bottom + 2, midY: y0 + 6, front: y0 + 8, pageX: x0 + 4, eyes, x0, y0, hands: false };
   }
 
   CHARACTERS.cursor = {
@@ -1203,46 +1314,52 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas(), cv = canvas();
-      const a = cube(cv, p, c);
-      const t = p.propT;
-      switch (p.prop) {
+      const q = settle(p, (g, q) => cube(g, q, c));
+      const a = cube(cv, q, c);
+      const t = q.propT;
+      switch (q.prop) {
         case 'think':
-          cv.glyph(HOURGLASS[Math.floor(t * 2.5) % 3], a.mid - 2, Math.max(0, a.top - 8), DARK, { s: '#F5BE2E' });
+          fitDraw(cv, g => g.glyph(HOURGLASS[Math.floor(t * 2.5) % 3], a.mid + 3, a.top - 2, DARK, { s: '#F5BE2E' }));
           break;
         case 'ghost': {
-          const u = p.propU, len = rnd(clamp(u / 0.55) * 14);
-          const y = Math.min(GRID - 1, a.ground);
-          if (u < 0.62) for (let i = 0; i < len; i += 2) cv.put(a.left - 1 + i, y, '#A5A5B0');
-          else cv.rect(a.left - 1, y, 14, 1, DARK);
-          if (u > 0.6 && u < 0.72) cv.rect(a.left - 1, y - 1, 14, 1, '#FFFFFF');
+          // Tab's grey ghost text runs out over the cube, then is taken.
+          const u = q.propU, len = rnd(clamp(u / 0.55) * 10);
+          fitDraw(cv, g => {
+            const x = a.mid - 5, y = a.top - 2;
+            if (u < 0.62) for (let i = 0; i < len; i += 2) g.put(x + i, y, '#A5A5B0');
+            else g.rect(x, y, 10, 1, DARK);
+            if (u > 0.6 && u < 0.72) g.rect(x, y - 1, 10, 1, '#FFFFFF');
+          });
           break;
         }
         case 'ibeam': {
-          const len = Math.floor(frac(t / 2) * 12);
-          const y = Math.min(GRID - 1, a.ground);
-          cv.rect(a.left - 1, y, len, 1, DARK);
-          if (Math.floor(t * 3) % 2) cv.glyph(IBEAM, a.left - 2 + len, y - 4, DARK);
+          const len = Math.floor(frac(t / 2) * 9);
+          fitDraw(cv, g => {
+            const x = a.mid - 5, y = a.top - 2;
+            g.rect(x, y, len, 1, DARK);
+            if (Math.floor(t * 3) % 2) g.glyph(IBEAM, x - 1 + len, y - 2, DARK);
+          });
           break;
         }
         case 'help':
-          cv.glyph(PIX.arrow, a.right - 4, Math.max(0, a.top - 8), DARK, { w: '#FFFFFF' });
-          cv.glyph(PIX.q, Math.min(GRID - 5, a.right + 1), Math.max(0, a.top - 8), DARK);
+          fitDraw(cv, g => g.glyph(PIX.arrow, a.left, a.top - 2, DARK, { w: '#FFFFFF' }));
+          fitDraw(cv, g => g.glyph(PIX.q, a.right - 3, a.top - 2, DARK));
           break;
         case 'nope':
-          cv.glyph(NOPE, a.right - 1, Math.max(0, a.top - 5), RED);
-          if (p.cross > 0.5) pxProp(cv, back, { ...p, prop: 'smoke' }, a, pal, c);
+          fitDraw(cv, g => g.glyph(NOPE, a.right - 3, a.top - 2, RED));
+          if (q.cross > 0.5) pxProp(cv, back, { ...q, prop: 'smoke' }, a, pal, c);
           break;
         case 'busy': {
           const ring = [[1, 0], [2, 0], [3, 0], [4, 1], [4, 2], [4, 3], [3, 4], [2, 4], [1, 4], [0, 3], [0, 2], [0, 1]];
           const k = Math.floor(t * 10) % ring.length;
-          ring.forEach(([dx, dy], i) => cv.put(a.right - 2 + dx, Math.max(0, a.top - 6) + dy, (i - k + ring.length) % ring.length < 3 ? '#3D7BF5' : '#C9CBD3'));
+          fitDraw(cv, g => ring.forEach(([dx, dy], i) => g.put(a.right - 3 + dx, a.top - 2 + dy, (i - k + ring.length) % ring.length < 3 ? '#3D7BF5' : '#C9CBD3')));
           break;
         }
         case 'caret':
-          if (frac(c.T / 1.06) < 0.55) cv.glyph(IBEAM, Math.min(GRID - 3, a.right + 2), a.midY - 3, DARK);
+          if (frac(c.T / 1.06) < 0.55) fitDraw(cv, g => g.glyph(IBEAM, a.right + 1, a.midY - 2, DARK));
           break;
         default:
-          pxProp(cv, back, p, a, pal, c);
+          pxProp(cv, back, q, a, pal, c);
       }
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -1265,8 +1382,10 @@ function pxProp(cv, back, p, a, pal, c) {
   const RED = '#C7372F';
   const WHITE = '#FFFFFF';
   const DULL = '#7C93AE';
-  const CX = 11, CY = 9;
-  const TERM = { x: 3, y: 13, w: 16, h: 5 };
+  // A cell smaller than round 3 all round, with the terminal's bottom
+  // corners rounded, so it and its droplet fit inside the drawer's circle.
+  const CX = 11, CY = 9, R0 = 5;
+  const TERM = { x: 4, y: 13, w: 14, h: 5 };
   const DROP = ['.##', '###', '#..'];
   const CHEV = ['#.', '.#', '#.'];
   const MINI = ['.####.', '######', '#w##w#', '######', '.####.'];
@@ -1278,7 +1397,7 @@ function pxProp(cv, back, p, a, pal, c) {
   function blob(cv, p, c) {
     const dim = p.dim > 0.5;
     const body = dim ? DULL : BLUE;
-    const rx = 5.6 * (1 + 0.22 * p.sq), ry = 5.6 * (1 - 0.3 * p.sq);
+    const rx = R0 * (1 + 0.22 * p.sq), ry = R0 * (1 - 0.3 * p.sq);
     const cx = CX + rnd(p.dx), bottom = CY + 5.6 + rnd(p.dy);
     const cy = bottom - ry;
     cv.shape((x, y) => ((x - cx - 0.5) / rx) ** 2 + ((y - cy - 0.5) / ry) ** 2 <= 1, cx - 7, Math.floor(cy - ry) - 1, 15, Math.ceil(ry * 2) + 2, body);
@@ -1291,7 +1410,9 @@ function pxProp(cv, back, p, a, pal, c) {
   // What the terminal shows, left to right after the prompt.
   function terminal(cv, p, c, t) {
     const red = p.term === 'red';
-    cv.rect(TERM.x, TERM.y, TERM.w, TERM.h, red ? RED : p.dim > 0.5 ? '#33435A' : NAVY);
+    const fill = red ? RED : p.dim > 0.5 ? '#33435A' : NAVY;
+    cv.rect(TERM.x, TERM.y, TERM.w, TERM.h - 1, fill);
+    cv.rect(TERM.x + 1, TERM.y + TERM.h - 1, TERM.w - 2, 1, fill);
     const row = TERM.y + 2, x0 = TERM.x + 2;
     const ink = p.dim > 0.5 ? '#9FB0C4' : WHITE;
     if (!red && p.term !== 'yn' && p.term !== 'lock' && p.term !== 'check') cv.glyph(CHEV, x0, row - 1, ink);
@@ -1302,7 +1423,7 @@ function pxProp(cv, back, p, a, pal, c) {
         for (let i = 0; i < 3; i++) cv.put(caret + i * 2, row, Math.floor(t * 5) % 3 === i ? ink : '#55708F');
         return;
       case 'type': {
-        const n = Math.floor(frac(p.termU) * 6);
+        const n = Math.floor(frac(p.termU) * 4);
         for (let i = 0; i < n; i++) cv.rect(caret + i * 2, row, 1 + (i % 2), 1, ink);
         caret += n * 2;
         break;
@@ -1328,14 +1449,14 @@ function pxProp(cv, back, p, a, pal, c) {
         cv.glyph(['....#', '#..#.', '.##..'], TERM.x + 6, row - 1, '#5BE37D');
         return;
       case 'yn': {
-        cv.glyph(['#.#...#.##.', '.#...#..#.#', '.#..#...#.#'], TERM.x + 2, row - 1, ink);
-        caret = TERM.x + 14;
+        cv.glyph(['#.#...#.##.', '.#...#..#.#', '.#..#...#.#'], TERM.x + 1, row - 1, ink);
+        caret = TERM.x + 12;
         break;
       }
       case 'lock':
         cv.glyph(['.#.', '###', '###'], TERM.x + 2, row - 1, ink);
-        for (let i = 0; i < 4; i++) cv.put(TERM.x + 6 + i * 2, row, ink);
-        caret = TERM.x + 14;
+        for (let i = 0; i < 3; i++) cv.put(TERM.x + 6 + i * 2, row, ink);
+        caret = TERM.x + 12;
         break;
       case 'red':
         cv.glyph(['#.#', '.#.', '#.#'], TERM.x + 7, row - 1, WHITE);
@@ -1379,58 +1500,65 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas(), cv = canvas();
-      const t = p.propT;
-      const b = blob(cv, p, c);
-      terminal(cv, p, c, t);
-      const a = { mid: b.cx, top: b.top, left: b.cx - 6, right: b.cx + 6, ground: TERM.y + TERM.h, midY: b.cy, front: b.cy, eyes: b.eyes };
-      // The droplet and what it turns into.
-      const dx = 17, dy = 2 + (frac(c.T / 1.9) < 0.5 ? 0 : 1);
-      switch (p.drop) {
-        case 'drop': cv.glyph(DROP, dx, dy, b.body); break;
+      const q = settle(p, (g, q) => blob(g, q, c));
+      const t = q.propT;
+      const b = blob(cv, q, c);
+      terminal(cv, q, c, t);
+      const a = { mid: b.cx, top: b.top, left: b.cx - 6, right: b.cx + 6, ground: TERM.y + TERM.h, midY: rnd(b.cy), front: rnd(b.cy), eyes: b.eyes };
+      // The droplet and what it turns into, just above the blob's right
+      // shoulder: the room the circle leaves. It shimmers instead of bobbing.
+      const dx = 13, dy = 3;
+      const drop = color => fitDraw(cv, g => {
+        g.glyph(DROP, dx, dy, color);
+        if (frac(c.T / 1.9) < 0.5) g.put(dx + 2, dy, SHINE);
+      });
+      switch (q.drop) {
+        case 'drop': drop(b.body); break;
         case 'gray':
-          cv.glyph(DROP, dx, dy, '#9AA6B2');
-          cv.glyph(PIX.excl, dx + 4, dy - 1, '#D9534F');
+          drop('#9AA6B2');
+          fitDraw(cv, g => g.glyph(PIX.excl, dx + 4, dy - 1, '#D9534F'));
           break;
         case 'think':
           for (let i = 0; i < 3; i++) {
             const u = frac(steps(t, 6) * 0.7 + i / 3);
             const size = 1 + rnd(u * 1.5);
-            cv.rect(15 + rnd(u * 4), 7 - rnd(u * 7), size, size, b.body);
+            fitDraw(cv, g => g.rect(13 + rnd(u * 3), 6 - rnd(u * 4), size, size, b.body));
           }
           break;
-        case 'globe': cv.glyph(PIX.globe[Math.floor(t * 4) % 3], 16, 1, SHINE); break;
+        case 'globe': fitDraw(cv, g => g.glyph(PIX.globe[Math.floor(t * 4) % 3], dx, dy - 1, SHINE)); break;
         case 'sweat': {
           const u = frac(steps(t, 8) / 1.2);
-          cv.glyph(['#', '#'], b.cx + 6, b.top + 2 + rnd(u * 5), '#BFE0FF');
+          fitDraw(cv, g => g.glyph(['#', '#'], b.cx + 6, b.top + 2 + rnd(u * 5), '#BFE0FF'), null);
           break;
         }
         case 'snot': {
-          const r = 1 + Math.floor((Math.sin(c.T * 1.2) + 1) * 1.4);
+          const r = 1 + Math.floor((Math.sin(c.T * 1.2) + 1) * 1.2);
           const x = b.cx + 5, y = b.cy + 1;
-          cv.shape((u, v) => Math.hypot(u - x - 0.5, v - y - 0.5) <= r + 0.3, x - r - 1, y - r - 1, r * 2 + 3, r * 2 + 3, '#CFE6FF');
-          cv.put(x - 1, y - r + 1, WHITE);
+          fitDraw(cv, g => {
+            g.shape((u, v) => Math.hypot(u - x - 0.5, v - y - 0.5) <= r + 0.3, x - r - 1, y - r - 1, r * 2 + 3, r * 2 + 3, '#CFE6FF');
+            g.put(x - 1, y - r + 1, WHITE);
+          }, null);
           break;
         }
         case 'ask':
-          cv.glyph(['.######.', '#wwwwww#', '#wwwwww#', '#wwwwww#', '#wwwwww#', '.######.', '.#......'], 14, 0, b.body, { w: WHITE });
-          cv.glyph(['.##.', '...#', '..#.', '....', '..#.'], 16, 1, b.body);
+          fitDraw(cv, g => g.glyph(PIX.q, dx, dy - 1, b.body));
           break;
         case 'fly': {
-          const u = p.propU;
-          if (u < 0.3) { cv.glyph(DROP, dx, dy, b.body); break; }
-          const v = clamp((u - 0.3) / 0.6);
+          // The droplet folds into a note, flies up over the head and pops.
+          const u = q.propU;
+          if (u < 0.3) { drop(b.body); break; }
+          const v = clamp((u - 0.3) / 0.5);
           if (v < 1) {
-            const x = rnd(lerp(dx, 23, v)), y = rnd(lerp(dy, -4, v));
-            cv.rect(x, y, 5, 3, b.body);
-            for (let i = 0; i < 2; i++) cv.put(x + 1 + i * 2, y + 1, WHITE);
-          }
-          if (u > 0.85) cv.glyph(DROP, dx, dy, b.body);
+            const x = rnd(lerp(dx, a.mid - 3, v)), y = rnd(lerp(dy, 1, v));
+            fitDraw(cv, g => { g.rect(x, y, 5, 3, b.body); for (let i = 0; i < 2; i++) g.put(x + 1 + i * 2, y + 1, WHITE); });
+          } else if (u < 0.88) fitDraw(cv, g => g.glyph(PIX.spark, a.mid - 1, 2, SHINE));
+          if (u > 0.85) drop(b.body);
           break;
         }
       }
       // The terminal and the droplet already tell these phases.
       const told = ['think', 'bubble', 'page', 'mag', 'globe', 'keys', 'run', 'hammer', 'q', 'sign', 'nowifi', 'lock', 'mail'];
-      if (!told.includes(p.prop)) pxProp(cv, back, p, a, pal, c);
+      if (!told.includes(q.prop)) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
@@ -1452,7 +1580,9 @@ function pxProp(cv, back, p, a, pal, c) {
   const WATER = '#8EA6FF';
   const DULL = '#8D97BE';
   const DULL_BELLY = '#CBD0DE';
-  const X0 = 3, Y0 = 8;
+  // One row up from round 3, so the belly's lower corner stays inside the
+  // drawer's circle.
+  const X0 = 3, Y0 = 7;
   const MINI = ['.....#.#', '.####.#.', '#######.', '.wwww...'];
   const pal = {
     main: BLUE, body: BLUE, dark: EYE, light: WATER, accent: WATER,
@@ -1517,84 +1647,88 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas(), cv = canvas();
-      const t = p.propT;
-      if (p.prop === 'surf') {
-        for (let x = 0; x < GRID; x++) cv.put(x, 20 + (Math.floor(x / 3 + t * 4) % 2), WATER);
+      const q = settle(p, (g, q) => whale(g, q, c));
+      const t = q.propT;
+      // Water, rings and drops show only where the circle allows.
+      const dot = (x, y, color) => { if (safe(x, y)) cv.put(x, y, color); };
+      if (q.prop === 'surf') {
+        for (let x = 0; x < GRID; x++) dot(x, 18 + (Math.floor(x / 3 + t * 4) % 2), WATER);
       }
-      const a = whale(cv, p, c);
+      const a = whale(cv, q, c);
       const [hx, hy] = a.hole;
-      switch (p.prop) {
+      switch (q.prop) {
         case 'bubbles':
           for (let i = 0; i < 3; i++) {
             const u = frac(steps(t, 6) * 0.6 + i / 3);
-            const y = hy - 2 - rnd(u * 8), x = hx + (i % 2);
-            if (u < 0.5) cv.put(x, y, WATER); else cv.glyph(['.#.', '#.#', '.#.'], x - 1, y - 1, WATER);
+            const y = hy - 2 - rnd(u * 6), x = hx + (i % 2);
+            if (u < 0.5) dot(x, y, WATER); else fitDraw(cv, g => g.glyph(['.#.', '#.#', '.#.'], x - 1, y - 1, WATER));
           }
           break;
         case 'song': {
-          const [mx, my] = a.mouth;
+          // It hums: notes and sound bars over its head.
           for (let i = 0; i < 3; i++) {
             const h = 1 + (Math.floor(t * 8) + i * 2) % 3;
-            cv.rect(Math.max(0, mx - 2 - i * 2), my - h + 1, 1, h * 2 - 1, WATER);
+            fitDraw(cv, g => g.rect(hx - 4 + i * 2, hy - 1 - h, 1, h, WATER));
           }
           const u = frac(t / 1.8);
-          cv.glyph(PIX.note, clamp(a.mid - 2, 0, GRID - 5), Math.max(0, a.top - 7 - rnd(u * 2)), EYE);
+          fitDraw(cv, g => g.glyph(PIX.note, a.mid, a.top - 6 - rnd(u * 2), EYE));
           break;
         }
         case 'sonar': {
+          // Pings ring up and out from the head, one arc wider at a time.
           const k = Math.floor(t * 4) % 4;
-          const [mx, my] = a.mouth;
           for (let i = 0; i < Math.min(k, 3); i++) {
-            const x = mx - 2 - i * 2;
-            for (let j = -1 - i; j <= 1 + i; j++) cv.put(Math.max(0, x - (Math.abs(j) > i ? 0 : 1)), my + j, WATER);
+            const w = 3 + i * 2, x = hx - 1 - i, y = hy - 2 - i * 2;
+            for (let j = 0; j < w; j++) dot(x + j, y + (j === 0 || j === w - 1 ? 1 : 0), WATER);
           }
-          if (k === 3) cv.put(0, my - 4, EYE);
+          if (k === 3) dot(hx + 1, hy - 8, EYE);
           break;
         }
         case 'ink': {
-          const len = Math.floor(frac(t / 1.6) * 16);
-          for (let i = 0; i < len; i++) cv.put(a.x0 + 15 - i, a.ground + (i % 4 < 2 ? 0 : 1), EYE);
+          const len = Math.floor(frac(t / 1.6) * 12);
+          for (let i = 0; i < len; i++) dot(a.x0 + 14 - i, a.ground - 1 + (i % 4 < 2 ? 0 : 1), EYE);
           break;
         }
         case 'speed':
+          // Speed lines over its back.
           for (let i = 0; i < 3; i++) {
             const u = frac(steps(t, 10) * 1.5 + i / 3);
-            cv.rect(Math.min(GRID - 2, a.right + 2 + rnd(u * 4)), a.midY - 2 + i * 2, 2, 1, WATER);
+            fitDraw(cv, g => g.rect(a.right - 4 + rnd(u * 2), a.top - 1 + i * 2, 2, 1, WATER));
           }
           break;
         case 'spout': {
-          const u = p.propU;
+          const u = q.propU;
           const h = u < 0.3 ? rnd(u / 0.3 * 4) : u < 0.6 ? 4 : rnd((1 - (u - 0.6) / 0.3) * 4);
-          for (let j = 1; j <= h; j++) cv.put(hx, hy - j, WATER);
-          if (h >= 3) { cv.put(hx - 1, hy - h, WATER); cv.put(hx + 1, hy - h, WATER); cv.put(hx - 2, hy - h + 1, WATER); cv.put(hx + 2, hy - h + 1, WATER); }
+          for (let j = 1; j <= h; j++) dot(hx, hy - j, WATER);
+          if (h >= 3) { dot(hx - 1, hy - h, WATER); dot(hx + 1, hy - h, WATER); dot(hx - 2, hy - h + 1, WATER); dot(hx + 2, hy - h + 1, WATER); }
           if (u > 0.45 && u < 0.95) {
             const v = (u - 0.45) / 0.5;
-            cv.rect(rnd(lerp(hx, 20, v)), rnd(lerp(hy - 5, 0, v)), 2, 2, WATER);
+            fitDraw(cv, g => g.rect(rnd(lerp(hx, 15, v)), rnd(lerp(hy - 5, 3, v)), 2, 2, WATER));
           }
           break;
         }
         case 'qspout':
-          for (let j = 1; j <= 2; j++) cv.put(hx, hy - j, WATER);
-          cv.glyph(PIX.q, hx - 2, Math.max(0, hy - 9 - (Math.floor(t * 2) % 2)), WATER);
+          for (let j = 1; j <= 2; j++) dot(hx, hy - j, WATER);
+          fitDraw(cv, g => g.glyph(PIX.q, hx - 1, hy - 8 - (Math.floor(t * 2) % 2), WATER));
           break;
         case 'sink':
           for (let i = 0; i < 2; i++) {
             const u = frac(steps(t, 6) * 0.5 + i / 2);
-            cv.put(hx + i, hy - 1 - rnd(u * 5), WATER);
+            dot(hx + i, hy - 1 - rnd(u * 5), WATER);
           }
-          if (p.cross > 0.5) pxProp(cv, back, { ...p, prop: 'smoke' }, a, pal, c);
+          if (q.cross > 0.5) pxProp(cv, back, { ...q, prop: 'smoke' }, a, pal, c);
           break;
         case 'zzb':
           for (let i = 0; i < 2; i++) {
             const u = frac(t / 2.4 + i / 2);
-            if (u < 0.85) cv.glyph(i ? PIX.zs : PIX.z, clamp(hx + 2 + rnd(u * 3) + i * 2, 0, GRID - 4), Math.max(0, hy - 3 - rnd(u * 6) - i * 2), WATER);
+            if (u < 0.85) fitDraw(cv, g => g.glyph(i ? PIX.zs : PIX.z, hx + 2 + i * 2, hy - 3 - rnd(u * 4) - i * 2, WATER));
           }
           break;
         case 'splash':
-          if (t < 1.5) for (const [dx, dy] of [[-3, 0], [3, 0], [-5, 1], [5, 1], [0, -1]]) cv.put(a.mid + dx + (Math.floor(t * 8) % 2), a.ground + dy - 1, WATER);
+          if (t < 1.5) for (const [dx, dy] of [[-3, 0], [3, 0], [-5, 1], [5, 1], [0, -1]]) dot(a.mid + dx + (Math.floor(t * 8) % 2), a.ground + dy - 2, WATER);
           break;
         default:
-          pxProp(cv, back, p, a, pal, c);
+          pxProp(cv, back, q, a, pal, c);
       }
       return pixels(back, c, 0.7) + pixels(cv, c);
     },

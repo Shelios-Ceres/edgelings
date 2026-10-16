@@ -7,7 +7,7 @@ using Microsoft.ClearScript.V8;
 namespace AgentIsland.WinUI.Drawer;
 
 /// The pixel bots in embedded V8: Characters/characters.mjs is the approved
-/// v3 engine from windows/notes/brand-characters-20261013 (sha256 7fe41c54…),
+/// v4 engine from windows/notes/characters-v4-20261015 (sha256 f919eff7…),
 /// our own code, shipped with the app. Frames are SVG rectangles on a grid of
 /// 2-DIP cells, so they stay crisp at 100, 150 and 200 % scaling.
 internal sealed class PixelEngine : ICharacterEngine

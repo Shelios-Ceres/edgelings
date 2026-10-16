@@ -524,14 +524,14 @@ internal static partial class PixelIcons
         [DisplayProvider.Codex] = (new[]
         {
             "..........",
-            "...####...",
-            ".##wwww#..",
+            ".....###..",
+            ".##.#www#.",
+            "#ww#wwwww#",
             "#wwwwwwww#",
             "#wwkwwkww#",
             "#wwkwwkww#",
             "#wwwwwwww#",
             ".########.",
-            "..........",
             "..........",
         }, new[] { ('#', 0x6E717Cu), ('k', 0x2B2B33u), ('w', 0xE6E8EEu) }),
         [DisplayProvider.Antigravity] = (new[]
@@ -549,16 +549,16 @@ internal static partial class PixelIcons
         }, new[] { ('b', 0x3D7BF5u), ('g', 0x4DB86Bu), ('k', 0x2B2B33u), ('o', 0xF2832Bu), ('r', 0xF2483Bu), ('v', 0x7B5CF0u), ('y', 0xF5BE2Eu) }),
         [DisplayProvider.Grok] = (new[]
         {
-            ".......k..",
-            "......k...",
-            "..kkkkk...",
-            ".kwwwwwk..",
-            "kwkwwkwwk.",
-            "kwkwwkwwk.",
-            "kwwwwwwwk.",
-            ".kwwwwwk..",
-            "..kkkkk...",
-            "..k...k...",
+            ".........k",
+            "...kkkk.k.",
+            "..kwwwwk..",
+            ".kwwwwwwk.",
+            ".kwkwwkwk.",
+            ".kwkwwkwk.",
+            ".kwwwwwwk.",
+            "..kwwwwk..",
+            ".k.kkkk...",
+            "k.........",
         }, new[] { ('k', 0x0B0B0Cu), ('w', 0xF4F4F6u) }),
         [DisplayProvider.Cursor] = (new[]
         {

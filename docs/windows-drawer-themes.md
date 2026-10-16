@@ -319,7 +319,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
-  | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and every bot idle, asking, in orbit, finished and locked |
+  | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and every bot idle, reading, asking, sending, in orbit, finished and locked |
   | `AGENTISLAND_DEBUG_POPUP_FILM=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, steps the card's and the bubbles' moments by hand and saves each as a strip of its frames, printed from the test window so the paper's shadow shows |
   | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
   | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings |
@@ -338,9 +338,11 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 9. Reference: the Pixel theme
 
-- **Engine**: `Drawer/Characters/characters.mjs`, approved v3, SHA-256
-  `7fe41c5412c50129775b1de62f4a2676b61191ad9f459a12d3d398eb76cd0589`; a
-  22 × 22 grid of 2-DIP cells, a one-cell white rim, 0.32 s pose blends.
+- **Engine**: `Drawer/Characters/characters.mjs`, approved v4, SHA-256
+  `f919eff7db4125913bdf6523396ba074ddc27ee0926739e3212131d8e377c26f`; a
+  22 × 22 grid of 2-DIP cells, a one-cell white rim, 0.32 s pose blends;
+  every frame within 22 DIP of the box centre, so nothing meets the
+  drawer's circle.
 - **Swatches**:
 
   | Claude | Codex | Antigravity | Grok | Cursor | Kimi Code | DeepSeek |
