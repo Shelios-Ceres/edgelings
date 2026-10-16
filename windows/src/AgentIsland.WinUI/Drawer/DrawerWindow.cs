@@ -1258,7 +1258,24 @@ internal sealed partial class DrawerWindow : Window
 
     private Bot BotOf(DisplayProvider provider) => _bots.First(b => b.Provider == provider);
 
-    private static StatusCard CardFor(Bot bot) => StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running);
+    private static StatusCard CardFor(Bot bot) => LongText(StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running));
+
+    /// AGENTISLAND_DEBUG_CARD_TEXT=long: the longest a card says, to check
+    /// how its phrases flow: a long phase and detail, a few notes and a tip
+    /// that can't be split.
+    private static StatusCard LongText(StatusCard card) =>
+        Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_CARD_TEXT") != "long" ? card : card with
+        {
+            Phase = DrawerLooks.PhaseLabel(AgentPhase.Approving),
+            Detail = "Cursor · " + L10n.TrFormat("Reconnecting · attempt {0} of {1}", 3, 10),
+            Note = new[]
+            {
+                new StatusPhrase(L10n.TrFormat("Quota updated {0}", Formatting.RelativeAgo(TimeSpan.FromMinutes(12), L10n.IsChinese)), Array.Empty<string>()),
+                new StatusPhrase(L10n.TrFormat("{0} reset cards", "2"), new[] { "2" }),
+                new StatusPhrase(L10n.TrFormat("Auto-switched to {0}", "dev.account+work@example.com"), Array.Empty<string>()),
+                new StatusPhrase("Open Kimi Code once to sync its plan usage; the CLI's sign-in only lasts fifteen minutes", Array.Empty<string>()),
+            },
+        };
 
     private void ShowCard(bool retarget = false)
     {

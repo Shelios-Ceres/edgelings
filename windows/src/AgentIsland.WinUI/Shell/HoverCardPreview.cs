@@ -518,6 +518,6 @@ internal sealed class HoverCardPreview : Window
                 new StatusMeter("Month", "54%", 0.54, 0.54, "Resets in 18d"),
             },
             new("Tokens", "Today 96K", "96K", "This month 1.8M", "1.8M"),
-            new[] { new StatusPhrase("Month: Kimi Code 35% · Kimi app 19%", new[] { "35%", "19%" }) }),
+            new[] { new StatusPhrase("Kimi Code 35% · Kimi app 19%", new[] { "35%", "19%" }) { Lead = "Month:" } }),
     };
 }

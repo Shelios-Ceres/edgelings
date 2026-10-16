@@ -61,8 +61,12 @@ internal sealed class HoverCard : IDisposable
     // The moment playing (M3), and the old content fading out in a switch.
     private UiMoment? _motion;
     private Border? _outgoing;
+    // The agents whose phase has needed a line of its own (Pixel) since the
+    // card opened: it keeps the line until the card closes, so the card
+    // doesn't gain and lose a line as phases come and go.
+    private readonly HashSet<DisplayProvider> _phaseBelow = new();
     // The texts a Classic refresh is swapping in (M4), with their own margins.
-    private readonly List<(TextBlock Text, Thickness Margin)> _swapping = new();
+    private readonly List<(FrameworkElement Text, Thickness Margin)> _swapping = new();
 
     // M4: each meter's share as the card last showed it, to count from when
     // the card refreshes in place; the values counting now.
@@ -407,14 +411,14 @@ internal sealed class HoverCard : IDisposable
         // The old texts against the new, in reading order, with the layout
         // slots (rounded, margins in) of those that changed.
         var news = Texts(_body).ToList();
-        var swaps = new List<(TextBlock Old, TextBlock New, double From, double To, Thickness Margin)>();
+        var swaps = new List<(FrameworkElement Old, FrameworkElement New, double From, double To, Thickness Margin)>();
         var whole = olds.Count != news.Count;
         if (!whole)
         {
             for (var i = 0; i < olds.Count; i++)
             {
                 var (old, fresh) = (olds[i].Text, news[i]);
-                if (old.Text == fresh.Text || _counting.Contains(fresh)) continue;
+                if (Said(old) == Said(fresh) || _counting.Contains(fresh)) continue;
                 swaps.Add((old, fresh, olds[i].Slot, fresh.DesiredSize.Height, fresh.Margin));
             }
             // A change in height the changed texts don't account for is a new layout.
@@ -476,15 +480,23 @@ internal sealed class HoverCard : IDisposable
         });
     }
 
-    private static IEnumerable<TextBlock> Texts(DependencyObject root)
+    /// The card's texts in reading order. A flow of phrases is one text:
+    /// whatever it says, it swaps whole, its block easing with the paper.
+    private static IEnumerable<FrameworkElement> Texts(DependencyObject root)
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {
             var child = VisualTreeHelper.GetChild(root, i);
-            if (child is TextBlock text) yield return text;
+            if (child is TextBlock or PhraseFlow) yield return (FrameworkElement)child;
             else foreach (var deeper in Texts(child)) yield return deeper;
         }
     }
+
+    private static string Said(FrameworkElement text) => text switch
+    {
+        TextBlock block => block.Text,
+        _ => string.Join("\n", Texts(text).Select(Said)),
+    };
 
     /// The old content's layer keeps only `kept`: everything else is hidden,
     /// since the new content already shows it.
@@ -700,6 +712,7 @@ internal sealed class HoverCard : IDisposable
     {
         _generation++;
         _popup.IsOpen = false;
+        _phaseBelow.Clear();
         Rest();
         _closing = _animating = false;
         _refresh = null;
@@ -810,15 +823,11 @@ internal sealed class HoverCard : IDisposable
         var labelWidth = pixel ? PixelLabelWidth : LabelWidth;
         var valueWidth = pixel ? PixelValueWidth : ValueWidth;
         var panel = new StackPanel();
-        // Marker, name and plan. Pixel puts the phase after them, and only
-        // the phase shortens; Classic starts line 2 with it, since English
-        // phases rarely fit beside a name and plan at 264 DIP.
-        var head = new Grid();
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Place(head, pixel
+        // Marker, name and plan. Pixel follows them with the phase when it
+        // fits, else gives it the next line; Classic starts line 2 with it,
+        // since English phases rarely fit beside a name and plan at 264 DIP.
+        var who = new StackPanel { Orientation = Orientation.Horizontal };
+        who.Children.Add(pixel
             ? new Rectangle
             {
                 Width = 3 * PixelPlate.Cell,
@@ -831,45 +840,42 @@ internal sealed class HoverCard : IDisposable
             {
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 0),
-            }, 0, 0);
-        Place(head, new TextBlock
+            });
+        who.Children.Add(new TextBlock
         {
             Text = card.Name,
             FontSize = 13,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
-        }, 0, 1);
+        });
         if (card.Plan is { Length: > 0 } plan)
         {
             var chip = PlanChip(plan, swatch, pixel);
             chip.Margin = new Thickness(6, 0, 0, 0);
-            Place(head, chip, 0, 2);
+            who.Children.Add(chip);
         }
+        // A phrase that breaks carries on about a space in (two whole cells
+        // under Pixel), so it reads as one.
+        const double carry = 4;
         if (pixel)
         {
-            Place(head, new TextBlock
+            var head = PhraseFlow.Of(new FrameworkElement[] { who, Phrase(card.Phase, "TextFillColorSecondaryBrush", carry, 13) },
+                () => Separator("TextFillColorSecondaryBrush", 13), hang: indent);
+            head.BreakFirst = _phaseBelow.Contains(card.Provider);
+            head.Broke = () => _phaseBelow.Add(card.Provider);
+            panel.Children.Add(head);
+            if (card.Detail is { } detail)
             {
-                Text = " · " + card.Phase,
-                FontSize = 13,
-                Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-            }, 0, 3);
-        }
-        panel.Children.Add(head);
-        if (!pixel)
-        {
-            // The phase, then the detail, which is what shortens.
-            var status = Caption(card.Phase, "TextFillColorPrimaryBrush", new Thickness(indent, 1, 0, 0));
-            if (card.Detail is { } line)
-            {
-                status.Inlines.Add(new Run { Text = " · " + line, Foreground = Res<Brush>("TextFillColorSecondaryBrush") });
+                panel.Children.Add(Flow(Parts(detail).Select(part => Phrase(part, "TextFillColorTertiaryBrush", carry)), "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0)));
             }
-            panel.Children.Add(TwoLines(status));
         }
-        else if (card.Detail is { } detail)
+        else
         {
-            panel.Children.Add(TwoLines(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0))));
+            panel.Children.Add(who);
+            // The phase, then the detail's parts; what doesn't fit moves to the next line.
+            var status = new List<FrameworkElement> { Phrase(card.Phase, "TextFillColorPrimaryBrush", carry) };
+            if (card.Detail is { } detail) status.AddRange(Parts(detail).Select(part => Phrase(part, "TextFillColorSecondaryBrush", carry)));
+            panel.Children.Add(Flow(status, "TextFillColorSecondaryBrush", new Thickness(indent, 1, 0, 0)));
         }
 
         // Fixed label and value columns line the rows up across sections.
@@ -941,21 +947,29 @@ internal sealed class HoverCard : IDisposable
         }
         if (card.Note.Count > 0)
         {
-            var note = new TextBlock
+            // The notes flow, but for one with a lead: its lead on a line,
+            // each of its parts on a line under it.
+            var notes = new StackPanel { Margin = new Thickness(indent, pixel ? 5 : 6, 0, 0) };
+            var run = new List<FrameworkElement>();
+            void EndRun()
             {
-                FontSize = 12,
-                Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
-                Margin = new Thickness(indent, pixel ? 5 : 6, 0, 0),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-            for (var i = 0; i < card.Note.Count; i++)
-            {
-                if (i > 0) note.Inlines.Add(new Run { Text = " · " });
-                Append(note, card.Note[i].Text, card.Note[i].Numbers);
+                if (run.Count > 0) notes.Children.Add(Flow(run, "TextFillColorTertiaryBrush", default));
+                run = new List<FrameworkElement>();
             }
-            panel.Children.Add(TwoLines(note));
-            // Classic notes get a third line before they shorten.
-            if (!pixel) note.MaxLines = 3;
+            foreach (var note in card.Note)
+            {
+                var parts = Parts(note.Text).Select(part => Phrase(part, "TextFillColorTertiaryBrush", carry, numbers: note.Numbers));
+                if (note.Lead is not { } lead)
+                {
+                    run.AddRange(parts);
+                    continue;
+                }
+                EndRun();
+                notes.Children.Add(Phrase(lead, "TextFillColorTertiaryBrush", carry));
+                foreach (var part in parts) notes.Children.Add(part);
+            }
+            EndRun();
+            panel.Children.Add(notes);
         }
         return panel;
     }
@@ -1016,14 +1030,38 @@ internal sealed class HoverCard : IDisposable
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    /// Details and notes carry warnings (a dropped connection, stale quota),
-    /// so they get a second line before they shorten.
-    private static TextBlock TwoLines(TextBlock text)
+    /// Details and notes carry warnings (a dropped connection, stale quota):
+    /// their phrases flow whole from line to line, never shortened.
+    private static PhraseFlow Flow(IEnumerable<FrameworkElement> phrases, string separator, Thickness margin)
     {
-        text.TextWrapping = TextWrapping.Wrap;
-        text.MaxLines = 2;
-        return text;
+        var flow = PhraseFlow.Of(phrases.ToList(), () => Separator(separator));
+        flow.Margin = margin;
+        return flow;
     }
+
+    /// One phrase as its words, its numbers lifted to primary ink: whole
+    /// where a line holds it, else breaking only at its spaces, carrying on
+    /// a step in; a word longer than a line breaks inside.
+    private static PhraseFlow Phrase(string text, string brush, double carry, double size = 12, IReadOnlyList<string>? numbers = null) =>
+        PhraseFlow.Words(text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(word =>
+        {
+            var block = new TextBlock { FontSize = size, Foreground = Res<Brush>(brush), TextWrapping = TextWrapping.Wrap };
+            Append(block, word, numbers?.Where(word.Contains).ToList() ?? new List<string>());
+            return block;
+        }), carry);
+
+    private static TextBlock Separator(string brush, double size = 12) => new()
+    {
+        // Room as margins: a text block measures without trailing spaces.
+        Text = "·",
+        Margin = new Thickness(4, 0, 4, 0),
+        FontSize = size,
+        Foreground = Res<Brush>(brush),
+    };
+
+    /// A detail's or a note's parts, as they are joined ("Cursor · Bash").
+    private static IEnumerable<string> Parts(string detail) =>
+        detail.Split(" · ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// A tertiary phrase whose numbers are lifted to primary ink.
     private static TextBlock Emphasised(string phrase, params string[] numbers)

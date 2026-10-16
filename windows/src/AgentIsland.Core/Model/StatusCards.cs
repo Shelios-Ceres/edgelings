@@ -18,8 +18,16 @@ public sealed record StatusTokens(string Label, string Today, string TodayNumber
 /// to emphasise.
 public sealed record StatusTasks(string Label, string Text, string Number);
 
-/// One phrase of a card's note and the numbers in it to emphasise.
-public sealed record StatusPhrase(string Text, IReadOnlyList<string> Numbers);
+/// One phrase of a card's note and the numbers in it to emphasise. Lead is
+/// a label its parts stand under, each on a line of its own (Kimi Code's
+/// month: "Month:" over each app's share).
+public sealed record StatusPhrase(string Text, IReadOnlyList<string> Numbers)
+{
+    public string? Lead { get; init; }
+
+    /// The phrase on one line, its lead first.
+    public string Line => Lead is not { } lead ? Text : lead.EndsWith('：') ? lead + Text : $"{lead} {Text}";
+}
 
 /// What a character's hover card says: who, what it is doing, how many of
 /// its tasks are running, its quota windows, its tokens, and any
@@ -241,7 +249,7 @@ public static class StatusCards
 
     /// The note on one line, where it shows as plain text.
     public static string? Note(DisplayProvider provider) =>
-        NoteParts(provider) is { Count: > 0 } parts ? string.Join(" · ", parts.Select(p => p.Text)) : null;
+        NoteParts(provider) is { Count: > 0 } parts ? string.Join(" · ", parts.Select(p => p.Line)) : null;
 
     private static IReadOnlyList<StatusPhrase> KimiNote()
     {
@@ -252,8 +260,8 @@ public static class StatusCards
             var codeShare = Math.Min(code.UsedPercent, total.UsedPercent);
             var codePercent = Formatting.PercentInt(codeShare);
             var appPercent = Formatting.PercentInt(total.UsedPercent - codeShare);
-            parts.Add(Phrase(L10n.TrFormat("Month: Kimi Code {0}% · Kimi app {1}%", codePercent, appPercent),
-                $"{codePercent}%", $"{appPercent}%"));
+            parts.Add(Phrase(L10n.TrFormat("Kimi Code {0}% · Kimi app {1}%", codePercent, appPercent),
+                $"{codePercent}%", $"{appPercent}%") with { Lead = L10n.Tr("Month:") });
         }
         if (snapshot.BoosterCents is > 0 and var cents)
         {

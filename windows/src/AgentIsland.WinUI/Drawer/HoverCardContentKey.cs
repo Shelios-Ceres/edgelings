@@ -38,7 +38,7 @@ internal static class HoverCardContentKey
             Add(card.Note.Count);
             foreach (var note in card.Note)
             {
-                Add(note.Text); Add(note.Numbers.Count);
+                Add(note.Lead); Add(note.Text); Add(note.Numbers.Count);
                 foreach (var number in note.Numbers) Add(number);
             }
         }
