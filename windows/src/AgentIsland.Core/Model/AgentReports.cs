@@ -67,7 +67,7 @@ public static class AgentReports
         DisplayProvider.Antigravity => "Sign in with the antigravity CLI or the Antigravity app",
         DisplayProvider.Grok => "Sign in with the grok CLI",
         DisplayProvider.Cursor => "Sign in inside the Cursor app",
-        DisplayProvider.Kimi => "Sign in inside Kimi Code; its plan usage syncs while Kimi Code is open",
+        DisplayProvider.Kimi => "Sign in inside Kimi Code; its plan usage syncs whenever the app or the CLI signs in",
         _ => "Read from DeepSeek Harness's local sessions; no sign-in needed",
     };
 

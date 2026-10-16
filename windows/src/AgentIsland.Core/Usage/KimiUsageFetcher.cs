@@ -73,9 +73,10 @@ public static class KimiUsageFetcher
 
     // MARK: - Local server
 
-    /// The newest live instance Kimi Code registered. Only a loopback host
-    /// is accepted: the server token never leaves this machine.
-    private static (string BaseUrl, string Token)? LocalServer()
+    /// The newest live instance Kimi Code registered — its desktop app runs
+    /// one while open, beating its heartbeat every 15 s. Only a loopback
+    /// host is accepted: the server token never leaves this machine.
+    internal static (string BaseUrl, string Token)? LocalServer()
     {
         try
         {
@@ -89,9 +90,49 @@ public static class KimiUsageFetcher
                 .FirstOrDefault();
             if (newest is null) return null;
             using var doc = JsonDocument.Parse(File.ReadAllText(newest.FullName));
+            if (Jsonl.GetLong(doc.RootElement, "pid") is { } pid && !ProcessAlive(pid)) return null;
             return ServerBaseUrl(doc.RootElement, DateTimeOffset.UtcNow) is { } baseUrl ? (baseUrl, token) : null;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// Kimi Code's own liveness rule: a registration whose process is gone
+    /// is stale, however fresh its heartbeat.
+    private static bool ProcessAlive(long pid)
+    {
+        if (pid is <= 0 or > int.MaxValue) return false;
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById((int)pid);
+            return !process.HasExited;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    /// What changes when Kimi Code signs in again: its CLI writes a fresh
+    /// access token (they last 15 minutes) and its desktop app registers a
+    /// new server when it opens. The registration's name, not its write
+    /// time: the heartbeat rewrites the file every 15 s. Null without Kimi
+    /// Code.
+    public static string? SignInStamp()
+    {
+        try
+        {
+            if (!Directory.Exists(Home)) return null;
+            var credentials = new FileInfo(Path.Combine(Home, "credentials", "kimi-code.json"));
+            var instances = new DirectoryInfo(Path.Combine(Home, "server", "instances"));
+            var server = instances.Exists
+                ? instances.EnumerateFiles("*.json").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault()?.Name
+                : null;
+            return $"{(credentials.Exists ? credentials.LastWriteTimeUtc.Ticks : 0)}|{server}";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             return null;
         }

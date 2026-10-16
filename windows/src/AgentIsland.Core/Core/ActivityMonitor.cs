@@ -170,6 +170,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     private void Tick()
     {
+        KimiUsageStore.Shared.NoticeSignIn();
         // One scan at a time; a kick that lands mid-scan queues exactly one
         // follow-up so the trailing write of a turn is never dropped.
         if (_scanInFlight)
