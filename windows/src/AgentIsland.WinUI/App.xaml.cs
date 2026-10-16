@@ -32,15 +32,16 @@ public sealed partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        UiThread.Capture();
+        Preferences.MigrateLegacyPrefix();
+        AppLanguageStore.ApplyAtStartup();
+        // The test window's cards read in the app's language too.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1")
         {
             _hoverPreview = new HoverCardPreview();
             _hoverPreview.Activate();
             return;
         }
-        UiThread.Capture();
-        Preferences.MigrateLegacyPrefix();
-        AppLanguageStore.ApplyAtStartup();
 #if !DEBUG
         // Debug runs stay out of the Run key.
         LaunchAtLogin.Repoint();

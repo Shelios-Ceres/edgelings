@@ -1,16 +1,19 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace AgentIsland.WinUI.Shell;
 
 /// The kits' control motion, switched on by their styles: tooltips (M14),
-/// dialogs (M15) and Pixel's drop-down lists (M13). Pixel steps ghosts on
-/// its 30-tick clock; Classic eases on its curves. Reduced: Pixel at once,
-/// Classic an 83-ms fade.
+/// dialogs (M15), Pixel's drop-down lists (M13), Classic's button press and
+/// the switches' reduced flip (M12). Pixel steps ghosts on its 30-tick
+/// clock; Classic eases on its curves. Reduced: Pixel at once, Classic an
+/// 83-ms fade.
 internal static class ControlMotion
 {
     public static readonly DependencyProperty TipProperty = DependencyProperty.RegisterAttached(
@@ -33,6 +36,37 @@ internal static class ControlMotion
             if (d is ComboBox box && e.NewValue is true) box.DropDownOpened += OnDropDownOpened;
         }));
 
+    public static readonly DependencyProperty SwitchProperty = DependencyProperty.RegisterAttached(
+        "Switch", typeof(bool), typeof(ControlMotion), new PropertyMetadata(false, (d, e) =>
+        {
+            if (d is ToggleSwitch toggle && e.NewValue is true) toggle.Loaded += OnSwitchLoaded;
+        }));
+
+    public static readonly DependencyProperty PressProperty = DependencyProperty.RegisterAttached(
+        "Press", typeof(bool), typeof(ControlMotion), new PropertyMetadata(false, (d, e) =>
+        {
+            if (d is not ButtonBase button || e.NewValue is not true) return;
+            button.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, args) =>
+            {
+                if (args.GetCurrentPoint(button).Properties.IsLeftButtonPressed) Press(button, down: true);
+            }), handledEventsToo: true);
+            var release = new PointerEventHandler((_, _) => Press(button, down: false));
+            button.AddHandler(UIElement.PointerReleasedEvent, release, handledEventsToo: true);
+            button.AddHandler(UIElement.PointerCaptureLostEvent, release, handledEventsToo: true);
+            button.AddHandler(UIElement.PointerCanceledEvent, release, handledEventsToo: true);
+        }));
+
+    // The press playing on each button, so a release takes over from the frame on screen.
+    private static readonly ConditionalWeakTable<UIElement, UiMoment> Pressing = new();
+
+    public static bool GetSwitch(DependencyObject element) => (bool)element.GetValue(SwitchProperty);
+
+    public static void SetSwitch(DependencyObject element, bool value) => element.SetValue(SwitchProperty, value);
+
+    public static bool GetPress(DependencyObject element) => (bool)element.GetValue(PressProperty);
+
+    public static void SetPress(DependencyObject element, bool value) => element.SetValue(PressProperty, value);
+
     public static bool GetTip(DependencyObject element) => (bool)element.GetValue(TipProperty);
 
     public static void SetTip(DependencyObject element, bool value) => element.SetValue(TipProperty, value);
@@ -44,6 +78,39 @@ internal static class ControlMotion
     public static bool GetDropDown(DependencyObject element) => (bool)element.GetValue(DropDownProperty);
 
     public static void SetDropDown(DependencyObject element, bool value) => element.SetValue(DropDownProperty, value);
+
+    // MARK: - M12 switch and press
+
+    /// The kits play a switch's flip in its ToggleStates transitions (Off to
+    /// On and back); under reduced motion it flips at once, so a switch
+    /// loading then leaves those two out. A drag's own slide stays.
+    private static void OnSwitchLoaded(object sender, RoutedEventArgs e)
+    {
+        if (!Motion.ReducedMotion || sender is not ToggleSwitch toggle || VisualTreeHelper.GetChildrenCount(toggle) == 0
+            || VisualTreeHelper.GetChild(toggle, 0) is not FrameworkElement root) return;
+        foreach (var group in VisualStateManager.GetVisualStateGroups(root).Where(group => group.Name == "ToggleStates"))
+        {
+            foreach (var flip in group.Transitions.Where(t => t.From is "Off" or "On" && t.To is "Off" or "On").ToList()) group.Transitions.Remove(flip);
+        }
+    }
+
+    /// Classic's press: a button shrinks to 0.96 over 83 ms and comes back
+    /// over 167, both on out, from the scale on screen. Reduced: no scale.
+    internal static void Press(UIElement button, bool down)
+    {
+        if (Motion.ReducedMotion) return;
+        if (Pressing.TryGetValue(button, out var running)) running.Stop();
+        var from = (double)button.Scale.X;
+        var to = down ? 0.96 : 1.0;
+        if (Math.Abs(from - to) < 1e-4) return;
+        if (button is FrameworkElement element) button.CenterPoint = new Vector3((float)element.ActualWidth / 2, (float)element.ActualHeight / 2, 0);
+        var length = down ? 83.0 : 167.0;
+        Pressing.AddOrUpdate(button, UiMoment.Play(length, t =>
+        {
+            var scale = (float)(from + (to - from) * Motion.Out(t / length));
+            button.Scale = new Vector3(scale, scale, 1);
+        }));
+    }
 
     // MARK: - M14 tooltip
 
@@ -253,7 +320,7 @@ internal static class ControlMotion
     }
 
     /// A named part of a control's template, found in its visual tree.
-    private static T? Find<T>(DependencyObject root, string name) where T : DependencyObject
+    internal static T? Find<T>(DependencyObject root, string name) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {

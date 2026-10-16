@@ -355,6 +355,14 @@ internal sealed class HoverCardPreview : Window
             await Film(Path.Combine(directory, $"m3-open-{name}.png"), card, () => ShowTarget(0));
             await Film(Path.Combine(directory, $"m3-switch-{name}.png"), card, () => ShowTarget(1));
             await Film(Path.Combine(directory, $"m3-close-{name}.png"), card, () => _card.Hide(animated: true));
+            // M4: Codex's card refreshes in place: a meter climbs past 90 %,
+            // and its phase and detail change.
+            ShowTarget(1);
+            UiMoment.Finish();
+            await Task.Delay(500);
+            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-refresh-{name}.png"), () =>
+                _card.Show(new[] { (Refreshed(), Swatches[1]) }, _pixel, characterRight: true, Anchor(1), Area, Motion.ReducedMotion), _pixel, Crop(card));
+            _card.Hide();
             var bubble = new Rect(area.Right - 92 - 10 - 260, Anchor(0).Top - 70, 340, 190);
             _bubble ??= new SpeechBubble(_surface, inWindow: true);
             foreach (var kind in Enum.GetValues<LineKind>())
@@ -381,6 +389,36 @@ internal sealed class HoverCardPreview : Window
         }
         DebugTrace.Write("popup film saved in " + directory);
     }
+
+    /// This window's print, cut to `crop` (DIPs), for the hand clock's films.
+    private Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> Crop(Rect crop)
+    {
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
+        int x0 = (int)(crop.X * scale), y0 = (int)(crop.Y * scale), w = (int)(crop.Width * scale), h = (int)(crop.Height * scale);
+        return () =>
+        {
+            if (WindowPrint.Client(hwnd) is not { } shot) return new();
+            var (pixels, width, height) = shot;
+            var frame = new byte[w * h * 4];
+            for (var y = 0; y < h && y0 + y < height; y++)
+            {
+                Buffer.BlockCopy(pixels, ((y0 + y) * width + x0) * 4, frame, y * w * 4, Math.Min(w, width - x0) * 4);
+            }
+            return new() { (frame, x0, y0, w, h) };
+        };
+    }
+
+    /// Codex's card after a refresh: busier, and its 5-hour window past 90 %.
+    private static StatusCard Refreshed() => new(DisplayProvider.Codex, "Codex", "Editing files", "Synthetic edit · motion preview",
+        new("Tasks", "3 running", "3"),
+        new[]
+        {
+            new StatusMeter("5h", "93%", 0.93, 0.93, "Resets in 1h 38m"),
+            new StatusMeter("Week", "31%", 0.31, 0.31, "Resets in 4d 6h"),
+        },
+        new("Tokens", "Today 131K", "131K", "This month 2.4M", "2.4M"),
+        new[] { new StatusPhrase("2 reset cards · synthetic preview", new[] { "2" }) });
 
     /// One moment's frames, printed and cropped to `crop` (DIPs), in rows of eight.
     private async Task Film(string path, Rect crop, Action trigger)

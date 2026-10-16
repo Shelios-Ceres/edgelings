@@ -238,6 +238,7 @@
 
     <!-- Toggle: "Off" or "On", then a notched 40 x 20 track with a square knob. -->
     <Style x:Key="PixelToggleSwitchStyle" TargetType="ToggleSwitch">
+        <Setter Property="shell:ControlMotion.Switch" Value="True" />
         <Setter Property="Foreground" Value="{ThemeResource PixelText}" />
         <Setter Property="HorizontalAlignment" Value="Right" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -284,6 +285,62 @@
                                 </VisualState>
                             </VisualStateGroup>
                             <VisualStateGroup x:Name="ToggleStates">
+                                <!-- M12 flip: the knob steps 20 DIP on in3 (its left edge at 14, 20, 24, or
+                                     back at 14, 8, 4); the track and knob recolour on frame 2. -->
+                                <VisualStateGroup.Transitions>
+                                    <VisualTransition x:Name="OffToOnTransition" From="Off" To="On" GeneratedDuration="0">
+                                        <Storyboard>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="KnobTranslateTransform" Storyboard.TargetProperty="X">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0333" Value="10" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="16" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.1000" Value="20" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobBounds" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="1" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OuterBorder" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="0" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOn" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="1" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOff" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="0" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualTransition>
+                                    <VisualTransition x:Name="OnToOffTransition" From="On" To="Off" GeneratedDuration="0">
+                                        <Storyboard>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="KnobTranslateTransform" Storyboard.TargetProperty="X">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="20" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0333" Value="10" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="4" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.1000" Value="0" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobBounds" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="0" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OuterBorder" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="1" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOn" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="0" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOff" Storyboard.TargetProperty="Opacity">
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                            <DiscreteDoubleKeyFrame KeyTime="0:0:0.0667" Value="1" />
+                                        </DoubleAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualTransition>
+                                </VisualStateGroup.Transitions>
                                 <VisualState x:Name="Dragging" />
                                 <VisualState x:Name="Off" />
                                 <VisualState x:Name="On">
@@ -474,32 +531,18 @@
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Disabled" />
-                                <VisualState x:Name="Checked">
-                                    <VisualState.Setters>
-                                        <Setter Target="Down.Visibility" Value="Collapsed" />
-                                        <Setter Target="Up.Visibility" Value="Visible" />
-                                    </VisualState.Setters>
-                                </VisualState>
+                                <VisualState x:Name="Checked" />
                                 <VisualState x:Name="CheckedPointerOver">
                                     <VisualState.Setters>
-                                        <Setter Target="Down.Visibility" Value="Collapsed" />
-                                        <Setter Target="Up.Visibility" Value="Visible" />
                                         <Setter Target="ChevronBox.Background" Value="{ThemeResource PixelHover}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="CheckedPressed">
                                     <VisualState.Setters>
-                                        <Setter Target="Down.Visibility" Value="Collapsed" />
-                                        <Setter Target="Up.Visibility" Value="Visible" />
                                         <Setter Target="ChevronBox.Background" Value="{ThemeResource PixelPressed}" />
                                     </VisualState.Setters>
                                 </VisualState>
-                                <VisualState x:Name="CheckedDisabled">
-                                    <VisualState.Setters>
-                                        <Setter Target="Down.Visibility" Value="Collapsed" />
-                                        <Setter Target="Up.Visibility" Value="Visible" />
-                                    </VisualState.Setters>
-                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled" />
                             </VisualStateGroup>
                         </VisualStateManager.VisualStateGroups>
                         <Grid.ColumnDefinitions>
@@ -518,6 +561,7 @@
     </Style>
 
     <Style x:Key="PixelSettingsExpanderStyle" TargetType="tk:SettingsExpander">
+        <Setter Property="shell:ExpanderMotion.Enabled" Value="True" />
         <Setter Property="Background" Value="{ThemeResource PixelPaper}" />
         <Setter Property="BorderBrush" Value="{ThemeResource PixelLine}" />
         <Setter Property="Foreground" Value="{ThemeResource PixelText}" />
@@ -552,15 +596,18 @@
                                 <ContentPresenter Grid.Column="2" Content="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{ThemeResource PixelText}" />
                             </Grid>
                         </ToggleButton>
-                        <StackPanel Grid.Row="1" Margin="0,0,0,2" Visibility="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource PixelVisibleWhenTrue}}">
-                            <ContentPresenter Content="{TemplateBinding ItemsHeader}" />
-                            <ItemsRepeater x:Name="PART_ItemsRepeater" TabFocusNavigation="Local">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Orientation="Vertical" />
-                                </ItemsRepeater.Layout>
-                            </ItemsRepeater>
-                            <ContentPresenter Content="{TemplateBinding ItemsFooter}" />
-                        </StackPanel>
+                        <!-- Rows: ExpanderMotion shows, opens and closes them (M9). -->
+                        <shell:RevealPanel x:Name="Rows" Grid.Row="1" Visibility="Collapsed">
+                            <StackPanel Margin="0,0,0,2">
+                                <ContentPresenter Content="{TemplateBinding ItemsHeader}" />
+                                <ItemsRepeater x:Name="PART_ItemsRepeater" TabFocusNavigation="Local">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Vertical" />
+                                    </ItemsRepeater.Layout>
+                                </ItemsRepeater>
+                                <ContentPresenter Content="{TemplateBinding ItemsFooter}" />
+                            </StackPanel>
+                        </shell:RevealPanel>
                     </Grid>
                 </ControlTemplate>
             </Setter.Value>

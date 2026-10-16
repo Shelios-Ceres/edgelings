@@ -45,8 +45,9 @@ public sealed class PixelRule : Grid
 }
 
 /// The pixel kit's busy sign: six blocks around a 20-DIP square, one in the
-/// accent and the two behind it fading, stepping eight times a second; no
-/// smooth rotation.
+/// accent and the two behind it fading; the head steps clockwise every 4
+/// ticks of the 30-tick clock (M16), with no smooth rotation. With
+/// animations off it holds one frame.
 public sealed class PixelSpinner : Canvas
 {
     private static readonly (double X, double Y)[] Spots = { (8, 0), (16, 4), (16, 12), (8, 16), (0, 12), (0, 4) };
@@ -84,7 +85,7 @@ public sealed class PixelSpinner : Canvas
 
     private void Run()
     {
-        if (!_active || !IsLoaded)
+        if (!_active || !IsLoaded || Motion.ReducedMotion)
         {
             _timer?.Stop();
             return;
@@ -92,7 +93,7 @@ public sealed class PixelSpinner : Canvas
         if (_timer is null)
         {
             _timer = DispatcherQueue.CreateTimer();
-            _timer.Interval = TimeSpan.FromMilliseconds(125);
+            _timer.Interval = TimeSpan.FromMilliseconds(4 * Motion.TickMs);
             _timer.Tick += (_, _) =>
             {
                 _head = (_head + 1) % _blocks.Length;

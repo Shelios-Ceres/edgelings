@@ -131,9 +131,15 @@ internal sealed class PixelPlate : Canvas
 /// A quota bar in pixel blocks, the pixel theme's QuotaBar: the shown share
 /// fills whole blocks in the agent's colour (at least one when any is shown)
 /// over a track tinted with that colour; the warning ink once nearly used up.
+/// A new share steps there on count4 (M16): a quarter of the change a tick,
+/// rounded up to whole blocks; the ink turns on the tick it crosses its line.
 internal sealed class PixelBar : StackPanel, IQuotaBar
 {
     private readonly int _blocks;
+    private int? _filled;
+    private double _share;
+    private bool _warn;
+    private UiMoment? _count;
 
     /// 14 blocks on the drawer's cards, 30 (178 DIP) in Settings.
     public PixelBar(int blocks = 14)
@@ -148,13 +154,48 @@ internal sealed class PixelBar : StackPanel, IQuotaBar
     }
 
     /// ratio null means the window failed to load: a faded, empty track.
-    public void Set(double? ratio, Color color, bool warn, bool dark)
+    public void Set(double? ratio, Color color, bool warn, bool dark, Action<double, bool>? follow = null)
     {
-        var filled = ratio is { } r ? Math.Clamp((int)Math.Round(r * _blocks), r > 0 ? 1 : 0, _blocks) : 0;
-        var ink = warn ? Fluent.Resource<SolidColorBrush>("SystemFillColorCriticalBrush", dark).Color : color;
+        _count?.Stop();
+        var to = ratio is { } r ? Math.Clamp((int)Math.Round(r * _blocks), r > 0 ? 1 : 0, _blocks) : 0;
+        var critical = Fluent.Resource<SolidColorBrush>("SystemFillColorCriticalBrush", dark).Color;
+        var final = Math.Clamp(ratio ?? 0, 0, 1);
+        Opacity = ratio is null ? 0.5 : 1;
+        if (_filled is not { } from || from == to || Motion.ReducedMotion || !IsLoaded)
+        {
+            Paint(to, warn ? critical : color, dark);
+            _filled = to;
+            _share = final;
+            _warn = warn;
+            follow?.Invoke(final, warn);
+            return;
+        }
+        var line = QuotaCount.Line((double)from / _blocks, final, _warn, warn);
+        var step = (int)Math.Ceiling(Math.Abs(to - from) / 4.0);
+        var ticks = (int)Math.Ceiling(Math.Abs(to - from) / (double)step);
+        var sign = Math.Sign(to - from);
+        // The label keeps its old reading on frame 0, steps through the
+        // blocks' shares, and lands exact.
+        var start = _share;
+        _count = UiMoment.Play(ticks * Motion.TickMs, t =>
+        {
+            var k = Math.Min(Motion.Tick(t), ticks);
+            var blocks = k >= ticks ? to : from + sign * k * step;
+            var share = (double)blocks / _blocks;
+            var past = line is { } at && (sign > 0 ? share >= at : share <= at);
+            var shownWarn = line is null ? warn : past ? warn : !warn;
+            Paint(blocks, shownWarn ? critical : color, dark);
+            _filled = blocks;
+            _share = k == 0 ? start : k >= ticks ? final : share;
+            follow?.Invoke(_share, shownWarn);
+        });
+        _warn = warn;
+    }
+
+    private void Paint(int filled, Color ink, bool dark)
+    {
         var fill = new SolidColorBrush(ink);
         var track = new SolidColorBrush(Color.FromArgb((byte)(dark ? 0x40 : 0x2E), ink.R, ink.G, ink.B));
         for (var i = 0; i < _blocks; i++) ((Rectangle)Children[i]).Fill = i < filled ? fill : track;
-        Opacity = ratio is null ? 0.5 : 1;
     }
 }

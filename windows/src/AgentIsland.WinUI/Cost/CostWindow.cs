@@ -17,7 +17,7 @@ namespace AgentIsland.WinUI.Cost;
 /// Dollars are API list-price estimates; agents without published prices
 /// (Cursor, Kimi Code, DeepSeek) show tokens only, and Antigravity keeps no
 /// local log.
-internal sealed class CostWindow : Window
+internal sealed partial class CostWindow : Window
 {
     private enum Period
     {
@@ -93,6 +93,8 @@ internal sealed class CostWindow : Window
     /// window opens, and again on every switch.
     private void Build()
     {
+        _count?.Stop();
+        _glide?.Stop();
         using var english = Looks.English();
         var title = "Agent Island — " + L10n.Tr("Cost");
         var root = Content is null
@@ -141,7 +143,7 @@ internal sealed class CostWindow : Window
             _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
             {
                 _pending = false;
-                if (AppWindow.IsVisible) Render();
+                if (AppWindow.IsVisible) Recount();
             });
         };
         source.PropertyChanged += handler;
@@ -164,9 +166,10 @@ internal sealed class CostWindow : Window
         var periods = _periods;
         periods.SelectionChanged += (_, _) =>
         {
+            var before = _period;
             _period = (Period)Math.Max(0, periods.Items.IndexOf(periods.SelectedItem));
             Preferences.Set(PeriodKey, _period.ToString());
-            Render();
+            SwitchPeriod((int)before, (int)_period);
         };
 
         var header = new Grid { ColumnSpacing = 16, MaxWidth = 1100, Padding = new Thickness(40, _pixel ? 20 : 24, 40, 8) };
@@ -177,13 +180,17 @@ internal sealed class CostWindow : Window
         var titles = new StackPanel();
         titles.Children.Add(PageTitle(L10n.Tr("Cost")));
         titles.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.")));
+        _tabs = new Grid();
+        _tabMarker = TabMarker();
+        _tabs.Children.Add(_tabMarker);
+        _tabs.Children.Add(_periods);
         if (_pixel)
         {
-            titles.Children.Add(_periods);
+            titles.Children.Add(_tabs);
         }
         else
         {
-            titles.Children.Add(new Border { Style = Looks.Kit<Style>("TrackStyle"), Margin = new Thickness(0, 10, 0, 0), Child = _periods });
+            titles.Children.Add(new Border { Style = Looks.Kit<Style>("TrackStyle"), Margin = new Thickness(0, 10, 0, 0), Child = _tabs });
         }
         _periodRange.Style = Res<Style>("CaptionTextBlockStyle");
         _periodRange.Foreground = Res<Brush>("TextFillColorSecondaryBrush");
@@ -213,8 +220,23 @@ internal sealed class CostWindow : Window
 
     private void Render()
     {
-        using var english = Looks.English();
+        Commit(Compose());
+        Remember();
+    }
+
+    private void Commit(List<UIElement> page)
+    {
         _body.Children.Clear();
+        foreach (var part in page) _body.Children.Add(part);
+    }
+
+    /// The page for the chosen period, built apart from the window; its
+    /// numbers and chart columns are kept for counting (M17).
+    private List<UIElement> Compose()
+    {
+        using var english = Looks.English();
+        _numbers.Clear();
+        _columns.Clear();
         _scanned.Text = CostStore.Shared.LastUpdated is { } updated
             ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
             : L10n.Tr("Not scanned yet");
@@ -223,7 +245,7 @@ internal sealed class CostWindow : Window
         var shown = DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown).ToList();
         var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(SliceFor).ToList();
         UpdatePeriodCaption(slices);
-        _body.Children.Add(Totals(slices));
+        var page = new List<UIElement> { Totals(slices) };
 
         var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12, Margin = new Thickness(0, 8, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -238,7 +260,8 @@ internal sealed class CostWindow : Window
             Grid.SetColumn(cards[i], i % 2);
             grid.Children.Add(cards[i]);
         }
-        _body.Children.Add(grid);
+        page.Add(grid);
+        return page;
     }
 
     private void UpdatePeriodCaption(IReadOnlyList<Slice> slices)
@@ -319,11 +342,14 @@ internal sealed class CostWindow : Window
         var tokens = slices.Sum(s => billable ? s.Billable : s.Tokens);
         var busiest = slices.OrderByDescending(s => billable ? s.Billable : s.Tokens).FirstOrDefault();
         var scanned = slices.Any(s => s.AsOf is not null);
+        var tokensFormat = L10n.Tr("{0} tokens");
         var row = new Grid { ColumnSpacing = 12 };
         for (var i = 0; i < 3; i++) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        void Stat(int column, string label, string value, string caption, DisplayProvider? face = null)
+        void Stat(int column, string label, string value, string caption, DisplayProvider? face = null,
+            (string Key, double Value, Func<double, string> Format)? count = null, (string Key, double Value, Func<double, string> Format)? captionCount = null)
         {
             var number = new TextBlock { Text = value, Style = Res<Style>(_pixel ? "SubtitleTextBlockStyle" : "ClassicHeroTextStyle") };
+            if (count is { } counted) Counted(number, counted.Key, counted.Value, counted.Format);
             FrameworkElement shown = number;
             if (!_pixel && face is { } provider)
             {
@@ -337,15 +363,12 @@ internal sealed class CostWindow : Window
             }
             var labelText = new TextBlock { Text = label, Foreground = Res<Brush>("TextFillColorSecondaryBrush") };
             if (!_pixel) labelText.Style = Res<Style>("CaptionTextBlockStyle");
+            var captionText = new TextBlock { Text = caption, TextWrapping = TextWrapping.Wrap, Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") };
+            if (captionCount is { } countedCaption) Counted(captionText, countedCaption.Key, countedCaption.Value, countedCaption.Format);
             var card = Surface(new StackPanel
             {
                 Spacing = 2,
-                Children =
-                {
-                    labelText,
-                    shown,
-                    new TextBlock { Text = caption, TextWrapping = TextWrapping.Wrap, Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") },
-                },
+                Children = { labelText, shown, captionText },
             }, totals: true);
             Grid.SetColumn(card, column);
             row.Children.Add(card);
@@ -353,14 +376,17 @@ internal sealed class CostWindow : Window
         var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.Models).Count(Unpriced);
         Stat(0, L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
             ? L10n.TrFormat(unpriced == 1 ? "{0} model has no price and counts as $0" : "{0} models have no price and count as $0", unpriced)
-            : L10n.Tr("At API list prices"));
+            : L10n.Tr("At API list prices"),
+            count: scanned ? ("cost", spend, Formatting.Money) : null);
         Stat(1, L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
-            TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode));
+            TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode),
+            count: scanned ? ("tokens", tokens, CountedTokens) : null);
         var active = busiest is { } top && (billable ? top.Billable : top.Tokens) > 0;
         Stat(2, L10n.Tr("Busiest agent"),
             active ? ProviderIdentity.DisplayName(busiest!.Provider) : "—",
             active ? L10n.TrFormat("{0} tokens", Tokens(busiest!)) : L10n.Tr(scanned ? "No activity yet" : "Not scanned yet"),
-            active ? busiest!.Provider : null);
+            active ? busiest!.Provider : null,
+            captionCount: active ? ($"busiest-{busiest!.Provider}", billable ? busiest!.Billable : busiest!.Tokens, v => string.Format(tokensFormat, CountedTokens(v))) : null);
         return row;
     }
 
@@ -376,20 +402,33 @@ internal sealed class CostWindow : Window
         Grid.SetColumn(name, 1);
         head.Children.Add(name);
         var hero = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
-        hero.Children.Add(new TextBlock
+        var heroText = new TextBlock
         {
             Text = slice.AsOf is null ? "—" : slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice),
             Style = Res<Style>("SubtitleTextBlockStyle"),
             HorizontalAlignment = HorizontalAlignment.Right,
-        });
-        hero.Children.Add(new TextBlock
+        };
+        var sliceTokens = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? slice.Billable : slice.Tokens;
+        if (slice.AsOf is not null)
+        {
+            if (slice.Dollars) Counted(heroText, $"{slice.Provider}-spend", slice.Spend, Formatting.Money);
+            else Counted(heroText, $"{slice.Provider}-tokens", sliceTokens, CountedTokens);
+        }
+        hero.Children.Add(heroText);
+        var captionText = new TextBlock
         {
             Text = slice.AsOf is null ? L10n.Tr("Not scanned yet")
                 : slice.Dollars ? L10n.TrFormat("{0} tokens", Tokens(slice)) : L10n.Tr("tokens · billed by Cursor's own plan"),
             Style = Res<Style>("CaptionTextBlockStyle"),
             Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Right,
-        });
+        };
+        if (slice.AsOf is not null && slice.Dollars)
+        {
+            var tokensFormat = L10n.Tr("{0} tokens");
+            Counted(captionText, $"{slice.Provider}-tokens", sliceTokens, v => string.Format(tokensFormat, CountedTokens(v)));
+        }
+        hero.Children.Add(captionText);
         Grid.SetColumn(hero, 2);
         head.Children.Add(hero);
         panel.Children.Add(head);
@@ -445,7 +484,7 @@ internal sealed class CostWindow : Window
     /// Bars scaled to the period's largest, rounded more at the top, at
     /// most 22 wide and at least 6 tall; an idle hour or day is a faint dot.
     /// Each carries its value as a tooltip.
-    private static FrameworkElement Chart(Slice slice, Windows.UI.Color accent)
+    private FrameworkElement Chart(Slice slice, Windows.UI.Color accent)
     {
         var max = slice.Bars.Max(b => b.Value);
         var fill = new SolidColorBrush(accent);
@@ -475,13 +514,15 @@ internal sealed class CostWindow : Window
             ToolTipService.SetToolTip(column, Tip($"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}"));
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
+            var quiet = !(value > 0 && max > 0);
+            _columns.Add(new Column(slice.Provider, i, slice.Bars.Count, column, quiet ? 0 : column.Height, quiet));
         }
         return grid;
     }
 
     /// Under Pixel: stacks of 4-DIP blocks, at most 12 (72 DIP) in the
     /// agent's colour; an idle hour or day keeps one faint block.
-    private static FrameworkElement PixelChart(Slice slice, Windows.UI.Color accent)
+    private FrameworkElement PixelChart(Slice slice, Windows.UI.Color accent)
     {
         var max = slice.Bars.Max(b => b.Value);
         var dark = Brand.IsDark();
@@ -498,9 +539,13 @@ internal sealed class CostWindow : Window
             ToolTipService.SetToolTip(column, Tip($"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}"));
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
+            _columns.Add(new Column(slice.Provider, i, slice.Bars.Count, column, Math.Max(1, blocks), blocks == 0));
         }
         return grid;
     }
+
+    /// A counted token figure reads as the page does, in whole tokens.
+    private static string CountedTokens(double tokens) => Formatting.CompactTokens((long)Math.Round(tokens));
 
     private static FrameworkElement NoLogCard(DisplayProvider provider)
     {

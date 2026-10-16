@@ -55,6 +55,9 @@ internal sealed partial class SettingsWindow : Window
 
     public static void Open(DisplayProvider? focus = null)
     {
+        // A window already on screen moves to the agent (M19); one that is
+        // appearing opens with the agent ready.
+        var onScreen = _shared is { AppWindow.IsVisible: true };
         // A closed window was only hidden (Chrome.HideOnClose): it comes back
         // in the current look and language, on its last page.
         if (_shared is { AppWindow.IsVisible: false } hidden)
@@ -63,7 +66,7 @@ internal sealed partial class SettingsWindow : Window
             hidden._tick.Start();
         }
         _shared ??= new SettingsWindow();
-        if (focus is { } provider) _shared.Focus(provider);
+        if (focus is { } provider) _shared.Focus(provider, animate: onScreen);
         Shell.Chrome.Show(_shared);
     }
 
@@ -76,7 +79,7 @@ internal sealed partial class SettingsWindow : Window
         foreach (var page in Enum.GetValues<Page>())
         {
             if (page != Page.Agents || focus is null) window.SelectPage(page);
-            if (page == Page.Agents && focus is { } provider) window.Focus(provider);
+            if (page == Page.Agents && focus is { } provider) window.Focus(provider, animate: false);
             await Task.Delay(1500);
             if (window.Content is { } content) await Shell.Snapshot.SaveAsync(content, Path.Combine(directory, $"settings-{page}.png"));
             if (window._scroll.Content is UIElement body) await Shell.Snapshot.SaveAsync(body, Path.Combine(directory, $"settings-{page}-full.png"));
@@ -280,16 +283,28 @@ internal sealed partial class SettingsWindow : Window
         var icons = _pageIcons;
         var chosen = _pixel ? "PixelAccent" : "ClassicAccentText";
         var rest = Shell.Looks.Prefix + "Text";
-        list.SelectionChanged += (_, _) =>
+        list.SelectionChanged += (_, e) =>
         {
             if (list.SelectedIndex < 0) return;
             for (var i = 0; i < icons.Count; i++) icons[i].Foreground = Res<Brush>(i == list.SelectedIndex ? chosen : rest);
+            var before = e.RemovedItems.Count > 0 ? list.Items.IndexOf(e.RemovedItems[0]) : -1;
             Show((Page)list.SelectedIndex);
+            if (before >= 0 && AppWindow.IsVisible) PlaySwitch(before, list.SelectedIndex);
+            else
+            {
+                var next = _switched;
+                _switched = null;
+                next?.Invoke();
+            }
         };
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        body.Children.Add(_pages);
+        _nav = new Grid();
+        _slider = NavSlider();
+        _nav.Children.Add(_slider);
+        _nav.Children.Add(_pages);
+        body.Children.Add(_nav);
         var page = new Border { Style = Shell.Looks.Kit<Style>("LayerStyle"), Child = _scroll };
         Grid.SetColumn(page, 1);
         body.Children.Add(page);
@@ -354,20 +369,6 @@ internal sealed partial class SettingsWindow : Window
         _teardown.Add(() => source.PropertyChanged -= handler);
     }
 
-    private void Focus(DisplayProvider provider)
-    {
-        SelectPage(Page.Agents);
-        Show(Page.Agents);
-        if (!_agents.TryGetValue(provider, out var section)) return;
-        section.Expander.IsExpanded = true;
-        // After the expanded items have laid out, or the scroll falls short.
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-        {
-            section.Expander.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.1, AnimationDesired = true });
-            if (FocusManager.FindFirstFocusableElement(section.Expander) is Control control) control.Focus(FocusState.Keyboard);
-        });
-    }
-
     private void Tick()
     {
         if (_page != Page.Agents) return;
@@ -382,13 +383,20 @@ internal sealed partial class SettingsWindow : Window
         foreach (var section in _agents.Values) section.UpdateActivity();
     }
 
-    private void Show(Page page)
+    private void Show(Page page, bool keepOffset = false)
     {
         using var english = Shell.Looks.English();
         CloseToolTips();
         _page = page;
         Preferences.Set(PageKey, page.ToString());
         _agents.Clear();
+        _cards.Clear();
+        _hiddenRows.Clear();
+        _hiddenAgents = Array.Empty<DisplayProvider>();
+        _hiddenGroup = null;
+        _hiddenList = null;
+        _hiddenEye = null;
+        _hiddenCount = null;
         var body = new StackPanel { Spacing = CardGap, MaxWidth = 1000, Padding = new Thickness(40, 28, 40, 40) };
         switch (page)
         {
@@ -405,8 +413,9 @@ internal sealed partial class SettingsWindow : Window
                 BuildGeneral(body);
                 break;
         }
+        _body = body;
         SetPage(_scroll, body);
-        _scroll.ChangeView(null, 0, null, disableAnimation: true);
+        if (!keepOffset) _scroll.ChangeView(null, 0, null, disableAnimation: true);
     }
 
     /// Tooltips open in popups of their own and outlive their controls: a
@@ -436,16 +445,22 @@ internal sealed partial class SettingsWindow : Window
             _agents[provider] = section;
             section.Update(AgentReports.For(provider));
             section.UpdateActivity();
-            body.Children.Add(section.Expander);
+            var card = new Shell.RevealPanel { Child = section.Expander };
+            _cards[provider] = card;
+            body.Children.Add(card);
         }
         if (detected.Count > 0) body.Children.Add(Section(L10n.Tr("On this computer")));
         foreach (var provider in detected) Add(provider);
         if (missing.Count > 0) body.Children.Add(Section(L10n.Tr("Not detected")));
         foreach (var provider in missing) Add(provider);
+        _hiddenAgents = hidden;
         if (hidden.Count > 0)
         {
-            body.Children.Add(Section(L10n.Tr("Hidden agents")));
-            body.Children.Add(HiddenAgents(hidden));
+            var group = new StackPanel { Spacing = CardGap };
+            group.Children.Add(Section(L10n.Tr("Hidden agents")));
+            group.Children.Add(HiddenAgents(hidden));
+            _hiddenGroup = StartsSection(new Shell.RevealPanel { Child = group });
+            body.Children.Add(_hiddenGroup);
         }
     }
 
@@ -459,33 +474,23 @@ internal sealed partial class SettingsWindow : Window
         string.Join("|", groups.Select(group => string.Join(",", group)));
 
     // The groups the Agents page was built with; hiding, showing or
-    // reordering an agent rebuilds it, keeping its scroll and open sections.
+    // reordering an agent rebuilds it (Regroup), keeping its scroll and open
+    // sections.
     private string _agentGroups = "";
 
-    private void Regroup()
+    /// Hidden agents, collapsed into one list where each can come back. Its
+    /// count and eye are kept for M10.
+    private SettingsExpander HiddenAgents(IReadOnlyList<DisplayProvider> hidden)
     {
-        if (_page != Page.Agents || !AppWindow.IsVisible) return;
-        var (detected, missing, hidden) = AgentGroups();
-        if (GroupsKey(detected, missing, hidden) == _agentGroups) return;
-        var offset = _scroll.VerticalOffset;
-        var open = _agents.Where(pair => pair.Value.Expander.IsExpanded).Select(pair => pair.Key).ToList();
-        Show(Page.Agents);
-        foreach (var provider in open)
-        {
-            if (_agents.TryGetValue(provider, out var section)) section.Expander.IsExpanded = true;
-        }
-        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => _scroll.ChangeView(null, offset, null, disableAnimation: true));
-    }
-
-    /// Hidden agents, collapsed into one list where each can come back.
-    private static SettingsExpander HiddenAgents(IReadOnlyList<DisplayProvider> hidden)
-    {
+        _hiddenCount = new TextBlock { Text = L10n.TrFormat("{0} hidden", hidden.Count), LineHeight = 20, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
+        _hiddenEye = Icon("\uE890");
         var list = new SettingsExpander
         {
-            Header = L10n.TrFormat("{0} hidden", hidden.Count),
+            Header = _hiddenCount,
             Description = L10n.Tr("Out of the drawer, its menus and the Cost window"),
-            HeaderIcon = Icon("\uE890"),
+            HeaderIcon = _hiddenEye,
         };
+        _hiddenList = list;
         AutomationProperties.SetAutomationId(list, "Settings.Agents.Hidden");
         foreach (var provider in hidden)
         {
@@ -493,11 +498,14 @@ internal sealed partial class SettingsWindow : Window
             AutomationProperties.SetAutomationId(show, $"Settings.Agents.Hidden.{provider.RawValue()}");
             AutomationProperties.SetName(show, L10n.TrFormat("Show {0}", ProviderIdentity.DisplayName(provider)));
             var row = new SettingsCard { Header = ProviderIdentity.DisplayName(provider), HeaderIcon = Mark(provider), Content = show };
-            // Under Classic each sits in its 24-DIP puck.
+            _hiddenRows[provider] = row;
+            // Under Classic each sits in its 24-DIP puck; the last row's
+            // corners follow the card's, for M19's glow.
             if (!Shell.Looks.Pixel)
             {
                 var dark = Shell.Brand.IsDark();
                 Shell.Puck.SetTint(row, new SolidColorBrush(Shell.ClassicTokens.Tint(Shell.ClassicTokens.Identity(provider, dark), dark)));
+                if (provider == hidden[^1]) row.CornerRadius = new CornerRadius(0, 0, 13, 13);
             }
             list.Items.Add(row);
         }

@@ -70,6 +70,10 @@ internal static class DebugHooks
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_FILM") is { Length: > 0 } film) drawer.DebugFilm(film);
         // AGENTISLAND_DEBUG_CONTROL_FILM=<dir>: a tooltip's, a drop-down's and a dialog's motion.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_CONTROL_FILM") is { Length: > 0 } controlFilm) _ = SettingsWindow.FilmControlsAsync(controlFilm);
+        // AGENTISLAND_DEBUG_COST_FILM=<dir>: the Cost window's period switches and a scan's count.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_COST_FILM") is { Length: > 0 } costFilm) _ = Cost.CostWindow.FilmAsync(costFilm);
+        // AGENTISLAND_DEBUG_SETTINGS_FILM=<dir>: Settings' page switch, expanders, regrouping and arrival.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_SETTINGS_FILM") is { Length: > 0 } settingsFilm) _ = SettingsWindow.FilmSettingsAsync(settingsFilm);
         // AGENTISLAND_DEBUG_MENU_FILM=<dir>: the drawer menu's motion frame by frame.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_MENU_FILM") is { Length: > 0 } menuFilm) drawer.DebugMenuFilm(menuFilm);
         // AGENTISLAND_DEBUG_DRAWER_MOMENTS=1: every drawer moment, live.

@@ -103,26 +103,34 @@ internal static class FaceBitmap
     }
 }
 
-/// The Classic busy sign: an accent face whose eyes glance left, back,
-/// right and back, 0.4 s each; still with animations off.
+/// The Classic busy sign (M16): an accent face whose eyes glance left, then
+/// right, and back over 1.6 s on inOut, blinking near the end of each look.
+/// It runs only while busy and on screen, and holds still with animations
+/// off.
 public sealed class FaceSpinner : Grid
 {
     private const double Size = 20;
-    private static readonly double[] Glances = { -0.06, 0, 0.06, 0 };
+    private const double Loop = 1600;
+    // Where the eyes look (DIP) at each share of the loop, eased as a whole.
+    private static readonly (double At, double Value)[] Glance = { (0, 0), (0.15, -1.5), (0.35, -1.5), (0.5, 1.5), (0.7, 1.5), (0.85, 0), (1, 0) };
+    // How open they are at each share of the loop.
+    private static readonly (double At, double Value)[] Blink = { (0, 1), (0.86, 1), (0.9, 0.16), (0.94, 1), (1, 1) };
     private readonly TranslateTransform _look = new();
-    private readonly Windows.UI.ViewManagement.UISettings _settings = new();
-    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _timer;
+    private readonly ScaleTransform _blink = new();
+    private readonly System.Diagnostics.Stopwatch _clock = new();
     private bool _active;
-    private int _step;
+    private bool _running;
 
     public FaceSpinner()
     {
         Width = Height = Size;
         var dark = Brand.IsDark();
         Children.Add(new Ellipse { Fill = ClassicTokens.Brush("Accent", dark) });
-        var eyes = new Grid { RenderTransform = _look };
         var w = 0.17 * Size;
         var h = 0.28 * Size;
+        // The blink closes the eyes about their own middle.
+        _blink.CenterY = Size * (0.5 - 0.17) + h / 2;
+        var eyes = new Grid { RenderTransform = new TransformGroup { Children = { _blink, _look } } };
         foreach (var side in new[] { -1, 1 })
         {
             eyes.Children.Add(new Ellipse
@@ -137,7 +145,7 @@ public sealed class FaceSpinner : Grid
         }
         Children.Add(eyes);
         Loaded += (_, _) => Run();
-        Unloaded += (_, _) => _timer?.Stop();
+        Unloaded += (_, _) => Stop();
     }
 
     public bool IsActive
@@ -152,23 +160,42 @@ public sealed class FaceSpinner : Grid
 
     private void Run()
     {
-        if (!_active || !IsLoaded || !_settings.AnimationsEnabled)
+        if (!_active || !IsLoaded || Motion.ReducedMotion)
         {
-            _timer?.Stop();
-            _look.X = 0;
+            Stop();
             return;
         }
-        if (_timer is null)
+        if (_running) return;
+        _running = true;
+        _clock.Restart();
+        CompositionTarget.Rendering += OnRendering;
+    }
+
+    /// Stopped, not paused: the face rests looking ahead.
+    private void Stop()
+    {
+        if (_running) CompositionTarget.Rendering -= OnRendering;
+        _running = false;
+        _look.X = 0;
+        _blink.ScaleY = 1;
+    }
+
+    private void OnRendering(object? sender, object e)
+    {
+        var share = _clock.Elapsed.TotalMilliseconds % Loop / Loop;
+        _look.X = Along(Glance, Motion.InOut(share));
+        _blink.ScaleY = Along(Blink, share);
+    }
+
+    private static double Along((double At, double Value)[] keys, double share)
+    {
+        for (var i = 1; i < keys.Length; i++)
         {
-            _timer = DispatcherQueue.CreateTimer();
-            _timer.Interval = TimeSpan.FromMilliseconds(400);
-            _timer.Tick += (_, _) =>
-            {
-                _step = (_step + 1) % Glances.Length;
-                _look.X = Glances[_step] * Size;
-            };
+            if (share > keys[i].At) continue;
+            var (at, value) = keys[i - 1];
+            return value + (keys[i].Value - value) * (share - at) / (keys[i].At - at);
         }
-        _timer.Start();
+        return keys[^1].Value;
     }
 }
 

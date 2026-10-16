@@ -1394,9 +1394,10 @@ internal sealed partial class DrawerWindow : Window
                     _slots[index].NextStep = 0;
                 });
                 // A click opens the character's agent in Settings; the shared
-                // character opens Grok's.
+                // character opens Grok's. Pixel's card goes in one frame: the
+                // click is deliberate, and Settings is the answer (M19).
                 _cardClose.Stop();
-                _card.Hide(animated: true);
+                _card.Hide(animated: _theme != CharacterTheme.Pixel);
                 _cardBot = null;
                 var provider = bot.Provider;
                 _queue.TryEnqueue(() => SettingsWindow.Open(provider));

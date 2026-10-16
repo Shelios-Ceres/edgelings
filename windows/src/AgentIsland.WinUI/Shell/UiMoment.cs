@@ -16,9 +16,17 @@ internal sealed class UiMoment
     private readonly Action? _done;
     private bool _running;
     private bool _landed;
+    private bool _stopped;
+    private double _startMs;
+
+    // Moments waiting for the hand clock, in the order they began.
+    private static readonly List<UiMoment> Pending = new();
 
     /// AGENTISLAND_DEBUG_POPUP_FILM: moments wait to be stepped by hand.
     internal static bool Manual { get; set; }
+
+    /// The films' hand clock: a moment begun by hand starts at its reading.
+    internal static double ManualMs { get; private set; }
 
     /// The moment that began last, for the film to step.
     internal static UiMoment? Latest { get; private set; }
@@ -44,7 +52,12 @@ internal sealed class UiMoment
             moment.Land();
             return moment;
         }
-        if (Manual) return moment;
+        if (Manual)
+        {
+            moment._startMs = ManualMs;
+            Pending.Add(moment);
+            return moment;
+        }
         moment._running = true;
         moment._clock.Start();
         CompositionTarget.Rendering += moment.OnRendering;
@@ -55,6 +68,7 @@ internal sealed class UiMoment
     /// takes over from the frame on screen.
     public void Stop()
     {
+        _stopped = true;
         if (!_running) return;
         _running = false;
         CompositionTarget.Rendering -= OnRendering;
@@ -64,9 +78,33 @@ internal sealed class UiMoment
     /// moment when ms reaches its end.
     internal void Step(double ms)
     {
-        if (_landed) return;
+        if (_landed || _stopped) return;
         _apply(Math.Min(ms, _durationMs));
         if (ms >= _durationMs) Land();
+    }
+
+    /// The hand clock moves to ms: every moment it holds takes its frame for
+    /// that reading, and moments they begin start from it.
+    internal static void Advance(double ms)
+    {
+        ManualMs = ms;
+        foreach (var moment in Pending.ToList()) moment.Step(ms - moment._startMs);
+        Pending.RemoveAll(moment => moment._landed || moment._stopped);
+    }
+
+    /// Whether any moment begun by hand has yet to land.
+    internal static bool AnyPending => Pending.Exists(moment => !moment._landed && !moment._stopped);
+
+    /// Lands every moment the hand clock holds, and those they begin.
+    internal static void Finish()
+    {
+        for (var i = 0; i < 20 && AnyPending; i++) Advance(ManualMs + 5000);
+    }
+
+    internal static void ResetClock()
+    {
+        ManualMs = 0;
+        Pending.Clear();
     }
 
     private void OnRendering(object? sender, object e)

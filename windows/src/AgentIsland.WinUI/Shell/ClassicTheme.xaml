@@ -30,6 +30,7 @@
 
     <!-- Buttons: Fluent's, as pills on field with the card edge. -->
     <Style x:Key="ClassicButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="shell:ControlMotion.Press" Value="True" />
         <Setter Property="CornerRadius" Value="16" />
         <Setter Property="Padding" Value="16,5,16,6" />
         <Setter Property="MinWidth" Value="72" />
@@ -44,6 +45,7 @@
     <Style TargetType="Button" BasedOn="{StaticResource ClassicButtonStyle}" />
 
     <Style x:Key="ClassicAccentButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+        <Setter Property="shell:ControlMotion.Press" Value="True" />
         <Setter Property="CornerRadius" Value="16" />
         <Setter Property="Padding" Value="16,5,16,6" />
         <Setter Property="MinWidth" Value="72" />
@@ -68,6 +70,7 @@
     </Style>
 
     <Style x:Key="ClassicDropDownButtonStyle" TargetType="DropDownButton">
+        <Setter Property="shell:ControlMotion.Press" Value="True" />
         <Setter Property="CornerRadius" Value="16" />
         <Setter Property="Padding" Value="16,5,12,6" />
         <Setter Property="MinHeight" Value="32" />
@@ -81,8 +84,10 @@
     <Style TargetType="DropDownButton" BasedOn="{StaticResource ClassicDropDownButtonStyle}" />
 
     <!-- Toggle: the label, then a 44 x 24 pill whose knob wears the dot bot's eyes,
-         asleep while off and awake, looking along, while on. Fluent's slide stays. -->
+         asleep while off and awake, looking along, while on. M12's flip is the kit's;
+         Fluent's slide stays for a drag. -->
     <Style x:Key="ClassicToggleSwitchStyle" TargetType="ToggleSwitch">
+        <Setter Property="shell:ControlMotion.Switch" Value="True" />
         <Setter Property="Foreground" Value="{ThemeResource ClassicText}" />
         <Setter Property="HorizontalAlignment" Value="Right" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -233,25 +238,266 @@
                                             </DoubleAnimationUsingKeyFrames>
                                         </Storyboard>
                                     </VisualTransition>
+                                    <!-- M12 flip: the knob pops 20 DIP over 333 ms as it stretches to 24 wide at 40 %;
+                                         the track and knob recolour over 167 ms; the eyes fall asleep from 167 ms,
+                                         or wake from 200 ms switching on. -->
                                     <VisualTransition x:Name="OnToOffTransition" From="On" To="Off" GeneratedDuration="0">
                                         <Storyboard>
-                                            <RepositionThemeAnimation TargetName="SwitchKnob" FromHorizontalOffset="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=TemplateSettings.KnobOnToOffOffset}" />
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="KnobTranslateTransform" Storyboard.TargetProperty="X">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="20" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="15.689" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0333" Value="11.921" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0499" Value="8.679" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0666" Value="5.939" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0833" Value="3.674" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0999" Value="1.853" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1166" Value="0.44" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1332" Value="-0.604" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1498" Value="-1.318" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1665" Value="-1.748" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1832" Value="-1.937" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1998" Value="-1.931" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2165" Value="-1.776" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2331" Value="-1.516" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2497" Value="-1.193" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2664" Value="-0.849" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2831" Value="-0.524" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2997" Value="-0.252" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3163" Value="-0.068" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3330" Value="0" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="KnobStretch" Storyboard.TargetProperty="ScaleX">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="1.002" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0333" Value="1.007" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0499" Value="1.018" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0666" Value="1.035" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0833" Value="1.059" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0999" Value="1.094" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1166" Value="1.142" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1332" Value="1.21" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1498" Value="1.302" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1665" Value="1.278" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1832" Value="1.202" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1998" Value="1.14" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2165" Value="1.095" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2331" Value="1.062" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2497" Value="1.039" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2664" Value="1.023" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2831" Value="1.012" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2997" Value="1.005" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3163" Value="1.001" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3330" Value="1" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobBounds" Storyboard.TargetProperty="Opacity">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="0" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OuterBorder" Storyboard.TargetProperty="Opacity">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="1" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOn" Storyboard.TargetProperty="Opacity">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="0" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOff" Storyboard.TargetProperty="Opacity">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="1" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OffEyeLeft" Storyboard.TargetProperty="Height" EnableDependentAnimation="True">
+                                                <DiscreteDoubleKeyFrame KeyTime="0" Value="5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1837" Value="3.596" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2004" Value="2.641" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2171" Value="2.087" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2338" Value="1.79" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2505" Value="1.635" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2672" Value="1.557" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2839" Value="1.52" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3006" Value="1.505" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3173" Value="1.501" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3340" Value="1.5" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OffEyeRight" Storyboard.TargetProperty="Height" EnableDependentAnimation="True">
+                                                <DiscreteDoubleKeyFrame KeyTime="0" Value="5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1837" Value="3.596" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2004" Value="2.641" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2171" Value="2.087" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2338" Value="1.79" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2505" Value="1.635" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2672" Value="1.557" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2839" Value="1.52" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3006" Value="1.505" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3173" Value="1.501" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3340" Value="1.5" />
+                                            </DoubleAnimationUsingKeyFrames>
                                         </Storyboard>
                                     </VisualTransition>
                                     <VisualTransition x:Name="OffToOnTransition" From="Off" To="On" GeneratedDuration="0">
                                         <Storyboard>
-                                            <RepositionThemeAnimation TargetName="SwitchKnob" FromHorizontalOffset="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=TemplateSettings.KnobOffToOnOffset}" />
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="KnobTranslateTransform" Storyboard.TargetProperty="X">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="4.311" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0333" Value="8.079" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0499" Value="11.321" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0666" Value="14.061" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0833" Value="16.326" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0999" Value="18.147" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1166" Value="19.56" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1332" Value="20.604" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1498" Value="21.318" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1665" Value="21.748" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1832" Value="21.937" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1998" Value="21.931" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2165" Value="21.776" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2331" Value="21.516" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2497" Value="21.193" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2664" Value="20.849" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2831" Value="20.524" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2997" Value="20.252" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3163" Value="20.068" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3330" Value="20" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="KnobStretch" Storyboard.TargetProperty="ScaleX">
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="1.002" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0333" Value="1.007" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0499" Value="1.018" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0666" Value="1.035" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0833" Value="1.059" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0999" Value="1.094" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1166" Value="1.142" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1332" Value="1.21" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1498" Value="1.302" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1665" Value="1.278" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1832" Value="1.202" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1998" Value="1.14" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2165" Value="1.095" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2331" Value="1.062" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2497" Value="1.039" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2664" Value="1.023" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2831" Value="1.012" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2997" Value="1.005" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3163" Value="1.001" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3330" Value="1" />
+                                            </DoubleAnimationUsingKeyFrames>
                                             <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobBounds" Storyboard.TargetProperty="Opacity">
-                                                <LinearDoubleKeyFrame KeyTime="{StaticResource ControlFasterAnimationDuration}" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="1" />
                                             </DoubleAnimationUsingKeyFrames>
                                             <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OuterBorder" Storyboard.TargetProperty="Opacity">
-                                                <LinearDoubleKeyFrame KeyTime="{StaticResource ControlFasterAnimationDuration}" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="0" />
                                             </DoubleAnimationUsingKeyFrames>
                                             <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOn" Storyboard.TargetProperty="Opacity">
-                                                <LinearDoubleKeyFrame KeyTime="{StaticResource ControlFasterAnimationDuration}" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="1" />
                                             </DoubleAnimationUsingKeyFrames>
                                             <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SwitchKnobOff" Storyboard.TargetProperty="Opacity">
-                                                <LinearDoubleKeyFrame KeyTime="{StaticResource ControlFasterAnimationDuration}" Value="0" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0000" Value="1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0167" Value="0.9" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0334" Value="0.8" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0501" Value="0.7" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0668" Value="0.6" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.0835" Value="0.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1002" Value="0.4" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1169" Value="0.3" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1336" Value="0.2" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1503" Value="0.1" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.1670" Value="0" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OnEyeLeft" Storyboard.TargetProperty="Height" EnableDependentAnimation="True">
+                                                <DiscreteDoubleKeyFrame KeyTime="0" Value="1.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2000" Value="1.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2167" Value="2.914" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2334" Value="3.961" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2501" Value="4.676" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2668" Value="5.106" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2835" Value="5.306" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3002" Value="5.338" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3169" Value="5.265" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3336" Value="5.149" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3503" Value="5.044" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3670" Value="5" />
+                                            </DoubleAnimationUsingKeyFrames>
+                                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="OnEyeRight" Storyboard.TargetProperty="Height" EnableDependentAnimation="True">
+                                                <DiscreteDoubleKeyFrame KeyTime="0" Value="1.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2000" Value="1.5" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2167" Value="2.914" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2334" Value="3.961" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2501" Value="4.676" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2668" Value="5.106" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.2835" Value="5.306" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3002" Value="5.338" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3169" Value="5.265" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3336" Value="5.149" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3503" Value="5.044" />
+                                                <LinearDoubleKeyFrame KeyTime="0:0:0.3670" Value="5" />
                                             </DoubleAnimationUsingKeyFrames>
                                         </Storyboard>
                                     </VisualTransition>
@@ -319,7 +565,10 @@
                                     </StackPanel>
                                 </Border>
                                 <Grid.RenderTransform>
-                                    <TranslateTransform x:Name="KnobTranslateTransform" />
+                                    <TransformGroup>
+                                        <ScaleTransform x:Name="KnobStretch" CenterX="12" />
+                                        <TranslateTransform x:Name="KnobTranslateTransform" />
+                                    </TransformGroup>
                                 </Grid.RenderTransform>
                             </Grid>
                         </Grid>
@@ -415,10 +664,14 @@
     <Style x:Key="ClassicExpanderItemStyle" TargetType="tk:SettingsCard" BasedOn="{StaticResource ClassicSettingsCardStyle}">
         <Setter Property="MinHeight" Value="52" />
         <Setter Property="Padding" Value="64,8,58,8" />
+        <!-- Rows sit on the expander's paper; a row lit by M19's glow fills, the list's
+             last one within the card's rounded bottom. -->
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="0" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="tk:SettingsCard">
-                    <Grid MinHeight="{TemplateBinding MinHeight}">
+                    <Grid MinHeight="{TemplateBinding MinHeight}" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
                         <Rectangle Height="1" Margin="64,0,0,0" VerticalAlignment="Top" Fill="{ThemeResource ClassicLineSoft}" />
                         <Grid Padding="{TemplateBinding Padding}" ColumnSpacing="14">
                             <Grid.ColumnDefinitions>
@@ -472,28 +725,18 @@
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Disabled" />
-                                <VisualState x:Name="Checked">
-                                    <VisualState.Setters>
-                                        <Setter Target="Chevron.Glyph" Value="&#xE70E;" />
-                                    </VisualState.Setters>
-                                </VisualState>
+                                <VisualState x:Name="Checked" />
                                 <VisualState x:Name="CheckedPointerOver">
                                     <VisualState.Setters>
-                                        <Setter Target="Chevron.Glyph" Value="&#xE70E;" />
                                         <Setter Target="ChevronBox.Background" Value="{ThemeResource ClassicHover}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="CheckedPressed">
                                     <VisualState.Setters>
-                                        <Setter Target="Chevron.Glyph" Value="&#xE70E;" />
                                         <Setter Target="ChevronBox.Background" Value="{ThemeResource ClassicPressed}" />
                                     </VisualState.Setters>
                                 </VisualState>
-                                <VisualState x:Name="CheckedDisabled">
-                                    <VisualState.Setters>
-                                        <Setter Target="Chevron.Glyph" Value="&#xE70E;" />
-                                    </VisualState.Setters>
-                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled" />
                             </VisualStateGroup>
                         </VisualStateManager.VisualStateGroups>
                         <Grid.ColumnDefinitions>
@@ -511,6 +754,7 @@
     </Style>
 
     <Style x:Key="ClassicSettingsExpanderStyle" TargetType="tk:SettingsExpander">
+        <Setter Property="shell:ExpanderMotion.Enabled" Value="True" />
         <Setter Property="Background" Value="{ThemeResource ClassicPaper}" />
         <Setter Property="BorderBrush" Value="{ThemeResource ClassicEdge}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -547,16 +791,19 @@
                                 <ContentPresenter Grid.Column="2" Content="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{ThemeResource ClassicText}" />
                             </Grid>
                         </ToggleButton>
-                        <StackPanel Grid.Row="1" Visibility="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource ClassicVisibleWhenTrue}}">
-                            <Rectangle Height="1" Fill="{ThemeResource ClassicLineSoft}" />
-                            <ContentPresenter Content="{TemplateBinding ItemsHeader}" />
-                            <ItemsRepeater x:Name="PART_ItemsRepeater" TabFocusNavigation="Local">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Orientation="Vertical" />
-                                </ItemsRepeater.Layout>
-                            </ItemsRepeater>
-                            <ContentPresenter Content="{TemplateBinding ItemsFooter}" />
-                        </StackPanel>
+                        <!-- Rows: ExpanderMotion shows, opens and closes them (M9). -->
+                        <shell:RevealPanel x:Name="Rows" Grid.Row="1" Visibility="Collapsed">
+                            <StackPanel>
+                                <Rectangle Height="1" Fill="{ThemeResource ClassicLineSoft}" />
+                                <ContentPresenter Content="{TemplateBinding ItemsHeader}" />
+                                <ItemsRepeater x:Name="PART_ItemsRepeater" TabFocusNavigation="Local">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Vertical" />
+                                    </ItemsRepeater.Layout>
+                                </ItemsRepeater>
+                                <ContentPresenter Content="{TemplateBinding ItemsFooter}" />
+                            </StackPanel>
+                        </shell:RevealPanel>
                     </Grid>
                 </ControlTemplate>
             </Setter.Value>

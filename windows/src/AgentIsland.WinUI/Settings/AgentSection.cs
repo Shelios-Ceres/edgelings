@@ -146,14 +146,16 @@ internal sealed class AgentSection
             card.Visibility = Visibility.Visible;
             card.Header = MeterTitle(meter.Label);
             SetDescription(card, meter.Resets);
-            var warn = meter.Used >= 0.9;
-            bar.Set(meter.Shown, Accent(), warn, Brand.IsDark());
-            value.Text = meter.Value;
-            if (!_pixel)
+            // A new share counts in (M16), its percentage and warning with it.
+            var text = meter.Value;
+            var final = meter.Shown ?? 0;
+            bar.Set(meter.Shown, Accent(), meter.Used >= 0.9, Brand.IsDark(), (share, warn) =>
             {
+                value.Text = QuotaCount.Percent(share, final, text);
+                if (_pixel) return;
                 value.Foreground = Res<Brush>(warn ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
                 value.FontWeight = warn ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-            }
+            });
         }
         _tokens.Visibility = report.Tokens is null ? Visibility.Collapsed : Visibility.Visible;
         if (report.Tokens is { } tokens)
@@ -184,6 +186,21 @@ internal sealed class AgentSection
 
         _activity.Visibility = report.Detected ? Visibility.Visible : Visibility.Collapsed;
         _updating = false;
+    }
+
+    /// AGENTISLAND_DEBUG_SETTINGS_FILM: the first meter counts to a share, as
+    /// a quota refresh would (M16); false without a meter.
+    internal bool DebugCount(double share)
+    {
+        if (_meters.FirstOrDefault(meter => meter.Card.Visibility == Visibility.Visible) is not { Bar: { } bar, Value: { } value }) return false;
+        bar.Set(share, Accent(), share >= 0.9, Brand.IsDark(), (shown, warn) =>
+        {
+            value.Text = $"{(int)Math.Round(shown * 100)}%";
+            if (_pixel) return;
+            value.Foreground = Res<Brush>(warn ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
+            value.FontWeight = warn ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        });
+        return true;
     }
 
     /// The live line: the character's phase and detail, and the project of

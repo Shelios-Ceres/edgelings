@@ -48,15 +48,15 @@ internal static class SettingsUi
     {
         if (!Looks.Pixel)
         {
-            return new TextBlock
+            return StartsSection(new TextBlock
             {
                 Text = text,
                 Style = Res<Style>("BodyStrongTextBlockStyle"),
                 Margin = new Thickness(1, 16, 0, 2),
-            };
+            });
         }
         var accent = Res<Brush>("PixelAccent");
-        return new StackPanel
+        return StartsSection(new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
@@ -66,8 +66,19 @@ internal static class SettingsUi
                 new Rectangle { Width = 4, Height = 4, Fill = accent, VerticalAlignment = VerticalAlignment.Center },
                 new TextBlock { Text = text, Foreground = accent, Style = Res<Style>("PixelBodyTextStyle") },
             },
-        };
+        });
     }
+
+    // Where a page's sections start, for its entrance (M8).
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, object> SectionStarts = new();
+
+    public static T StartsSection<T>(T element) where T : UIElement
+    {
+        SectionStarts.AddOrUpdate(element, element);
+        return element;
+    }
+
+    public static bool IsSectionStart(UIElement element) => SectionStarts.TryGetValue(element, out _);
 
     /// A page that scrolls up and down only.
     public static ScrollViewer PageScroller()

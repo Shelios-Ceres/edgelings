@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using static AgentIsland.WinUI.Settings.SettingsUi;
 
 namespace AgentIsland.WinUI.Settings;
@@ -43,6 +44,9 @@ internal static class OrderList
             SelectionMode = ListViewSelectionMode.None,
             TabNavigation = KeyboardNavigationMode.Local,
         };
+        // Pixel never slides: rows make room for a drag in one frame (M11's
+        // fallback, since ListView's own reorder can't be stepped).
+        if (Looks.Pixel) list.ItemContainerTransitions = new TransitionCollection();
         AutomationProperties.SetAutomationId(list, "Settings.Drawer.Order");
         AutomationProperties.SetName(list, L10n.Tr("Order"));
 
@@ -79,6 +83,13 @@ internal static class OrderList
             var from = items.IndexOf(entry);
             var to = from + step;
             if (from < 0 || to < 0 || to >= items.Count) return;
+            var other = items[to];
+            // M11: where the two rows stand before they swap; the list's own
+            // reorder animation would fight the swap's.
+            var before = (Top(list, entry), Top(list, other));
+            var panel = list.ItemsPanelRoot;
+            var transitions = panel?.ChildrenTransitions;
+            if (panel is not null) panel.ChildrenTransitions = new TransitionCollection();
             // The same removal and insertion a drop makes.
             items.RemoveAt(from);
             items.Insert(to, entry);
@@ -86,7 +97,9 @@ internal static class OrderList
             list.DispatcherQueue.TryEnqueue(() =>
             {
                 list.UpdateLayout();
+                if (panel is not null) panel.ChildrenTransitions = transitions;
                 Refresh();
+                Swap(list, entry, other, before);
                 // The moved row has a new container; the keyboard follows it.
                 if (focus == FocusState.Unfocused
                     || list.ContainerFromItem(entry) is not ListViewItem { ContentTemplateRoot: Grid { Tag: Row moved } }) return;
@@ -127,6 +140,55 @@ internal static class OrderList
             }
         };
         return list;
+    }
+
+    /// An entry's row's top in the list, or null while it has no row.
+    private static double? Top(ListView list, object entry) =>
+        list.ContainerFromItem(entry) is ListViewItem container ? container.TransformToVisual(list).TransformPoint(default).Y : null;
+
+    /// M11 arrow move: the two rows glide from where they stood into their
+    /// new places. Pixel steps in3 (half, then 15 % of the way left), the
+    /// moving row riding 2 DIP up on the paper and shadow it wears when
+    /// dragged; Classic glides both over 333 ms on inOut. Reduced: at once.
+    private static void Swap(ListView list, object entry, object other, (double? Entry, double? Other) before)
+    {
+        if (Motion.ReducedMotion
+            || list.ContainerFromItem(entry) is not ListViewItem moving || list.ContainerFromItem(other) is not ListViewItem neighbour
+            || before.Entry is not { } entryTop || before.Other is not { } otherTop
+            || Top(list, entry) is not { } entryNow || Top(list, other) is not { } neighbourNow) return;
+        var rise = entryTop - entryNow;
+        var fall = otherTop - neighbourNow;
+        Canvas.SetZIndex(moving, 1);
+        var lifted = Looks.Pixel ? ControlMotion.Find<FrameworkElement>(moving, "Lifted") : null;
+        void Place(double movingY, double neighbourY, bool lift)
+        {
+            moving.Translation = new System.Numerics.Vector3(0, (float)movingY, 0);
+            neighbour.Translation = new System.Numerics.Vector3(0, (float)neighbourY, 0);
+            if (lifted is not null) lifted.Visibility = lift ? Visibility.Visible : Visibility.Collapsed;
+        }
+        void Land()
+        {
+            Place(0, 0, lift: false);
+            Canvas.SetZIndex(moving, 0);
+        }
+        if (Looks.Pixel)
+        {
+            var risen = Motion.Remaining(rise, 0, Motion.In3);
+            var fallen = Motion.Remaining(fall, 0, Motion.In3);
+            UiMoment.Play(3 * Motion.TickMs, t =>
+            {
+                var k = Motion.Tick(t);
+                if (k == 0) Place(rise, fall, lift: false);
+                else if (k < 3) Place(risen[k - 1] - 2, fallen[k - 1], lift: true);
+                else Land();
+            }, Land);
+            return;
+        }
+        UiMoment.Play(333, t =>
+        {
+            var left = 1 - Motion.InOut(t / 333);
+            Place(rise * left, fall * left, lift: false);
+        }, Land);
     }
 
     private sealed class Entry(DisplayProvider provider)

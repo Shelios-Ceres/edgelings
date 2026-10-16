@@ -51,6 +51,31 @@ internal static class PopupPrint
         await SaveStrip(path, frames);
     }
 
+    /// Moments that follow or overlap one another (a page switch, then a
+    /// scroll, then an expander) on the hand clock: `start` sets them off,
+    /// then every frame moves the clock a tick (Pixel, mid-tick) or 33 ms
+    /// (Classic), until every moment has landed, and a frame more.
+    public static async Task FilmSequenceAsync(string path, Action start, bool pixel,
+        Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> capture, double limitMs = 3000)
+    {
+        UiMoment.ResetClock();
+        start();
+        // A start that goes through the dispatcher (a store change) begins a moment or two ticks on.
+        for (var i = 0; i < 20 && !UiMoment.AnyPending; i++) await Task.Delay(50);
+        var step = pixel ? Motion.TickMs : 1000.0 / 30;
+        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
+        var settled = 0;
+        for (var k = 0; settled < 2 && k * step <= limitMs; k++)
+        {
+            var ms = k == 0 ? 0 : pixel ? k * step + step / 2 : k * step;
+            if (k > 0) UiMoment.Advance(ms);
+            await Task.Delay(150);
+            frames.Add((pixel ? $"t={k}" : $"{ms:F0} ms", await Task.Run(capture)));
+            if (!UiMoment.AnyPending) settled++;
+        }
+        await SaveStrip(path, frames);
+    }
+
     /// The moment that starts after `before`, waiting up to three seconds.
     public static async Task<UiMoment?> NextMoment(UiMoment? before)
     {

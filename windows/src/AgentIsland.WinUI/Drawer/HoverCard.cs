@@ -61,6 +61,13 @@ internal sealed class HoverCard : IDisposable
     // The moment playing (M3), and the old content fading out in a switch.
     private UiMoment? _motion;
     private Border? _outgoing;
+
+    // M4: each meter's share as the card last showed it, to count from when
+    // the card refreshes in place; the values counting now.
+    private Dictionary<string, (double Share, bool Warn)> _shares = new();
+    private Dictionary<string, (double Share, bool Warn)> _built = new();
+    private readonly HashSet<UIElement> _counting = new();
+    private bool _recount;
     private int _generation;
     private bool _closing;
     private bool _animating;
@@ -196,7 +203,16 @@ internal sealed class HoverCard : IDisposable
                 _skips++;
                 return;
             }
+            // M4: the same card with new content. Classic glides and swaps
+            // what changed; the meters count in both looks.
+            if (!request.Pixel && !request.ReducedMotion)
+            {
+                Refresh(request);
+                return;
+            }
+            _recount = true;
             Present(request);
+            _recount = false;
             Rest();
         }
         finally { _lastShowMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds; }
@@ -360,6 +376,106 @@ internal sealed class HoverCard : IDisposable
             Drop(outgoing);
             CompletePresentation();
         });
+    }
+
+    /// M4 under Classic: the paper glides to the new content's height and
+    /// tail over 250 ms on inOut; each text that changed fades out over 83 ms
+    /// as its new reading fades in after it over 167, settling 3 DIP. The
+    /// meters count by themselves. Content laid out anew cross-fades whole.
+    private void Refresh(Request request)
+    {
+        var top = (double)_host.Translation.Y;
+        var height = _plateHeight;
+        var aim = _aim;
+        var reach = _reach;
+        var outgoing = Detach();
+        _recount = true;
+        Present(request);
+        _recount = false;
+        Whole();
+        var top1 = _bounds.Top;
+        var height1 = _contentSize.Height;
+        var aim1 = _aim;
+        var reach1 = request.Sections.Count == 1 ? TailReach : 0;
+        // The old texts against the new, in reading order.
+        var olds = Texts(outgoing).ToList();
+        var news = Texts(_body).ToList();
+        var whole = olds.Count != news.Count;
+        var swaps = new List<(TextBlock Old, TextBlock New)>();
+        if (whole) _card.Opacity = 0;
+        else
+        {
+            var kept = new HashSet<DependencyObject>();
+            for (var i = 0; i < olds.Count; i++)
+            {
+                if (olds[i].Text == news[i].Text || _counting.Contains(news[i])) continue;
+                swaps.Add((olds[i], news[i]));
+                kept.Add(olds[i]);
+                news[i].Opacity = 0;
+            }
+            Keep(outgoing, kept);
+        }
+        Play(250, t =>
+        {
+            var e = Motion.InOut(t / 250);
+            var y = Lerp(top, top1, e);
+            var h = Lerp(height, height1, e);
+            _host.Translation = new Vector3((float)_bounds.Left, (float)y, 0);
+            DrawPaper(request, h, Lerp(aim, aim1, e) - y, Lerp(reach, reach1, e));
+            _size.InsertScalar("Height", (float)Math.Max(1, h));
+            var fadeOut = 1 - Motion.Linear(t / 83);
+            var fadeIn = Motion.Linear((t - 83) / 167);
+            if (whole)
+            {
+                outgoing.Opacity = fadeOut;
+                _card.Opacity = fadeIn;
+                return;
+            }
+            var rise = (float)(3 * (1 - Motion.Out((t - 83) / 167)));
+            foreach (var (old, fresh) in swaps)
+            {
+                old.Opacity = fadeOut;
+                fresh.Opacity = fadeIn;
+                fresh.Translation = new Vector3(0, rise, 0);
+            }
+        }, () =>
+        {
+            Drop(outgoing);
+            CompletePresentation();
+        });
+    }
+
+    private static IEnumerable<TextBlock> Texts(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is TextBlock text) yield return text;
+            else foreach (var deeper in Texts(child)) yield return deeper;
+        }
+    }
+
+    /// The old content's layer keeps only `kept`: everything else is hidden,
+    /// since the new content already shows it.
+    private static void Keep(DependencyObject element, HashSet<DependencyObject> kept)
+    {
+        if (kept.Contains(element)) return;
+        if (!Holds(element, kept))
+        {
+            if (element is UIElement shown) shown.Opacity = 0;
+            return;
+        }
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++) Keep(VisualTreeHelper.GetChild(element, i), kept);
+    }
+
+    private static bool Holds(DependencyObject element, HashSet<DependencyObject> kept)
+    {
+        if (kept.Contains(element)) return true;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+        {
+            if (Holds(VisualTreeHelper.GetChild(element, i), kept)) return true;
+        }
+        return false;
     }
 
     private void Present(Request request)
@@ -563,6 +679,8 @@ internal sealed class HoverCard : IDisposable
     private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel)
     {
         _body.Children.Clear();
+        _built = new();
+        _counting.Clear();
         for (var i = 0; i < sections.Count; i++)
         {
             var (card, swatch) = sections[i];
@@ -586,6 +704,7 @@ internal sealed class HoverCard : IDisposable
             }
             _body.Children.Add(Section(card, swatch, pixel));
         }
+        _shares = _built;
     }
 
     /// Every line of a pixel panel in the pixel face, at a size that keeps
@@ -642,7 +761,7 @@ internal sealed class HoverCard : IDisposable
         };
     }
 
-    private static UIElement Section(StatusCard card, uint swatch, bool pixel)
+    private UIElement Section(StatusCard card, uint swatch, bool pixel)
     {
         // Rows indent past the face; the pixel panel keeps whole cells.
         var indent = pixel ? 14.0 : 24.0;
@@ -731,22 +850,15 @@ internal sealed class HoverCard : IDisposable
             meters.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var warn = meter.Used >= 0.9;
             Place(meters, Caption(meter.Label, "TextFillColorSecondaryBrush"), row, 0);
-            if (pixel)
-            {
-                var blocks = new PixelBar { VerticalAlignment = VerticalAlignment.Center };
-                blocks.Set(meter.Shown, Brand.Rgb(swatch), warn, _dark);
-                Place(meters, blocks, row, 1);
-            }
-            else
-            {
-                var bar = new QuotaBar(6) { VerticalAlignment = VerticalAlignment.Center };
-                bar.Set(meter.Shown, Brand.Rgb(swatch), warn, _dark);
-                Place(meters, bar, row, 1);
-            }
+            FrameworkElement bar = pixel
+                ? new PixelBar { VerticalAlignment = VerticalAlignment.Center }
+                : new QuotaBar(6) { VerticalAlignment = VerticalAlignment.Center };
+            Place(meters, bar, row, 1);
             var value = Caption(meter.Value, warn ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
             value.HorizontalAlignment = HorizontalAlignment.Right;
             if (warn && !pixel) value.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
             Place(meters, value, row, 2);
+            Count((IQuotaBar)bar, bar, value, $"{(int)card.Provider}|{meter.Label}", meter, warn, Brand.Rgb(swatch), pixel);
             row++;
         }
         if (row > 0)
@@ -821,6 +933,36 @@ internal sealed class HoverCard : IDisposable
         Grid.SetRow(element, row);
         Grid.SetColumn(element, column);
         grid.Children.Add(element);
+    }
+
+    /// A meter's bar and value. A card refreshing in place counts them from
+    /// what it showed before (M4), once the new bar is on screen; otherwise
+    /// they show their share at once.
+    private void Count(IQuotaBar bar, FrameworkElement element, TextBlock value, string key, StatusMeter meter, bool warn, Windows.UI.Color color, bool pixel)
+    {
+        var share = meter.Shown ?? 0;
+        _built[key] = (share, warn);
+        if (!_recount || meter.Shown is null || !_shares.TryGetValue(key, out var was) || Math.Abs(was.Share - share) < 0.0005)
+        {
+            bar.Set(meter.Shown, color, warn, _dark);
+            return;
+        }
+        void Follow(double shown, bool warning)
+        {
+            value.Text = QuotaCount.Percent(shown, share, meter.Value);
+            value.Foreground = Res<Brush>(warning ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
+            if (!pixel) value.FontWeight = warning ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        }
+        bar.Set(was.Share, color, was.Warn, _dark);
+        Follow(was.Share, was.Warn);
+        _counting.Add(value);
+        RoutedEventHandler? loaded = null;
+        loaded = (_, _) =>
+        {
+            element.Loaded -= loaded;
+            bar.Set(meter.Shown, color, warn, _dark, Follow);
+        };
+        element.Loaded += loaded;
     }
 
     private static TextBlock Caption(string text, string brush, Thickness margin = default) => new()
