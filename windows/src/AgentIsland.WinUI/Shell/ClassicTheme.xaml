@@ -914,6 +914,9 @@
             <Setter.Value>
                 <ControlTemplate TargetType="MenuFlyoutItem">
                     <Grid x:Name="LayoutRoot" MinHeight="{TemplateBinding MinHeight}" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" ColumnSpacing="8">
+                        <Grid.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Grid.BackgroundTransition>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />
@@ -1083,6 +1086,9 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleMenuFlyoutItem">
                     <Grid x:Name="LayoutRoot" MinHeight="{TemplateBinding MinHeight}" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" ColumnSpacing="8">
+                        <Grid.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Grid.BackgroundTransition>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />
@@ -1167,6 +1173,9 @@
             <Setter.Value>
                 <ControlTemplate TargetType="RadioMenuFlyoutItem">
                     <Grid x:Name="LayoutRoot" MinHeight="{TemplateBinding MinHeight}" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" ColumnSpacing="8">
+                        <Grid.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Grid.BackgroundTransition>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />
@@ -1251,6 +1260,9 @@
             <Setter.Value>
                 <ControlTemplate TargetType="MenuFlyoutSubItem">
                     <Grid x:Name="LayoutRoot" MinHeight="{TemplateBinding MinHeight}" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" ColumnSpacing="8">
+                        <Grid.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Grid.BackgroundTransition>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />

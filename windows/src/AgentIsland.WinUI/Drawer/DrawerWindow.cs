@@ -991,15 +991,15 @@ internal sealed partial class DrawerWindow : Window
         using (pixel ? L10n.English() : null) line = BotLines.For(phase, _random);
         if (line is null) return;
         bot.LastSpoke = now;
-        Say(bot, line);
+        Say(bot, line, SpeechBubble.KindOf(phase));
     }
 
-    private void Say(Bot bot, string line)
+    private void Say(Bot bot, string line, LineKind kind)
     {
         bot.Bubble ??= new SpeechBubble(_root);
         var swatch = Brand.Readable(SwatchOf(bot), Brand.IsDark());
         bot.Bubble.Say(line, swatch, _theme == CharacterTheme.Pixel, DrawerStore.Shared.Side == DrawerSide.Right,
-            bot.Bounds, WorkAreaDip(), _reducedMotion);
+            bot.Bounds, WorkAreaDip(), _reducedMotion, kind);
     }
 
     /// A locked drawer turns a drag down out loud, with the way out; it is an
@@ -1010,7 +1010,7 @@ internal sealed partial class DrawerWindow : Window
         _cardBot = null;
         string line;
         using (_theme == CharacterTheme.Pixel ? L10n.English() : null) line = L10n.Tr("Locked in place.\nRight-click to unlock.");
-        Say(bot, line);
+        Say(bot, line, LineKind.Locked);
     }
 
     private void Hush()

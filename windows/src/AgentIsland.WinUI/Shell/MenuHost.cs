@@ -34,6 +34,7 @@ internal static class MenuHost
         {
             _root.Resources.MergedDictionaries.Add(Looks.NewKit(Win32.GetDpiForWindow(_hwnd) / 96.0));
             UseKit(menu);
+            MenuMotion.Use(menu, _root);
         }
         _keepOpen = keepOpen;
         Win32.GetCursorPos(out var cursor);

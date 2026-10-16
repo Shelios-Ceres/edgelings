@@ -4,7 +4,6 @@ using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using Microsoft.UI.Composition;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -36,37 +35,32 @@ internal sealed class HoverCard : IDisposable
     private static readonly Thickness PaperPadding = new(16, 13, 16, 14);
     private static readonly Thickness PixelPadding = new(16, 14, 16, 14);
 
-    // Motion: the card grows out of the side facing the character and drifts
-    // in from it on an ease-out cubic — no overshoot, and gentle enough that
-    // the growth reads instead of popping in the first few frames.
-    private const float StartScale = 0.95f;
-    private const float Drift = 8;
+    // The paper's tail: how far it reaches past the card's side.
+    private const double TailReach = 9;
     // Room around the card for its motion and the paper's shadow.
     private const double MotionMargin = 24;
-    private static readonly TimeSpan EnterDuration = TimeSpan.FromMilliseconds(280);
-    private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(180);
-    private static readonly TimeSpan ExitDuration = TimeSpan.FromMilliseconds(120);
-    private static readonly TimeSpan SwitchDuration = TimeSpan.FromMilliseconds(260);
 
     private readonly Popup _popup;
     private readonly Canvas _stage = new() { IsHitTestVisible = false };
     private readonly Grid _host = new();
     private readonly Grid _plate = new() { VerticalAlignment = VerticalAlignment.Top };
     private readonly PaperPlate _paper = new();
-    private readonly PixelPlate _pixelPlate = new() { Visibility = Visibility.Collapsed };
+    // Pinned to the card's corner: ghosts are placed from it.
+    private readonly PixelPlate _pixelPlate = new()
+    {
+        Visibility = Visibility.Collapsed,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Top,
+    };
     private readonly Border _card;
-    private readonly StackPanel _body = new();
+    private StackPanel _body = new();
     private readonly Panel _root;
     private readonly Compositor _compositor;
-    private readonly CompositionEasingFunction _easeOut;
     private readonly CompositionPropertySet _size;
-    private readonly ExpressionAnimation _plateSizeAnimation;
     private readonly InsetClip _contentClip;
-    private readonly DispatcherQueue _queue = DispatcherQueue.GetForCurrentThread();
-    private readonly Dictionary<string, CompositionAnimation> _animations = new();
-    private CompositionScopedBatch? _batch;
-    private TypedEventHandler<object, CompositionBatchCompletedEventArgs>? _batchCompleted;
-    private EventHandler<object>? _firstFrame;
+    // The moment playing (M3), and the old content fading out in a switch.
+    private UiMoment? _motion;
+    private Border? _outgoing;
     private int _generation;
     private bool _closing;
     private bool _animating;
@@ -80,6 +74,8 @@ internal sealed class HoverCard : IDisposable
     private string? _contentKey;
     private Size _contentSize;
     private Rect _bounds;
+    // The card's aim at its bot's centre, in the drawer's DIPs.
+    private double _aim;
     private Rect? _stageBounds;
     private double _travelTop;
     private double _travelBottom;
@@ -118,17 +114,12 @@ internal sealed class HoverCard : IDisposable
         _host.Children.Add(_plate);
         _host.Children.Add(_card);
         _stage.Children.Add(_host);
-        // The element's own Scale/Translation/Opacity are animated, so its
-        // composition visual must not be handed off; any compositor will do.
+        // The content is clipped to the plate while a switch changes its
+        // height; any compositor will do.
         _compositor = CompositionTarget.GetCompositorForCurrentThread();
-        _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 1f), new Vector2(0.68f, 1f));
         _size = _compositor.CreatePropertySet();
         _size.InsertScalar("Height", 1);
         _size.InsertScalar("TargetHeight", 1);
-        _plateSizeAnimation = _compositor.CreateExpressionAnimation("Vector3(1, size.Height / size.TargetHeight, 1)");
-        _plateSizeAnimation.Target = "Scale";
-        _plateSizeAnimation.SetReferenceParameter("size", _size);
-        _plate.StartAnimation(_plateSizeAnimation);
         _contentClip = _compositor.CreateInsetClip();
         using (var clip = _compositor.CreateExpressionAnimation("Max(0, size.TargetHeight - size.Height)"))
         {
@@ -195,7 +186,7 @@ internal sealed class HoverCard : IDisposable
             {
                 _closing = false;
                 _refresh = request;
-                AnimateIn(fromHidden: false, move: !request.ReducedMotion);
+                Return(request);
                 return;
             }
             if (SamePresentation(_displayed!, request)) { _refresh = null; _skips++; return; }
@@ -211,19 +202,34 @@ internal sealed class HoverCard : IDisposable
         finally { _lastShowMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds; }
     }
 
-    /// animated fades the card out; otherwise it goes at once (drags, menus,
-    /// the drawer hiding).
+    /// animated plays its close (M3); otherwise it goes at once (drags,
+    /// menus, a click, the drawer hiding).
     public void Hide(bool animated = false)
     {
         if (!_popup.IsOpen) return;
-        if (!animated) { Close(); return; }
+        if (!animated || _displayed is not { } shown) { Close(); return; }
         if (_closing) return;
         _closing = true;
         _refresh = null;
-        Animate(() =>
+        if (shown.Pixel)
         {
-            Fade(0, ExitDuration);
-            if (_displayed?.ReducedMotion == false) Move("Scale", new Vector3(0.97f, 0.97f, 1), ExitDuration);
+            // The content goes and a ghost at half the card is left at the
+            // pointer for a tick, then nothing.
+            if (shown.ReducedMotion) { Close(); return; }
+            Play(2 * Motion.TickMs, t =>
+            {
+                if (Motion.Tick(t) >= 1) Ghost(0.5);
+            }, Close);
+            return;
+        }
+        // Classic fades and shrinks a little toward the tail; reduced, it fades.
+        var opacity = _host.Opacity;
+        var scale = _host.Scale.X;
+        var reduced = shown.ReducedMotion;
+        Play(reduced ? 83 : 167, t =>
+        {
+            _host.Opacity = (float)(opacity * (1 - (reduced ? Motion.Linear(t / 83) : Motion.In(t / 167))));
+            if (!reduced) _host.Scale = Uniform(Lerp(scale, 0.96, Motion.In(t / 167)));
         }, Close);
     }
 
@@ -234,53 +240,125 @@ internal sealed class HoverCard : IDisposable
     private static bool SamePresentation(Request a, Request b) =>
         a.Key == b.Key && a.Anchor == b.Anchor && SameFrame(a, b);
 
+    /// M3 open. Pixel grows ghosts of the card from the pointer, a third and
+    /// two thirds of it, then shows it whole; Classic comes out of the bot,
+    /// growing from the tail's tip. Reduced, Pixel shows at once and Classic
+    /// fades in.
     private void Open(Request request)
     {
         Present(request);
         Rest();
-        _host.Opacity = 0;
-        if (!request.ReducedMotion)
-        {
-            _host.Scale = new Vector3(StartScale, StartScale, 1);
-            _host.Translation = Target + new Vector3(request.CharacterRight ? Drift : -Drift, 0, 0);
-        }
         _popup.IsOpen = true;
-        _animating = true;
-        var generation = ++_generation;
-        _firstFrame = (_, _) =>
+        if (request.Pixel)
         {
-            if (_disposed || generation != _generation) return;
-            CancelFirstFrame();
-            AnimateIn(fromHidden: true, move: !request.ReducedMotion);
-        };
-        CompositionTarget.Rendering += _firstFrame;
+            if (request.ReducedMotion) return;
+            Play(3 * Motion.TickMs, t =>
+            {
+                var k = Motion.Tick(t);
+                if (k == 0) _host.Opacity = 0;
+                else if (k < 3)
+                {
+                    _host.Opacity = 1;
+                    Ghost(k / 3.0);
+                }
+                else Whole();
+            }, CompletePresentation);
+            return;
+        }
+        if (request.ReducedMotion)
+        {
+            Play(83, t => _host.Opacity = (float)Motion.Linear(t / 83), CompletePresentation);
+            return;
+        }
+        var drift = request.CharacterRight ? 8.0 : -8.0;
+        Play(250, t =>
+        {
+            _host.Opacity = (float)Motion.Linear(t / 167);
+            _host.Scale = Uniform(Lerp(0.9, 1, Motion.SoftPop(t / 250)));
+            _host.Translation = Target + new Vector3((float)Lerp(drift, 0, Motion.Out(t / 250)), 0, 0);
+        }, CompletePresentation);
     }
 
+    /// A card on its way out comes back, from the frame on screen.
+    private void Return(Request request)
+    {
+        if (request.Pixel || request.ReducedMotion)
+        {
+            CompletePresentation();
+            return;
+        }
+        var opacity = _host.Opacity;
+        var scale = _host.Scale.X;
+        Play(250, t =>
+        {
+            _host.Opacity = (float)Lerp(opacity, 1, Motion.Linear(t / 167));
+            _host.Scale = Uniform(Lerp(scale, 1, Motion.SoftPop(t / 250)));
+        }, CompletePresentation);
+    }
+
+    /// M3 switch: the pointer moved to another bot while the card was open.
+    /// Pixel swaps in the new card on the first tick and steps its y to the
+    /// new bot (35 % of the way left, then there). Classic glides the paper's
+    /// top, height and tail to the new bot while the old content fades out
+    /// and the new fades in over it. Reduced, it swaps at once.
     private void Switch(Request request)
     {
         _closing = false;
         _refresh = null;
-        Animate(() =>
+        if (request.ReducedMotion)
         {
             Present(request);
-            // The same pane stays visible. Replacing an animation samples
-            // its current value, including when the pointer changes mid-move.
-            Fade(1, SwitchDuration);
-            Move("Scale", Vector3.One, SwitchDuration);
-            if (request.ReducedMotion)
+            CompletePresentation();
+            return;
+        }
+        if (request.Pixel)
+        {
+            var from = _host.Translation.Y;
+            var swapped = false;
+            Play(2 * Motion.TickMs, t =>
             {
-                StopAnimation("Translation");
-                _host.Translation = Target;
-                SettleHeight();
-            }
-            else
-            {
-                Move("Translation", Target, SwitchDuration);
-                // The plate snaps to its new height: stretching it would smear
-                // a pixel outline, or the paper's corners and tail, mid-way.
-                SettleHeight();
-            }
-        }, CompletePresentation);
+                var k = Motion.Tick(t);
+                if (k < 1) return;
+                if (!swapped)
+                {
+                    swapped = true;
+                    Present(request);
+                    Whole();
+                }
+                var to = _bounds.Top;
+                var y = k >= 2 ? to : to - Motion.Cell((to - from) * 0.35);
+                _host.Translation = new Vector3((float)_bounds.Left, (float)y, 0);
+                DrawPlate(request, _width, _contentSize.Height, _aim - y);
+            }, CompletePresentation);
+            return;
+        }
+        var top = (double)_host.Translation.Y;
+        var height = _plateHeight;
+        var aim = _aim;
+        var reach = _reach;
+        var outgoing = Detach();
+        Present(request);
+        Whole();
+        _card.Opacity = 0;
+        var top1 = _bounds.Top;
+        var height1 = _contentSize.Height;
+        var aim1 = _aim;
+        var reach1 = request.Sections.Count == 1 ? TailReach : 0;
+        Play(250, t =>
+        {
+            var e = Motion.InOut(t / 250);
+            var y = Lerp(top, top1, e);
+            var h = Lerp(height, height1, e);
+            _host.Translation = new Vector3((float)_bounds.Left, (float)y, 0);
+            DrawPaper(request, h, Lerp(aim, aim1, e) - y, Lerp(reach, reach1, e));
+            _size.InsertScalar("Height", (float)Math.Max(1, h));
+            outgoing.Opacity = (float)(1 - Motion.Linear(t / 83));
+            _card.Opacity = (float)Motion.Linear((t - 42) / 167);
+        }, () =>
+        {
+            Drop(outgoing);
+            CompletePresentation();
+        });
     }
 
     private void Present(Request request)
@@ -305,7 +383,7 @@ internal sealed class HoverCard : IDisposable
             _plate.Height = _contentSize.Height;
             _size.InsertScalar("TargetHeight", (float)Math.Max(1, _contentSize.Height));
         }
-        var aim = request.Anchor.Y + request.Anchor.Height / 2;
+        var aim = _aim = request.Anchor.Y + request.Anchor.Height / 2;
         var top = Math.Clamp(aim - _contentSize.Height / 2, request.Area.Top + 6,
             Math.Max(request.Area.Top + 6, request.Area.Bottom - 6 - _contentSize.Height));
         var left = request.CharacterRight ? request.Anchor.Left - Gap - _width : request.Anchor.Right + Gap;
@@ -314,32 +392,100 @@ internal sealed class HoverCard : IDisposable
         _travelTop = Math.Min(_bounds.Top, _popup.IsOpen ? _travelTop : _bounds.Top);
         _travelBottom = Math.Max(_bounds.Bottom, _popup.IsOpen ? _travelBottom : _bounds.Bottom);
         ExtendStage(new Rect(_bounds.Left, _travelTop, _width, _travelBottom - _travelTop), request);
-        _host.CenterPoint = new Vector3(request.CharacterRight ? (float)_width : 0,
+        // Classic grows and shrinks about the tail's tip.
+        var tip = request.Sections.Count == 1 && !request.Pixel ? TailReach : 0;
+        _host.CenterPoint = new Vector3((float)(request.CharacterRight ? _width + tip : -tip),
             (float)Math.Clamp(aim - _bounds.Top, 0, _bounds.Height), 0);
-        if (request.Pixel) DrawPlate(request, aim - _bounds.Top);
-        else DrawPaper(request, aim - _bounds.Top);
         _displayed = request;
+        DrawRest(request);
     }
 
-    /// One character's card has a tail aimed at it; the all-characters card
-    /// points nowhere.
-    private void DrawPaper(Request request, double aim)
+    /// The plate at the card's own size, aimed at its bot.
+    private void DrawRest(Request request)
     {
-        var single = request.Sections.Count == 1;
-        _paper.Set(_width, _contentSize.Height, radius: 16, halfBase: 10, reach: 9, pointLeft: !request.CharacterRight,
-            tailY: single ? aim : null, ClassicTokens.Get("Paper", request.Dark), ClassicTokens.Get("Hairline", request.Dark));
+        var aim = _aim - _bounds.Top;
+        if (request.Pixel) DrawPlate(request, _width, _contentSize.Height, aim);
+        else DrawPaper(request, _contentSize.Height, aim, request.Sections.Count == 1 ? TailReach : 0);
+        _pixelPlate.RenderTransform = null;
+    }
+
+    // The paper as last drawn: its height and tail reach, for a switch.
+    private double _plateHeight;
+    private double _reach;
+
+    /// One character's card has a tail aimed at it; the all-characters card
+    /// points nowhere (no reach). aim is from the plate's top.
+    private void DrawPaper(Request request, double height, double aim, double reach)
+    {
+        _plateHeight = height;
+        _reach = reach;
+        _paper.Set(_width, height, radius: 16, halfBase: 10, reach: reach, pointLeft: !request.CharacterRight,
+            tailY: reach > 0.01 ? aim : null, ClassicTokens.Get("Paper", request.Dark), ClassicTokens.Get("Hairline", request.Dark));
     }
 
     /// One character's card is outlined in its colour and points at it; the
-    /// all-characters card is neutral and points nowhere.
-    private void DrawPlate(Request request, double aim)
+    /// all-characters card is neutral and points nowhere. aim is from the
+    /// plate's top.
+    private void DrawPlate(Request request, double width, double height, double aim)
     {
         var single = request.Sections.Count == 1;
         var outline = single
             ? Brand.Rgb(request.Sections[0].Swatch)
             : Brand.Rgb(request.Dark ? 0x5A5B66u : 0x2B2B33u);
-        _pixelPlate.Set(_width, _contentSize.Height, outline, PixelFill(request.Dark),
+        _pixelPlate.Set(width, height, outline, PixelFill(request.Dark),
             pointLeft: !request.CharacterRight, pointerY: single ? aim : null);
+    }
+
+    /// A pixel ghost: the plate at a share of the card's size and no content,
+    /// grown from the pointer, on the edge facing the bot and centred on it.
+    /// Never under three cells a side, so its corners still draw.
+    private void Ghost(double share)
+    {
+        if (_displayed is not { } shown) return;
+        _card.Visibility = Visibility.Collapsed;
+        var cell = PixelPlate.Cell;
+        var width = Math.Max(3 * cell, Motion.Cell(_width * share));
+        var height = Math.Max(3 * cell, Motion.Cell(_contentSize.Height * share));
+        var aim = _aim - _bounds.Top;
+        var x = shown.CharacterRight ? _width - width : 0;
+        var y = Math.Clamp(Motion.Cell(aim - height / 2), 0, Math.Max(0, _contentSize.Height - height));
+        DrawPlate(shown, width, height, aim - y);
+        _pixelPlate.RenderTransform = new TranslateTransform { X = x, Y = y };
+    }
+
+    /// The card whole, with its content.
+    private void Whole()
+    {
+        _card.Visibility = Visibility.Visible;
+        _host.Opacity = 1;
+        if (_displayed is { } shown) DrawRest(shown);
+    }
+
+    /// The content as it is, lifted onto a layer of its own to fade out while
+    /// new content is built in its place.
+    private Border Detach()
+    {
+        if (_outgoing is { } previous) Drop(previous);
+        var old = _body;
+        _card.Child = _body = new StackPanel();
+        var layer = new Border
+        {
+            Child = old,
+            Width = _width,
+            Padding = _card.Padding,
+            VerticalAlignment = VerticalAlignment.Top,
+            IsHitTestVisible = false,
+        };
+        _host.Children.Add(layer);
+        _contentKey = null;
+        return _outgoing = layer;
+    }
+
+    private void Drop(Border layer)
+    {
+        _host.Children.Remove(layer);
+        layer.Child = null;
+        if (_outgoing == layer) _outgoing = null;
     }
 
     /// The pixel panels' paper: warm white, or a deep ink in dark mode.
@@ -377,12 +523,15 @@ internal sealed class HoverCard : IDisposable
 
     private void Rest()
     {
-        StopAnimation("Opacity");
-        StopAnimation("Scale");
-        StopAnimation("Translation");
+        _motion?.Stop();
+        _motion = null;
+        if (_outgoing is { } layer) Drop(layer);
         _host.Opacity = 1;
         _host.Scale = Vector3.One;
         _host.Translation = Target;
+        _card.Opacity = 1;
+        _card.Visibility = Visibility.Visible;
+        if (_displayed is { } shown) DrawRest(shown);
         SettleHeight();
         _travelTop = _bounds.Top;
         _travelBottom = _bounds.Bottom;
@@ -390,7 +539,7 @@ internal sealed class HoverCard : IDisposable
 
     private void Close()
     {
-        CancelCompletion();
+        _generation++;
         _popup.IsOpen = false;
         Rest();
         _closing = _animating = false;
@@ -405,12 +554,9 @@ internal sealed class HoverCard : IDisposable
         _disposed = true;
         _popup.Child = null;
         _root.Children.Remove(_popup);
-        _plate.StopAnimation(_plateSizeAnimation);
-        _plateSizeAnimation.Dispose();
         ElementCompositionPreview.GetElementVisual(_card).Clip = null;
         _contentClip.Dispose();
         _size.Dispose();
-        _easeOut.Dispose();
     }
 
     private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel)
@@ -722,19 +868,6 @@ internal sealed class HoverCard : IDisposable
         if (from < phrase.Length) text.Inlines.Add(new Run { Text = phrase[from..] });
     }
 
-    private void AnimateIn(bool fromHidden, bool move)
-    {
-        Animate(() =>
-        {
-            Fade(1, FadeDuration, fromHidden ? 0 : null);
-            if (move)
-            {
-                Move("Scale", Vector3.One, EnterDuration);
-                Move("Translation", Target, EnterDuration);
-            }
-        }, CompletePresentation);
-    }
-
     private void CompletePresentation()
     {
         _animating = false;
@@ -745,93 +878,32 @@ internal sealed class HoverCard : IDisposable
         Rest();
     }
 
-    private void Fade(float to, TimeSpan duration, float? from = null)
-    {
-        var fade = _compositor.CreateScalarKeyFrameAnimation();
-        fade.Target = "Opacity";
-        fade.StopBehavior = AnimationStopBehavior.LeaveCurrentValue;
-        if (from is { } start) fade.InsertKeyFrame(0, start);
-        else fade.InsertExpressionKeyFrame(0, "this.StartingValue");
-        fade.InsertKeyFrame(1, to, _easeOut);
-        fade.Duration = Duration(duration);
-        StartAnimation(fade);
-    }
-
-    private void Move(string property, Vector3 to, TimeSpan duration)
-    {
-        var move = _compositor.CreateVector3KeyFrameAnimation();
-        move.Target = property;
-        move.StopBehavior = AnimationStopBehavior.LeaveCurrentValue;
-        move.InsertExpressionKeyFrame(0, "this.StartingValue");
-        move.InsertKeyFrame(1, to, _easeOut);
-        move.Duration = Duration(duration);
-        StartAnimation(move);
-    }
-
     private void SettleHeight()
     {
-        _size.StopAnimation("Height");
         _size.InsertScalar("Height", (float)Math.Max(1, _contentSize.Height));
     }
 
-    private void StartAnimation(CompositionAnimation animation)
+    /// Plays a card moment (M3), replacing any in flight; `completed` runs
+    /// when it lands unless another replaces it first. The preview harness
+    /// slows it with DebugDurationScale.
+    private void Play(double ms, Action<double> frame, Action completed)
     {
-        _animations.TryGetValue(animation.Target, out var previous);
-        try { _host.StartAnimation(animation); }
-        catch { animation.Dispose(); throw; }
-        _animations[animation.Target] = animation;
-        // Starting the replacement samples the current value. Stopping the
-        // old animation afterward would also stop the new one on that target.
-        previous?.Dispose();
-    }
-
-    private void StopAnimation(string property)
-    {
-        if (!_animations.Remove(property, out var animation)) return;
-        _host.StopAnimation(animation);
-        animation.Dispose();
-    }
-
-    private TimeSpan Duration(TimeSpan duration) =>
-        TimeSpan.FromTicks((long)(duration.Ticks * Math.Clamp(DebugDurationScale, 0.1, 8)));
-
-    private void Animate(Action start, Action completed)
-    {
-        CancelCompletion();
+        _motion?.Stop();
         _animating = true;
         _transitions++;
-        var generation = _generation;
-        var batch = _batch = _compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-        _batchCompleted = (_, _) => _queue.TryEnqueue(() =>
+        var generation = ++_generation;
+        var slow = Math.Clamp(DebugDurationScale, 0.1, 8);
+        _motion = UiMoment.Play(ms * slow, t => frame(t / slow), () =>
         {
-            if (_disposed || generation != _generation || _batch != batch) return;
-            CancelCompletion();
+            if (_disposed || generation != _generation) return;
+            _motion = null;
             completed();
         });
-        batch.Completed += _batchCompleted;
-        start();
-        batch.End();
     }
 
-    private void CancelCompletion()
-    {
-        _generation++;
-        CancelFirstFrame();
-        if (_batch is not null)
-        {
-            if (_batchCompleted is not null) _batch.Completed -= _batchCompleted;
-            _batch.Dispose();
-            _batch = null;
-            _batchCompleted = null;
-        }
-    }
+    private static Vector3 Uniform(double scale) => new((float)scale, (float)scale, 1);
 
-    private void CancelFirstFrame()
-    {
-        if (_firstFrame is null) return;
-        CompositionTarget.Rendering -= _firstFrame;
-        _firstFrame = null;
-    }
+    private static double Lerp(double from, double to, double share) => from + (to - from) * share;
 
     /// Fluent's inks, or Classic's on the paper card.
     private static T Res<T>(string key) => _paperInk && Paper(key) is T paper ? paper : Fluent.Resource<T>(key, _dark);

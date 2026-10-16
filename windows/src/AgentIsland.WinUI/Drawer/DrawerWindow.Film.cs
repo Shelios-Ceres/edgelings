@@ -4,6 +4,10 @@ using AgentIsland.Model;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.Graphics.Canvas.Text;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
+using Microsoft.UI.Xaml.Controls;
+using AgentIsland.WinUI.Shell;
 using Windows.Foundation;
 using Windows.UI;
 using static AgentIsland.WinUI.Shell.Motion;
@@ -76,6 +80,70 @@ internal sealed partial class DrawerWindow
         await Step("hide for reveal", ToggleDeliberately, 800);
         await Step("reveal", Reveal, 2500);
         DebugTrace.Write("drawer moments: done");
+    }
+
+    /// AGENTISLAND_DEBUG_MENU_FILM=<dir>: the drawer menu's open, a submenu's
+    /// and, in Classic, its close (M7), stepped by hand and printed popup by
+    /// popup into a strip each.
+    public async void DebugMenuFilm(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var name = (_theme == CharacterTheme.Pixel ? "pixel" : "classic") + "-" + (Brand.IsDark() ? "dark" : "light");
+        UiMoment.Manual = true;
+        try
+        {
+            async Task<UiMoment?> Next(UiMoment? before)
+            {
+                for (var i = 0; i < 60; i++)
+                {
+                    if (UiMoment.Latest is { } latest && latest != before) return latest;
+                    await Task.Delay(50);
+                }
+                return null;
+            }
+            var before = UiMoment.Latest;
+            DebugMenu();
+            if (await Next(before) is not { } open) return;
+            await FilmPopups(Path.Combine(directory, $"m7-open-{name}.png"), open);
+            if (MenuMotion.OpenPanels().SelectMany(panel => panel.Items).OfType<MenuFlyoutSubItem>().FirstOrDefault() is { } sub)
+            {
+                before = UiMoment.Latest;
+                (FrameworkElementAutomationPeer.CreatePeerForElement(sub).GetPattern(PatternInterface.ExpandCollapse) as IExpandCollapseProvider)?.Expand();
+                if (await Next(before) is { } submenu) await FilmPopups(Path.Combine(directory, $"m7-submenu-{name}.png"), submenu);
+            }
+            if (_theme != CharacterTheme.Pixel && MenuMotion.Menu is { } menu)
+            {
+                before = UiMoment.Latest;
+                menu.Hide();
+                if (await Next(before) is { } close) await FilmPopups(Path.Combine(directory, $"m7-close-{name}.png"), close);
+            }
+        }
+        catch (Exception error)
+        {
+            DebugTrace.Write("menu film failed: " + error);
+        }
+        finally
+        {
+            UiMoment.Manual = false;
+        }
+        DebugTrace.Write("menu film saved in " + directory);
+    }
+
+    private async Task FilmPopups(string path, UiMoment moment)
+    {
+        var pixel = _theme == CharacterTheme.Pixel;
+        var step = pixel ? TickMs : 1000.0 / 30;
+        var count = (int)Math.Ceiling(moment.DurationMs / step - 1e-6) + 2;
+        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
+        for (var k = 0; k < count; k++)
+        {
+            var ms = pixel ? k * step + step / 2 : k * step;
+            if (k > 0) moment.Step(ms);
+            await Task.Delay(150);
+            // PrintWindow waits on the UI thread to compose the popup.
+            frames.Add((pixel ? $"t={k}" : $"{ms:F0} ms", await Task.Run(PopupPrint.Capture)));
+        }
+        await PopupPrint.SaveStrip(path, frames);
     }
 
     public void DebugFilm(string directory) => _commands.Enqueue(() =>

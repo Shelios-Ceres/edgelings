@@ -6,6 +6,13 @@ namespace AgentIsland.WinUI.Shell;
 /// clock. A track gives one value at a time since its moment started.
 internal static class Motion
 {
+    private static readonly Windows.UI.ViewManagement.UISettings Settings = new();
+
+    /// Windows' animation effects are off, or AGENTISLAND_DEBUG_REDUCED_MOTION=1
+    /// says to act as if they were.
+    public static bool ReducedMotion =>
+        !Settings.AnimationsEnabled || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REDUCED_MOTION") == "1";
+
     /// Pixel's clock: 30 ticks a second, the pixel drawer's own rate.
     public const double TickMs = 1000.0 / 30;
 

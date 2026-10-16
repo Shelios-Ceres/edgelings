@@ -8,8 +8,11 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Text;
 using Windows.Foundation;
 using Windows.Graphics;
+using Windows.Graphics.DirectX;
 using WinRT.Interop;
 
 namespace AgentIsland.WinUI.Shell;
@@ -22,6 +25,8 @@ internal sealed class HoverCardPreview : Window
 
     private readonly Canvas _surface = new();
     private readonly HoverCard _card;
+    // The card and bubbles in the drawer's current style.
+    private readonly bool _pixel = DrawerStore.Shared.Theme == CharacterTheme.Pixel;
     private SpeechBubble? _bubble;
     private readonly Button _passThrough = new() { Content = "透明区点击", Width = 140, Height = 36 };
     private int _passThroughClicks;
@@ -86,7 +91,7 @@ internal sealed class HoverCardPreview : Window
         actions.Children.Add(ActionButton("气泡检查", () =>
         {
             _bubble ??= new SpeechBubble(_surface, inWindow: true);
-            _bubble.Say("Synthetic bubble", Swatches[0], pixel: false, characterRight: true, Anchor(0), Area, false);
+            _bubble.Say("Synthetic bubble", Swatches[0], _pixel, characterRight: true, Anchor(0), Area, false, LineKind.Waiting);
         }));
         Place(actions, 24, 85);
 
@@ -156,7 +161,8 @@ internal sealed class HoverCardPreview : Window
         {
             if (_closed) return;
             Layout();
-            Select(0);
+            if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_POPUP_FILM") is { Length: > 0 } film) _ = FilmAsync(film);
+            else Select(0);
         };
 
         _diagnosticsTimer = DispatcherQueue.CreateTimer();
@@ -233,8 +239,8 @@ internal sealed class HoverCardPreview : Window
         var retarget = _card.IsOpen && _hasTarget && _target != target;
         _target = target;
         _hasTarget = true;
-        _card.Show(new[] { (Card(target), Swatches[target]) }, pixel: false, characterRight: true,
-            Anchor(target), Area, reducedMotion: _reduced.IsChecked == true, retarget: retarget);
+        _card.Show(new[] { (Card(target), Swatches[target]) }, _pixel, characterRight: true,
+            Anchor(target), Area, reducedMotion: _reduced.IsChecked == true || Motion.ReducedMotion, retarget: retarget);
     }
 
     private void Hide()
@@ -333,13 +339,96 @@ internal sealed class HoverCardPreview : Window
         }
     }
 
+    /// AGENTISLAND_DEBUG_POPUP_FILM=<dir>: the card's moments (M3) and the
+    /// bubble's (M5), each stepped by hand frame by frame and printed from
+    /// this window, so the paper's shadow shows too, as a strip per moment:
+    /// Pixel every tick, Classic every 33 ms, until one frame past the end.
+    private async Task FilmAsync(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        UiMoment.Manual = true;
+        try
+        {
+            var name = (_pixel ? "pixel" : "classic") + "-" + (Brand.IsDark() ? "dark" : "light") + (Motion.ReducedMotion ? "-reduced" : "");
+            var area = Area;
+            var card = new Rect(area.Right - 92 - 10 - 300, area.Top, 380, area.Height);
+            await Film(Path.Combine(directory, $"m3-open-{name}.png"), card, () => ShowTarget(0));
+            await Film(Path.Combine(directory, $"m3-switch-{name}.png"), card, () => ShowTarget(1));
+            await Film(Path.Combine(directory, $"m3-close-{name}.png"), card, () => _card.Hide(animated: true));
+            var bubble = new Rect(area.Right - 92 - 10 - 260, Anchor(0).Top - 70, 340, 190);
+            _bubble ??= new SpeechBubble(_surface, inWindow: true);
+            foreach (var kind in Enum.GetValues<LineKind>())
+            {
+                var line = kind switch
+                {
+                    LineKind.Done => "Done — your turn!",
+                    LineKind.Error => "Hit an error.",
+                    LineKind.Locked => "Locked in place.\nRight-click to unlock.",
+                    _ => "Can I run this? Needs your OK.",
+                };
+                await Film(Path.Combine(directory, $"m5-{kind.ToString().ToLowerInvariant()}-{name}.png"), bubble,
+                    () => _bubble.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, Motion.ReducedMotion, kind));
+            }
+            await Film(Path.Combine(directory, $"m5-dismiss-{name}.png"), bubble, () => _bubble.Hide(animated: true));
+        }
+        catch (Exception error)
+        {
+            DebugTrace.Write("popup film failed: " + error);
+        }
+        finally
+        {
+            UiMoment.Manual = false;
+        }
+        DebugTrace.Write("popup film saved in " + directory);
+    }
+
+    /// One moment's frames, printed and cropped to `crop` (DIPs), in rows of eight.
+    private async Task Film(string path, Rect crop, Action trigger)
+    {
+        var before = UiMoment.Latest;
+        trigger();
+        if (UiMoment.Latest is not { } moment || moment == before) return;
+        var step = _pixel ? Motion.TickMs : 1000.0 / 30;
+        var count = (int)Math.Ceiling(moment.DurationMs / step - 1e-6) + 2;
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
+        int x0 = (int)(crop.X * scale), y0 = (int)(crop.Y * scale), w = (int)(crop.Width * scale), h = (int)(crop.Height * scale);
+        const int perRow = 8, label = 24, gap = 6;
+        var rows = (count + perRow - 1) / perRow;
+        var device = CanvasDevice.GetSharedDevice();
+        using var strip = new CanvasRenderTarget(device, gap + Math.Min(count, perRow) * (w + gap), gap + rows * (h + label + gap), 96);
+        using (var ds = strip.CreateDrawingSession())
+        {
+            ds.Clear(Windows.UI.Color.FromArgb(255, 0x80, 0x80, 0x80));
+            var text = new CanvasTextFormat { FontFamily = "Segoe UI", FontSize = 16 };
+            for (var k = 0; k < count; k++)
+            {
+                var ms = _pixel ? k * step + step / 2 : k * step;
+                if (k > 0) moment.Step(ms);
+                await Task.Delay(120);
+                if (WindowPrint.Client(hwnd) is not { } shot) continue;
+                var (pixels, width, height) = shot;
+                var frame = new byte[w * h * 4];
+                for (var y = 0; y < h && y0 + y < height; y++)
+                {
+                    Buffer.BlockCopy(pixels, ((y0 + y) * width + x0) * 4, frame, y * w * 4, Math.Min(w, width - x0) * 4);
+                }
+                using var bitmap = CanvasBitmap.CreateFromBytes(device, frame, w, h, DirectXPixelFormat.B8G8R8A8UIntNormalized, 96);
+                float left = gap + k % perRow * (w + gap), top = gap + k / perRow * (h + label + gap);
+                ds.DrawImage(bitmap, left, top);
+                ds.DrawText(_pixel ? $"t={k}" : $"{ms:F0} ms", left + 4, top + h + 1, Windows.UI.Color.FromArgb(255, 255, 255, 255), text);
+            }
+        }
+        await strip.SaveAsync(path);
+    }
+
     private static StatusCard Card(int target) => target switch
     {
-        0 => new(DisplayProvider.Claude, "Claude", "正在思考", null,
+        0 => new(DisplayProvider.Claude, "Claude", "Thinking", null,
             new("Tasks", "2 running", "2"),
             new[] { new StatusMeter("5h", "42%", 0.42, 0.42, "Resets in 2h 15m") },
             null, Array.Empty<StatusPhrase>()),
-        1 => new(DisplayProvider.Codex, "Codex", "正在运行工具", "Synthetic tool · build preview",
+        1 => new(DisplayProvider.Codex, "Codex", "Running commands", "Synthetic tool · build preview",
             new("Tasks", "3 running", "3"),
             new[]
             {
@@ -348,7 +437,7 @@ internal sealed class HoverCardPreview : Window
             },
             new("Tokens", "Today 128K", "128K", "This month 2.4M", "2.4M"),
             new[] { new StatusPhrase("2 reset cards · synthetic preview", new[] { "2" }) }),
-        _ => new(DisplayProvider.Kimi, "Kimi Code", "等待你的批准", "Synthetic permission prompt",
+        _ => new(DisplayProvider.Kimi, "Kimi Code", "Waiting for your approval", "Synthetic permission prompt",
             new("Tasks", "1 running", "1"),
             new[]
             {
@@ -356,7 +445,7 @@ internal sealed class HoverCardPreview : Window
                 new StatusMeter("Week", "38%", 0.38, 0.38, "Resets in 5d 2h"),
                 new StatusMeter("Month", "54%", 0.54, 0.54, "Resets in 18d"),
             },
-            new("Tokens", "今天 96K", "96K", "本月 1.8M", "1.8M"),
+            new("Tokens", "Today 96K", "96K", "This month 1.8M", "1.8M"),
             new[] { new StatusPhrase("Month: Kimi Code 35% · Kimi app 19%", new[] { "35%", "19%" }) }),
     };
 }
