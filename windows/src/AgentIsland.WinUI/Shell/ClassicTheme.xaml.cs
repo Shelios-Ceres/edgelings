@@ -82,7 +82,11 @@ public sealed partial class ClassicTheme : ResourceDictionary
         var box = dark ? "Field" : "Paper";
         Use("ComboBoxBackground", box);
         Use("ComboBoxBackgroundUnfocused", box);
-        Use("ComboBoxBackgroundFocused", box);
+        // Keyboard focus is the kit's ring (the style turns system focus
+        // visuals on); Fluent's own focus plate, border and pill stay clear.
+        theme["ComboBoxBackgroundFocused"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        theme["ComboBoxBackgroundBorderBrushFocused"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        theme["ComboBoxItemPillFillBrush"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         Use("ComboBoxBackgroundPointerOver", "FieldHover");
         Use("ComboBoxBackgroundPressed", "FieldPressed");
         Use("ComboBoxBackgroundDisabled", "DisabledFill");

@@ -502,8 +502,9 @@ internal sealed class HoverCard : IDisposable
         var labelWidth = pixel ? PixelLabelWidth : LabelWidth;
         var valueWidth = pixel ? PixelValueWidth : ValueWidth;
         var panel = new StackPanel();
-        // Marker, name and plan, then the phase: only the phase shortens when
-        // the line runs long, never the name or the plan.
+        // Marker, name and plan. Pixel puts the phase after them, and only
+        // the phase shortens; Classic starts line 2 with it, since English
+        // phases rarely fit beside a name and plan at 264 DIP.
         var head = new Grid();
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -536,16 +537,29 @@ internal sealed class HoverCard : IDisposable
             chip.Margin = new Thickness(6, 0, 0, 0);
             Place(head, chip, 0, 2);
         }
-        Place(head, new TextBlock
+        if (pixel)
         {
-            Text = " · " + card.Phase,
-            FontSize = 13,
-            Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-        }, 0, 3);
+            Place(head, new TextBlock
+            {
+                Text = " · " + card.Phase,
+                FontSize = 13,
+                Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+            }, 0, 3);
+        }
         panel.Children.Add(head);
-        if (card.Detail is { } detail)
+        if (!pixel)
+        {
+            // The phase, then the detail, which is what shortens.
+            var status = Caption(card.Phase, "TextFillColorPrimaryBrush", new Thickness(indent, 1, 0, 0));
+            if (card.Detail is { } line)
+            {
+                status.Inlines.Add(new Run { Text = " · " + line, Foreground = Res<Brush>("TextFillColorSecondaryBrush") });
+            }
+            panel.Children.Add(TwoLines(status));
+        }
+        else if (card.Detail is { } detail)
         {
             panel.Children.Add(TwoLines(Caption(detail, "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0))));
         }
@@ -639,6 +653,8 @@ internal sealed class HoverCard : IDisposable
                 Append(note, card.Note[i].Text, card.Note[i].Numbers);
             }
             panel.Children.Add(TwoLines(note));
+            // Classic notes get a third line before they shorten.
+            if (!pixel) note.MaxLines = 3;
         }
         return panel;
     }

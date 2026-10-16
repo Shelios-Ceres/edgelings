@@ -792,6 +792,7 @@
         <Setter Property="Padding" Value="14,5,0,7" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="ItemContainerStyle" Value="{StaticResource ClassicComboBoxItemStyle}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualMargin" Value="-4" />
         <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource ClassicAccent}" />
         <Setter Property="FocusVisualPrimaryThickness" Value="2" />
