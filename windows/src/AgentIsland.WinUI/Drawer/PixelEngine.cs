@@ -59,7 +59,7 @@ internal sealed class PixelEngine : ICharacterEngine
             _host = (ScriptObject)_engine.Script.agentIslandPixels;
             foreach (var provider in DisplayProviders.All)
             {
-                var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.PixelKind(provider));
+                var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.Kind(provider));
                 _fidgets[provider] = list.Split(',', StringSplitOptions.RemoveEmptyEntries);
             }
         }
@@ -73,7 +73,7 @@ internal sealed class PixelEngine : ICharacterEngine
     public CharacterTheme Theme => CharacterTheme.Pixel;
 
     public int AddBot(DisplayProvider provider, string shape, string color, double tempo, int seed) =>
-        Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.PixelKind(provider), seed, tempo));
+        Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), seed, tempo));
 
     public void SetLook(int bot, string shape, string color)
     {

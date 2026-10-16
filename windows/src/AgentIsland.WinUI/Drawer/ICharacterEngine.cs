@@ -4,8 +4,8 @@ namespace AgentIsland.WinUI.Drawer;
 
 /// What the drawer needs from a character set: one bot per provider, added
 /// in drawer order so engine indices match the drawer's, driven by state
-/// names and handing back one SVG per bot per tick. The pixel bots and the
-/// local Grok Bot engine copy both run in V8 behind it.
+/// names and handing back one SVG per bot per tick. The pixel and Classic
+/// engines both run in V8 behind it.
 internal interface ICharacterEngine : IDisposable
 {
     CharacterTheme Theme { get; }

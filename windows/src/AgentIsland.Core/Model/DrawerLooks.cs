@@ -2,10 +2,12 @@ using AgentIsland.Core;
 using AgentIsland.Localization;
 namespace AgentIsland.Model;
 
-/// How a provider's character looks and which Grok Bot state each phase
-/// plays. Default looks follow each brand (Kimi Code's round blue mascot,
-/// DeepSeek's blue whale, Cursor's black); brands that share a colour share
-/// it here too, by the user's choice (2026-10-11).
+/// How a provider's character looks and which state each phase plays. The
+/// drawer's two character sets, the pixel bots and the Classic shapes, are
+/// bundled engines that share one set of state names. Classic's default
+/// looks follow each brand (Kimi Code's round blue mascot, DeepSeek's blue
+/// whale, Cursor's black); brands that share a colour share it here too, by
+/// the user's choice (2026-10-11).
 public static class DrawerLooks
 {
     public static (string Shape, string Color) Default(DisplayProvider provider) => provider switch
@@ -22,6 +24,10 @@ public static class DrawerLooks
 
     public static (string Shape, string Color) For(DisplayProvider provider) =>
         DrawerStore.Shared.Look(provider) ?? Default(provider);
+
+    // MARK: - Legacy WPF drawer
+    // The WPF app's drawer still runs the local Grok Bot study copy, whose
+    // state names these are. The WinUI drawer uses the engines' map below.
 
     /// The phase-to-animation mapping the user approved (2026-10-11).
     public static string Entry(AgentPhase phase) => phase switch
@@ -56,12 +62,13 @@ public static class DrawerLooks
 
     public static readonly HashSet<string> CalmStates = new() { "idle", "listening", "sleeping", "blocked", "drowsy", "bored" };
 
-    // MARK: - Pixel theme
-    // Mirrors the bundled pixel engine (WinUI Drawer/Characters/characters.mjs);
-    // PixelThemeTests checks every name and colour against that file.
+    // MARK: - Engines
+    // Mirrors the bundled engines (WinUI Drawer/Characters/characters.mjs and
+    // classic.mjs); PixelThemeTests and ClassicThemeTests check every name and
+    // colour against those files.
 
-    /// The pixel engine's bot for each provider.
-    public static string PixelKind(DisplayProvider provider) => provider switch
+    /// Each provider's bot, under the same kind name in both engines.
+    public static string Kind(DisplayProvider provider) => provider switch
     {
         DisplayProvider.Codex => "codex",
         DisplayProvider.Antigravity => "antigravity",
@@ -89,8 +96,9 @@ public static class DrawerLooks
     public static uint Swatch(DisplayProvider provider, string color, CharacterTheme theme) =>
         theme == CharacterTheme.Pixel ? PixelSwatch(provider) : Swatch(color);
 
-    /// The state a phase enters in a theme; the pixel bots have one per phase.
-    public static string Entry(AgentPhase phase, CharacterTheme theme) => theme == CharacterTheme.Classic ? Entry(phase) : phase switch
+    /// The state a phase enters, one per phase. Both themes' engines draw
+    /// these names; a theme with names of its own would map them here.
+    public static string Entry(AgentPhase phase, CharacterTheme theme) => phase switch
     {
         AgentPhase.Thinking => "thinking",
         AgentPhase.Streaming => "streaming",
@@ -115,47 +123,39 @@ public static class DrawerLooks
         _ => "idle",
     };
 
-    /// Where a phase rests; the pixel engine settles finished into listening
-    /// and failed into broken by itself.
-    public static string Hold(AgentPhase phase, CharacterTheme theme) => theme == CharacterTheme.Classic ? Hold(phase) : phase switch
+    /// Where a phase rests; the engines settle finished into listening and
+    /// failed into broken by themselves.
+    public static string Hold(AgentPhase phase, CharacterTheme theme) => phase switch
     {
         AgentPhase.Finished => "listening",
         AgentPhase.Failed => "broken",
         _ => Entry(phase, theme),
     };
 
-    /// The pixel engine's CALM list: states fine at the calm frame rate.
-    public static readonly HashSet<string> PixelCalmStates = new(StringComparer.Ordinal)
+    /// The engines' CALM list: states fine at the calm frame rate.
+    public static readonly HashSet<string> EngineCalmStates = new(StringComparer.Ordinal)
     {
         "idle", "listening", "broken", "offline", "sleeping", "locked",
     };
 
-    public static bool IsCalm(string state, CharacterTheme theme) =>
-        (theme == CharacterTheme.Pixel ? PixelCalmStates : CalmStates).Contains(state);
+    public static bool IsCalm(string state, CharacterTheme theme) => EngineCalmStates.Contains(state);
 
-    /// Entries that play once from their start.
-    public static bool IsOneShot(string state, CharacterTheme theme) =>
-        theme == CharacterTheme.Pixel ? state is "finished" or "failed" : OneShotStates.Contains(state);
+    /// Entries that play once from their start; every other state loops and
+    /// may begin anywhere in its cycle.
+    public static bool IsOneShot(string state, CharacterTheme theme) => state is "finished" or "failed";
 
-    /// Entries that play once from their start (measured in the engine);
-    /// every other state loops and may begin anywhere in its cycle.
-    public static readonly HashSet<string> OneShotStates = new(StringComparer.Ordinal) { "finished", "failed", "approving", "waking" };
-
-    /// A character's own pace and idle habits, so the drawer never moves in
-    /// lockstep: the speed its engine runs at, and the little things it does
-    /// now and then while its agent has nothing on.
-    public sealed record Personality(double Tempo, string[] Fidgets);
-
-    public static Personality PersonalityOf(DisplayProvider provider) => provider switch
+    /// A character's own pace, so the drawer never moves in lockstep. Its
+    /// idle habits (fidgets) come from its engine.
+    public static double TempoOf(DisplayProvider provider) => provider switch
     {
-        DisplayProvider.Claude => new(0.93, new[] { "curious", "humming" }),
-        DisplayProvider.Codex => new(1.07, new[] { "playful", "bouncing" }),
-        DisplayProvider.Grok => new(1.12, new[] { "suspicious", "laughing" }),
-        DisplayProvider.Kimi => new(0.97, new[] { "shy", "happy" }),
-        DisplayProvider.DeepSeek => new(0.9, new[] { "drowsy", "curious" }),
-        DisplayProvider.Cursor => new(1.03, new[] { "proud", "excited" }),
-        DisplayProvider.Antigravity => new(1.0, new[] { "bored", "playful" }),
-        _ => new(1.0, new[] { "curious" }),
+        DisplayProvider.Claude => 0.93,
+        DisplayProvider.Codex => 1.07,
+        DisplayProvider.Grok => 1.12,
+        DisplayProvider.Kimi => 0.97,
+        DisplayProvider.DeepSeek => 0.9,
+        DisplayProvider.Cursor => 1.03,
+        DisplayProvider.Antigravity => 1.0,
+        _ => 1.0,
     };
 
     public static string PhaseLabel(AgentPhase phase) => L10n.Tr(phase switch
@@ -189,20 +189,20 @@ public static class DrawerLooks
     public static string ColorLabel(string color) =>
         L10n.Tr(color.Length == 0 ? color : char.ToUpperInvariant(color[0]) + color[1..]);
 
-    /// The engine's palette (0xRRGGBB), for card dots, quota bars and the
-    /// fallback characters drawn when the engine is unavailable.
+    /// The Classic engine's palette (its colorOf, 0xRRGGBB), for card dots,
+    /// quota bars and the fallback characters drawn when the engine cannot run.
     public static uint Swatch(string color) => color switch
     {
-        "black" => 0x000000,
-        "brown" => 0x936439,
-        "red" => 0xFF263C,
-        "orange" => 0xFF6700,
-        "yellow" => 0xFF9800,
-        "green" => 0x00C972,
-        "cyan" => 0x00BCA6,
-        "violet" => 0x9159FE,
-        "magenta" => 0xFF309B,
-        "gray" => 0x777777,
-        _ => 0x1084FE,
+        "black" => 0x24252C,
+        "brown" => 0x9C6B45,
+        "red" => 0xF04A55,
+        "orange" => 0xFF7A2E,
+        "yellow" => 0xFFB51F,
+        "green" => 0x22BF7A,
+        "cyan" => 0x17B5C7,
+        "violet" => 0x8E63F5,
+        "magenta" => 0xE9529E,
+        "gray" => 0x858A96,
+        _ => 0x2D8CFF,
     };
 }

@@ -10,8 +10,8 @@ public enum DrawerSide
 }
 
 /// The drawer's character set: the bundled pixel bots, one per agent, or the
-/// classic shapes that can be recoloured (drawn by the local Grok Bot engine
-/// copy, discs without it).
+/// classic shapes that can be reshaped and recoloured, drawn by the bundled
+/// Classic engine.
 public enum CharacterTheme
 {
     Pixel,

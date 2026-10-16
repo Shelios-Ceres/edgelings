@@ -29,7 +29,7 @@ namespace AgentIsland.WinUI.Drawer;
 /// provider, each playing its agent's live phase. Win2D draws them on its
 /// own game-loop thread, at the display's refresh rate while any of them is
 /// busy; only the characters' circles take clicks. The character set is a
-/// theme: the bundled pixel bots, or the classic recolourable shapes.
+/// theme: the bundled pixel bots, or the Classic recolourable shapes.
 internal sealed class DrawerWindow : Window
 {
     private const double BotSize = 44;
@@ -95,10 +95,11 @@ internal sealed class DrawerWindow : Window
     private ICharacterEngine? _engine;
     private CharacterTheme _theme;
     private volatile CharacterTheme _loopTheme;
-    // The classic engine's shapes and colours for the look picker; null in
+    // The Classic engine's shapes and colours for the look picker; null in
     // the pixel theme, which hides the picker.
     private IReadOnlyList<string>? _shapes;
     private IReadOnlyList<string>? _colors;
+    private Func<string, string?>? _shapeFor;
     private readonly SvgCanvas _svg = new();
     private readonly List<Bot> _bots = new();
     private DrawerActivityFrame _activity = new(Array.Empty<(DisplayProvider, AgentPhase, string?, int)>());
@@ -156,7 +157,7 @@ internal sealed class DrawerWindow : Window
         _engine = CreateEngine(_theme);
         foreach (var provider in DisplayProviders.All)
         {
-            var (shape, color) = ValidLook(DrawerLooks.For(provider));
+            var (shape, color) = ValidLook(provider, DrawerLooks.For(provider));
             var bot = new Bot
             {
                 Provider = provider,
@@ -360,32 +361,37 @@ internal sealed class DrawerWindow : Window
 
     // MARK: - Layout
 
-    private (string Shape, string Color) ValidLook((string Shape, string Color) look)
+    /// A saved look the Classic engine can draw: an old shape name maps to
+    /// the nearest, and anything else falls back to the agent's default.
+    private (string Shape, string Color) ValidLook(DisplayProvider provider, (string Shape, string Color) look)
     {
         if (_shapes is null || _colors is null) return look;
-        return (_shapes.Contains(look.Shape) ? look.Shape : "blob",
-            _colors.Contains(look.Color) ? look.Color : "blue");
+        var fallback = DrawerLooks.Default(provider);
+        return (_shapeFor?.Invoke(look.Shape) ?? fallback.Shape,
+            _colors.Contains(look.Color) ? look.Color : fallback.Color);
     }
 
     // MARK: - Theme
 
-    /// The theme's engine, or null when it cannot run: the classic look needs
-    /// the local Grok Bot engine copy, and either can fail to load V8. Without
-    /// one the drawer draws its fallback discs.
+    /// The theme's engine, or null when V8 cannot run it; the drawer then
+    /// draws its fallback discs.
     private ICharacterEngine? CreateEngine(CharacterTheme theme)
     {
         ICharacterEngine? engine = null;
         try
         {
-            if (theme == CharacterTheme.Pixel) engine = new PixelEngine(PixelEngine.Directory);
-            else if (GrokEngineLocator.Find() is { } directory) engine = new GrokEngine(directory);
+            engine = theme == CharacterTheme.Pixel
+                ? new PixelEngine(PixelEngine.Directory)
+                : new ClassicEngine(PixelEngine.Directory);
         }
         catch (Exception error)
         {
-            CrashLog.Write(error, theme == CharacterTheme.Pixel ? "Pixel engine" : "Grok engine");
+            CrashLog.Write(error, theme == CharacterTheme.Pixel ? "Pixel engine" : "Classic engine");
         }
-        _shapes = (engine as GrokEngine)?.Shapes;
-        _colors = (engine as GrokEngine)?.Colors;
+        var classic = engine as ClassicEngine;
+        _shapes = classic?.Shapes;
+        _colors = classic?.Colors;
+        _shapeFor = classic is null ? null : classic.ShapeFor;
         return engine;
     }
 
@@ -393,7 +399,7 @@ internal sealed class DrawerWindow : Window
     {
         if (engine is null) return;
         var index = engine.AddBot(bot.Provider, bot.Shape, bot.Color,
-            DrawerLooks.PersonalityOf(bot.Provider).Tempo, Random.Shared.Next(1, 1_000_000));
+            DrawerLooks.TempoOf(bot.Provider), Random.Shared.Next(1, 1_000_000));
         if (index != bot.Index) throw new InvalidOperationException($"engine index {index} for drawer bot {bot.Index}");
     }
 
@@ -408,7 +414,7 @@ internal sealed class DrawerWindow : Window
         var rest = new List<(int Index, string Hold, uint Swatch, string[] Fidgets)>();
         foreach (var bot in _bots)
         {
-            (bot.Shape, bot.Color) = ValidLook((bot.Shape, bot.Color));
+            (bot.Shape, bot.Color) = ValidLook(bot.Provider, (bot.Shape, bot.Color));
             AddBot(engine, bot);
             var hold = bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme);
             rest.Add((bot.Index, hold, SwatchOf(bot), engine?.Fidgets(bot.Provider) ?? Array.Empty<string>()));

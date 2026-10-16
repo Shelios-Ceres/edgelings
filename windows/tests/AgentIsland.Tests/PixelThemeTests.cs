@@ -8,8 +8,8 @@ namespace AgentIsland.Tests;
 
 /// The pixel theme's rules in DrawerLooks against the engine the app ships
 /// (AgentIsland.WinUI/Drawer/Characters/characters.mjs): every phase plays a
-/// state the engine has, the calm and one-shot sets and the colours match,
-/// and the classic theme behaves exactly as before.
+/// state the engine has, and the calm and one-shot sets and the colours
+/// match.
 public static class PixelThemeTests
 {
     public static void RunAll()
@@ -43,29 +43,16 @@ public static class PixelThemeTests
         }
         Console.WriteLine("PASS calm and one-shot states match the engine");
 
-        var bots = DisplayProviders.All.Select(DrawerLooks.PixelKind).ToList();
+        var bots = DisplayProviders.All.Select(DrawerLooks.Kind).ToList();
         Expect(bots.Distinct().Count() == bots.Count && bots.All(kinds.Contains) && bots.Count == kinds.Count,
             "each provider has its own pixel bot");
         foreach (var provider in DisplayProviders.All)
         {
-            var kind = DrawerLooks.PixelKind(provider);
+            var kind = DrawerLooks.Kind(provider);
             Expect(DrawerLooks.PixelSwatch(provider) == swatches[kind], $"{provider}'s colour matches the engine's {kind}");
         }
-        Console.WriteLine("PASS each provider's pixel bot and colour match the engine");
-
-        foreach (var phase in Enum.GetValues<AgentPhase>())
-        {
-            Expect(DrawerLooks.Entry(phase, CharacterTheme.Classic) == DrawerLooks.Entry(phase), $"classic {phase} entry unchanged");
-            Expect(DrawerLooks.Hold(phase, CharacterTheme.Classic) == DrawerLooks.Hold(phase), $"classic {phase} hold unchanged");
-        }
-        foreach (var state in DrawerLooks.CalmStates)
-        {
-            Expect(DrawerLooks.IsCalm(state, CharacterTheme.Classic), $"classic '{state}' stays calm");
-        }
         Expect(DrawerLooks.Swatch(DisplayProvider.Claude, "blue", CharacterTheme.Pixel) == 0xD77757, "the pixel theme uses the bot's own colour");
-        Expect(DrawerLooks.Swatch(DisplayProvider.Claude, "blue", CharacterTheme.Classic) == DrawerLooks.Swatch("blue"),
-            "the classic theme keeps the picked colour");
-        Console.WriteLine("PASS the classic theme is unchanged");
+        Console.WriteLine("PASS each provider's pixel bot and colour match the engine");
 
         // The pixel panels read in English inside L10n.English(), and only there.
         var language = L10n.Current;

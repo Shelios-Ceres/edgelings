@@ -7,7 +7,7 @@ chosen in **Settings → Drawer → Character style** and switched live:
 
 | | Pixel (default) | Classic |
 |---|---|---|
-| Characters | Seven pixel bots, one per agent, from a bundled engine | Recolourable shapes from the local Grok Bot engine copy; plain discs where it is absent |
+| Characters | Seven pixel bots, one per agent, from a bundled engine | Twelve recolourable shapes in eleven colours, from a bundled engine |
 | Panels | Opaque pixel panels, English, in the Ark Pixel font | Paper with a soft tail and shadow, in the app language |
 | Settings, Cost and menus | The pixel kit (`Shell/PixelTheme.xaml`) | The Classic kit (`Shell/ClassicTheme.xaml`): rounder Fluent with the Sky accent |
 | Agent colour | Each bot's own colour | The colour picked in the bot's right-click menu |
@@ -64,32 +64,32 @@ The `cursor` bot must still exist for users whose plans are billed apart.
 ### 3.2 A state for every phase
 
 The drawer reports one of 21 phases per agent, and each must map to a state
-the engine draws. Reusing the Pixel state names is recommended: the existing
-mapping, tests and pacing then apply unchanged.
+the engine draws. Both themes use the same state names, and a new theme
+should too: the mapping, tests and pacing then apply unchanged.
 
-| Phase | Card label | Pixel state | Classic state |
-|---|---|---|---|
-| `Idle` | Idle | `idle` | `idle` |
-| `Thinking` | Thinking | `thinking` | `thinking` |
-| `Streaming` | Replying | `streaming` | `streaming` |
-| `Reading` | Reading files | `reading` | `reading` |
-| `Searching` | Searching code | `searching` | `searching` |
-| `WebSearching` | Searching the web | `web` | `radar` |
-| `Writing` | Editing code | `writing` | `writing` |
-| `Running` | Running commands | `running` | `running` |
-| `Controlling` | Operating apps | `controlling` | `controlling` |
-| `Spawning` | Starting a subagent | `spawning` | `spawning` |
-| `WaitingOnAgents` | Waiting on subagents | `orbit` | `orbit` |
-| `Sending` | Sending a message | `sending` | `sending` |
-| `Asking` | Asking you | `asking` | `alerting` |
-| `Approving` | Waiting for your approval | `approving` | `alerting` |
-| `Compacting` | Compacting context | `compacting` | `loading` |
-| `Working` | Working | `working` | `working` |
-| `Finished` | Waiting for your reply | `finished` → rests in `listening` | `finished` → rests in `listening` |
-| `Failed` | Something went wrong | `failed` → rests in `broken` | `failed` |
-| `NetworkTrouble` | Network trouble | `offline` | `blocked` |
-| `RateLimited` | Out of quota | `sleeping` | `sleeping` |
-| `AuthRequired` | Sign-in needed | `locked` | `confused` |
+| Phase | Card label | State |
+|---|---|---|
+| `Idle` | Idle | `idle` |
+| `Thinking` | Thinking | `thinking` |
+| `Streaming` | Replying | `streaming` |
+| `Reading` | Reading files | `reading` |
+| `Searching` | Searching code | `searching` |
+| `WebSearching` | Searching the web | `web` |
+| `Writing` | Editing code | `writing` |
+| `Running` | Running commands | `running` |
+| `Controlling` | Operating apps | `controlling` |
+| `Spawning` | Starting a subagent | `spawning` |
+| `WaitingOnAgents` | Waiting on subagents | `orbit` |
+| `Sending` | Sending a message | `sending` |
+| `Asking` | Asking you | `asking` |
+| `Approving` | Waiting for your approval | `approving` |
+| `Compacting` | Compacting context | `compacting` |
+| `Working` | Working | `working` |
+| `Finished` | Waiting for your reply | `finished` → rests in `listening` |
+| `Failed` | Something went wrong | `failed` → rests in `broken` |
+| `NetworkTrouble` | Network trouble | `offline` |
+| `RateLimited` | Out of quota | `sleeping` |
+| `AuthRequired` | Sign-in needed | `locked` |
 
 How states behave:
 
@@ -102,7 +102,7 @@ How states behave:
   [0, 1). A negative phase lets the engine pick, so bots entering a state
   together never move in step.
 - **Calm states** (the engine's `CALM` list) must look right at 30 fps: when
-  every visible bot is calm, the drawer drops to that rate. Pixel's calm
+  every visible bot is calm, the drawer drops to that rate. Both themes' calm
   states are `idle`, `listening`, `broken`, `offline`, `sleeping` and `locked`.
 - **Fidgets**: `fidgetsOf(kind)` lists one to three short, idle-only states
   per bot (Pixel Claude: `wave`, `hop`, `stroll`). They must loop; the drawer
@@ -128,6 +128,11 @@ It must export:
 | `fidgetsOf(kind)` | The bot's fidget states |
 | `swatchOf(kind)` | The bot's colour, as `0xRRGGBB` |
 | `settleOf(state)` | A one-shot state's resting state, else `null` |
+
+A theme with a look picker, like Classic, also exports `SHAPE_NAMES`,
+`COLORS`, `colorOf(color)` and `shapeFor(name)` (the shape drawn for a saved
+name, mapping old names to the nearest), takes `shape` and `color` in
+`createBot`, and gives each bot `setLook(shape, color)`.
 
 And a bot must offer:
 
@@ -161,7 +166,10 @@ A frame must:
   `stroke-dasharray`, `stroke-linecap` and `stroke-linejoin`;
 - write colours as `#RGB`, `#RRGGBB`, `white`, `black` or `transparent`;
 - prefix any `id` with the `id` argument, since bots share one canvas;
-- stay inside its box; the bot's click target is the 44-DIP circle around it.
+- draw within 22 DIP of the box's centre. The drawer's window region is each
+  bot's inscribed circle: it takes the bot's clicks and clips its drawing,
+  so anything painted past it is cut off. (Open point: Pixel's v3 set paints
+  up to 31 DIP out in some states, and those corners are cut.)
 
 Anything else is ignored or drawn black: gradients, filters, `text`, images,
 `rgb()` and named colours, `fill-opacity`, CSS.
@@ -246,9 +254,10 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 1. **Engine.** Add `Drawer/Characters/<name>.mjs` as Content with
    `CopyToOutputDirectory`, and list it in `Drawer/Characters/.gitattributes`
    with `-text` so line-ending conversion never changes its bytes.
-2. **Host.** Add a class implementing `ICharacterEngine`: copy `PixelEngine`,
-   which keeps one host module, crosses into V8 once per frame for every bot
-   and turns the drawer's gaze box into a pointer offset.
+2. **Host.** Add a class implementing `ICharacterEngine`: copy `PixelEngine`
+   (or `ClassicEngine`, for a look picker), which keeps one host module,
+   crosses into V8 once per frame for every bot and turns the drawer's gaze
+   box into a pointer offset.
 3. **Theme value.** Append to `CharacterTheme` in
    `AgentIsland.Core/Model/DrawerStore.cs`.
 4. **Rules.** In `AgentIsland.Core/Model/DrawerLooks.cs`: each agent's kind,
@@ -331,10 +340,19 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 10. Reference: the Classic theme
 
-- **Engine**: the local Grok Bot engine copy (`GrokEngineLocator`), which is
-  not shipped. Without it the drawer draws plain discs.
-- **Swatches**: the colour picked in each bot's menu (`DrawerLooks.Swatch`);
-  on dark surfaces a near-black one is lifted to `#D6D6D6`.
+- **Engine**: `Drawer/Characters/classic.mjs`, approved round 3, SHA-256
+  `533e8efe37d7a91e75c1a77c93b43987a44bd6b053e19fdc54340ef94ece9bec`; vector
+  frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
+  frames up to 1,882 bytes. Each of the twelve shapes stands on its own
+  baseline, and every frame stays within the circle (22 DIP of the centre).
+- **Swatches**: the colour picked in each bot's menu (`DrawerLooks.Swatch`,
+  the engine's `colorOf`); on dark surfaces a near-black one is lifted to
+  `#D6D6D6`.
+
+  | black | brown | red | orange | yellow | green | cyan | violet | magenta | gray | blue |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | `#24252C` | `#9C6B45` | `#F04A55` | `#FF7A2E` | `#FFB51F` | `#22BF7A` | `#17B5C7` | `#8E63F5` | `#E9529E` | `#858A96` | `#2D8CFF` |
+
 - **Panel colours**:
 
   | Token | Light | Dark |

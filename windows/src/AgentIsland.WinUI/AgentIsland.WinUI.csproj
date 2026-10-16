@@ -26,7 +26,7 @@
 
   <ItemGroup>
     <Content Include="Assets\**\*.png;Assets\**\*.ico" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Drawer\Characters\characters.mjs" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Drawer\Characters\characters.mjs;Drawer\Characters\classic.mjs" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Fonts\*.ttf;Assets\Fonts\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

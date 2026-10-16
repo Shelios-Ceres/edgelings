@@ -8,7 +8,7 @@ using Windows.UI;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// Draws the Grok Bot engine's SVG subset with Win2D: svg, defs, g, path
+/// Draws the character engines' SVG subset with Win2D: svg, defs, g, path
 /// (M L H V C A Z), circle, use, clipPath, mask (as a clip of its shapes);
 /// transform, opacity, fill, fill-rule, stroke, stroke-width,
 /// stroke-dasharray, stroke-linecap / linejoin.
