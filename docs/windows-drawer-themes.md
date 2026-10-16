@@ -352,9 +352,9 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 ## 10. Reference: the Classic theme
 
 - **Engine**: `Drawer/Characters/classic.mjs`, approved round 3, SHA-256
-  `533e8efe37d7a91e75c1a77c93b43987a44bd6b053e19fdc54340ef94ece9bec`; vector
+  `589fa5711ca1d125c6dc5e21e484afafabf574c3dd97226ab4ac0c3b429b874f`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
-  frames up to 1,882 bytes. Each of the twelve shapes stands on its own
+  frames up to 1,740 bytes. Each of the twelve shapes stands on its own
   baseline, and every frame stays within the circle (22 DIP of the centre).
 - **Swatches**: the colour picked in each bot's menu (`DrawerLooks.Swatch`,
   the engine's `colorOf`); on dark surfaces a near-black one is lifted to

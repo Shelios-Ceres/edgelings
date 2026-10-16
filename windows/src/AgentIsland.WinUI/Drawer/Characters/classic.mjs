@@ -254,8 +254,7 @@ export const cycleOf = state => CYCLE[state] ?? 4;
 // its own baseline, base, as low as it can while every pose stays inside
 // the drawer's circle; room is how far it can hop from there and top its
 // highest point (check.mjs measures all three). face places the eyes: their
-// centre, the gap between them and a size factor; glint is the soft
-// highlight arc in the upper left.
+// centre, the gap between them and a size factor.
 
 // A polygon with every corner rounded to radius r.
 function roundedPolygon(points, r) {
@@ -296,73 +295,61 @@ const SHAPES = {
     d: 'M0 -14.5C8.5 -14.5 15.5 -8 15.5 1C15.5 9.5 9.5 15 0 15C-9.5 15 -15.5 9.5 -15.5 1C-15.5 -8 -8.5 -14.5 0 -14.5Z',
     top: -14.5, base: 39, room: 7.8,
     face: { x: 0, y: 1, gap: 9.4, es: 1 },
-    glint: { x: 0, y: 1, r: 11.2, a0: 196, a1: 238 },
   },
   squircle: {
     d: 'M-14 -4.5C-14 -12 -12 -14 -4.5 -14H4.5C12 -14 14 -12 14 -4.5V6.5C14 13 12 15 4.5 15H-4.5C-12 15 -14 13 -14 6.5Z',
     top: -14, base: 37, room: 4.1,
     face: { x: 0, y: 0.5, gap: 9.6, es: 1 },
-    glint: { x: -4.5, y: -4.5, r: 7.2, a0: 188, a1: 246 },
   },
   cloud: {
     d: 'M-8.5 15A7 7 0 0 1 -9.98 1.16A10 10 0 1 1 9.98 1.16A7 7 0 0 1 8.5 15Z',
     top: -9.47, base: 35.5, room: 9.3,
     face: { x: 0, y: 5, gap: 9.2, es: 0.95 },
-    glint: { x: 0, y: 0.5, r: 7.4, a0: 202, a1: 250 },
   },
   sparkle: {
     d: 'M-2.4 -13.6A3.3 3.3 0 0 1 2.4 -13.6C4.95 -7.15 7.15 -4.95 13.6 -2.4A3.3 3.3 0 0 1 13.6 2.4C7.15 4.95 4.95 7.15 2.4 13.6A3.3 3.3 0 0 1 -2.4 13.6C-4.95 7.15 -7.15 4.95 -13.6 2.4A3.3 3.3 0 0 1 -13.6 -2.4C-7.15 -4.95 -4.95 -7.15 -2.4 -13.6Z',
     top: -14.64, base: 39, room: 7.6,
     face: { x: 0, y: 0.5, gap: 8.2, es: 0.84 },
-    glint: { x: 0, y: 0, r: 5.6, a0: 200, a1: 246 },
   },
   flower: {
     d: flowerPath(6, 9, 6.5),
     top: -15.51, base: 39, room: 6.7,
     face: { x: 0, y: 0.5, gap: 9, es: 0.94 },
-    glint: { x: 0, y: 0, r: 8.6, a0: 200, a1: 244 },
   },
   heart: {
     d: 'M0 -9.66A8 8 0 0 1 13.43 -1C10.43 4.2 4 11 1.4 13.6A2 2 0 0 1 -1.4 13.6C-4 11 -10.43 4.2 -13.43 -1A8 8 0 0 1 0 -9.66Z',
     top: -12.98, base: 39, room: 7.4,
     face: { x: 0, y: 0, gap: 9.4, es: 0.92 },
-    glint: { x: -6.5, y: -5, r: 5, a0: 196, a1: 256 },
   },
   arch: {
     d: 'M-13 11V-2A13 13 0 0 1 13 -2V11A4 4 0 0 1 9 15H-9A4 4 0 0 1 -13 11Z',
     top: -15, base: 37, room: 5.3,
     face: { x: 0, y: 1, gap: 9.4, es: 1 },
-    glint: { x: 0, y: -2, r: 9.6, a0: 196, a1: 242 },
   },
   wedge: {
     d: roundedPolygon([[0, -20], [16, 15], [-16, 15]], 4.6),
     top: -13.57, base: 37, room: 6.7,
     face: { x: 0, y: 6.5, gap: 8.6, es: 0.9 },
-    glint: { x: 0, y: 4, r: 8.2, a0: 206, a1: 236 },
   },
   hex: {
     d: roundedPolygon(polyAround(6, 15.6, -90), 4.2),
     top: -14.96, base: 39, room: 7.3,
     face: { x: 0, y: 0.5, gap: 9.4, es: 0.96 },
-    glint: { x: 0, y: 0, r: 10.6, a0: 200, a1: 238 },
   },
   teardrop: {
     d: 'M0 -15.5C2.5 -11.5 12 -6 12 3A12 12 0 0 1 -12 3C-12 -6 -2.5 -11.5 0 -15.5Z',
     top: -15.5, base: 39, room: 6.8,
     face: { x: 0, y: 4, gap: 9.2, es: 0.95 },
-    glint: { x: 0, y: 3, r: 8.6, a0: 200, a1: 244 },
   },
   egg: {
     d: 'M0 -15C7.5 -15 12.5 -6 12.5 2C12.5 10 7 15 0 15C-7 15 -12.5 10 -12.5 2C-12.5 -6 -7.5 -15 0 -15Z',
     top: -15, base: 39, room: 7.3,
     face: { x: 0, y: 2.5, gap: 8.8, es: 0.95 },
-    glint: { x: 0, y: 1, r: 9, a0: 198, a1: 240 },
   },
   bean: {
     d: 'M-14 4C-14 -6 -7 -9 -2 -6C1 -4 3 -4 6 -7C11 -10 15 -4 15 3C15 11 9 15 0 15C-8 15 -14 12 -14 4Z',
     top: -7.79, base: 39, room: 12,
     face: { x: 0.5, y: 4.5, gap: 9.2, es: 0.92 },
-    glint: { x: -7, y: 1, r: 5.6, a0: 196, a1: 250 },
   },
 };
 
@@ -1024,9 +1011,9 @@ const KIND = {
 // MARK: - Drawing
 //
 // A frame, back to front: props behind the bot, then the body (a white rim
-// under the fill, the fill, a soft highlight and the face), then props in
-// front. The body is one path in defs, used twice, so the drawer parses its
-// geometry once and keeps it.
+// under the fill, the fill and the face), then props in front. The body is
+// one path in defs, used twice, so the drawer parses its geometry once and
+// keeps it.
 
 const BASE_X = 22;
 const EYE_W = 4.8;
@@ -1083,12 +1070,6 @@ function face(o, S, eye) {
   return P(fills, fill(eye)) + P(lines, stroke(eye, sw));
 }
 
-function glint(S, col) {
-  const G = S.glint, a0 = rad(G.a0), a1 = rad(G.a1);
-  const d = `M${n(G.x + G.r * Math.cos(a0))} ${n(G.y + G.r * Math.sin(a0))}A${n(G.r)} ${n(G.r)} 0 0 1 ${n(G.x + G.r * Math.cos(a1))} ${n(G.y + G.r * Math.sin(a1))}`;
-  return P(d, stroke(mixHex(col, PAPER, 0.38), 1.7));
-}
-
 function propLayer(props, c, layer) {
   let out = '';
   for (const name in props) {
@@ -1112,7 +1093,6 @@ function draw(o, { id, rim, shape, color, size }) {
   const tf = matrix(co * sx, si * sx, -si * sy, co * sy, BASE_X + o.x + 15 * si * sy, S.base + y - 15 * co * sy);
   const body = (rim ? `<use href="#${id}s" fill="none" stroke="${PAPER}" stroke-width="2.6" stroke-linejoin="round"/>` : '')
     + `<use href="#${id}s"${fill(back ? mixHex(col, INK, 0.22) : col)}/>`
-    + (cs > 0.45 ? glint(S, col) : '')
     + (cs > 0.35 ? face(o, S, c.eye) : '');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="${n(size)}" height="${n(size)}">`
     + `<defs><path id="${id}s" d="${S.d}"/></defs>`

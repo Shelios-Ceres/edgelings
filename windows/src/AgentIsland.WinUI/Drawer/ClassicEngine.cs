@@ -8,7 +8,7 @@ namespace AgentIsland.WinUI.Drawer;
 
 /// The Classic bots in embedded V8: Characters/classic.mjs is the approved
 /// round 3 engine from windows/notes/classic-grok-20261015 (sha256
-/// 533e8efe…), our own code, shipped with the app. Twelve shapes in eleven
+/// 589fa571…), our own code, shipped with the app. Twelve shapes in eleven
 /// colours, picked per bot in its menu; frames are vector SVG, drawn
 /// antialiased.
 internal sealed class ClassicEngine : ICharacterEngine
