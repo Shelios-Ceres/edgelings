@@ -363,8 +363,8 @@ internal sealed class HoverCardPreview : Window
             await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-refresh-{name}.png"), () =>
                 _card.Show(new[] { (Refreshed(), Swatches[1]) }, _pixel, characterRight: true, Anchor(1), Area, Motion.ReducedMotion), _pixel, Crop(card));
             // M4 with a height change: from a one-line status, the detail wraps
-            // onto a second line (the same layout, taller); then a meter row
-            // appears (a new layout).
+            // onto a second line (the same layout, taller) and back; then a
+            // meter row appears (a new layout) and goes.
             UiMoment.Finish();
             await Task.Delay(500);
             ShowRefreshed(Refreshed("Synthetic edit"));
@@ -374,7 +374,16 @@ internal sealed class HoverCardPreview : Window
             await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-taller-{name}.png"), () => ShowRefreshed(Refreshed(longer)), _pixel, Crop(card), before: true);
             UiMoment.Finish();
             await Task.Delay(500);
+            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-shorter-{name}.png"), () => ShowRefreshed(Refreshed("Synthetic edit")), _pixel, Crop(card), before: true);
+            UiMoment.Finish();
+            await Task.Delay(500);
+            ShowRefreshed(Refreshed(longer));
+            UiMoment.Finish();
+            await Task.Delay(500);
             await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-row-{name}.png"), () => ShowRefreshed(Refreshed(longer, month: true)), _pixel, Crop(card), before: true);
+            UiMoment.Finish();
+            await Task.Delay(500);
+            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-row-gone-{name}.png"), () => ShowRefreshed(Refreshed(longer)), _pixel, Crop(card), before: true);
             _card.Hide();
             var bubble = new Rect(area.Right - 92 - 10 - 260, Anchor(0).Top - 70, 340, 190);
             _bubble ??= new SpeechBubble(_surface, inWindow: true);

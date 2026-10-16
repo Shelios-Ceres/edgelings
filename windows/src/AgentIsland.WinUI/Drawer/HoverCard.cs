@@ -61,6 +61,8 @@ internal sealed class HoverCard : IDisposable
     // The moment playing (M3), and the old content fading out in a switch.
     private UiMoment? _motion;
     private Border? _outgoing;
+    // The texts a Classic refresh is swapping in (M4), with their own margins.
+    private readonly List<(TextBlock Text, Thickness Margin)> _swapping = new();
 
     // M4: each meter's share as the card last showed it, to count from when
     // the card refreshes in place; the values counting now.
@@ -380,14 +382,19 @@ internal sealed class HoverCard : IDisposable
 
     /// M4 under Classic: the paper glides to the new content's height and
     /// tail over 250 ms on inOut; each text that changed fades out over 83 ms
-    /// as its new reading fades in after it over 167, settling 3 DIP. The
-    /// meters count by themselves. Content laid out anew cross-fades whole.
+    /// as its new reading fades in after it over 167, settling 3 DIP, while
+    /// its block eases from its old height to its new one with the paper, so
+    /// the rows below glide and the bottom padding holds. The meters count by
+    /// themselves. Content laid out anew cross-fades whole. Either way, while
+    /// the paper glides, the content stays inside it, clear of its padding.
     private void Refresh(Request request)
     {
         var top = (double)_host.Translation.Y;
         var height = _plateHeight;
         var aim = _aim;
         var reach = _reach;
+        // Read before the old content leaves the card, which resets its sizes.
+        var olds = Texts(_body).Select(text => (Text: text, Slot: text.DesiredSize.Height)).ToList();
         var outgoing = Detach();
         _recount = true;
         Present(request);
@@ -397,24 +404,35 @@ internal sealed class HoverCard : IDisposable
         var height1 = _contentSize.Height;
         var aim1 = _aim;
         var reach1 = request.Sections.Count == 1 ? TailReach : 0;
-        // The old texts against the new, in reading order.
-        var olds = Texts(outgoing).ToList();
+        // The old texts against the new, in reading order, with the layout
+        // slots (rounded, margins in) of those that changed.
         var news = Texts(_body).ToList();
+        var swaps = new List<(TextBlock Old, TextBlock New, double From, double To, Thickness Margin)>();
         var whole = olds.Count != news.Count;
-        var swaps = new List<(TextBlock Old, TextBlock New)>();
+        if (!whole)
+        {
+            for (var i = 0; i < olds.Count; i++)
+            {
+                var (old, fresh) = (olds[i].Text, news[i]);
+                if (old.Text == fresh.Text || _counting.Contains(fresh)) continue;
+                swaps.Add((old, fresh, olds[i].Slot, fresh.DesiredSize.Height, fresh.Margin));
+            }
+            // A change in height the changed texts don't account for is a new layout.
+            whole = Math.Abs(swaps.Sum(swap => swap.To - swap.From) - (height1 - height)) > 1;
+        }
         if (whole) _card.Opacity = 0;
         else
         {
-            var kept = new HashSet<DependencyObject>();
-            for (var i = 0; i < olds.Count; i++)
+            Keep(outgoing, swaps.Select(swap => (DependencyObject)swap.Old).ToHashSet());
+            foreach (var swap in swaps)
             {
-                if (olds[i].Text == news[i].Text || _counting.Contains(news[i])) continue;
-                swaps.Add((olds[i], news[i]));
-                kept.Add(olds[i]);
-                news[i].Opacity = 0;
+                swap.New.Opacity = 0;
+                _swapping.Add((swap.New, swap.Margin));
             }
-            Keep(outgoing, kept);
         }
+        // Room for the taller of the two, so a shrinking card isn't cut to its new height.
+        _host.Height = _plate.Height = Math.Max(height, height1);
+        var padding = _card.Padding.Bottom;
         Play(250, t =>
         {
             var e = Motion.InOut(t / 250);
@@ -422,7 +440,10 @@ internal sealed class HoverCard : IDisposable
             var h = Lerp(height, height1, e);
             _host.Translation = new Vector3((float)_bounds.Left, (float)y, 0);
             DrawPaper(request, h, Lerp(aim, aim1, e) - y, Lerp(reach, reach1, e));
-            _size.InsertScalar("Height", (float)Math.Max(1, h));
+            // Both layers end above the paper's bottom padding.
+            _size.InsertScalar("TargetHeight", (float)Math.Max(1, whole ? height1 : h));
+            _size.InsertScalar("Height", (float)Math.Max(1, h - padding));
+            outgoing.Clip = new RectangleGeometry { Rect = new Rect(0, 0, _width, Math.Max(0, h - padding)) };
             var fadeOut = 1 - Motion.Linear(t / 83);
             var fadeIn = Motion.Linear((t - 83) / 167);
             if (whole)
@@ -431,12 +452,22 @@ internal sealed class HoverCard : IDisposable
                 _card.Opacity = fadeIn;
                 return;
             }
-            var rise = (float)(3 * (1 - Motion.Out((t - 83) / 167)));
-            foreach (var (old, fresh) in swaps)
+            var rise = 3 * (1 - Motion.Out((t - 83) / 167));
+            foreach (var (old, fresh, from, to, margin) in swaps)
             {
                 old.Opacity = fadeOut;
                 fresh.Opacity = fadeIn;
-                fresh.Translation = new Vector3(0, rise, 0);
+                fresh.Translation = new Vector3(0, (float)rise, 0);
+                if (Math.Abs(to - from) < 0.5) continue;
+                // The block between the rows eases from the old text's slot
+                // to the new's; each text shows only inside it. The shift is
+                // whole pixels: off by a hair, a slot on a half pixel rounds
+                // the other way and the rows hop a pixel.
+                var shift = Math.Round((from + (to - from) * e - to) * request.Scale) / request.Scale;
+                fresh.Margin = new Thickness(margin.Left, margin.Top, margin.Right, margin.Bottom + shift);
+                var block = to + shift - margin.Top - margin.Bottom;
+                fresh.Clip = new RectangleGeometry { Rect = new Rect(-8, -rise, 10000, block) };
+                old.Clip = new RectangleGeometry { Rect = new Rect(-8, 0, 10000, block) };
             }
         }, () =>
         {
@@ -643,6 +674,17 @@ internal sealed class HoverCard : IDisposable
         _motion?.Stop();
         _motion = null;
         if (_outgoing is { } layer) Drop(layer);
+        // A refresh cut short (a close, a switch) leaves its texts mid-swap;
+        // the same content shown again isn't rebuilt.
+        foreach (var (text, margin) in _swapping)
+        {
+            text.Margin = margin;
+            text.Clip = null;
+            text.Opacity = 1;
+            text.Translation = Vector3.Zero;
+        }
+        _swapping.Clear();
+        _host.Height = _plate.Height = _contentSize.Height;
         _host.Opacity = 1;
         _host.Scale = Vector3.One;
         _host.Translation = Target;
@@ -1023,6 +1065,7 @@ internal sealed class HoverCard : IDisposable
 
     private void SettleHeight()
     {
+        _size.InsertScalar("TargetHeight", (float)Math.Max(1, _contentSize.Height));
         _size.InsertScalar("Height", (float)Math.Max(1, _contentSize.Height));
     }
 
