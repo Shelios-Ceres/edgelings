@@ -56,14 +56,16 @@ internal static class PopupPrint
     /// then every frame moves the clock a tick (Pixel, mid-tick) or 33 ms
     /// (Classic), until every moment has landed, and a frame more.
     public static async Task FilmSequenceAsync(string path, Action start, bool pixel,
-        Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> capture, double limitMs = 3000)
+        Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> capture, double limitMs = 3000, bool before = false)
     {
         UiMoment.ResetClock();
+        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
+        // A change that lands at once shows against the frame before it.
+        if (before) frames.Add(("before", await Task.Run(capture)));
         start();
         // A start that goes through the dispatcher (a store change) begins a moment or two ticks on.
         for (var i = 0; i < 20 && !UiMoment.AnyPending; i++) await Task.Delay(50);
         var step = pixel ? Motion.TickMs : 1000.0 / 30;
-        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
         var settled = 0;
         for (var k = 0; settled < 2 && k * step <= limitMs; k++)
         {
