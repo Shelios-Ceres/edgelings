@@ -18,10 +18,12 @@ public sealed class DrawerActivityFrame
     public DrawerActivity ForProvider(DisplayProvider provider) =>
         _providers.TryGetValue(provider, out var reading) ? reading : DrawerActivity.Idle;
 
-    public DrawerActivity ForCharacter(DisplayProvider provider, bool merged)
+    /// What a character shows: its own agent's activity, and for Grok's the
+    /// busier of Grok and Cursor, their running tasks added up.
+    public DrawerActivity ForCharacter(DisplayProvider provider)
     {
         var reading = ForProvider(provider);
-        if (!merged || provider != DisplayProvider.Grok) return reading;
+        if (provider != DisplayProvider.Grok) return reading;
         var cursor = ForProvider(DisplayProvider.Cursor);
         var (phase, detail) = SharedSubscription.Pick((reading.Phase, reading.Detail), (cursor.Phase, cursor.Detail));
         return new DrawerActivity(phase, detail, reading.Running + cursor.Running);

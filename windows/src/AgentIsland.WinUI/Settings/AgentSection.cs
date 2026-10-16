@@ -38,6 +38,8 @@ internal sealed class AgentSection
     private readonly Button _signInButton = new();
     private readonly FaceSpinner _signInRing = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly PixelSpinner _signInSpinner = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+    private readonly SettingsCard? _cursor;
+    private readonly TextBlock _cursorPlan = new() { VerticalAlignment = VerticalAlignment.Center };
     private bool _updating;
 
     public AgentSection(DisplayProvider provider, Func<XamlRoot?> root)
@@ -75,6 +77,14 @@ internal sealed class AgentSection
         _activity = new SettingsCard { Header = L10n.Tr("Right now"), Description = _activityText, HeaderIcon = Icon("\uE9D9") };
         Name(_activity, "Activity", L10n.Tr("Right now"));
         Expander.Items.Add(_activity);
+        // Cursor works under Grok's character; its line sits in Grok's card.
+        if (provider == DisplayProvider.Grok)
+        {
+            _cursor = new SettingsCard { Header = ProviderIdentity.DisplayName(DisplayProvider.Cursor), HeaderIcon = new ImageIcon(), Content = _cursorPlan };
+            Name(_cursor, "Cursor", ProviderIdentity.DisplayName(DisplayProvider.Cursor));
+            _ = LoadCursorMarkAsync(_cursor);
+            Expander.Items.Add(_cursor);
+        }
         _tokens = new SettingsCard { Header = L10n.Tr("Tokens"), HeaderIcon = Icon("\uE8EF"), Content = _tokensText };
         Expander.Items.Add(_tokens);
         _note = new SettingsCard { HeaderIcon = Icon("\uE946") };
@@ -185,7 +195,30 @@ internal sealed class AgentSection
         else _signInButton.ClearValue(FrameworkElement.StyleProperty);
 
         _activity.Visibility = report.Detected ? Visibility.Visible : Visibility.Collapsed;
+        if (_cursor is not null) UpdateCursor(_cursor);
         _updating = false;
+    }
+
+    /// Cursor's line in Grok's card: on one X Subscription with Grok it shares
+    /// the pool above; billed apart, its own freshness or trouble.
+    private void UpdateCursor(SettingsCard card)
+    {
+        var cursor = AgentReports.For(DisplayProvider.Cursor);
+        card.Visibility = ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor) ? Visibility.Visible : Visibility.Collapsed;
+        _cursorPlan.Text = cursor.Plan ?? "";
+        SetDescription(card, SharedSubscription.GrokWithCursor()
+            ? L10n.Tr("Same X Subscription as Grok: one quota pool")
+            : cursor.Warning ?? cursor.Status);
+    }
+
+    private static async Task LoadCursorMarkAsync(SettingsCard card)
+    {
+        if (Looks.Pixel)
+        {
+            card.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(DisplayProvider.Cursor) };
+            return;
+        }
+        if (await Brand.MarkAsync(DisplayProvider.Cursor, Brand.IsDark()) is { } mark) card.HeaderIcon = new ImageIcon { Source = mark, Width = 16, Height = 16 };
     }
 
     /// AGENTISLAND_DEBUG_SETTINGS_FILM: the first meter counts to a share, as
@@ -204,17 +237,22 @@ internal sealed class AgentSection
     }
 
     /// The live line: the character's phase and detail, and the project of
-    /// the session it follows.
+    /// the session it follows — for Grok's, whichever of Grok and Cursor
+    /// worked last.
     public void UpdateActivity()
     {
         var monitor = ActivityMonitor.Shared;
-        var tool = _provider.ToTriggerTool();
         var (phase, detail) = App.Current.Drawer?.PhaseOf(_provider) ?? (AgentPhase.Idle, null);
         var parts = new List<string> { DrawerLooks.PhaseLabel(phase) };
         if (detail is { Length: > 0 }) parts.Add(detail);
+        var (provider, thread) = DisplayProviders.All
+            .Where(p => p.Character() == _provider)
+            .Select(p => (Provider: p, Thread: monitor.ThreadFor(p.ToTriggerTool())))
+            .OrderByDescending(pair => pair.Thread?.Modified ?? DateTimeOffset.MinValue)
+            .First();
         // The model doing most of the last five hours' work.
-        if (AgentIsland.Cost.CostStore.Shared.Summary(_provider).RecentModels.FirstOrDefault() is { } model) parts.Add(model.Model);
-        if (monitor.ThreadFor(tool) is { } thread)
+        if (AgentIsland.Cost.CostStore.Shared.Summary(provider).RecentModels.FirstOrDefault() is { } model) parts.Add(model.Model);
+        if (thread is not null)
         {
             if (Project(thread.Cwd) is { } project) parts.Add(project);
             parts.Add(L10n.TrFormat("active {0}", Formatting.RelativeAgo(DateTimeOffset.Now - thread.Modified, L10n.IsChinese)));

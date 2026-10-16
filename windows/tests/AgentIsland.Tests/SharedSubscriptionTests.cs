@@ -4,13 +4,12 @@ using AgentIsland.Model;
 
 namespace AgentIsland.Tests;
 
-/// Grok and Cursor on one X Subscription share a character: detected from the
-/// one pool both report, playing the busier app's phase, with both apps'
-/// tokens added up.
+/// Cursor works under Grok's character: it plays the busier app's phase,
+/// adds up both apps' tokens, and shows one quota pool when both are on one
+/// X Subscription (detected from the reset both report).
 public static class SharedSubscriptionTests
 {
     private static readonly DateTimeOffset Reset = new(2026, 10, 20, 2, 36, 35, 781, TimeSpan.Zero);
-    private static readonly string Grok = ProviderIdentity.DisplayName(DisplayProvider.Grok);
     private static readonly string Cursor = ProviderIdentity.DisplayName(DisplayProvider.Cursor);
 
     public static void RunAll()
@@ -18,12 +17,11 @@ public static class SharedSubscriptionTests
         var tests = new (string Name, Action Test)[]
         {
             ("one pool reset is one subscription", TestSharedPool),
-            ("separate plans keep two characters", TestSeparatePlans),
+            ("separate plans keep two pools", TestSeparatePlans),
             ("the busier app's phase wins, named", TestPickBusier),
-            ("a tie goes to Grok, idle needs no name", TestPickTie),
+            ("a tie goes to Grok, only Cursor's work is named", TestPickTie),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
-            ("the shared plan is the X Subscription's tier", TestPlan),
-            ("the shared character is named both, either app, or the user's way", TestName),
+            ("the character's plan is the X Subscription's tier when shared", TestPlan),
         };
         foreach (var (name, test) in tests)
         {
@@ -31,21 +29,6 @@ public static class SharedSubscriptionTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("SharedSubscriptionTests GREEN");
-    }
-
-    private static void TestName()
-    {
-        Expect(SharedSubscription.Name(SharedName.Both, null) == $"{Grok} + {Cursor}", "both apps by default");
-        Expect(SharedSubscription.Name(SharedName.Grok, "ignored") == Grok, "Grok's name");
-        Expect(SharedSubscription.Name(SharedName.Cursor, null) == Cursor, "Cursor's name");
-        Expect(SharedSubscription.Name(SharedName.Custom, "  Pixel pal ") == "Pixel pal", "the user's own name, trimmed");
-        Expect(SharedSubscription.Name(SharedName.Custom, "   ") == $"{Grok} + {Cursor}", "a blank name falls back to both");
-        Expect(SharedSubscription.Name(SharedName.Custom, new string('x', 30)).Length == SharedSubscription.MaxNameLength,
-            "a long name is cut to the limit");
-        var robots = string.Concat(Enumerable.Repeat(char.ConvertFromUtf32(0x1F916), 30));
-        var cut = SharedSubscription.Clean(robots);
-        Expect(new System.Globalization.StringInfo(cut).LengthInTextElements == SharedSubscription.MaxNameLength
-            && !char.IsHighSurrogate(cut[^1]), "the cut never splits an emoji");
     }
 
     private static void TestSharedPool()
@@ -67,7 +50,7 @@ public static class SharedSubscriptionTests
         var cursorWrites = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Writing, "Edit"));
         Expect(cursorWrites == (AgentPhase.Writing, $"{Cursor} · Edit"), $"Cursor at work shows, named: {cursorWrites}");
         var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null));
-        Expect(grokRuns == (AgentPhase.Running, $"{Grok} · Bash"), $"Grok at work shows, named: {grokRuns}");
+        Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok at work shows as itself: {grokRuns}");
         var cursorDone = SharedSubscription.Pick((AgentPhase.Working, null), (AgentPhase.Finished, null));
         Expect(cursorDone == (AgentPhase.Finished, Cursor), $"a finished turn waiting on you outranks work: {cursorDone}");
         var grokAsks = SharedSubscription.Pick((AgentPhase.Asking, null), (AgentPhase.Failed, null));
@@ -77,7 +60,7 @@ public static class SharedSubscriptionTests
     private static void TestPickTie()
     {
         var tie = SharedSubscription.Pick((AgentPhase.Thinking, null), (AgentPhase.Writing, null));
-        Expect(tie == (AgentPhase.Thinking, Grok), $"two apps at work show Grok's: {tie}");
+        Expect(tie == (AgentPhase.Thinking, null), $"two apps at work show Grok's: {tie}");
         var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Idle, null));
         Expect(idle == (AgentPhase.Idle, null), $"both idle is plain idle: {idle}");
     }
@@ -97,9 +80,11 @@ public static class SharedSubscriptionTests
 
     private static void TestPlan()
     {
-        Expect(SharedSubscription.Plan("SUPERGROK", "PREMIUM") == "PREMIUM", "Cursor reports the subscription's tier");
-        Expect(SharedSubscription.Plan("SUPERGROK", null) == "SUPERGROK", "Grok's badge stands in without it");
-        Expect(SharedSubscription.Plan(null, null) is null, "no plan, no chip");
+        Expect(SharedSubscription.Plan("SUPERGROK", "PREMIUM", shared: true) == "PREMIUM", "Cursor reports the subscription's tier");
+        Expect(SharedSubscription.Plan("SUPERGROK", null, shared: true) == "SUPERGROK", "Grok's badge stands in without it");
+        Expect(SharedSubscription.Plan("SUPERGROK", "PRO", shared: false) == "SUPERGROK", "billed apart, the badge is Grok's");
+        Expect(SharedSubscription.Plan(null, "PRO", shared: false) == "PRO", "with only Cursor, its plan");
+        Expect(SharedSubscription.Plan(null, null, shared: true) is null, "no plan, no chip");
     }
 
     private static void Expect(bool condition, string message)

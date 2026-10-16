@@ -22,7 +22,6 @@ internal static class DrawerMenu
         IReadOnlyList<string>? shapes,
         IReadOnlyList<string>? colors,
         IReadOnlyList<(DisplayProvider Provider, bool Requested)> requestedVisibility,
-        bool merged,
         Action<string, string> changeLook,
         bool keepOpen = false,
         Windows.Graphics.PointInt32? at = null,
@@ -33,7 +32,7 @@ internal static class DrawerMenu
         var mark = pixel ? null : await Brand.MarkAsync(provider, dark);
         using var english = Looks.English();
         var menu = new MenuFlyout();
-        var title = new MenuFlyoutItem { Text = SharedSubscription.CharacterName(provider, merged) };
+        var title = new MenuFlyoutItem { Text = ProviderIdentity.DisplayName(provider) };
         title.Click += (_, _) => SettingsWindow.Open(provider);
         if (pixel)
         {
@@ -78,14 +77,11 @@ internal static class DrawerMenu
 
         // Hiding one takes it out of the menus and the Cost window as well.
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Shown agents"), Icon = MenuHost.Glyph("\uE890") };
-        foreach (var (other, on) in DrawerVisibility.Switches(requestedVisibility, merged))
+        foreach (var (other, on) in DrawerVisibility.Switches(requestedVisibility))
         {
-            var item = new ToggleMenuFlyoutItem { Text = SharedSubscription.CharacterName(other, merged), IsChecked = on };
+            var item = new ToggleMenuFlyoutItem { Text = ProviderIdentity.DisplayName(other), IsChecked = on };
             AutomationProperties.SetAutomationId(item, $"Drawer.Show.{other.RawValue()}");
-            item.Click += (_, _) =>
-            {
-                foreach (var choice in DrawerVisibility.SetBy(other, merged)) DrawerStore.Shared.SetShown(choice, item.IsChecked);
-            };
+            item.Click += (_, _) => ProviderVisibilityStore.Shared.SetShown(other, item.IsChecked);
             shownMenu.Items.Add(item);
         }
         menu.Items.Add(shownMenu);

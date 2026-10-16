@@ -92,6 +92,16 @@ public static class DisplayProviderExtensions
     /// Position in canonical slot order; the enum's declaration order is it.
     public static int SlotOrder(this DisplayProvider provider) => (int)provider;
 
+    /// The character a provider's work shows under. Cursor works under
+    /// Grok's (the user's call, 2026-10-16): its activity, quota, tokens and
+    /// cost are part of Grok's character, card, settings and Cost card, and
+    /// one choice, Grok's, shows or hides both.
+    public static DisplayProvider Character(this DisplayProvider provider) =>
+        provider == DisplayProvider.Cursor ? DisplayProvider.Grok : provider;
+
+    /// Has a character, a card and settings of its own (all but Cursor).
+    public static bool HasCharacter(this DisplayProvider provider) => provider.Character() == provider;
+
     public static TriggerTool ToTriggerTool(this DisplayProvider provider) => provider switch
     {
         DisplayProvider.Claude => TriggerTool.Claude,

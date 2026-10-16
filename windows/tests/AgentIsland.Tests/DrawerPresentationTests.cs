@@ -10,11 +10,11 @@ public static class DrawerPresentationTests
     {
         var tests = new (string Name, Action Test)[]
         {
-            ("merged character preserves each provider's activity", TestIndependentActivity),
-            ("split and remerged characters use the latest provider frame", TestActivityChanges),
-            ("both shared provider visibility choices can be disabled", TestVisibilityChoices),
+            ("Grok's character carries Cursor's work, each provider keeps its own", TestIndependentActivity),
+            ("Grok's character follows the latest frame of both apps", TestActivityChanges),
+            ("Cursor never gets a character of its own", TestVisibilityChoices),
             ("empty drawer fallback does not overwrite visibility choices", TestVisibilityFallback),
-            ("one switch stands for the shared character and can always hide it", TestSharedSwitch),
+            ("one switch per character, none for Cursor", TestSwitches),
             ("the Agents page groups follow the order, hidden agents apart", TestGroups),
             ("pixel card rebuilds across DPI changes", TestPixelScale),
             ("glass card keeps its DPI-independent content cache", TestGlassScale),
@@ -36,22 +36,25 @@ public static class DrawerPresentationTests
     private static void TestIndependentActivity()
     {
         var frame = Frame(AgentPhase.Writing, "Edit", 2);
-        var merged = frame.ForCharacter(DisplayProvider.Grok, merged: true);
-        Expect(merged == new DrawerActivity(AgentPhase.Writing, "Cursor · Edit", 2), "merged card follows Cursor");
-        Expect(frame.ForProvider(DisplayProvider.Grok) == DrawerActivity.Idle, "Grok settings remain idle");
+        Expect(frame.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Writing, "Cursor · Edit", 2),
+            "Grok's character follows Cursor, naming it");
+        Expect(frame.ForProvider(DisplayProvider.Grok) == DrawerActivity.Idle, "Grok's own reading stays idle");
         Expect(frame.ForProvider(DisplayProvider.Cursor) == new DrawerActivity(AgentPhase.Writing, "Edit", 2),
-            "Cursor settings retain their own phase, detail and running count");
+            "Cursor keeps its own phase, detail and running count");
     }
 
     private static void TestActivityChanges()
     {
-        var working = Frame(AgentPhase.Writing, "Edit", 2);
-        _ = working.ForCharacter(DisplayProvider.Grok, merged: true);
-        Expect(working.ForCharacter(DisplayProvider.Grok, merged: false) == DrawerActivity.Idle, "unmerge restores Grok");
-        Expect(working.ForCharacter(DisplayProvider.Cursor, merged: false).Phase == AgentPhase.Writing, "unmerge retains Cursor");
         var finished = Frame(AgentPhase.Finished, null, 0);
-        Expect(finished.ForCharacter(DisplayProvider.Grok, merged: true) == new DrawerActivity(AgentPhase.Finished, "Cursor", 0),
+        Expect(finished.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Finished, "Cursor", 0),
             "next frame replaces activity without stale tasks");
+        var grokWorks = new DrawerActivityFrame(new[]
+        {
+            (DisplayProvider.Grok, AgentPhase.Running, (string?)"Bash", 1),
+            (DisplayProvider.Cursor, AgentPhase.Idle, (string?)null, 0),
+        });
+        Expect(grokWorks.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Running, "Bash", 1),
+            "Grok's own work needs no app name");
         Expect(finished.ForProvider(DisplayProvider.Claude) == DrawerActivity.Idle, "missing observation is safely idle");
     }
 
@@ -63,63 +66,46 @@ public static class DrawerPresentationTests
             [DisplayProvider.Grok] = true,
             [DisplayProvider.Cursor] = true,
         };
-        var merged = DrawerVisibility.Characters(requested, merged: true);
-        Expect(merged[DisplayProvider.Grok] && !merged[DisplayProvider.Cursor], "two choices share one rendered character");
-        Expect(requested[DisplayProvider.Grok] && requested[DisplayProvider.Cursor], "menu still has both checked choices");
+        var shown = DrawerVisibility.Characters(requested);
+        Expect(shown[DisplayProvider.Grok] && !shown[DisplayProvider.Cursor], "Cursor shows as Grok's character");
         requested[DisplayProvider.Grok] = false;
-        var oneHidden = DrawerVisibility.Characters(requested, merged: true);
-        Expect(oneHidden[DisplayProvider.Grok] && !requested[DisplayProvider.Grok], "Cursor keeps character, Grok choice stays unchecked");
         requested[DisplayProvider.Cursor] = false;
-        var bothHidden = DrawerVisibility.Characters(requested, merged: true);
-        Expect(!bothHidden[DisplayProvider.Grok] && !bothHidden[DisplayProvider.Cursor] && bothHidden[DisplayProvider.Claude],
-            "unchecking the remaining checked choice hides the shared character");
-        requested[DisplayProvider.Cursor] = true;
-        var split = DrawerVisibility.Characters(requested, merged: false);
-        Expect(!split[DisplayProvider.Grok] && split[DisplayProvider.Cursor], "unmerge preserves both choices");
+        var hidden = DrawerVisibility.Characters(requested);
+        Expect(!hidden[DisplayProvider.Grok] && !hidden[DisplayProvider.Cursor] && hidden[DisplayProvider.Claude],
+            "Grok's choice hides the character");
     }
 
     private static void TestVisibilityFallback()
     {
         var requested = DisplayProviders.All.ToDictionary(provider => provider, _ => false);
-        var shown = DrawerVisibility.Characters(requested, merged: true);
+        var shown = DrawerVisibility.Characters(requested);
         Expect(shown.Count(pair => pair.Value) == 1 && shown[DisplayProvider.Claude], "fallback leaves one reachable character");
         Expect(requested.All(pair => !pair.Value), "fallback does not masquerade as a saved preference");
     }
 
     private static void TestGroups()
     {
-        var order = new[] { DisplayProvider.Codex, DisplayProvider.Claude, DisplayProvider.Kimi, DisplayProvider.DeepSeek, DisplayProvider.Grok };
+        var order = new[] { DisplayProvider.Codex, DisplayProvider.Claude, DisplayProvider.Cursor, DisplayProvider.Kimi, DisplayProvider.DeepSeek, DisplayProvider.Grok };
         var (detected, missing, hidden) = DrawerVisibility.Groups(order,
             provider => provider is DisplayProvider.Claude or DisplayProvider.Grok,
             provider => provider is not (DisplayProvider.DeepSeek or DisplayProvider.Grok));
         Expect(detected.SequenceEqual(new[] { DisplayProvider.Codex, DisplayProvider.Kimi }), "detected agents keep the order");
         Expect(missing.SequenceEqual(new[] { DisplayProvider.DeepSeek }), "agents not found here form their own group");
         Expect(hidden.SequenceEqual(new[] { DisplayProvider.Claude, DisplayProvider.Grok }), "hidden agents wait apart, found or not");
+        Expect(!detected.Concat(missing).Concat(hidden).Contains(DisplayProvider.Cursor), "Cursor is on Grok's card, not its own");
     }
 
-    private static void TestSharedSwitch()
+    private static void TestSwitches()
     {
-        var requested = new Dictionary<DisplayProvider, bool>
+        var requested = new (DisplayProvider Provider, bool Requested)[]
         {
-            [DisplayProvider.Claude] = true,
-            [DisplayProvider.Grok] = false,
-            [DisplayProvider.Cursor] = true,
+            (DisplayProvider.Claude, true), (DisplayProvider.Grok, false), (DisplayProvider.Cursor, false),
         };
-        IReadOnlyList<(DisplayProvider Provider, bool Requested)> Choices() =>
-            requested.Select(pair => (pair.Key, pair.Value)).ToList();
-
-        var merged = DrawerVisibility.Switches(Choices(), merged: true);
-        Expect(merged.All(choice => choice.Provider != DisplayProvider.Cursor), "no Cursor switch while merged");
-        Expect(merged.Single(choice => choice.Provider == DisplayProvider.Grok).On,
-            "Grok's switch is on while Cursor's choice shows the shared character");
-        foreach (var choice in DrawerVisibility.SetBy(DisplayProvider.Grok, merged: true)) requested[choice] = false;
-        var hidden = DrawerVisibility.Characters(requested, merged: true);
-        Expect(!hidden[DisplayProvider.Grok] && !hidden[DisplayProvider.Cursor] && hidden[DisplayProvider.Claude],
-            "switching Grok off hides the shared character");
-
-        var split = DrawerVisibility.Switches(Choices(), merged: false);
-        Expect(split.Count == 3 && DrawerVisibility.SetBy(DisplayProvider.Grok, merged: false).SequenceEqual(new[] { DisplayProvider.Grok }),
-            "split, every provider has its own switch");
+        var switches = DrawerVisibility.Switches(requested);
+        Expect(switches.Select(s => s.Provider).SequenceEqual(new[] { DisplayProvider.Claude, DisplayProvider.Grok }),
+            "one switch per character, Grok's standing for Cursor");
+        Expect(DisplayProvider.Cursor.Character() == DisplayProvider.Grok && !DisplayProvider.Cursor.HasCharacter()
+            && DisplayProvider.Kimi.HasCharacter(), "Cursor works under Grok's character");
     }
 
     private static readonly (StatusCard Card, uint Swatch)[] Sections =

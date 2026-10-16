@@ -30,16 +30,18 @@ public sealed record AgentReport(
 
 public static class AgentReports
 {
+    /// Grok's report covers Cursor too, which works under its character.
     public static AgentReport For(DisplayProvider provider)
     {
-        var detected = ProviderVisibilityStore.Shared.IsDetected(provider);
+        var detected = ProviderVisibilityStore.Shared.IsCharacterDetected(provider);
+        var warnings = detected ? Warnings(provider) : Array.Empty<string>();
         return new AgentReport(
             provider,
             detected,
             detected ? Plan(provider) : null,
             detected ? Account(provider) : null,
             detected ? Status(provider) : L10n.Tr(Missing(provider)),
-            detected ? Warning(provider) : null,
+            warnings.Count > 0 ? string.Join(" · ", warnings) : null,
             detected ? StatusCards.Meters(provider) : Array.Empty<StatusMeter>(),
             detected ? StatusCards.Tokens(provider) : null,
             detected ? StatusCards.Note(provider) : null,
@@ -52,7 +54,7 @@ public static class AgentReports
         DisplayProvider.Claude => "Not detected — install Claude Code and sign in",
         DisplayProvider.Codex => "Not detected — install the Codex CLI and sign in",
         DisplayProvider.Antigravity => "Not detected — sign in with the antigravity CLI",
-        DisplayProvider.Grok => "Not detected — sign in with the grok CLI",
+        DisplayProvider.Grok => "Not detected — sign in with the grok CLI or inside Cursor",
         DisplayProvider.Cursor => "Not detected — sign in inside Cursor",
         DisplayProvider.Kimi => "Not detected — open Kimi Code once",
         _ => "Not detected — open DeepSeek Harness once",
@@ -65,7 +67,7 @@ public static class AgentReports
         DisplayProvider.Claude => "Opens a terminal running claude /login",
         DisplayProvider.Codex => "Opens a terminal running codex login",
         DisplayProvider.Antigravity => "Sign in with the antigravity CLI or the Antigravity app",
-        DisplayProvider.Grok => "Sign in with the grok CLI",
+        DisplayProvider.Grok => "Sign in with the grok CLI, and inside the Cursor app for Cursor",
         DisplayProvider.Cursor => "Sign in inside the Cursor app",
         DisplayProvider.Kimi => "Sign in inside Kimi Code; its plan usage syncs whenever the app or the CLI signs in",
         _ => "Read from DeepSeek Harness's local sessions; no sign-in needed",
@@ -76,23 +78,29 @@ public static class AgentReports
         DisplayProvider.Claude => UsageStore.Shared.Claude.Plan?.ToUpperInvariant(),
         DisplayProvider.Codex => UsageStore.Shared.Codex.Plan?.ToUpperInvariant(),
         DisplayProvider.Antigravity => AntigravityUsageStore.Shared.TierBadge,
-        DisplayProvider.Grok => GrokUsageStore.Shared.AuthModeBadge,
+        DisplayProvider.Grok => SharedSubscription.Plan(GrokUsageStore.Shared.AuthModeBadge, CursorUsageStore.Shared.PlanBadge,
+            SharedSubscription.GrokWithCursor()),
         DisplayProvider.Cursor => CursorUsageStore.Shared.PlanBadge,
         DisplayProvider.Kimi => KimiUsageStore.Shared.PlanBadge,
         _ => null,
     };
 
+    /// Grok's account and, signed in apart, Cursor's.
     private static string? Account(DisplayProvider provider) => provider switch
     {
         DisplayProvider.Codex => CodexAccountSwitcher.ActiveLabel(),
         DisplayProvider.Antigravity => AntigravityUsageStore.Shared.AccountEmail,
-        DisplayProvider.Grok => GrokUsageStore.Shared.AccountEmail,
+        DisplayProvider.Grok => new[] { GrokUsageStore.Shared.AccountEmail, CursorUsageStore.Shared.AccountEmail }
+            .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList() is { Count: > 0 } accounts
+            ? string.Join(" · ", accounts)
+            : null,
         DisplayProvider.Cursor => CursorUsageStore.Shared.AccountEmail,
         _ => null,
     };
 
-    /// Freshness first: when the numbers were last synced, or that only
-    /// local logs are read.
+    /// Freshness first: when the numbers were last synced (Grok's, or
+    /// Cursor's for a character with only Cursor), or that only local logs
+    /// are read.
     private static string Status(DisplayProvider provider)
     {
         DateTimeOffset? synced = provider switch
@@ -100,7 +108,7 @@ public static class AgentReports
             DisplayProvider.Claude => UsageStore.Shared.ClaudeUpdatedAt,
             DisplayProvider.Codex => UsageStore.Shared.CodexUpdatedAt,
             DisplayProvider.Antigravity => AntigravityUsageStore.Shared.LastUpdated,
-            DisplayProvider.Grok => GrokUsageStore.Shared.LastUpdated,
+            DisplayProvider.Grok => GrokUsageStore.Shared.LastUpdated ?? CursorUsageStore.Shared.LastUpdated,
             DisplayProvider.Cursor => CursorUsageStore.Shared.LastUpdated,
             DisplayProvider.Kimi => KimiUsageStore.Shared.LastUpdated,
             _ => null,
@@ -109,6 +117,19 @@ public static class AgentReports
         return synced is { } stamp
             ? L10n.TrFormat("synced {0}", Formatting.RelativeAgo(DateTimeOffset.Now - stamp, L10n.IsChinese))
             : L10n.Tr("Waiting for the first sync");
+    }
+
+    /// The character's warnings: its agent's, and for Grok's Cursor's too,
+    /// named so it is clear which app it is about.
+    internal static IReadOnlyList<string> Warnings(DisplayProvider provider)
+    {
+        var warnings = new List<string>();
+        if (Warning(provider) is { } own) warnings.Add(own);
+        if (provider == DisplayProvider.Grok && Warning(DisplayProvider.Cursor) is { } cursor && !warnings.Contains(cursor))
+        {
+            warnings.Add($"{ProviderIdentity.DisplayName(DisplayProvider.Cursor)}: {cursor}");
+        }
+        return warnings;
     }
 
     internal static string? Warning(DisplayProvider provider)
@@ -200,6 +221,7 @@ public static class AgentReports
                 break;
             case DisplayProvider.Grok:
                 GrokUsageStore.Shared.KickRefresh();
+                CursorUsageStore.Shared.KickRefresh();
                 break;
             case DisplayProvider.Cursor:
                 CursorUsageStore.Shared.KickRefresh();

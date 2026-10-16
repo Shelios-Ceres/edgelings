@@ -42,16 +42,24 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
     public bool IsDetected(DisplayProvider provider) =>
         _detected.TryGetValue(provider, out var detected) && detected;
 
-    public bool IsShown(DisplayProvider provider) => DrawerStore.Shared.IsShown(provider, IsDetected(provider));
+    /// The provider's character has something here: Grok's while either
+    /// Grok or Cursor is (DisplayProviderExtensions.Character).
+    public bool IsCharacterDetected(DisplayProvider provider) => provider.Character() == DisplayProvider.Grok
+        ? IsDetected(DisplayProvider.Grok) || IsDetected(DisplayProvider.Cursor)
+        : IsDetected(provider);
+
+    /// One choice per character: Cursor follows Grok's.
+    public bool IsShown(DisplayProvider provider) =>
+        DrawerStore.Shared.IsShown(provider.Character(), IsCharacterDetected(provider));
 
     /// Single accessor for call sites holding a TriggerTool.
     public bool IsVisible(TriggerTool tool) => IsShown(tool.ToDisplayProvider());
 
-    public void SetShown(DisplayProvider provider, bool shown) => DrawerStore.Shared.SetShown(provider, shown);
+    public void SetShown(DisplayProvider provider, bool shown) => DrawerStore.Shared.SetShown(provider.Character(), shown);
 
     /// Hidden by the user: out of the drawer, its menus, the Cost window and
     /// the Agents page's own groups.
-    public bool IsHidden(DisplayProvider provider) => DrawerStore.Shared.IsHidden(provider);
+    public bool IsHidden(DisplayProvider provider) => DrawerStore.Shared.IsHidden(provider.Character());
 
     public bool ClaudeDetected => IsDetected(DisplayProvider.Claude);
     public bool CodexDetected => IsDetected(DisplayProvider.Codex);

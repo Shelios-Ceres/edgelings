@@ -85,8 +85,8 @@ internal sealed class TrayIcon : IDisposable
             () => App.Current.ToggleDrawer()));
         var agents = new MenuFlyoutSubItem { Text = L10n.Tr("Agents"), Icon = MenuHost.Glyph("\uE99A") };
         AutomationProperties.SetAutomationId(agents, "Tray.Agents");
-        // In the drawer's order, without the agents the user hid.
-        foreach (var provider in DrawerStore.Shared.Order.Where(provider => !ProviderVisibilityStore.Shared.IsHidden(provider)))
+        // In the drawer's order, one per character, without the agents the user hid.
+        foreach (var provider in DrawerStore.Shared.Order.Where(provider => provider.HasCharacter() && !ProviderVisibilityStore.Shared.IsHidden(provider)))
         {
             var phase = App.Current.Drawer?.PhaseOf(provider).Phase ?? AgentPhase.Idle;
             var item = MenuHost.Item($"{ProviderIdentity.DisplayName(provider)} · {DrawerLooks.PhaseLabel(phase)}", null,
@@ -116,7 +116,8 @@ internal sealed class TrayIcon : IDisposable
         foreach (var provider in DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown))
         {
             var window = ProviderUsage.For(provider).FiveHour;
-            if (!window.HasError && StatusCards.Meters(provider).Count > 0)
+            // Cursor's state counts; its quota is on Grok's card.
+            if (provider.HasCharacter() && !window.HasError && StatusCards.Meters(provider).Count > 0)
             {
                 parts.Add($"{ProviderIdentity.DisplayName(provider)} {Formatting.PercentInt(window.UsedPercent)}%");
             }

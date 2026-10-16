@@ -66,7 +66,8 @@ internal sealed partial class SettingsWindow : Window
             hidden._tick.Start();
         }
         _shared ??= new SettingsWindow();
-        if (focus is { } provider) _shared.Focus(provider, animate: onScreen);
+        // Cursor's settings are part of Grok's.
+        if (focus is { } provider) _shared.Focus(provider.Character(), animate: onScreen);
         Shell.Chrome.Show(_shared);
     }
 
@@ -332,36 +333,6 @@ internal sealed partial class SettingsWindow : Window
         VerticalCard(L10n.Tr("Order"), L10n.Tr("Drag or use the arrows; the first stands at the top. Switch one off to hide it everywhere."), "\uE8CB",
             OrderList.Create(store));
 
-    /// While Grok and Cursor share a character: the name the drawer gives it,
-    /// one of theirs, both, or the user's own.
-    private static SettingsCard SharedNameCard(DrawerStore store)
-    {
-        var custom = new TextBox
-        {
-            Text = store.SharedCustomName,
-            PlaceholderText = L10n.Tr("Name"),
-            MaxLength = SharedSubscription.MaxNameLength,
-            Width = 160,
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = store.SharedName == SharedName.Custom ? Visibility.Visible : Visibility.Collapsed,
-        };
-        // Setting cards bring a text box style of their own.
-        UseKit(custom);
-        AutomationProperties.SetName(custom, L10n.Tr("Custom name"));
-        AutomationProperties.SetAutomationId(custom, "Settings.Drawer.SharedName.Custom");
-        custom.TextChanged += (_, _) => store.SharedCustomName = custom.Text;
-        var choices = new[] { SharedName.Both, SharedName.Grok, SharedName.Cursor, SharedName.Custom };
-        var combo = Combo(choices.Select(choice => choice == SharedName.Custom ? L10n.Tr("Custom") : SharedSubscription.Name(choice, null)).ToList(),
-            Array.IndexOf(choices, store.SharedName), index =>
-            {
-                store.SharedName = choices[index];
-                custom.Visibility = choices[index] == SharedName.Custom ? Visibility.Visible : Visibility.Collapsed;
-            });
-        AutomationProperties.SetAutomationId(combo, "Settings.Drawer.SharedName");
-        return Card(L10n.Tr("Shared character's name"),
-            L10n.Tr("Grok and Cursor are one character while they share a subscription"), "\uE77B", SideBySide(custom, combo));
-    }
-
     private void Watch(INotifyPropertyChanged source)
     {
         PropertyChangedEventHandler handler = (_, _) => _dirty = true;
@@ -467,7 +438,7 @@ internal sealed partial class SettingsWindow : Window
     private static (IReadOnlyList<DisplayProvider> Detected, IReadOnlyList<DisplayProvider> Missing, IReadOnlyList<DisplayProvider> Hidden) AgentGroups()
     {
         var visibility = ProviderVisibilityStore.Shared;
-        return DrawerVisibility.Groups(DrawerStore.Shared.Order, visibility.IsHidden, visibility.IsDetected);
+        return DrawerVisibility.Groups(DrawerStore.Shared.Order, visibility.IsHidden, visibility.IsCharacterDetected);
     }
 
     private static string GroupsKey(params IReadOnlyList<DisplayProvider>[] groups) =>
@@ -591,7 +562,6 @@ internal sealed partial class SettingsWindow : Window
 
         body.Children.Add(Section(L10n.Tr("Lineup")));
         body.Children.Add(OrderCard(store));
-        if (SharedSubscription.GrokWithCursor()) body.Children.Add(SharedNameCard(store));
 
         body.Children.Add(Section(L10n.Tr("Motion")));
         var rates = new[] { 0, 120, 60 };

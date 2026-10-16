@@ -134,9 +134,6 @@ internal sealed partial class DrawerWindow : Window
     private int _topmostCountdown = TopmostEverySeconds;
     private Bot? _cardBot;
     private bool _cardRefreshPending;
-    // Grok and Cursor share one X Subscription: Grok's character stands for
-    // both apps and Cursor's steps aside (SharedSubscription).
-    private bool _merged;
     private Bot? _pressed;
     private bool _dragging;
     // A locked drawer turned this press's drag down: no move, and no click.
@@ -239,14 +236,12 @@ internal sealed partial class DrawerWindow : Window
             ApplyLock();
             UpdateCap();
             Layout();
-            // An open card picks up a new name for the shared character.
-            RefreshCard();
         });
         Watch(IslandTargetDisplayStore.Shared, Layout);
         Watch(UsageStore.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
-        Watch(GrokUsageStore.Shared, () => OnSubscriptionUsage(DisplayProvider.Grok));
-        Watch(CursorUsageStore.Shared, () => OnSubscriptionUsage(DisplayProvider.Cursor));
+        Watch(GrokUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Grok));
+        Watch(CursorUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Cursor));
         Watch(AntigravityUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Antigravity));
         Watch(QuotaDisplayModeStore.Shared, RefreshCard);
         Watch(TokenCountModeStore.Shared, RefreshCard);
@@ -354,10 +349,10 @@ internal sealed partial class DrawerWindow : Window
     public void SetLook(DisplayProvider provider, string shape, string color) =>
         ChangeLook(_bots.First(b => b.Provider == provider), shape, color);
 
-    /// The provider's own activity, before shared characters combine it.
+    /// What the provider's character is doing: for Grok, Cursor's work too.
     public (AgentPhase Phase, string? Detail) PhaseOf(DisplayProvider provider)
     {
-        var activity = _activity.ForProvider(provider);
+        var activity = _activity.ForCharacter(provider);
         return (activity.Phase, activity.Detail);
     }
 
@@ -513,9 +508,7 @@ internal sealed partial class DrawerWindow : Window
     {
         var visibility = ProviderVisibilityStore.Shared;
         var store = DrawerStore.Shared;
-        _merged = SharedSubscription.GrokWithCursor();
-        var shown = DrawerVisibility.Characters(
-            _bots.ToDictionary(b => b.Provider, b => visibility.IsShown(b.Provider)), _merged);
+        var shown = DrawerVisibility.Characters(_bots.ToDictionary(b => b.Provider, b => visibility.IsShown(b.Provider)));
         var visible = Ordered(_bots.Where(b => shown[b.Provider])).ToList();
         var screen = _screen = ResolveScreen();
         var scale = screen.Scale;
@@ -909,7 +902,7 @@ internal sealed partial class DrawerWindow : Window
             _activity = new DrawerActivityFrame(results.Select(r => (r.Bot.Provider, r.Phase, r.Detail, r.Running)));
             foreach (var bot in _bots)
             {
-                var activity = _activity.ForCharacter(bot.Provider, _merged);
+                var activity = _activity.ForCharacter(bot.Provider);
                 recounted |= bot.Running != activity.Running && (_cardBot is null || _cardBot == bot);
                 bot.Running = activity.Running;
                 Offer(bot, activity.Phase, activity.Detail, seconds);
@@ -1257,27 +1250,15 @@ internal sealed partial class DrawerWindow : Window
         })) _cardRefreshPending = false;
     }
 
+    /// The card of the character the provider works under (Grok's for Cursor).
     private void RefreshCardFor(DisplayProvider provider)
     {
-        // The merged character's card shows Cursor's data too.
-        if (_merged && provider == DisplayProvider.Cursor) provider = DisplayProvider.Grok;
-        if (_cardBot is null || _cardBot.Provider == provider) RefreshCard();
+        if (_cardBot is null || _cardBot.Provider == provider.Character()) RefreshCard();
     }
 
     private Bot BotOf(DisplayProvider provider) => _bots.First(b => b.Provider == provider);
 
-    /// Grok's character stands for Cursor too while they share a subscription.
-    private StatusCard CardFor(Bot bot) => _merged && bot.Provider == DisplayProvider.Grok
-        ? StatusCards.ForGrokWithCursor(bot.Phase, bot.Detail, bot.Running)
-        : StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running);
-
-    /// New Grok or Cursor usage can start or end a shared subscription, which
-    /// merges or splits their characters; otherwise it only refreshes a card.
-    private void OnSubscriptionUsage(DisplayProvider provider)
-    {
-        if (SharedSubscription.GrokWithCursor() != _merged) Layout();
-        else RefreshCardFor(provider);
-    }
+    private static StatusCard CardFor(Bot bot) => StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running);
 
     private void ShowCard(bool retarget = false)
     {
@@ -1430,7 +1411,7 @@ internal sealed partial class DrawerWindow : Window
             ? new PointInt32(scene.Left + (int)(bot.Bounds.X * scene.Scale), scene.Top + (int)(bot.Bounds.Bottom * scene.Scale))
             : null;
         _ = DrawerMenu.ShowAsync(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
-            _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(), _merged,
+            _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(),
             (shape, color) => ChangeLook(bot, shape, color), keepOpen, at, scene.Scale);
     }
 

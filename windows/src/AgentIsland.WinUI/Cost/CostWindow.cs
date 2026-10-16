@@ -63,6 +63,8 @@ internal sealed partial class CostWindow : Window
             window._periods.SelectedItem = window._periods.Items[(int)period];
             await Task.Delay(1200);
             if (window.Content is { } content) await Snapshot.SaveAsync(content, Path.Combine(directory, $"cost-{period}.png"));
+            // The whole page, below the fold too.
+            await Snapshot.SaveAsync(window._body, Path.Combine(directory, $"cost-{period}-full.png"));
         }
     }
 
@@ -152,7 +154,12 @@ internal sealed partial class CostWindow : Window
 
     /// One agent's numbers for the chosen period.
     private sealed record Slice(DisplayProvider Provider, bool Dollars, double Spend, long Tokens, long Billable,
-        IReadOnlyList<(string Label, double Value)> Bars, IReadOnlyList<ModelSpend> Models, DateTimeOffset? AsOf);
+        IReadOnlyList<(string Label, double Value)> Bars, IReadOnlyList<ModelSpend> Models, DateTimeOffset? AsOf)
+    {
+        /// Cursor's part of Grok's tokens: it works under Grok's character
+        /// and bills by its own plan, so its tokens count but carry no price.
+        public (long Tokens, long Billable)? Cursor { get; init; }
+    }
 
     private FrameworkElement Header()
     {
@@ -241,9 +248,9 @@ internal sealed partial class CostWindow : Window
             ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
             : L10n.Tr("Not scanned yet");
 
-        // In the drawer's order.
-        var shown = DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown).ToList();
-        var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(SliceFor).ToList();
+        // In the drawer's order, one card per character.
+        var shown = DrawerStore.Shared.Order.Where(p => p.HasCharacter() && ProviderVisibilityStore.Shared.IsShown(p)).ToList();
+        var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(CharacterSlice).ToList();
         UpdatePeriodCaption(slices);
         var page = new List<UIElement> { Totals(slices) };
 
@@ -280,6 +287,21 @@ internal sealed partial class CostWindow : Window
         _calendarNote.Text = L10n.Tr(ranges.Count > 1
             ? "Snapshot dates differ; scan to refresh them together."
             : "Today starts at this computer's midnight. Previous days stay in history.");
+    }
+
+    /// A character's numbers: Grok's carry Cursor's tokens too.
+    private Slice CharacterSlice(DisplayProvider provider)
+    {
+        var slice = SliceFor(provider);
+        if (provider != DisplayProvider.Grok || !ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor)) return slice;
+        var cursor = SliceFor(DisplayProvider.Cursor);
+        return slice with
+        {
+            Tokens = slice.Tokens + cursor.Tokens,
+            Billable = slice.Billable + cursor.Billable,
+            AsOf = slice.AsOf ?? cursor.AsOf,
+            Cursor = (cursor.Tokens, cursor.Billable),
+        };
     }
 
     private Slice SliceFor(DisplayProvider provider)
@@ -478,7 +500,29 @@ internal sealed partial class CostWindow : Window
         {
             panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in this period"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
         }
+        if (slice.Cursor is { } cursor && (TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? cursor.Billable : cursor.Tokens) is > 0 and var cursorTokens)
+        {
+            panel.Children.Add(CursorLine(cursorTokens));
+        }
         return Surface(panel);
+    }
+
+    /// Cursor's tokens on Grok's card, with how Cursor bills them.
+    private static FrameworkElement CursorLine(long tokens)
+    {
+        var line = new Grid { ColumnSpacing = 8 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        line.Children.Add(new TextBlock { Text = ProviderIdentity.DisplayName(DisplayProvider.Cursor), TextTrimming = TextTrimming.CharacterEllipsis });
+        var amount = new TextBlock
+        {
+            Text = $"{Formatting.CompactTokens(tokens)} {L10n.Tr("tokens · billed by Cursor's own plan")}",
+            Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
+        };
+        if (!Looks.Pixel) amount.FontSize = 12;
+        Grid.SetColumn(amount, 1);
+        line.Children.Add(amount);
+        return line;
     }
 
     /// Bars scaled to the period's largest, rounded more at the top, at

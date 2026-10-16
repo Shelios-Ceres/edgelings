@@ -25,11 +25,10 @@ internal static class OrderList
 {
     public static ListView Create(DrawerStore store)
     {
-        // While Grok and Cursor share a character, Grok's row stands for both;
-        // Cursor keeps its slot for when they split (DrawerStore.SetOrder).
-        var merged = SharedSubscription.GrokWithCursor();
+        // One row per character: Grok's stands for Cursor too, and Cursor
+        // keeps its saved slot (DrawerStore.SetOrder).
         var items = new ObservableCollection<Entry>(store.Order
-            .Where(provider => !(merged && provider == DisplayProvider.Cursor))
+            .Where(provider => provider.HasCharacter())
             .Select(provider => new Entry(provider)));
         var list = new ListView
         {
@@ -52,16 +51,11 @@ internal static class OrderList
 
         void Save() => store.SetOrder(items.Select(entry => entry.Provider));
 
-        // Grok's switch stands for the shared character while merged: on if
-        // either choice shows it, and it sets both (DrawerVisibility.SetBy).
         var visibility = ProviderVisibilityStore.Shared;
-        bool Shown(DisplayProvider provider) => merged && provider == DisplayProvider.Grok
-            ? visibility.IsShown(DisplayProvider.Grok) || visibility.IsShown(DisplayProvider.Cursor)
-            : visibility.IsShown(provider);
+        bool Shown(DisplayProvider provider) => visibility.IsShown(provider);
         void SetShown(Row row, bool shown)
         {
-            if (row.Entry is not { } entry) return;
-            foreach (var choice in DrawerVisibility.SetBy(entry.Provider, merged)) store.SetShown(choice, shown);
+            if (row.Entry is { } entry) visibility.SetShown(entry.Provider, shown);
         }
 
         // Rows whose item stayed put keep stale ends; refill every row shown.
@@ -71,7 +65,7 @@ internal static class OrderList
             for (var i = 0; i < items.Count; i++)
             {
                 if (list.ContainerFromIndex(i) is not ListViewItem { ContentTemplateRoot: Grid { Tag: Row row } } container) continue;
-                var name = SharedSubscription.CharacterName(items[i].Provider, merged);
+                var name = ProviderIdentity.DisplayName(items[i].Provider);
                 row.Show(items[i], i, items.Count, Shown(items[i].Provider), name);
                 AutomationProperties.SetName(container, name);
             }
@@ -113,7 +107,7 @@ internal static class OrderList
             if (args.InRecycleQueue || args.Item is not Entry entry || args.ItemContainer.ContentTemplateRoot is not Grid root) return;
             using var english = Looks.English();
             var row = root.Tag as Row ?? new Row(root, Move, SetShown);
-            var name = SharedSubscription.CharacterName(entry.Provider, merged);
+            var name = ProviderIdentity.DisplayName(entry.Provider);
             row.Show(entry, items.IndexOf(entry), items.Count, Shown(entry.Provider), name);
             AutomationProperties.SetName(args.ItemContainer, name);
             args.Handled = true;

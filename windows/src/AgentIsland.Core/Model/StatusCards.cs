@@ -53,36 +53,13 @@ public static class StatusCards
         Plan = AgentReports.Plan(provider),
     };
 
+    /// The note under a card, the agent's warning first. Grok's card carries
+    /// either app's warning (Cursor works under it).
     private static IReadOnlyList<StatusPhrase> CardNotes(DisplayProvider provider)
     {
         var parts = NoteParts(provider).ToList();
-        if (AgentReports.Warning(provider) is { } warning) parts.Insert(0, Phrase(warning));
+        parts.InsertRange(0, AgentReports.Warnings(provider).Select(warning => Phrase(warning)));
         return parts;
-    }
-
-    /// Grok and Cursor on one X Subscription (SharedSubscription): one card
-    /// for both apps, with their one pool as Grok reports it, both apps'
-    /// tokens added up, and either app's warning.
-    public static StatusCard ForGrokWithCursor(AgentPhase phase, string? detail, int running)
-    {
-        var notes = NoteParts(DisplayProvider.Grok).ToList();
-        notes.InsertRange(0, new[] { AgentReports.Warning(DisplayProvider.Grok), AgentReports.Warning(DisplayProvider.Cursor) }
-            .OfType<string>()
-            .Distinct()
-            .Select(warning => Phrase(warning)));
-        var totals = TokenTotals.Sum(CostStore.Shared.Totals(DisplayProvider.Grok), CostStore.Shared.Totals(DisplayProvider.Cursor));
-        return new StatusCard(
-            DisplayProvider.Grok,
-            SharedSubscription.Name(),
-            DrawerLooks.PhaseLabel(phase),
-            detail,
-            Tasks(running),
-            Meters(DisplayProvider.Grok),
-            TokensFrom(totals, TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),
-            notes)
-        {
-            Plan = SharedSubscription.Plan(GrokUsageStore.Shared.AuthModeBadge, CursorUsageStore.Shared.PlanBadge),
-        };
     }
 
     public static StatusTasks? Tasks(int running)
@@ -106,6 +83,7 @@ public static class StatusCards
             DisplayProvider.Codex when usage.SecondaryMissing => new[] { Meter(usage.FiveHour, "Week") },
             DisplayProvider.Codex => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
             DisplayProvider.Cursor => new[] { Meter(usage.FiveHour, "30d") },
+            DisplayProvider.Grok => GrokMeters(Meter),
             DisplayProvider.Kimi => KimiMeters(Meter),
             // No quota source: the card shows phases and tokens only.
             DisplayProvider.DeepSeek => Array.Empty<StatusMeter>(),
@@ -132,6 +110,21 @@ public static class StatusCards
             shown / 100,
             current.UsedPercent,
             resets);
+    }
+
+    /// Grok's weekly window, which is Cursor's too on one X Subscription;
+    /// billed apart, Cursor's own cycle follows under its name. Each app's
+    /// line shows only once that app has been here.
+    private static IReadOnlyList<StatusMeter> GrokMeters(Func<WindowUsage, string, StatusMeter> meter)
+    {
+        var visibility = ProviderVisibilityStore.Shared;
+        var meters = new List<StatusMeter>();
+        if (visibility.IsDetected(DisplayProvider.Grok)) meters.Add(meter(ProviderUsage.For(DisplayProvider.Grok).FiveHour, "Week"));
+        if (visibility.IsDetected(DisplayProvider.Cursor) && !SharedSubscription.GrokWithCursor())
+        {
+            meters.Add(meter(ProviderUsage.For(DisplayProvider.Cursor).FiveHour, ProviderIdentity.DisplayName(DisplayProvider.Cursor)));
+        }
+        return meters;
     }
 
     /// Every window Kimi Code's plan reports: 5 hours, the week, the month.
@@ -161,10 +154,15 @@ public static class StatusCards
     }
 
     /// Today's and this month's tokens from the local logs, counted the way
-    /// the Token counting setting says. Antigravity keeps no local log.
-    public static StatusTokens? Tokens(DisplayProvider provider) => provider == DisplayProvider.Antigravity
-        ? null
-        : TokensFrom(CostStore.Shared.Totals(provider), TokenCountModeStore.Shared.Mode, DateTimeOffset.Now);
+    /// the Token counting setting says; Grok's include Cursor's. Antigravity
+    /// keeps no local log.
+    public static StatusTokens? Tokens(DisplayProvider provider) => provider switch
+    {
+        DisplayProvider.Antigravity => null,
+        DisplayProvider.Grok => TokensFrom(TokenTotals.Sum(CostStore.Shared.Totals(DisplayProvider.Grok), CostStore.Shared.Totals(DisplayProvider.Cursor)),
+            TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),
+        _ => TokensFrom(CostStore.Shared.Totals(provider), TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),
+    };
 
     /// Counts from an earlier day or month say nothing about this one, so a
     /// figure kept across midnight or a restart shows a dash until the next
