@@ -552,13 +552,15 @@ internal sealed partial class SettingsWindow
     /// Opens an agent's card. A window that is itself appearing opens with
     /// the card open and in view: nothing animates inside it. An open window
     /// plays M8 to the Agents page if needed, then the card scrolls into
-    /// view (Pixel: in one frame; Classic: over 333 ms) and opens with M9;
-    /// Classic then lights it with the agent's tint, back to paper over 900
-    /// ms. A hidden agent's card waits at the bottom of the list.
+    /// view (Pixel: in one frame; Classic: over 333 ms) and opens with M9,
+    /// the page following its bottom as it grows (Follow); Classic then
+    /// lights it with the agent's tint, back to paper over 900 ms. A hidden
+    /// agent's card waits at the bottom of the list.
     private void Focus(DisplayProvider provider, bool animate)
     {
         _arrive?.Stop();
         _arrive = null;
+        _following?.Invoke();
         animate &= !Motion.ReducedMotion;
         if (_page == Page.Agents)
         {
@@ -582,7 +584,8 @@ internal sealed partial class SettingsWindow
             DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
             {
                 var (inView, target) = Place(expander);
-                if (!inView) _scroll.ChangeView(null, target, null, disableAnimation: true);
+                var offset = Reveal(expander, inView ? _scroll.VerticalOffset : target);
+                if (Math.Abs(offset - _scroll.VerticalOffset) >= 0.5) _scroll.ChangeView(null, offset, null, disableAnimation: true);
                 FocusFirst(expander);
             });
             return;
@@ -590,7 +593,9 @@ internal sealed partial class SettingsWindow
         void Open()
         {
             _arrive = null;
+            var opening = !expander.IsExpanded;
             expander.IsExpanded = true;
+            if (opening) Follow(expander);
             FocusFirst(expander);
             if (!_pixel) Glow(lit, provider);
         }
@@ -609,6 +614,60 @@ internal sealed partial class SettingsWindow
         var from = _scroll.VerticalOffset;
         _arrive = UiMoment.Play(333, t =>
             _scroll.ChangeView(null, from + (to - from) * Motion.Out(t / 333), null, disableAnimation: true), Open);
+    }
+
+    // Stops the page following a card M19 opened.
+    private Action? _following;
+
+    /// As M9 grows the card, the page follows its bottom on the same frames
+    /// (Pixel in whole cells), never past keeping its header in view, until
+    /// M9 lands. Without M9 playing, at once.
+    private void Follow(SettingsExpander expander)
+    {
+        var start = _scroll.VerticalOffset;
+        void Reach()
+        {
+            // The card at this frame's height, and the page's length with it.
+            _scroll.UpdateLayout();
+            var target = Reveal(expander, start);
+            if (Math.Abs(target - _scroll.VerticalOffset) >= 0.5) _scroll.ChangeView(null, target, null, disableAnimation: true);
+        }
+        if (!ExpanderMotion.IsMoving(expander))
+        {
+            Reach();
+            return;
+        }
+        void Moved(SettingsExpander moved, bool landed)
+        {
+            if (moved != expander) return;
+            if (expander.IsExpanded) Reach();
+            if (landed || !expander.IsExpanded) _following?.Invoke();
+        }
+        ExpanderMotion.Moved += Moved;
+        _following = () =>
+        {
+            ExpanderMotion.Moved -= Moved;
+            _following = null;
+        };
+    }
+
+    /// The scroll, from offset, that shows a card with 20 DIP of page under
+    /// it, as far as that keeps its header 20 DIP below the page's top;
+    /// never back up. Pixel's window frame lies over the page's last cell,
+    /// and Pixel scrolls whole cells: the gap rounds up, the header's limit
+    /// down, and the header wins.
+    private double Reveal(FrameworkElement card, double offset)
+    {
+        var top = _scroll.VerticalOffset + card.TransformToVisual(_scroll).TransformPoint(default).Y;
+        var edge = _scroll.ViewportHeight - (_pixel ? PixelPlate.Cell : 0);
+        var down = top + card.ActualHeight + 20 - edge - offset;
+        var limit = top - 20 - offset;
+        if (_pixel)
+        {
+            down = Math.Ceiling(down / PixelPlate.Cell) * PixelPlate.Cell;
+            limit = Math.Floor(limit / PixelPlate.Cell) * PixelPlate.Cell;
+        }
+        return Math.Clamp(offset + Math.Max(0, Math.Min(down, limit)), 0, _scroll.ScrollableHeight);
     }
 
     /// Whether a card's header shows in the page, and the scroll that puts

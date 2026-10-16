@@ -32,6 +32,13 @@ internal static class ExpanderMotion
 
     public static void SetEnabled(DependencyObject element, bool value) => element.SetValue(EnabledProperty, value);
 
+    /// Whether M9 is still opening or closing the expander.
+    public static bool IsMoving(SettingsExpander expander) => Playing.TryGetValue(expander, out _);
+
+    /// Each frame M9 moves an expander, and once more as it lands (true),
+    /// for what follows its height (M19's scroll).
+    public static event Action<SettingsExpander, bool>? Moved;
+
     /// The rows and chevron as the expander stands, with nothing playing.
     private static void Rest(SettingsExpander expander)
     {
@@ -72,17 +79,27 @@ internal static class ExpanderMotion
         rows.Visibility = Visibility.Visible;
         rows.Shown = from;
         var turn = Turn(expander);
+        Action<double> Each(Action<double> frame) => t =>
+        {
+            frame(t);
+            Moved?.Invoke(expander, false);
+        };
+        void Landed()
+        {
+            Playing.Remove(expander);
+            Moved?.Invoke(expander, true);
+        }
         UiMoment moment;
         if (Looks.Pixel)
         {
             moment = open
-                ? UiMoment.Play(3 * Motion.TickMs, t =>
+                ? UiMoment.Play(3 * Motion.TickMs, Each(t =>
                 {
                     var k = Motion.Tick(t);
                     if (k >= 1) Chevron(expander, 1);
                     rows.Shown = k >= 3 ? double.NaN : k == 0 ? from : Math.Max(from, Motion.Cell(rows.Natural * k / 3));
-                }, () => Playing.Remove(expander))
-                : UiMoment.Play(2 * Motion.TickMs, t =>
+                }), Landed)
+                : UiMoment.Play(2 * Motion.TickMs, Each(t =>
                 {
                     var k = Motion.Tick(t);
                     if (k >= 1) Chevron(expander, 0);
@@ -93,24 +110,24 @@ internal static class ExpanderMotion
                         return;
                     }
                     rows.Shown = k == 0 ? from : Motion.Cell(from / 2);
-                }, () => Playing.Remove(expander));
+                }), Landed);
         }
         else if (open)
         {
             var opacity = closed ? 0 : content.Opacity;
             var rise = closed ? -4 : content.Translation.Y;
-            moment = UiMoment.Play(333, t =>
+            moment = UiMoment.Play(333, Each(t =>
             {
                 rows.Shown = t >= 333 ? double.NaN : from + (rows.Natural - from) * Motion.Out(t / 333);
                 content.Opacity = opacity + (1 - opacity) * Motion.Linear((t - 83) / 167);
                 content.Translation = new Vector3(0, (float)(rise * (1 - Motion.Out(t / 333))), 0);
                 Chevron(expander, turn + (1 - turn) * Motion.InOut(t / 250));
-            }, () => Playing.Remove(expander));
+            }), Landed);
         }
         else
         {
             var opacity = content.Opacity;
-            moment = UiMoment.Play(250, t =>
+            moment = UiMoment.Play(250, Each(t =>
             {
                 rows.Shown = from * (1 - Motion.InOut(t / 250));
                 content.Opacity = opacity * (1 - Motion.Linear(t / 83));
@@ -120,7 +137,7 @@ internal static class ExpanderMotion
                 rows.Shown = double.NaN;
                 content.Opacity = 1;
                 content.Translation = Vector3.Zero;
-            }, () => Playing.Remove(expander));
+            }), Landed);
         }
         Playing.AddOrUpdate(expander, moment);
     }
