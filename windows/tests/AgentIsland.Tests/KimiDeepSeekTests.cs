@@ -26,6 +26,11 @@ public static class KimiDeepSeekTests
                 Kimi("turn.ended", 8, new { reason = "completed" }), Kimi("config.update", 6), Message("user", 5))),
             ("kimi turn: a running loop is open", () => KimiDone(false,
                 Kimi("agent.turn.started", 4), Loop("step.begin", 3))),
+            ("kimi turn: a third lost connection is network trouble", KimiRetryTrouble),
+            ("kimi turn: early retries, rate limits and recovered retries are not", KimiRetryQuiet),
+            ("kimi phase: a retry reads as reconnecting", () => KimiPhase(AgentPhase.NetworkTrouble,
+                Loop("step.begin", 6), Kimi("llm.request", 5),
+                Kimi("turn.step.retrying", 4, Retry(1, "APIConnectionError", "Connection error.", 1000)))),
             ("deepseek turn: the close survives bookkeeping", () => DeepSeekDone(true,
                 DeepSeek("assistant/message", 9), DeepSeek("turn/end", 8), DeepSeek("session/end-seed", 7))),
             ("deepseek turn: a spliced inbox message reopens it", () => DeepSeekDone(false,
@@ -125,6 +130,48 @@ public static class KimiDeepSeekTests
         using var compressor = new ZstdSharp.Compressor();
         return compressor.Wrap(Encoding.UTF8.GetBytes(text)).ToArray();
     }
+
+    /// Kimi Code retries a failed step up to ten times, logging each one
+    /// (failedAttempt, delayMs, the SDK's error name and message) before the
+    /// request that retries it.
+    private static void KimiRetryTrouble()
+    {
+        var status = SessionTurnState.Kimi(new[]
+        {
+            Kimi("agent.turn.started", 30),
+            Kimi("turn.step.retrying", 20, Retry(3, "APIConnectionError", "terminated", 4000)),
+            Kimi("llm.request", 16),
+        });
+        Expect(status.IsDone, false);
+        Expect(status.RetryingUntil, Now.AddSeconds(-20) + TimeSpan.FromMilliseconds(4000) + TimeSpan.FromSeconds(60));
+        var timeout = SessionTurnState.Kimi(new[] { Kimi("turn.step.retrying", 5, Retry(4, "APITimeoutError", "Request timed out.", 0)) });
+        Expect(timeout.RetryingUntil, Now.AddSeconds(-5) + TimeSpan.FromSeconds(60));
+    }
+
+    private static void KimiRetryQuiet()
+    {
+        Expect(SessionTurnState.Kimi(new[] { Kimi("turn.step.retrying", 5, Retry(2, "APIConnectionError", "Connection error.", 1000)) })
+            .RetryingUntil, null);
+        Expect(SessionTurnState.Kimi(new[]
+            {
+                Kimi("turn.step.retrying", 5, Retry(4, "APIProviderRateLimitError", "429 The engine is currently overloaded", 1000)),
+            }).RetryingUntil, null);
+        Expect(SessionTurnState.Kimi(new[]
+            {
+                Kimi("turn.step.retrying", 9, Retry(5, "APIConnectionError", "Connection error.", 1000)),
+                Loop("content.part", 3, new { part = new { type = "text" } }),
+            }).RetryingUntil, null);
+    }
+
+    private static object Retry(int failed, string name, string message, int delayMs) => new
+    {
+        failedAttempt = failed,
+        nextAttempt = failed + 1,
+        maxAttempts = 10,
+        delayMs,
+        errorName = name,
+        errorMessage = message,
+    };
 
     private static void KimiDone(bool expected, params string[] lines) =>
         Expect(SessionTurnState.Kimi(lines).IsDone, expected);

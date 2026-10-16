@@ -9,14 +9,21 @@ namespace AgentIsland.Core;
 internal static class AgentProcesses
 {
     /// Process names per agent. A path hint tells a shared name apart: the
-    /// Kimi desktop app is also called Kimi.
+    /// Kimi chat app is also called Kimi. Kimi Code's desktop app runs its
+    /// sessions in its own process; Antigravity's desktop app and its CLI's
+    /// real binary are both "antigravity" (the CLI starts as agy); DeepSeek
+    /// Harness runs its CLI through its own executable.
     private static readonly (TriggerTool Tool, string Name, string? PathHint)[] Known =
     {
         (TriggerTool.Claude, "claude", null),
         (TriggerTool.Codex, "codex", null),
         (TriggerTool.Grok, "grok", null),
         (TriggerTool.Kimi, "kimi", ".kimi-code"),
+        (TriggerTool.Kimi, "Kimi Code", null),
         (TriggerTool.Cursor, "cursor", null),
+        (TriggerTool.Antigravity, "antigravity", null),
+        (TriggerTool.Antigravity, "agy", null),
+        (TriggerTool.DeepSeek, "DeepSeek Harness", null),
     };
 
     public static IReadOnlySet<TriggerTool> Gone()

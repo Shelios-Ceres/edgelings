@@ -4,8 +4,8 @@ using System.Text.Json;
 
 namespace AgentIsland.Core;
 
-/// Classifies the tail of a Claude Code, Codex, Kimi Code or DeepSeek Harness
-/// transcript into an AgentPhase. Reads only event types, block types, stop reasons, tool names,
+/// Classifies the tail of a Claude Code, Codex, Kimi Code, Grok, Antigravity
+/// or DeepSeek Harness transcript into an AgentPhase. Reads only event types, block types, stop reasons, tool names,
 /// call ids and timestamps; message content is never inspected or kept,
 /// except the fixed "[Request interrupted" marker Claude Code writes on Esc.
 ///
@@ -35,6 +35,7 @@ public static class AgentPhaseClassifier
                 TriggerTool.Codex when IsJsonl(transcriptPath) => Codex(ReadTail(transcriptPath), now),
                 TriggerTool.Kimi when IsJsonl(transcriptPath) => Kimi(ReadTail(transcriptPath), now),
                 TriggerTool.Grok when IsJsonl(transcriptPath) => Grok(ReadTail(transcriptPath), now),
+                TriggerTool.Antigravity when IsJsonl(transcriptPath) => Antigravity(ReadTail(transcriptPath), now),
                 TriggerTool.DeepSeek => DeepSeek(ZstdLog.TailLines(transcriptPath, TailBytes * 2), now),
                 _ => null,
             };
@@ -212,6 +213,9 @@ public static class AgentPhaseClassifier
                     return reason is "cancelled" ? new(AgentPhase.Idle, null, at) : Aged(new(AgentPhase.Finished, null, at), now);
                 case "prompt.aborted" or "turn.cancel":
                     return new(AgentPhase.Idle, null, at);
+                case "turn.step.retrying":
+                    if (stepDone) continue;
+                    return Aged(new(AgentPhase.NetworkTrouble, KimiRetryDetail(root), at), now);
                 case "agent.turn.started" or "turn.prompt" or "turn.steer" or "llm.request":
                     return Aged(new(AgentPhase.Thinking, null, resultAt ?? at), now);
                 case "context.append_loop_event" when Jsonl.GetObject(root, "event") is { } loop:
@@ -352,6 +356,50 @@ public static class AgentPhaseClassifier
         return resultAt is not null ? Aged(new(AgentPhase.Thinking, null, resultAt), now) : new(AgentPhase.Idle, null, null);
     }
 
+    /// Antigravity's transcript_full.jsonl writes one record per step, once
+    /// the step is done: the model's PLANNER_RESPONSE (its tool_calls name
+    /// what it runs next), the tool's GENERIC result, the user's USER_INPUT.
+    /// So a response with calls and nothing after it is that tool at work, a
+    /// result is the model working on it, and a response without calls is
+    /// the model having answered. `created_at` is ISO 8601.
+    public static PhaseReading Antigravity(IReadOnlyList<string> lines, DateTimeOffset now)
+    {
+        for (var i = lines.Count - 1; i >= 0; i--)
+        {
+            using var doc = Jsonl.TryParseLine(lines[i]);
+            if (doc is null) continue;
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) continue;
+            var at = Jsonl.ParseIso8601(Jsonl.GetString(root, "created_at"));
+            switch ((Jsonl.GetString(root, "source"), Jsonl.GetString(root, "type")))
+            {
+                case ("USER_EXPLICIT", _):
+                    return Aged(new(AgentPhase.Thinking, null, at), now);
+                case ("MODEL", "PLANNER_RESPONSE"):
+                    if (LastToolCall(root) is { } call) return Aged(Tool(call, at, now), now);
+                    return Jsonl.GetString(root, "content") is { Length: > 0 }
+                        ? Aged(new(AgentPhase.Finished, null, at), now)
+                        : Aged(new(AgentPhase.Thinking, null, at), now);
+                case ("MODEL", _):
+                    return Aged(new(AgentPhase.Thinking, null, at), now);
+                default:
+                    continue; // system and ephemeral messages
+            }
+        }
+        return new(AgentPhase.Idle, null, null);
+
+        static string? LastToolCall(JsonElement step)
+        {
+            if (!step.TryGetProperty("tool_calls", out var calls) || calls.ValueKind != JsonValueKind.Array) return null;
+            string? name = null;
+            foreach (var call in calls.EnumerateArray())
+            {
+                if (call.ValueKind == JsonValueKind.Object && Jsonl.GetString(call, "name") is { Length: > 0 } called) name = called;
+            }
+            return name;
+        }
+    }
+
     /// The x.ai tool name; an MCP call through use_tool reads as that MCP
     /// tool, so computer use shows as operating apps.
     private static string? GrokToolName(JsonElement update)
@@ -392,21 +440,27 @@ public static class AgentPhaseClassifier
         return name switch
         {
             "Read" or "NotebookRead" or "read_file" or "read_item" or "list_items" or "view_image" or "ReadMediaFile"
-                or "read" or "read_image" => AgentPhase.Reading,
+                or "read" or "read_image" or "view_file" or "view_file_outline" or "view_code_item"
+                or "read_file_v2" => AgentPhase.Reading,
             "Grep" or "Glob" or "LS" or "ToolSearch" or "search_contents" or "grep" or "list_dir" or "glob"
-                or "search_tool" or "search" => AgentPhase.Searching,
-            "WebSearch" or "WebFetch" or "web_search" or "web_search_call" or "fetch" or "web_fetch" => AgentPhase.WebSearching,
+                or "search_tool" or "search" or "grep_search" or "find_by_name" or "codebase_search"
+                or "ripgrep_raw_search" or "glob_file_search" => AgentPhase.Searching,
+            "WebSearch" or "WebFetch" or "web_search" or "web_search_call" or "fetch" or "web_fetch"
+                or "search_web" or "read_url_content" or "read_browser_page" => AgentPhase.WebSearching,
             "Edit" or "MultiEdit" or "Write" or "NotebookEdit" or "apply_patch" or "write_file" or "append_to_file"
-                or "edit_file" or "edit" or "write" or "search_replace" => AgentPhase.Writing,
+                or "edit_file" or "edit" or "write" or "search_replace" or "write_to_file" or "replace_file_content"
+                or "multi_replace_file_content" or "edit_file_v2" => AgentPhase.Writing,
             "Bash" or "PowerShell" or "BashOutput" or "KillShell" or "Monitor" or "exec" or "shell" or "exec_command"
                 or "local_shell_call" or "js" or "pwsh" or "WaitFor" or "job_output" or "job_kill" or "job_list"
-                or "run_terminal_command" or "execute" or "kill_command_or_subagent" => AgentPhase.Running,
+                or "run_terminal_command" or "execute" or "kill_command_or_subagent" or "run_command"
+                or "command_status" or "send_command_input" or "read_terminal" or "run_terminal_command_v2" => AgentPhase.Running,
             "Task" or "Agent" or "AgentSwarm" or "Workflow" or "spawn_agent" or "followup_task" or "spawn_teammate"
                 or "team_task_create" => AgentPhase.Spawning,
             "wait_agent" or "wait" or "list_agents" or "TaskOutput" or "get_command_or_subagent_output" => AgentPhase.WaitingOnAgents,
             "SendMessage" or "send_message" => AgentPhase.Sending,
             "AskUserQuestion" or "ExitPlanMode" or "request_user_input" or "request_user_input_async"
-                or "ask_user_question" => AgentPhase.Asking,
+                or "ask_user_question" or "notify_user" => AgentPhase.Asking,
+            "browser_subagent" => AgentPhase.Controlling,
             _ => AgentPhase.Working,
         };
     }
@@ -452,6 +506,12 @@ public static class AgentPhaseClassifier
     private static string? RetryDetail(JsonElement root) =>
         Jsonl.GetDouble(root, "retryAttempt") is { } attempt && Jsonl.GetDouble(root, "maxRetries") is { } max
             ? Localization.L10n.TrFormat("Reconnecting · attempt {0} of {1}", (int)attempt, (int)max)
+            : null;
+
+    /// The same for Kimi Code, naming the attempt it is about to make.
+    private static string? KimiRetryDetail(JsonElement root) =>
+        Jsonl.GetDouble(root, "nextAttempt") is { } next && Jsonl.GetDouble(root, "maxAttempts") is { } max
+            ? Localization.L10n.TrFormat("Reconnecting · attempt {0} of {1}", (int)next, (int)max)
             : null;
 
     internal static bool IsInterrupt(JsonElement root) => UserTextStarts(root, "[Request interrupted");

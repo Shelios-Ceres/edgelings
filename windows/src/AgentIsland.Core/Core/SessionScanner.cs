@@ -369,20 +369,21 @@ public static class SessionScanner
     /// 2 assistant. Same rule Claude gets: assistant spoke last and has gone
     /// quiet means it is your turn.
     ///
-    /// Skipped entirely when the db has not been written since the last
-    /// scan — this runs every 6 s against a file that can be hundreds of MB.
+    /// Read again when the db or its -wal journal changed, or every few
+    /// seconds anyway: a running Cursor writes the journal through a handle
+    /// it keeps open, and Windows can leave an open file's write time behind.
     public static List<ScannedSession> ScanCursor(
         DateTimeOffset now,
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var path = CursorGlobalDbPath;
         if (!File.Exists(path)) return new List<ScannedSession>();
-        var modified = Mtime(path);
+        var fingerprint = FileStamp(path) + "|" + FileStamp(path + "-wal");
 
         List<CursorConversation>? cached = null;
         lock (CursorGate)
         {
-            if (modified == _cursorStamp) cached = _cursorCache;
+            if (fingerprint == _cursorStamp && now - _cursorReadAt < CursorRereadAfter) cached = _cursorCache;
         }
         if (cached is not null)
         {
@@ -414,15 +415,32 @@ public static class SessionScanner
 
         lock (CursorGate)
         {
-            _cursorStamp = modified;
+            _cursorStamp = fingerprint;
+            _cursorReadAt = now;
             _cursorCache = parsed;
         }
         return parsed.ConvertAll(c => CursorSession(c, now));
     }
 
     private static readonly object CursorGate = new();
-    private static DateTimeOffset _cursorStamp = DateTimeOffset.MinValue;
+    private static string _cursorStamp = "";
+    private static DateTimeOffset _cursorReadAt = DateTimeOffset.MinValue;
     private static List<CursorConversation> _cursorCache = new();
+    private static TimeSpan CursorRereadAfter => TimeSpan.FromSeconds(10);
+
+    /// A file's write time and length, or nothing for a missing file.
+    private static string FileStamp(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? $"{info.LastWriteTimeUtc.Ticks}:{info.Length}" : "";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
+    }
 
     /// One parsed conversation. Deliberately holds no status: status is a
     /// function of the CURRENT clock and is recomputed on every scan.
@@ -469,11 +487,15 @@ public static class SessionScanner
     /// `<root>/brain/<conversation-id>/.system_generated/logs/transcript_full.jsonl`
     /// — the desktop IDE and the `agy` CLI write the same shape into their
     /// own roots. Always `transcript_full`, never `transcript` (truncated).
+    /// Steps are written once done, so a long command or model call is
+    /// silence: an open turn stays work, and Antigravity's own server says
+    /// when a run is going or has stopped for the user (AntigravityLiveCascades).
     public static List<ScannedSession> ScanAntigravity(
         DateTimeOffset now,
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var output = new List<ScannedSession>();
+        IReadOnlyDictionary<string, AntigravityLiveCascades.Run>? live = null;
         var home = Path.Combine(IslandPaths.Home, ".gemini");
         foreach (var rootName in AntigravityRootNames)
         {
@@ -487,8 +509,9 @@ public static class SessionScanner
                 var path = Path.Combine(
                     conversationDir, ".system_generated", "logs", "transcript_full.jsonl");
                 if (!File.Exists(path)) continue;
-                var state = SessionState(
-                    path, now, lastWorking, null, SessionTurnState.Antigravity, quietMeansDone: true);
+                var state = SessionState(path, now, lastWorking, null, SessionTurnState.Antigravity);
+                live ??= AntigravityLiveCascades.Read(now);
+                var status = live.TryGetValue(conversation, out var run) ? AntigravityLiveCascades.Apply(state.Status, run) : state.Status;
                 var summary = summaries.TryGetValue(conversation, out var s) ? s : default;
                 var cwd = summary.Workspace
                     ?? AntigravityWorkspace(root, conversation) ?? "";
@@ -501,7 +524,7 @@ public static class SessionScanner
                     cwd,
                     label,
                     state.Modified,
-                    state.Status,
+                    status,
                     path,
                     state.TurnKey,
                     SessionLaunchTarget.Cli));
@@ -667,12 +690,15 @@ public static class SessionScanner
     /// live event log is agents\main\wire.jsonl and state.json carries the
     /// cwd. Subagents log under agents\<name>\ and never surface. Sessions
     /// untouched for a day are skipped before any read: the tree holds every
-    /// session ever run.
+    /// session ever run. The CLI and the desktop app share this tree; while
+    /// the desktop app is open its server also says which sessions wait on
+    /// the user (KimiLiveSessions).
     public static List<ScannedSession> ScanKimi(
         DateTimeOffset now,
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var output = new List<ScannedSession>();
+        IReadOnlyDictionary<string, KimiLiveSessions.Report>? live = null;
         foreach (var workdir in SafeEnumerateDirectories(IslandPaths.KimiSessionsRoot))
         {
             foreach (var sessionDir in SafeEnumerateDirectories(workdir))
@@ -683,9 +709,11 @@ public static class SessionScanner
                 var sid = name.StartsWith("session_", StringComparison.Ordinal) ? name["session_".Length..] : name;
                 var cwd = KimiCwd(Path.Combine(sessionDir, "state.json"));
                 var state = SessionState(wire, now, lastWorking, null, SessionTurnState.Kimi);
-                output.Add(new ScannedSession(
+                var session = new ScannedSession(
                     TriggerTool.Kimi, sid, cwd, Fallback(cwd, sid),
-                    state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli));
+                    state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli);
+                live ??= KimiLiveSessions.Read(now);
+                output.Add(live.TryGetValue(name, out var report) ? KimiLiveSessions.Apply(session, report) : session);
             }
         }
         return output;
@@ -927,33 +955,12 @@ public static class SessionScanner
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
         DateTimeOffset? externalActivityDate,
         Func<IReadOnlyList<string>, SessionTurnStatus> turnState,
-        bool quietMeansDone = false,
         Func<string, List<string>>? tail = null)
     {
         if (path is null)
             return (ActivityState.Idle, null, externalActivityDate ?? DateTimeOffset.MinValue);
 
         var (turn, fileModified) = ReadTurn(path, turnState, tail ?? (p => TailLines(p)));
-        // Providers whose transcripts carry no explicit turn boundary
-        // (Gemini's checkpoint stream, Cursor's workspace db) still have an
-        // honest completion signal: the file was being written moments ago
-        // and has now gone quiet. A CLI that stopped writing is either
-        // finished or waiting on an approval — both mean "your turn". The
-        // quiet threshold sits well above streaming gaps so a thinking
-        // pause never fires it.
-        if (quietMeansDone && !turn.IsDone
-            && lastWorking.TryGetValue(path, out var lastActive))
-        {
-            var quietFor = (now - fileModified).TotalSeconds;
-            if (quietFor > GuestQuietAfterSeconds
-                && (now - lastActive) < NeedsYouCap)
-            {
-                turn = new SessionTurnStatus(
-                    true,
-                    $"quiet:{lastActive.ToUnixTimeSeconds()}",
-                    turn.ActivityDate);
-            }
-        }
         var semanticModified = LatestDate(turn.ActivityDate, externalActivityDate);
         var effectiveModified = semanticModified ?? fileModified;
         // For a finished turn, external activity inside the bookkeeping grace

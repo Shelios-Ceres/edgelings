@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgentIsland.Core;
 using AgentIsland.Usage;
 
 namespace AgentIsland.Tests;
@@ -23,6 +24,11 @@ public static class KimiUsageTests
             ("server: a remote host is refused", RemoteRefused),
             ("server: a stale heartbeat is refused", StaleRefused),
             ("server: a bad port is refused", BadPortRefused),
+            ("live: the desktop server's session page parses", LiveParse),
+            ("live: an approval waits on the user", LiveApproval),
+            ("live: a question asks the user", LiveQuestion),
+            ("live: an active turn works while its log is quiet", LiveActive),
+            ("live: an idle report never stops a session", LiveIdle),
         };
         foreach (var (name, test) in tests)
         {
@@ -87,6 +93,48 @@ public static class KimiUsageTests
         using var doc = JsonDocument.Parse($$"""{"host":"{{host}}","port":{{port}},"heartbeat_at":{{heartbeat}}}""");
         return KimiUsageFetcher.ServerBaseUrl(doc.RootElement, Now);
     }
+
+    /// The desktop server's GET /sessions page, as its schema defines it
+    /// (Kimi Code 2.2, kap-server's sessionSchema).
+    private static void LiveParse()
+    {
+        using var doc = JsonDocument.Parse("""
+            {"code":0,"data":{"items":[
+              {"id":"session_a","busy":true,"main_turn_active":true,"pending_interaction":"none"},
+              {"id":"session_b","busy":false,"pending_interaction":"question"},
+              {"id":"","busy":true}],"has_more":false}}
+            """);
+        var reports = KimiLiveSessions.Parse(doc.RootElement);
+        Expect(reports.Count, 2);
+        Expect(reports["session_a"], new KimiLiveSessions.Report(true, "none"));
+        Expect(reports["session_b"], new KimiLiveSessions.Report(false, "question"));
+        using var failed = JsonDocument.Parse("""{"code":40100,"msg":"unauthorized"}""");
+        Expect(KimiLiveSessions.Parse(failed.RootElement).Count, 0);
+    }
+
+    private static void LiveApproval()
+    {
+        var session = KimiLiveSessions.Apply(Session(ActivityState.Working), new(true, "approval"));
+        Expect(session.Status, ActivityState.Working);
+        Expect(session.PendingPrompt?.Phase, AgentPhase.Approving);
+    }
+
+    private static void LiveQuestion() =>
+        Expect(KimiLiveSessions.Apply(Session(ActivityState.Idle), new(false, "question")).PendingPrompt?.Phase, AgentPhase.Asking);
+
+    private static void LiveActive() =>
+        Expect(KimiLiveSessions.Apply(Session(ActivityState.Idle), new(true, "none")).Status, ActivityState.Working);
+
+    /// CLI sessions are in the desktop app's list too, always idle there.
+    private static void LiveIdle()
+    {
+        var session = KimiLiveSessions.Apply(Session(ActivityState.Working), new(false, "none"));
+        Expect(session.Status, ActivityState.Working);
+        Expect(session.PendingPrompt, null);
+    }
+
+    private static ScannedSession Session(ActivityState status) =>
+        new(TriggerTool.Kimi, "a", "", "a", Now, status, null, null, SessionLaunchTarget.Cli);
 
     private static void Expect<T>(T actual, T expected)
     {

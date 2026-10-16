@@ -64,6 +64,7 @@ public static class Program
             PersonalityTests.RunAll();
             AgentPhaseTests.RunAll();
             KimiDeepSeekTests.RunAll();
+            AntigravityCursorTests.RunAll();
             SubagentFilterTests.RunAll();
             GrokTurnStateTests.RunAll();
             GrokStallTests.RunAll();

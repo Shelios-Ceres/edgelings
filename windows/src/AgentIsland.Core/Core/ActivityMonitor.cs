@@ -228,7 +228,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             .Select(s => s.TranscriptPath!), now);
         return current.ConvertAll(session =>
         {
-            if (session.Tool != TriggerTool.Claude || session.TranscriptPath is not { } path
+            // Other agents' scanners report their own prompts (Kimi Code's desktop app).
+            if (session.Tool != TriggerTool.Claude) return session;
+            if (session.TranscriptPath is not { } path
                 || session.Status is ActivityState.NeedsYou or ActivityState.RateLimited or ActivityState.AuthRequired
                 || !prompts.TryGetValue(path, out var prompt) || !SessionScanner.HasOpenClaudeTurn(path))
             {

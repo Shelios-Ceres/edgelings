@@ -69,9 +69,16 @@ public static class EvidenceTests
     {
         var gone = AgentProcesses.Gone(new[] { ("Claude", (string?)null), ("codex", null) });
         Expect(!gone.Contains(TriggerTool.Claude) && !gone.Contains(TriggerTool.Codex), "running agents are not gone");
-        Expect(gone.Contains(TriggerTool.Grok) && gone.Contains(TriggerTool.Cursor), "agents with no process are gone");
-        Expect(!gone.Contains(TriggerTool.DeepSeek) && !gone.Contains(TriggerTool.Antigravity),
-            "agents whose process is not known are never declared gone");
+        Expect(gone.Contains(TriggerTool.Grok) && gone.Contains(TriggerTool.Cursor)
+            && gone.Contains(TriggerTool.DeepSeek) && gone.Contains(TriggerTool.Antigravity), "agents with no process are gone");
+        var desktops = AgentProcesses.Gone(new[]
+        {
+            ("Kimi Code", (string?)null), ("Antigravity", null), ("DeepSeek Harness", null),
+        });
+        Expect(!desktops.Contains(TriggerTool.Kimi) && !desktops.Contains(TriggerTool.Antigravity)
+            && !desktops.Contains(TriggerTool.DeepSeek), "the desktop apps run their agents' sessions");
+        Expect(!AgentProcesses.Gone(new[] { ("agy", (string?)null) }).Contains(TriggerTool.Antigravity),
+            "Antigravity's CLI starts as agy");
     }
 
     private static void TestKimiDesktopIsNotKimiCode()

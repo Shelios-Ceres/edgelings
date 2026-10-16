@@ -204,7 +204,8 @@ public static class SessionTurnState
         }
         if (Has(lower, "connection error", "connection dropped", "connection reset", "connection refused",
                 "stream disconnected", "error sending request", "econnreset", "econnrefused", "etimedout",
-                "enotfound", "eai_again", "socket hang up", "timed out", "timeout", "network", "dns"))
+                "enotfound", "eai_again", "socket hang up", "timed out", "timeout", "network", "dns",
+                "apiconnectionerror"))
         {
             return TurnTrouble.Network;
         }
@@ -294,7 +295,13 @@ public static class SessionTurnState
                         : DateTimeOffset.FromUnixTimeSeconds(epoch);
                 }
             }
-            return new SessionTurnStatus(type == 2, key, stamp);
+            // A tool bubble is the assistant's too, but its tool may still be
+            // running (or waiting to be allowed to): that is not an answer.
+            var toolRunning = root.TryGetProperty("toolFormerData", out var tool)
+                && tool.ValueKind == System.Text.Json.JsonValueKind.Object
+                && Jsonl.GetString(tool, "status") is { } status
+                && status is not ("completed" or "cancelled" or "error");
+            return new SessionTurnStatus(type == 2 && !toolRunning, key, stamp);
         }
         catch (Exception)
         {
@@ -421,7 +428,9 @@ public static class SessionTurnState
     /// cancelled). Bookkeeping lands after the close — token counts, config
     /// and file-history checkpoints, the final messages being appended — so
     /// it is walked past; a user message or anything else reopens the turn.
-    /// `time` is unix milliseconds.
+    /// An open turn ending on turn.step.retrying (behind the request that
+    /// retries it) is Kimi backing off a failing API. `time` is unix
+    /// milliseconds.
     public static SessionTurnStatus Kimi(IReadOnlyList<string> lines)
     {
         for (var i = lines.Count - 1; i >= 0; i--)
@@ -441,10 +450,38 @@ public static class SessionTurnState
                     or "file_history.tracked" or "file_history.checkpoint" or "task.terminated" or "task.waitDelivered":
                     continue;
                 default:
-                    return new SessionTurnStatus(false, key, stamp);
+                    return new SessionTurnStatus(false, key, stamp, RetryingUntil: KimiRetryingUntil(lines, i));
             }
         }
         return new SessionTurnStatus(false, null, null);
+    }
+
+    /// The newest retry at the end of an open Kimi turn, past the requests
+    /// that retry it: until when it keeps the session in network trouble,
+    /// or null for an early attempt or an error that is not the connection.
+    private static DateTimeOffset? KimiRetryingUntil(IReadOnlyList<string> lines, int from)
+    {
+        for (var i = from; i >= 0; i--)
+        {
+            using var doc = Jsonl.TryParseLine(lines[i]);
+            if (doc is null) continue;
+            var root = doc.RootElement;
+            switch (Jsonl.GetString(root, "type"))
+            {
+                case "llm.request" or "token_counting.measured" or "usage.record":
+                    continue;
+                case "turn.step.retrying":
+                    if (Jsonl.GetDouble(root, "failedAttempt") is not { } failed || failed < RetriesBeforeTrouble) return null;
+                    var error = $"{Jsonl.GetString(root, "errorName")} {Jsonl.GetString(root, "errorMessage")}";
+                    if (TroubleFrom(error) != TurnTrouble.Network) return null;
+                    if (UnixMilliseconds(Jsonl.GetDouble(root, "time")) is not { } at) return null;
+                    var wait = Jsonl.GetDouble(root, "delayMs") is { } ms and > 0 ? TimeSpan.FromMilliseconds(ms) : TimeSpan.Zero;
+                    return at + wait + RetryGrace;
+                default:
+                    return null;
+            }
+        }
+        return null;
     }
 
     private static bool IsKimiUserMessage(System.Text.Json.JsonElement root) =>

@@ -29,9 +29,6 @@ internal static class CursorConversations
     [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_prepare_v2")]
     private static extern int Prepare(IntPtr db, byte[] sql, int byteLength, out IntPtr stmt, IntPtr tail);
 
-    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_bind_text")]
-    private static extern int BindText(IntPtr stmt, int index, byte[] value, int byteLength, IntPtr destructor);
-
     [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_step")]
     private static extern int Step(IntPtr stmt);
 
@@ -44,38 +41,50 @@ internal static class CursorConversations
     [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_finalize")]
     private static extern int FinalizeStatement(IntPtr stmt);
 
-    /// The newest message of every conversation, as (composerId, bubble JSON).
-    /// rowid order is insertion order, so the highest rowid for a composer is
-    /// its latest bubble — far cheaper than decoding every bubble to sort.
-    internal static List<(string ComposerId, string Json)> NewestBubblePerConversation(string dbPath)
+    /// The newest message of every conversation active lately, as
+    /// (composerId, bubble JSON). A running Cursor appends to the -wal
+    /// journal and the main file only catches up at a checkpoint, so the
+    /// journal is read too: a plain read-only open, which needs the -shm file
+    /// a running Cursor keeps. Without one (Cursor closed and checkpointed)
+    /// the immutable open reads the file as it stands.
+    internal static List<(string ComposerId, string Json)> NewestBubblePerConversation(string dbPath) =>
+        Read(dbPath, "?mode=ro") ?? Read(dbPath, "?mode=ro&immutable=1") ?? new();
+
+    /// Bubbles are keyed bubbleId:<composerId>:<bubbleId>, and every write
+    /// (a new message, a tool's status) replaces its row under a new rowid,
+    /// so the newest rows hold every conversation that moved lately; the
+    /// first one met per composer is its newest. Null when the open fails.
+    private static List<(string ComposerId, string Json)>? Read(string dbPath, string query)
     {
-        var output = new List<(string, string)>();
         var db = IntPtr.Zero;
+        var statement = IntPtr.Zero;
         try
         {
-            // URI form with immutable=1: a running Cursor holds the write
-            // lock, and skipping the -wal replay keeps this read cheap.
-            var uri = "file:" + dbPath.Replace('\\', '/') + "?mode=ro&immutable=1";
-            if (Open(NullTerminated(uri), out db, SqliteOpenReadonly | SqliteOpenUri, IntPtr.Zero) != SqliteOk)
+            var uri = "file:" + dbPath.Replace('\\', '/') + query;
+            if (Open(NullTerminated(uri), out db, SqliteOpenReadonly | SqliteOpenUri, IntPtr.Zero) != SqliteOk) return null;
+            const string sql = "SELECT key, value FROM cursorDiskKV"
+                + " WHERE rowid > (SELECT max(rowid) FROM cursorDiskKV) - 4000"
+                + " AND key >= 'bubbleId:' AND key < 'bubbleId;' ORDER BY rowid DESC";
+            if (Prepare(db, NullTerminated(sql), -1, out statement, IntPtr.Zero) != SqliteOk) return null;
+            var output = new List<(string, string)>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            while (Step(statement) == SqliteRow)
             {
-                return output;
+                var parts = ReadColumnText(statement, 0)?.Split(':');
+                if (parts is not { Length: >= 3 } || parts[1].Length == 0 || !seen.Add(parts[1])) continue;
+                if (ReadColumnText(statement, 1) is { } json) output.Add((parts[1], json));
             }
-
-            foreach (var composerId in ComposerIds(db))
-            {
-                var json = NewestBubble(db, composerId);
-                if (json is not null) output.Add((composerId, json));
-            }
+            return output;
         }
         catch (Exception)
         {
-            return output;
+            return null;
         }
         finally
         {
+            if (statement != IntPtr.Zero) { try { FinalizeStatement(statement); } catch (Exception) { } }
             if (db != IntPtr.Zero) { try { Close(db); } catch (Exception) { } }
         }
-        return output;
     }
 
     /// A bubble's own first line stands in for a conversation title — Cursor
@@ -103,60 +112,11 @@ internal static class CursorConversations
         }
     }
 
-    private static List<string> ComposerIds(IntPtr db)
+    private static string? ReadColumnText(IntPtr statement, int column)
     {
-        var ids = new List<string>();
-        var statement = IntPtr.Zero;
-        try
-        {
-            const string sql = "SELECT key FROM cursorDiskKV WHERE key LIKE 'composerData:%'";
-            if (Prepare(db, NullTerminated(sql), -1, out statement, IntPtr.Zero) != SqliteOk) return ids;
-            while (Step(statement) == SqliteRow)
-            {
-                var key = ReadColumnText(statement);
-                if (key is null) continue;
-                var id = key["composerData:".Length..];
-                if (id.Length > 0) ids.Add(id);
-            }
-        }
-        catch (Exception)
-        {
-            // fall through with whatever we collected
-        }
-        finally
-        {
-            if (statement != IntPtr.Zero) { try { FinalizeStatement(statement); } catch (Exception) { } }
-        }
-        return ids;
-    }
-
-    private static string? NewestBubble(IntPtr db, string composerId)
-    {
-        var statement = IntPtr.Zero;
-        try
-        {
-            const string sql = "SELECT value FROM cursorDiskKV WHERE key LIKE ? ORDER BY rowid DESC LIMIT 1";
-            if (Prepare(db, NullTerminated(sql), -1, out statement, IntPtr.Zero) != SqliteOk) return null;
-            // -1 destructor = SQLITE_TRANSIENT: SQLite copies the pattern, so
-            // the managed buffer may be collected right after the call.
-            BindText(statement, 1, NullTerminated("bubbleId:" + composerId + ":%"), -1, new IntPtr(-1));
-            return Step(statement) == SqliteRow ? ReadColumnText(statement) : null;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-        finally
-        {
-            if (statement != IntPtr.Zero) { try { FinalizeStatement(statement); } catch (Exception) { } }
-        }
-    }
-
-    private static string? ReadColumnText(IntPtr statement)
-    {
-        var pointer = ColumnText(statement, 0);
+        var pointer = ColumnText(statement, column);
         if (pointer == IntPtr.Zero) return null;
-        var length = ColumnBytes(statement, 0);
+        var length = ColumnBytes(statement, column);
         if (length <= 0) return null;
         var bytes = new byte[length];
         Marshal.Copy(pointer, bytes, 0, length);
