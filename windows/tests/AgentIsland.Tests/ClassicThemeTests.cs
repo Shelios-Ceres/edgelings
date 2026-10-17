@@ -51,6 +51,10 @@ public static class ClassicThemeTests
         }
         Console.WriteLine("PASS calm and one-shot states match the engine");
 
+        Expect(phases.Contains("resting") && calm.Contains("resting") && !settle.ContainsKey("resting") && DrawerLooks.IsCalm("resting", CharacterTheme.Classic),
+            "a character whose agent's app is away rests in a calm loop the engine draws");
+        Console.WriteLine("PASS resting is a calm loop the engine draws");
+
         foreach (var provider in DisplayProviders.All)
         {
             var kind = DrawerLooks.Kind(provider);

@@ -90,6 +90,7 @@ should too: the mapping, tests and pacing then apply unchanged.
 | `NetworkTrouble` | Network trouble | `offline` |
 | `RateLimited` | Out of quota | `sleeping` |
 | `AuthRequired` | Sign-in needed | `locked` |
+| `Idle`, while its app is away | Resting | `resting` |
 
 How states behave:
 
@@ -107,7 +108,18 @@ How states behave:
 - **Fidgets**: `fidgetsOf(kind)` lists one to three short, idle-only states
   per bot (Pixel Claude: `wave`, `hop`, `stroll`). They must loop; the drawer
   starts one every 25 to 75 s, ends it after 2.5 to 4.5 s, and never fidgets
-  under reduced motion.
+  under reduced motion or while the bot rests. A fidget is idle play: no work
+  pose, prop or attention sign.
+- **Resting**: while an agent's app is closed, or every window it shows is
+  minimized or hidden in the tray (its own, or its host's: the Claude app
+  around Claude Code, the Codex app around its CLI, the terminal a CLI runs
+  in; a covered window still counts as open), its bot plays `resting` instead
+  of `idle`. Any other phase still shows, so a minimized terminal mid-task
+  shows its work. The card reads "Resting", with "App closed", "Minimized"
+  or "In the tray". `resting` is a calm loop, set apart from `idle` and from
+  the quota's `sleeping`; it belongs in `PHASES` and `CALM`, and its start
+  (phase 0) is the settled pose, which reduced motion holds still. A set
+  that doesn't draw it yet shows `idle` without fidgets instead.
 
 ### 3.3 Engine module
 
@@ -330,6 +342,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_COST_FILM=<dir>` | The same for the usage numbers on Settings' Usage & cost page: two period switches and a scan counting |
   | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
   | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |
+  | `AGENTISLAND_DEBUG_REST=1` | Rests every idle bot, as if its agent's app were minimized |
 
   The live drawer is drawn by Win2D and cannot be snapshotted; the film
   draws the same bots with the same painter. To see the live drawer,
@@ -375,8 +388,9 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 10. Reference: the Classic theme
 
-- **Engine**: `Drawer/Characters/classic.mjs`, approved round 3, SHA-256
-  `589fa5711ca1d125c6dc5e21e484afafabf574c3dd97226ab4ac0c3b429b874f`; vector
+- **Engine**: `Drawer/Characters/classic.mjs`, approved round 3 with
+  `resting` and idle-only fidgets (2026-10-17), SHA-256
+  `28b43507981704c750d83225bf789882e8092726eeab784452a3605f14f3b007`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
   frames up to 1,740 bytes. Each of the twelve shapes stands on its own
   baseline, and every frame stays within the circle (22 DIP of the centre).

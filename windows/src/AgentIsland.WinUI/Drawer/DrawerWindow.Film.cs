@@ -341,15 +341,16 @@ internal sealed partial class DrawerWindow
         }
     }
 
-    /// Every bot idle, reading, asking, sending, orbiting, finished and
-    /// locked, each a drawer at 0.5, 0.9 and 1.3 s into the state, on light
-    /// then dark ground.
+    /// Every bot idle, reading, asking, sending, orbiting, finished, locked
+    /// and, where the set draws it, resting, each a drawer at 0.5, 0.9 and
+    /// 1.3 s into the state (resting's slow loop at its settled start, a
+    /// breath in and its slow blink), on light then dark ground.
     private void Sheet(CanvasDevice device, ICharacterEngine engine, string directory, string style, bool pixel, IReadOnlyList<int> order)
     {
-        var times = new[] { 0.5, 0.9, 1.3 };
         var column = Column(order, (StageWidth - WindowWidth) / 2);
-        foreach (var state in new[] { "idle", "reading", "asking", "sending", "orbit", "finished", "locked" })
+        foreach (var state in new[] { "idle", "reading", "asking", "sending", "orbit", "finished", "locked", Resting }.Where(engine.Draws))
         {
+            var times = state == Resting ? new[] { 0.5, 2.5, 5.0 } : new[] { 0.5, 0.9, 1.3 };
             foreach (var index in order) engine.SetState(index, state, 0);
             var shots = new List<Dictionary<int, string>>();
             var clock = 0.0;

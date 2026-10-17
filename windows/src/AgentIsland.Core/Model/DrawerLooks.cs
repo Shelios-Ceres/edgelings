@@ -132,10 +132,12 @@ public static class DrawerLooks
         _ => Entry(phase, theme),
     };
 
-    /// The engines' CALM list: states fine at the calm frame rate.
+    /// The engines' CALM list: states fine at the calm frame rate, with
+    /// resting, which an idle character takes while its agent's app is out
+    /// of sight, wherever a set draws it.
     public static readonly HashSet<string> EngineCalmStates = new(StringComparer.Ordinal)
     {
-        "idle", "listening", "broken", "offline", "sleeping", "locked",
+        "idle", "listening", "broken", "offline", "sleeping", "locked", "resting",
     };
 
     public static bool IsCalm(string state, CharacterTheme theme) => EngineCalmStates.Contains(state);

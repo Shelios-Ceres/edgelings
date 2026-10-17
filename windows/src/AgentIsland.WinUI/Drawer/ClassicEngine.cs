@@ -7,8 +7,8 @@ using Microsoft.ClearScript.V8;
 namespace AgentIsland.WinUI.Drawer;
 
 /// The Classic bots in embedded V8: Characters/classic.mjs is the approved
-/// round 3 engine from windows/notes/classic-grok-20261015 (sha256
-/// 589fa571…), our own code, shipped with the app. Twelve shapes in eleven
+/// round 3 engine from windows/notes/classic-grok-20261015, with resting and
+/// idle-only fidgets (sha256 28b43507…), our own code, shipped with the app. Twelve shapes in eleven
 /// colours, picked per bot in its menu; frames are vector SVG, drawn
 /// antialiased.
 internal sealed class ClassicEngine : ICharacterEngine
@@ -21,6 +21,7 @@ internal sealed class ClassicEngine : ICharacterEngine
         import * as lib from './classic.mjs';
         const bots = [];
         globalThis.agentIslandClassic = {
+            phases: () => lib.PHASES.join(','),
             shapes: () => lib.SHAPE_NAMES.join(','),
             colors: () => lib.COLORS.join(','),
             shapeFor: name => lib.shapeFor(name) ?? '',
@@ -49,6 +50,7 @@ internal sealed class ClassicEngine : ICharacterEngine
     private readonly V8ScriptEngine _engine;
     private readonly ScriptObject _host;
     private readonly Dictionary<DisplayProvider, string[]> _fidgets = new();
+    private readonly HashSet<string> _phases;
 
     public ClassicEngine(string engineDirectory)
     {
@@ -59,6 +61,7 @@ internal sealed class ClassicEngine : ICharacterEngine
             var hostUri = new Uri(Path.Combine(engineDirectory, "agent-island-classic.mjs"));
             _engine.Execute(new DocumentInfo(hostUri) { Category = ModuleCategory.Standard }, HostModule);
             _host = (ScriptObject)_engine.Script.agentIslandClassic;
+            _phases = ((string)_host.InvokeMethod("phases")).Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
             Shapes = ((string)_host.InvokeMethod("shapes")).Split(',');
             Colors = ((string)_host.InvokeMethod("colors")).Split(',');
             foreach (var provider in DisplayProviders.All)
@@ -104,6 +107,8 @@ internal sealed class ClassicEngine : ICharacterEngine
 
     public string[] Fidgets(DisplayProvider provider) =>
         _fidgets.TryGetValue(provider, out var fidgets) ? fidgets : Array.Empty<string>();
+
+    public bool Draws(string state) => _phases.Contains(state);
 
     public (string State, string Svg)?[] Tick(IReadOnlyList<double> dts, double size)
     {

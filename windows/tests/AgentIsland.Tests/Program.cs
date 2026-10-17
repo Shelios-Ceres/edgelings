@@ -91,6 +91,7 @@ public static class Program
             FormattingTests.RunAll();
             LaunchAtLoginTests.RunAll();
             ScannerCwdTests.RunAll();
+            AgentPresenceTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }
@@ -108,6 +109,7 @@ public static class Program
         var sessions = SessionScanner.MonitoringScan(now, new Dictionary<string, DateTimeOffset>());
         Console.WriteLine($"{sessions.Count} session(s) discovered");
         Console.WriteLine($"no process running: {string.Join(", ", AgentProcesses.Gone())}");
+        Console.WriteLine($"on screen: {string.Join(", ", AgentPresences.Now().Select(p => $"{p.Key} {p.Value}"))}");
         Console.WriteLine($"offline: {InternetStatus.IsOffline(now)}");
         foreach (var session in sessions.Take(15))
         {

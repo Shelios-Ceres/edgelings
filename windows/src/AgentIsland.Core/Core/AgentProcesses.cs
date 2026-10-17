@@ -13,7 +13,7 @@ internal static class AgentProcesses
     /// sessions in its own process; Antigravity's desktop app and its CLI's
     /// real binary are both "antigravity" (the CLI starts as agy); DeepSeek
     /// Harness runs its CLI through its own executable.
-    private static readonly (TriggerTool Tool, string Name, string? PathHint)[] Known =
+    internal static readonly (TriggerTool Tool, string Name, string? PathHint)[] Known =
     {
         (TriggerTool.Claude, "claude", null),
         (TriggerTool.Codex, "codex", null),

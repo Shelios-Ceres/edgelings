@@ -30,6 +30,10 @@ internal interface ICharacterEngine : IDisposable
     /// The little things the provider's bot does now and then while idle.
     string[] Fidgets(DisplayProvider provider);
 
+    /// Whether the set draws a state (its PHASES): one added later, like
+    /// resting, falls back where a set doesn't have it yet.
+    bool Draws(string state);
+
     /// Advances each bot whose dt is a number (NaN skips it) and returns its
     /// (engine state, SVG); skipped bots come back null.
     (string State, string Svg)?[] Tick(IReadOnlyList<double> dts, double size);

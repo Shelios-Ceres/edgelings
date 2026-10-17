@@ -20,6 +20,7 @@ internal sealed class PixelEngine : ICharacterEngine
         import * as lib from './characters.mjs';
         const bots = [];
         globalThis.agentIslandPixels = {
+            phases: () => lib.PHASES.join(','),
             fidgets: kind => lib.fidgetsOf(kind).join(','),
             add(kind, seed, tempo) {
                 bots.push(lib.createBot(kind, { seed, tempo, rim: true }));
@@ -44,6 +45,7 @@ internal sealed class PixelEngine : ICharacterEngine
     private readonly V8ScriptEngine _engine;
     private readonly ScriptObject _host;
     private readonly Dictionary<DisplayProvider, string[]> _fidgets = new();
+    private readonly HashSet<string> _phases;
 
     /// Where the build copies the engine.
     public static string Directory => Path.Combine(AppContext.BaseDirectory, "Drawer", "Characters");
@@ -57,6 +59,7 @@ internal sealed class PixelEngine : ICharacterEngine
             var hostUri = new Uri(Path.Combine(engineDirectory, "agent-island-pixels.mjs"));
             _engine.Execute(new DocumentInfo(hostUri) { Category = ModuleCategory.Standard }, HostModule);
             _host = (ScriptObject)_engine.Script.agentIslandPixels;
+            _phases = ((string)_host.InvokeMethod("phases")).Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
             foreach (var provider in DisplayProviders.All)
             {
                 var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.Kind(provider));
@@ -91,6 +94,8 @@ internal sealed class PixelEngine : ICharacterEngine
 
     public string[] Fidgets(DisplayProvider provider) =>
         _fidgets.TryGetValue(provider, out var fidgets) ? fidgets : Array.Empty<string>();
+
+    public bool Draws(string state) => _phases.Contains(state);
 
     public (string State, string Svg)?[] Tick(IReadOnlyList<double> dts, double size)
     {

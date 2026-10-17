@@ -17,10 +17,11 @@ export const PHASES = [
   'idle', 'thinking', 'streaming', 'reading', 'searching', 'web', 'writing', 'running',
   'controlling', 'spawning', 'orbit', 'sending', 'asking', 'approving', 'compacting',
   'working', 'finished', 'listening', 'failed', 'broken', 'offline', 'sleeping', 'locked',
+  'resting',
 ];
 
 // Slow enough to look right at the drawer's calm 30 fps.
-export const CALM = ['idle', 'listening', 'broken', 'offline', 'sleeping', 'locked'];
+export const CALM = ['idle', 'listening', 'broken', 'offline', 'sleeping', 'locked', 'resting'];
 
 // One-shot entries: the state each settles into, and after how long.
 const SETTLE = { finished: ['listening', 1.7], failed: ['broken', 1.5] };
@@ -101,7 +102,7 @@ const sticker = (w = 1.1) => ` fill="${PAPER}" stroke="${INK}" stroke-width="${n
 const REST = {
   x: 0, y: 0, sx: 1, sy: 1, rot: 0, turn: 0, spin: 0,
   look: [0, 0], gazeW: 1,
-  open: 1, blink: 1, happy: 0, cross: 0, wide: 0, squint: 0, sleep: 0, sad: 0, wink: 0, mouth: 0,
+  open: 1, blink: 1, happy: 0, cross: 0, wide: 0, squint: 0, sleep: 0, sad: 0, wink: 0, mouth: 0, lid: 0,
   props: {},
 };
 
@@ -222,6 +223,8 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true, shape, color 
       const p = T - pokeAt;
       const hop = p >= 0 && p < 0.55 ? bump(p / 0.42) * 5 : 0;
       const squash = p >= 0 && p < 0.55 ? kick(p, 22, 8) * 0.08 : 0;
+      // A poke stirs a resting bot: its lids lift, then sink back.
+      const stir = p >= 0 && p < 2.6 ? smooth(p / 0.12) * (1 - smooth((p - 1.1) / 1.5)) : 0;
       const live = {
         ...pose,
         y: pose.y - hop,
@@ -231,6 +234,7 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true, shape, color 
         turn: clamp(pose.turn + lean * 0.22, -1, 1),
         look: [eyes[0], eyes[1]],
         open: pose.open * (1 - blink),
+        lid: pose.lid * (1 - stir),
         happy: Math.max(pose.happy, p >= 0 && p < 0.5 ? bump(p / 0.5) : 0),
       };
       return draw(live, { T, id, rim: rimOn, shape: look.shape, color: look.color, k, size });
@@ -690,8 +694,8 @@ const CYCLE = {
   idle: 12, thinking: 2.4, streaming: 0.9, reading: 3.2, searching: 3.6, web: 2.4, writing: 1.6,
   running: 0.6, controlling: 2.8, spawning: 2.6, orbit: 3.2, sending: 1.8, asking: 2.4,
   approving: 1.6, compacting: 1.4, working: 2.4, listening: 4.8, broken: 5, offline: 3.6,
-  sleeping: 4.2, locked: 3.2,
-  bounce: 1.2, spin: 2.2, peek: 2.6, wiggle: 1.4, float: 3, yawn: 3.2, hum: 2.4, stretch: 2.8,
+  sleeping: 4.2, locked: 3.2, resting: 8,
+  bounce: 1.2, peek: 2.6, wiggle: 1.4, float: 3, hum: 2.4, stretch: 2.8, puff: 2.4, wink: 2.6, shuffle: 2,
 };
 
 const seg = (u, a, b) => clamp((u - a) / (b - a));
@@ -905,18 +909,50 @@ const LOOP = {
       props: { lock: { r: 14 * jig } },
     };
   },
+  // Its app is closed or out of sight: settled low and round, two slow
+  // breaths a cycle, heavy lids over lowered eyes, and one slow blink away
+  // from the start, so a still at u = 0 shows the settled pose. No badge:
+  // nothing is wrong. Unlike sleeping, the eyes stay half open.
+  resting(u, k) {
+    const b = Math.sin(TAU * u * 2);
+    const close = bump(seg(u, 0.56, 0.7));
+    return {
+      y: 0.4, sy: 0.965 + 0.026 * b, sx: 1.03 - 0.016 * b, rot: 0.8 * Math.sin(TAU * (u + k.r[0])),
+      lid: 1, open: 1 - close, blink: 0, look: [0, 0.35], gazeW: 0.45,
+    };
+  },
 
-  // Fidgets: short idle habits the drawer starts now and then.
+  // Fidgets: short idle habits the drawer starts now and then. Each is play:
+  // happy or curious eyes, never a work prop, a badge or a work motion, and
+  // never closed eyes, which resting and sleeping use.
   bounce(u) {
     const h = hops(u, 0.08, 0.72, [4.5, 2.6]);
     const w = settle(u, 0.72, CYCLE.bounce, 18, 7);
     return { y: h.y, sy: 1 - 0.07 * h.c - 0.03 * w, sx: 1 + 0.05 * h.c + 0.02 * w, happy: 0.85 };
   },
-  spin(u) {
-    const h = hops(u, 0.1, 0.66, [3.4]);
+  // Puffs up round, eyes wide with the held breath, then lets it out with a
+  // grin and a wobble.
+  puff(u) {
+    const full = easeOut(seg(u, 0.08, 0.34)) * (1 - easeIn(seg(u, 0.56, 0.66)));
+    const out = smooth(seg(u, 0.56, 0.62)) * (1 - smooth(seg(u, 0.84, 0.96)));
+    const wob = settle(u, 0.64, CYCLE.puff, 16, 6);
     return {
-      spin: 360 * easeInOut(seg(u, 0.12, 0.62)), y: h.y, ...squash(h.c, 0.06),
-      happy: smooth(seg(u, 0.6, 0.68)) * (1 - smooth(seg(u, 0.88, 1))), gazeW: 0.2,
+      sx: 1 + 0.07 * full + 0.03 * wob, sy: 1 + 0.06 * full - 0.03 * wob, y: -0.5 * full,
+      wide: 0.35 * full, look: [0, -0.25 * full], happy: 0.9 * out, mouth: 0.3 * out, gazeW: 0.3,
+    };
+  },
+  // Tips its head, winks, and straightens up again.
+  wink(u) {
+    const tilt = smooth(seg(u, 0.06, 0.24)) * (1 - smooth(seg(u, 0.72, 0.9)));
+    const w = smooth(seg(u, 0.3, 0.38)) * (1 - smooth(seg(u, 0.56, 0.64)));
+    return { rot: 7 * tilt, turn: 0.16 * tilt, look: [0.3 * tilt, -0.1 * tilt], wink: w, gazeW: 0.6 };
+  },
+  // A little side-step dance: a step each way with a bob between, eyes happy.
+  shuffle(u) {
+    const s = Math.sin(TAU * u);
+    return {
+      x: 1.5 * s, rot: -5 * s, y: -0.9 * Math.abs(Math.sin(TAU * u * 2)),
+      ...breathe(-Math.abs(Math.sin(TAU * u * 2)), 0.03), happy: 0.9, gazeW: 0.3,
     };
   },
   peek(u) {
@@ -934,25 +970,18 @@ const LOOP = {
   float(u) {
     return { y: -2.6 * (1 - Math.cos(TAU * u)), rot: 3 * S1(u), ...breathe(0.5, 0.03), happy: 0.9, look: [0, -0.2], gazeW: 0.3 };
   },
-  yawn(u) {
-    const open = smooth(seg(u, 0.05, 0.3)) * (1 - smooth(seg(u, 0.55, 0.75)));
-    const shake = settle(u, 0.72, CYCLE.yawn, 16, 5);
-    return {
-      sy: 1 + 0.07 * open, sx: 1 - 0.04 * open, y: -open, rot: -2 * open + 3 * shake,
-      mouth: open, sleep: 0.85 * open, blink: 0, look: [0, -0.3 * open],
-    };
-  },
   hum(u) {
     const s = Math.sin(TAU * u * 2);
     return { rot: 5 * s, y: -1.2 * Math.abs(s), happy: 0.85, mouth: 0.22, gazeW: 0.2, props: { note: { t: u } } };
   },
+  // Reaches up tall, sways once each way and shakes it out, grinning.
   stretch(u) {
     const up = smooth(seg(u, 0.05, 0.3)) * (1 - smooth(seg(u, 0.7, 0.85)));
     const side = Math.sin(TAU * seg(u, 0.25, 0.7));
     const shake = settle(u, 0.85, CYCLE.stretch, 18, 6);
     return {
       sy: 1 + 0.12 * up - 0.05 * shake, sx: 1 - 0.08 * up + 0.04 * shake, rot: 6 * side * up,
-      sleep: 0.9 * up, blink: 0, look: [0, -0.4 * up], mouth: 0.25 * up,
+      happy: 0.9 * up, look: [0, -0.4 * up], mouth: 0.25 * up,
     };
   },
 };
@@ -1000,12 +1029,12 @@ const stateOf = name => STATES[name] ?? STATES.idle;
 
 const KIND = {
   claude: { shape: 'sparkle', color: 'orange', fidgets: ['hum', 'peek'] },
-  codex: { shape: 'cloud', color: 'blue', fidgets: ['bounce', 'spin'] },
-  antigravity: { shape: 'arch', color: 'violet', fidgets: ['float', 'spin'] },
+  codex: { shape: 'cloud', color: 'blue', fidgets: ['bounce', 'puff'] },
+  antigravity: { shape: 'arch', color: 'violet', fidgets: ['float', 'wink'] },
   grok: { shape: 'wedge', color: 'gray', fidgets: ['peek', 'wiggle'] },
-  cursor: { shape: 'hex', color: 'black', fidgets: ['spin', 'stretch'] },
+  cursor: { shape: 'hex', color: 'black', fidgets: ['shuffle', 'stretch'] },
   kimi: { shape: 'blob', color: 'blue', fidgets: ['bounce', 'wiggle'] },
-  deepseek: { shape: 'teardrop', color: 'blue', fidgets: ['float', 'yawn'] },
+  deepseek: { shape: 'teardrop', color: 'blue', fidgets: ['float', 'puff'] },
 };
 
 // MARK: - Drawing
@@ -1037,6 +1066,18 @@ function lidEye(cx, cy, w, h, cut, side) {
   return `M${n(inner)} ${n(top)}L${n(outer)} ${n(top + cut)}V${n(low)}A${n(r)} ${n(r)} 0 0 ${side > 0 ? 1 : 0} ${n(inner)} ${n(low)}Z`;
 }
 
+// A heavy-lidded eye: the part of an upright pill below a flat lid that
+// covers `cut` of it, squeezed up toward the lid as the eye closes (open 1 to
+// 0). Arcs go elliptical as it squeezes; SvgCanvas draws them.
+function heavyEye(cx, cy, w, h, cut, open) {
+  const r = w / 2, y0 = cy - h / 2, y1 = cy + h / 2, yc = Math.min(y0 + h * cut, y1 - r);
+  const Y = y => yc + (y - yc) * open, ry = r * open;
+  if (yc >= y0 + r) return `M${n(cx - r)} ${n(yc)}H${n(cx + r)}V${n(Y(y1 - r))}A${n(r)} ${n(ry)} 0 0 1 ${n(cx - r)} ${n(Y(y1 - r))}Z`;
+  const a = Math.sqrt(Math.max(0, r * r - (y0 + r - yc) ** 2));
+  return `M${n(cx - a)} ${n(yc)}H${n(cx + a)}A${n(r)} ${n(ry)} 0 0 1 ${n(cx + r)} ${n(Y(y0 + r))}V${n(Y(y1 - r))}`
+    + `A${n(r)} ${n(ry)} 0 0 1 ${n(cx - r)} ${n(Y(y1 - r))}V${n(Y(y0 + r))}A${n(r)} ${n(ry)} 0 0 1 ${n(cx - a)} ${n(yc)}Z`;
+}
+
 function face(o, S, eye) {
   const F = S.face, sn = Math.sin(rad(o.spin));
   const size = F.es * (1 + 0.16 * o.wide), ew = EYE_W * size, eh = EYE_H * size, sw = 1.5 * F.es;
@@ -1051,7 +1092,13 @@ function face(o, S, eye) {
     if (o.cross >= 0.5) lines += crossEye(x, cy, ew * 0.46 * (2 * o.cross - 1));
     else if (o.sleep >= 0.5) lines += arcEye(x, cy + eh * 0.12, ew * 1.15 * narrow, -ew * 0.42 * (2 * o.sleep - 1));
     else if (o.happy >= 0.5 || (side > 0 && o.wink >= 0.5)) lines += arcEye(x, cy - eh * 0.04, ew * 1.15 * narrow, ew * 0.55 * (2 * Math.max(o.happy, o.wink) - 1));
-    else {
+    else if (o.lid > 0.02) {
+      // Resting: heavy lids, half way down at lid 1; a blink shuts them to a
+      // flat line, never the curve sleeping uses.
+      const w = ew * narrow, cut = 0.5 * o.lid;
+      if (eh * (1 - cut) * open < 0.6) lines += `M${n(x - w * 0.5)} ${n(cy - eh / 2 + eh * cut)}H${n(x + w * 0.5)}`;
+      else fills += heavyEye(x, cy, w, eh, cut, open);
+    } else {
       const h = Math.max(ew * 0.42, eh * open), w = (h < ew ? ew * 1.08 : ew) * narrow;
       fills += o.sad > 0.05 && h > ew * 1.4 ? lidEye(x, cy, w, h, o.sad * h * 0.28, side) : pill(x, cy, w, h);
     }

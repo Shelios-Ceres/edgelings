@@ -65,6 +65,9 @@ internal sealed partial class DrawerWindow : Window
         public string? Detail { get; set; }
         public int Running { get; set; }
         public double PhaseSince { get; set; } = double.NegativeInfinity;
+        // Why an idle character rests: its agent's app is closed or out of
+        // sight. Null while any of its apps is on screen, or it has work.
+        public AgentPresence? Rest { get; set; }
         public SpeechBubble? Bubble { get; set; }
         public double LastSpoke { get; set; } = double.NegativeInfinity;
     }
@@ -85,6 +88,10 @@ internal sealed partial class DrawerWindow : Window
         public string? Fidget;
         public double FidgetUntil;
         public double NextFidget;
+        // Resting, though a set without its own resting state shows idle: no fidgets.
+        public bool Resting;
+        // When the character took its current state.
+        public double Since;
     }
 
     /// What the game loop draws: the shown slots at their DIP offsets, and
@@ -105,6 +112,9 @@ internal sealed partial class DrawerWindow : Window
     private readonly SvgCanvas _svg = new();
     private readonly List<Bot> _bots = new();
     private DrawerActivityFrame _activity = new(Array.Empty<(DisplayProvider, AgentPhase, string?, int)>());
+    // Which agents' apps are on screen, looked up about once a second.
+    private IReadOnlyDictionary<TriggerTool, AgentPresence> _presence = new Dictionary<TriggerTool, AgentPresence>();
+    private double _presenceAt = double.NegativeInfinity;
     private readonly Slot[] _slots;
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     private readonly CanvasAnimatedControl _canvas;
@@ -356,6 +366,9 @@ internal sealed partial class DrawerWindow : Window
         return (activity.Phase, activity.Detail);
     }
 
+    /// Why the provider's character rests, or null while it doesn't.
+    public AgentPresence? RestOf(DisplayProvider provider) => _bots.FirstOrDefault(b => b.Provider == provider.Character())?.Rest;
+
     public async void DebugCard(int? index, string? snapshot)
     {
         var visible = Ordered(_bots.Where(b => b.Visible)).ToList();
@@ -456,30 +469,34 @@ internal sealed partial class DrawerWindow : Window
         if (theme == _theme) return;
         _theme = theme;
         var engine = CreateEngine(theme);
-        var rest = new List<(int Index, string Hold, uint Swatch, string[] Fidgets)>();
+        var rest = new List<(int Index, string Hold, bool Resting, uint Swatch, string[] Fidgets)>();
         foreach (var bot in _bots)
         {
             (bot.Shape, bot.Color) = ValidLook(bot.Provider, (bot.Shape, bot.Color));
             AddBot(engine, bot);
-            var hold = bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme);
-            rest.Add((bot.Index, hold, SwatchOf(bot), engine?.Fidgets(bot.Provider) ?? Array.Empty<string>()));
+            var resting = bot.Rest is not null;
+            var hold = resting && engine?.Draws(Resting) == true ? Resting
+                : bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme);
+            rest.Add((bot.Index, hold, resting, SwatchOf(bot), engine?.Fidgets(bot.Provider) ?? Array.Empty<string>()));
         }
         _commands.Enqueue(() =>
         {
             var old = _engine;
             _engine = engine;
             _loopTheme = theme;
-            foreach (var (index, hold, swatch, fidgets) in rest)
+            foreach (var (index, hold, resting, swatch, fidgets) in rest)
             {
                 var slot = _slots[index];
                 slot.Hold = slot.EngineState = hold;
+                slot.Resting = resting;
+                slot.Since = _clock.Elapsed.TotalSeconds;
                 slot.Swatch = swatch;
                 slot.Fidgets = fidgets;
                 slot.Fidget = null;
                 slot.Gazing = false;
                 slot.Svg = null;
                 slot.NextStep = 0;
-                engine?.SetState(index, hold, -1);
+                engine?.SetState(index, hold, hold == Resting && _reducedMotion ? 0 : -1);
             }
             old?.Dispose();
         });
@@ -871,20 +888,26 @@ internal sealed partial class DrawerWindow : Window
             // finished turns for whether they ended on an error. The pixel
             // panels read in English, details included.
             var english = _theme == CharacterTheme.Pixel;
-            var readings = await Task.Run(() =>
+            var lookAround = _clock.Elapsed.TotalSeconds - _presenceAt >= 1;
+            var (readings, presence) = await Task.Run(() =>
             {
                 using (english ? L10n.English() : null)
                 {
-                    return jobs
+                    return (jobs
                         .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
                             && job.Path is { } path
                             ? AgentPhaseClassifier.Classify(job.Tool, path, now)
                             : null))
-                        .ToList();
+                        .ToList(), lookAround ? AgentPresences.Now() : null);
                 }
             });
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
+            if (presence is not null)
+            {
+                _presence = presence;
+                _presenceAt = seconds;
+            }
             var recounted = false;
             var results = new List<(Bot Bot, AgentPhase Phase, string? Detail, int Running)>();
             for (var i = 0; i < jobs.Count; i++)
@@ -905,7 +928,7 @@ internal sealed partial class DrawerWindow : Window
                 var activity = _activity.ForCharacter(bot.Provider);
                 recounted |= bot.Running != activity.Running && (_cardBot is null || _cardBot == bot);
                 bot.Running = activity.Running;
-                Offer(bot, activity.Phase, activity.Detail, seconds);
+                Offer(bot, activity.Phase, activity.Detail, seconds, activity.Phase == AgentPhase.Idle ? Away(bot) : null);
             }
             // A task can start or end without the shown phase changing.
             if (recounted) RefreshCard();
@@ -932,15 +955,21 @@ internal sealed partial class DrawerWindow : Window
 
     /// A shown phase stays at least MinDwellSeconds so quick tool bursts do
     /// not flicker, unless the new phase outranks it (asking, errors).
-    private void Offer(Bot bot, AgentPhase phase, string? detail, double now)
+    private void Offer(Bot bot, AgentPhase phase, string? detail, double now, AgentPresence? rest)
     {
         if (phase == bot.Phase)
         {
-            if (detail != bot.Detail)
+            var changed = detail != bot.Detail;
+            bot.Detail = detail;
+            if (rest != bot.Rest)
             {
-                bot.Detail = detail;
-                RefreshCardFor(bot.Provider);
+                // Its agent's app went out of sight or came back.
+                bot.Rest = rest;
+                DebugTrace.Write($"rest {bot.Provider} {rest?.ToString() ?? "over"}");
+                Show(bot, "idle", "idle");
+                changed = true;
             }
+            if (changed) RefreshCardFor(bot.Provider);
             return;
         }
         var dwellOver = now - bot.PhaseSince >= MinDwellSeconds;
@@ -948,24 +977,60 @@ internal sealed partial class DrawerWindow : Window
         if (!dwellOver && !outranks) return;
         bot.Phase = phase;
         bot.Detail = detail;
+        if (rest != bot.Rest) DebugTrace.Write($"rest {bot.Provider} {rest?.ToString() ?? "over"}");
+        bot.Rest = rest;
         bot.PhaseSince = now;
         Speak(bot, phase, now);
+        var theme = _theme;
+        Show(bot, DrawerLooks.Entry(phase, theme), phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(phase, theme));
+        RefreshCardFor(bot.Provider);
+    }
+
+    /// Puts a character into a state on the game loop. A resting one takes
+    /// its set's resting state, or in a set without one idles, unfidgeting.
+    private void Show(Bot bot, string entry, string hold)
+    {
         var index = bot.Index;
         var theme = _theme;
-        var entry = DrawerLooks.Entry(phase, theme);
-        var hold = phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(phase, theme);
+        var resting = bot.Rest is not null;
         _commands.Enqueue(() =>
         {
             var slot = _slots[index];
+            if (resting && _engine?.Draws(Resting) == true) entry = hold = Resting;
             slot.Hold = hold;
+            slot.Resting = resting;
+            slot.Since = _clock.Elapsed.TotalSeconds;
             slot.Fidget = null;
-            slot.NextFidget = _clock.Elapsed.TotalSeconds + FidgetGap * (0.5 + Random.Shared.NextDouble());
-            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) ? 0 : -1);
+            slot.NextFidget = slot.Since + FidgetGap * (0.5 + Random.Shared.NextDouble());
+            // Reduced motion rests in the settled pose (the loop's start), held still.
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || entry == Resting && _reducedMotion ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
-        RefreshCardFor(bot.Provider);
     }
+
+    private const string Resting = "resting";
+    private static readonly bool DebugRest = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REST") == "1";
+
+    /// Why an idle character rests: every app of its agent (Grok's with
+    /// Cursor's) closed or out of sight; null while any is on screen.
+    /// AGENTISLAND_DEBUG_REST=1 rests every idle character.
+    private AgentPresence? Away(Bot bot)
+    {
+        if (DebugRest) return AgentPresence.Minimized;
+        var tools = bot.Provider == DisplayProvider.Grok ? new[] { TriggerTool.Grok, TriggerTool.Cursor } : new[] { bot.Tool };
+        var most = tools.Select(tool => _presence.TryGetValue(tool, out var presence) ? presence : AgentPresence.Open).Min();
+        return most == AgentPresence.Open ? null : most;
+    }
+
+    /// Why a character rests, in words; Grok's shared character names both apps.
+    public static string RestDetail(AgentPresence rest, DisplayProvider character) => L10n.Tr(rest switch
+    {
+        AgentPresence.Closed when character == DisplayProvider.Grok => "Grok and Cursor closed",
+        AgentPresence.Closed => "App closed",
+        AgentPresence.Minimized => "Minimized",
+        _ => "In the tray",
+    });
 
     /// A line in a bubble when the agent needs you; a line that no longer
     /// holds (the agent went back to work) is taken back.
@@ -1054,7 +1119,9 @@ internal sealed partial class DrawerWindow : Window
         foreach (var index in _due)
         {
             var slot = _slots[index];
-            dts[index] = Math.Min(now - slot.LastStep, 0.1);
+            // Under reduced motion a resting character holds still, once its
+            // blend into the settled pose is done.
+            dts[index] = reduced && slot.EngineState == Resting && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
             slot.LastStep = now;
             var fps = !DrawerLooks.IsCalm(slot.EngineState, theme) ? activeFps : near ? gazeFps : calmFps;
             var interval = 1.0 / fps;
@@ -1087,7 +1154,7 @@ internal sealed partial class DrawerWindow : Window
             if (slot.Hold == "idle") _engine!.SetState(index, "idle", -1);
             return;
         }
-        if (reduced || slot.Fidgets.Length == 0 || slot.Hold != "idle" || slot.EngineState != "idle" || now < slot.NextFidget) return;
+        if (reduced || slot.Resting || slot.Fidgets.Length == 0 || slot.Hold != "idle" || slot.EngineState != "idle" || now < slot.NextFidget) return;
         slot.Fidget = slot.Fidgets[Random.Shared.Next(slot.Fidgets.Length)];
         slot.FidgetUntil = now + 2.5 + Random.Shared.NextDouble() * 2;
         _engine!.SetState(index, slot.Fidget, -1);
@@ -1258,7 +1325,11 @@ internal sealed partial class DrawerWindow : Window
 
     private Bot BotOf(DisplayProvider provider) => _bots.First(b => b.Provider == provider);
 
-    private static StatusCard CardFor(Bot bot) => LongText(StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running));
+    private static StatusCard CardFor(Bot bot)
+    {
+        var card = LongText(StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running));
+        return bot.Rest is { } rest ? card with { Phase = L10n.Tr("Resting"), Detail = RestDetail(rest, bot.Provider) } : card;
+    }
 
     /// AGENTISLAND_DEBUG_CARD_TEXT=long: the longest a card says, to check
     /// how its phrases flow: a long phase and detail, a few notes and a tip
@@ -1402,7 +1473,8 @@ internal sealed partial class DrawerWindow : Window
                 var index = bot.Index;
                 _commands.Enqueue(() =>
                 {
-                    _engine?.Poke(index);
+                    // A character resting still under reduced motion stays still.
+                    if (!(_reducedMotion && _slots[index].EngineState == Resting)) _engine?.Poke(index);
                     _slots[index].NextStep = 0;
                 });
                 // A click opens the character's agent in Settings; the shared

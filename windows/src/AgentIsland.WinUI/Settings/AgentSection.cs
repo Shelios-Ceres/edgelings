@@ -394,8 +394,9 @@ internal sealed class AgentSection
     {
         var monitor = ActivityMonitor.Shared;
         var (phase, detail) = App.Current.Drawer?.PhaseOf(_provider) ?? (AgentPhase.Idle, null);
-        var parts = new List<string> { DrawerLooks.PhaseLabel(phase) };
-        if (detail is { Length: > 0 }) parts.Add(detail);
+        var rest = App.Current.Drawer?.RestOf(_provider);
+        var parts = new List<string> { rest is null ? DrawerLooks.PhaseLabel(phase) : L10n.Tr("Resting") };
+        if ((rest is { } why ? Drawer.DrawerWindow.RestDetail(why, _provider.Character()) : detail) is { Length: > 0 } shown) parts.Add(shown);
         var (provider, thread) = DisplayProviders.All
             .Where(p => p.Character() == _provider)
             .Select(p => (Provider: p, Thread: monitor.ThreadFor(p.ToTriggerTool())))
