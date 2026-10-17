@@ -14,6 +14,7 @@ public static class CostPeriodTests
             ("midnight still produces seven calendar-day buckets", Midnight),
             ("early January includes the previous year's calendar days", CrossYear),
             ("report slices remain half-open and daily dollars sum to the total", HalfOpenSlice),
+            ("today's tokens fall into their local hours", HourlyTokens),
         };
         foreach (var (name, test) in tests)
         {
@@ -84,6 +85,22 @@ public static class CostPeriodTests
         Expect(slice.Dollars == 5 && slice.DailyTokens.Sum(d => d.Dollars) == 5,
             "daily dollar buckets and total must both respect the exclusive end");
         Expect(slice.DailyTokens.Count == 2, "the exclusive ending day must not get a bucket");
+    }
+
+    private static void HourlyTokens()
+    {
+        var now = Local(2026, 10, 12, 12);
+        var summary = CostSummarizer.Summarize(new[]
+        {
+            Event(Local(2026, 10, 11, 23), 1), Event(Local(2026, 10, 12, 1), 0),
+            Event(Local(2026, 10, 12, 4), 0), Event(Local(2026, 10, 12, 4), 0),
+        }, now);
+        Expect(summary.TodayHourlyTokens.Count == 24 && summary.TodayHourlyTokens.Sum() == summary.TodayTokens,
+            "every token of today must sit in one of its 24 hours");
+        Expect(summary.TodayHourlyTokens[1] == 190 && summary.TodayHourlyTokens[4] == 380 && summary.TodayHourlyTokens[23] == 0,
+            "an hour must hold its own events only, and yesterday's must stay out");
+        Expect(summary.TodayHourlyBillableTokens[4] == 300 && summary.TodayHourlyBillableTokens.Sum() == summary.TodayBillableTokens,
+            "the billable hours must add up to the billable total");
     }
 
     private static void Expect(bool condition, string message)

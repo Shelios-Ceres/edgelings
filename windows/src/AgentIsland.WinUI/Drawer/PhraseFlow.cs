@@ -54,6 +54,15 @@ internal sealed class PhraseFlow : Panel
         return flow;
     }
 
+    /// Sentences, each a flow of its words, a space between those that share
+    /// a line: a sentence that doesn't fit moves whole to the next line.
+    public static PhraseFlow Sentences(IEnumerable<PhraseFlow> sentences)
+    {
+        var flow = new PhraseFlow(separated: false);
+        foreach (var sentence in sentences) flow.Children.Add(sentence);
+        return flow;
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var width = availableSize.Width;
@@ -117,12 +126,15 @@ internal sealed class PhraseFlow : Panel
     }
 
     /// A separator with no place gets an empty slot, which clips it away;
-    /// opacity stays free for the card's own motion (M4).
+    /// opacity stays free for the card's own motion (M4). The others get a
+    /// DIP more than they measured: a word whose width lands on a whole pixel
+    /// can be rounded a hair short of its text, and would wrap its last letter
+    /// out of sight.
     protected override Size ArrangeOverride(Size finalSize)
     {
         for (var i = 0; i < Children.Count && i < _places.Count; i++)
         {
-            Children[i].Arrange(_places[i] ?? new Rect(0, 0, 0, 0));
+            Children[i].Arrange(_places[i] is { } place ? new Rect(place.X, place.Y, place.Width + 1, place.Height) : new Rect(0, 0, 0, 0));
         }
         return finalSize;
     }
@@ -131,6 +143,12 @@ internal sealed class PhraseFlow : Panel
     /// spaces, so it is the width a space adds between two letters.
     private static double Space(UIElement element)
     {
+        // Between sentences, a space in the next one's face; Chinese clauses
+        // are set close.
+        if (element is PhraseFlow { Children.Count: > 0 } sentence)
+        {
+            return sentence.Children[0] is TextBlock { Text: [var first, ..] } && first >= '⺀' ? 0 : Space(sentence.Children[0]);
+        }
         if (element is not TextBlock word) return 4;
         var key = (word.FontFamily?.Source ?? "", word.FontSize, (double)word.CharacterSpacing);
         if (Spaces.TryGetValue(key, out var space)) return space;

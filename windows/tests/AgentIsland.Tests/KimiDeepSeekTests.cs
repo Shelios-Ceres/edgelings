@@ -64,6 +64,7 @@ public static class KimiDeepSeekTests
             ("deepseek phase: turn end is finished", () => DeepSeekPhase(AgentPhase.Finished,
                 DeepSeek("step/end", 31), DeepSeek("turn/end", 30, new { reason = new { kind = "completed" } }))),
             ("kimi tokens: a usage record splits input and cache", KimiTokens),
+            ("kimi names: its settings name the plan's models", KimiNames),
             ("deepseek tokens: usage follows the header's model", DeepSeekTokens),
             ("zstd: frames decode, a torn tail frame is dropped", ZstdFrames),
             ("zstd: a window cut mid-frame starts at the next frame", ZstdWindow),
@@ -93,6 +94,27 @@ public static class KimiDeepSeekTests
         Expect(parsed.CacheCreationTokens, 7L);
         Expect(parsed.BillableTokens, 167L);
         Expect(parsed.Timestamp, Now.AddSeconds(-5));
+    }
+
+    private static void KimiNames()
+    {
+        var names = KimiLogReader.ModelNames("""
+            default_model = "kimi-code/kimi-for-coding"
+            [secondary_model.models]
+            "kimi-code/k3" = "a note, not a name"
+            [models."kimi-code/kimi-for-coding"]
+            model = "kimi-for-coding"
+            display_name = "K2.8 Preview"
+            [models."kimi-code/k3"] # the large context
+            display_name = "K3"
+            [models."kimi-code/blank"]
+            display_name = ""
+            [providers."managed:kimi-code"]
+            display_name = "not a model"
+            """);
+        Expect(names.Count, 2);
+        Expect(names["kimi-code/kimi-for-coding"], "K2.8 Preview");
+        Expect(names["KIMI-CODE/K3"], "K3");
     }
 
     private static void DeepSeekTokens()

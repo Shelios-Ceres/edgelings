@@ -1,5 +1,6 @@
 using System.IO;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using AgentIsland.Core;
 
 namespace AgentIsland.Cost;
@@ -24,6 +25,47 @@ public static class KimiLogReader
         if (!Directory.Exists(root)) return new List<TokenEvent>();
         var files = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl");
         return Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
+    }
+
+    /// What Kimi Code calls its plan's models, by id, from the
+    /// [models."<id>"] tables of its settings: "kimi-code/kimi-for-coding"
+    /// is "K2.8 Preview". Read on every scan, so a name follows Kimi when it
+    /// points an alias at a new model.
+    public static IReadOnlyDictionary<string, string> ModelNames()
+    {
+        try
+        {
+            return ModelNames(File.ReadAllText(Path.Combine(IslandPaths.Home, ".kimi-code", "config.toml")));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return new Dictionary<string, string>();
+        }
+    }
+
+    private static readonly Regex ModelTable = new(@"^\[\s*models\s*\.\s*""(?<id>[^""\\]+)""\s*\]\s*(#.*)?$");
+    private static readonly Regex DisplayName = new(@"^display_name\s*=\s*""(?<name>(?:[^""\\]|\\.)*)""\s*(#.*)?$");
+
+    internal static Dictionary<string, string> ModelNames(string config)
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string? model = null;
+        foreach (var raw in config.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('['))
+            {
+                var table = ModelTable.Match(line);
+                model = table.Success ? table.Groups["id"].Value : null;
+                continue;
+            }
+            if (model is null || DisplayName.Match(line) is not { Success: true } match) continue;
+            string name;
+            try { name = Regex.Unescape(match.Groups["name"].Value).Trim(); }
+            catch (ArgumentException) { continue; }
+            if (name.Length > 0) names[model] = name;
+        }
+        return names;
     }
 
     internal static List<TokenEvent> ParseFile(string path)

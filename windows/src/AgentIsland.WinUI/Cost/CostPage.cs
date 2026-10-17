@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.RegularExpressions;
 using AgentIsland.Core;
 using AgentIsland.Cost;
 using AgentIsland.Localization;
@@ -6,6 +7,8 @@ using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using static AgentIsland.WinUI.Settings.SettingsUi;
@@ -29,7 +32,8 @@ internal sealed partial class CostPage : IDisposable
 
     private const string PeriodKey = "Cost.period";
     private const double ChartHeight = 72;
-    // Narrower than these, the totals and the agents' cards stand in one column.
+    // Narrower than these, the totals and the agents' cards stand in one
+    // column; narrower than the first, the scan takes a row of its own.
     private const double ThreeTotals = 600;
     private const double TwoColumns = 560;
 
@@ -38,7 +42,7 @@ internal sealed partial class CostPage : IDisposable
     private readonly TextBlock _scanned = new();
     // The period's dates and the time zone, each moving whole to the next line.
     private readonly Border _periodRange = new();
-    private readonly TextBlock _calendarNote = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly Border _calendarNote = new();
     private readonly bool _pixel = Looks.Pixel;
     private readonly List<Action> _teardown = new();
     private readonly DispatcherQueue _queue;
@@ -97,6 +101,18 @@ internal sealed partial class CostPage : IDisposable
         /// Cursor's part of Grok's tokens: it works under Grok's character
         /// and bills by its own plan, so its tokens count but carry no price.
         public (long Tokens, long Billable)? Cursor { get; init; }
+
+        /// The period's tokens by hour or day, for a chart with no spend to show.
+        public IReadOnlyList<(string Label, double Value)> TokenBars { get; init; } = Array.Empty<(string, double)>();
+
+        /// The chart shows tokens, since none of them has a price.
+        public bool TokenChart { get; init; }
+
+        /// Anything in the last five hours, which Today's models cover.
+        public bool Recent { get; init; }
+
+        /// What the agent calls its models.
+        public Func<string, string> NameOf { get; init; } = model => model;
     }
 
     /// The period tabs, and under them the period's dates beside the scan
@@ -120,8 +136,7 @@ internal sealed partial class CostPage : IDisposable
         };
 
         var header = new Grid { ColumnSpacing = 16 };
-        header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var row = 0; row < 3; row++) header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _tabs = new Grid();
@@ -133,24 +148,42 @@ internal sealed partial class CostPage : IDisposable
         Grid.SetColumnSpan(tabs, 2);
         header.Children.Add(tabs);
         _periodRange.Margin = new Thickness(0, _pixel ? 8 : 12, 0, 0);
-        _calendarNote.Style = Res<Style>("CaptionTextBlockStyle");
-        _calendarNote.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
         var captions = new StackPanel { Children = { _periodRange, _calendarNote } };
         Grid.SetRow(captions, 1);
         header.Children.Add(captions);
-        var side = new StackPanel { Spacing = 8, MaxWidth = 160, Margin = _periodRange.Margin, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+        var side = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         var rescan = Button(L10n.Tr("Scan now"), () => CostStore.Shared.Refresh());
-        rescan.HorizontalAlignment = HorizontalAlignment.Right;
         side.Children.Add(rescan);
         _scanned.Foreground = Res<Brush>("TextFillColorTertiaryBrush");
         _scanned.Style = Res<Style>("CaptionTextBlockStyle");
-        _scanned.HorizontalAlignment = HorizontalAlignment.Right;
         _scanned.TextWrapping = TextWrapping.Wrap;
-        _scanned.TextAlignment = TextAlignment.Right;
         side.Children.Add(_scanned);
-        Grid.SetRow(side, 1);
-        Grid.SetColumn(side, 1);
         header.Children.Add(side);
+        // Beside the dates, the scan stands at the right; on a page too narrow
+        // for three totals it takes a row of its own under them, so the dates
+        // keep the whole width.
+        bool? narrow = null;
+        void Lay(bool now)
+        {
+            if (narrow == now) return;
+            narrow = now;
+            Grid.SetColumnSpan(captions, now ? 2 : 1);
+            Grid.SetRow(side, now ? 2 : 1);
+            Grid.SetColumn(side, now ? 0 : 1);
+            Grid.SetColumnSpan(side, now ? 2 : 1);
+            side.Orientation = now ? Orientation.Horizontal : Orientation.Vertical;
+            side.Spacing = now ? 12 : 8;
+            side.MaxWidth = now ? double.PositiveInfinity : 160;
+            side.Margin = now ? new Thickness(0, _periodRange.Margin.Top, 0, 0) : _periodRange.Margin;
+            var edge = now ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+            side.HorizontalAlignment = edge;
+            rescan.HorizontalAlignment = edge;
+            _scanned.HorizontalAlignment = edge;
+            _scanned.TextAlignment = now ? TextAlignment.Left : TextAlignment.Right;
+            _scanned.VerticalAlignment = now ? VerticalAlignment.Center : VerticalAlignment.Top;
+        }
+        Lay(false);
+        header.SizeChanged += (_, e) => Lay(e.NewSize.Width < ThreeTotals);
         return header;
     }
 
@@ -231,10 +264,23 @@ internal sealed partial class CostPage : IDisposable
         _periodRange.Child = Drawer.PhraseFlow.Of(
             dates.Split(" · ").Select(part => (FrameworkElement)Drawer.PhraseFlow.Words(part.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Dated))).ToList(),
             () => Dated("·", new Thickness(4, 0, 4, 0)));
-        _calendarNote.Text = L10n.Tr(ranges.Count > 1
+        var note = L10n.Tr(ranges.Count > 1
             ? "Snapshot dates differ; scan to refresh them together."
             : "Today starts at this computer's midnight. Previous days stay in history.");
+        // Sentence by sentence (in Chinese, clause by clause), each moving whole.
+        _calendarNote.Child = Drawer.PhraseFlow.Sentences(Regex.Split(note, @"(?<=[.!?])\s+|(?<=[。！？，；])")
+            .Where(sentence => sentence.Length > 0)
+            .Select(sentence => Drawer.PhraseFlow.Words(sentence.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Noted))));
     }
+
+    /// A word of the calendar note.
+    private static TextBlock Noted(string word) => new()
+    {
+        Text = word,
+        Style = Res<Style>("CaptionTextBlockStyle"),
+        Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
+        TextWrapping = TextWrapping.Wrap,
+    };
 
     /// A word of the period's caption.
     private static TextBlock Dated(string word) => Dated(word, default);
@@ -248,60 +294,94 @@ internal sealed partial class CostPage : IDisposable
         TextWrapping = TextWrapping.Wrap,
     };
 
-    /// A character's numbers: Grok's carry Cursor's tokens too.
+    /// A character's numbers: Grok's carry Cursor's tokens too. A chart with
+    /// no spend to show, since none of its tokens has a price, charts the
+    /// tokens instead.
     private Slice CharacterSlice(DisplayProvider provider)
     {
         var slice = SliceFor(provider);
-        if (provider != DisplayProvider.Grok || !ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor)) return slice;
-        var cursor = SliceFor(DisplayProvider.Cursor);
-        return slice with
+        if (provider == DisplayProvider.Grok && ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor))
         {
-            Tokens = slice.Tokens + cursor.Tokens,
-            Billable = slice.Billable + cursor.Billable,
-            AsOf = slice.AsOf ?? cursor.AsOf,
-            Cursor = (cursor.Tokens, cursor.Billable),
-        };
+            var cursor = SliceFor(DisplayProvider.Cursor);
+            var cursorBars = cursor.TokenBars.GroupBy(bar => bar.Label).ToDictionary(g => g.Key, g => g.Sum(bar => bar.Value));
+            slice = slice with
+            {
+                Tokens = slice.Tokens + cursor.Tokens,
+                Billable = slice.Billable + cursor.Billable,
+                AsOf = slice.AsOf ?? cursor.AsOf,
+                Cursor = (cursor.Tokens, cursor.Billable),
+                TokenBars = slice.TokenBars.Select(bar => (bar.Label, bar.Value + cursorBars.GetValueOrDefault(bar.Label))).ToList(),
+                Recent = slice.Recent || cursor.Recent,
+            };
+        }
+        return slice.Dollars && slice.Bars.All(bar => bar.Value <= 0) && slice.TokenBars.Any(bar => bar.Value > 0)
+            ? slice with { Bars = slice.TokenBars, TokenChart = true }
+            : slice;
+    }
+
+    /// A provider's numbers; with AGENTISLAND_DEBUG_COST_SAMPLE=1, a sample
+    /// for two agents, to check a chart with no spend, a day used without a
+    /// price and a quiet last five hours (render after 8:00): Kimi Code's K3
+    /// at noon yesterday and its K2.8 Preview, which has no price, at 1:00
+    /// and 3:00 today, and Grok at 2:00.
+    private static ProviderCostSummary Summary(DisplayProvider provider)
+    {
+        var summary = CostStore.Shared.Summary(provider);
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_COST_SAMPLE") != "1" || provider is not (DisplayProvider.Kimi or DisplayProvider.Grok)) return summary;
+        var now = DateTimeOffset.Now;
+        var midnight = new DateTimeOffset(now.Date, now.Offset);
+        TokenEvent At(int hour, TriggerTool tool, string model, double? dollars) =>
+            new(tool, midnight.AddHours(hour), model, 52_000, 9_000, 4_000, 300_000, dollars);
+        var events = provider == DisplayProvider.Kimi
+            ? new[] { At(-12, TriggerTool.Kimi, "kimi-code/k3", null), At(1, TriggerTool.Kimi, "kimi-code/kimi-for-coding", null), At(3, TriggerTool.Kimi, "kimi-code/kimi-for-coding", null) }
+            : new[] { At(2, TriggerTool.Grok, "grok-4.7-build", 0.84) };
+        return CostSummarizer.Summarize(events, now) with { ModelNames = summary.ModelNames };
     }
 
     private Slice SliceFor(DisplayProvider provider)
     {
-        var summary = CostStore.Shared.Summary(provider);
+        var summary = Summary(provider);
         var dollars = ProvidesDollars(provider);
         var billableMode = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable;
         var today = (summary.AsOf ?? DateTimeOffset.Now).ToLocalTime().Date;
-        double DayValue(DailyTokenBucket day) => dollars ? day.Dollars : billableMode ? day.BillableTokens : day.Tokens;
-        var byDay = summary.DailyHistory.GroupBy(d => d.DayStart.Date).ToDictionary(g => g.Key, g => g.Sum(DayValue));
+        double DayTokens(DailyTokenBucket day) => billableMode ? day.BillableTokens : day.Tokens;
+        double DayValue(DailyTokenBucket day) => dollars ? day.Dollars : DayTokens(day);
+        string Label(DateTime day) => day.ToString(L10n.IsChinese ? "M月d日" : "MMM d");
+        var history = summary.DailyHistory.ToLookup(d => d.DayStart.Date);
         // Every day of the period gets a bar, idle days included.
-        IReadOnlyList<(string, double)> Days(DateTime from)
+        IReadOnlyList<(string, double)> Days(DateTime from, Func<DailyTokenBucket, double> value)
         {
             var days = new List<(string, double)>();
-            for (var day = from; day <= today; day = day.AddDays(1))
-            {
-                days.Add((day.ToString(L10n.IsChinese ? "M月d日" : "MMM d"), byDay.GetValueOrDefault(day)));
-            }
+            for (var day = from; day <= today; day = day.AddDays(1)) days.Add((Label(day), history[day].Sum(value)));
             return days;
         }
 
+        Slice slice;
         switch (_period)
         {
             case Period.Today:
-                // Hourly increments of the cumulative spend; token-only
-                // agents have no hourly series.
-                var hours = new List<(string, double)>();
-                if (dollars)
-                {
-                    var cumulative = summary.TodayCumulativeDollars;
-                    for (var h = 0; h < cumulative.Count; h++) hours.Add(($"{h}:00", cumulative[h] - (h > 0 ? cumulative[h - 1] : 0)));
-                }
-                return new Slice(provider, dollars, summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens, hours, summary.RecentModels, summary.AsOf);
+                // Hourly increments of the cumulative spend, and each hour's tokens.
+                var cumulative = summary.TodayCumulativeDollars;
+                var spent = cumulative.Select((total, h) => ($"{h}:00", total - (h > 0 ? cumulative[h - 1] : 0))).ToList();
+                var used = (billableMode ? summary.TodayHourlyBillableTokens : summary.TodayHourlyTokens).Select((tokens, h) => ($"{h}:00", (double)tokens)).ToList();
+                slice = new Slice(provider, dollars, summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens,
+                    dollars ? spent : used, summary.RecentModels, summary.AsOf) { TokenBars = used };
+                break;
             case Period.Week:
                 var week = summary.LastSevenDays;
-                return new Slice(provider, dollars, week.Dollars, week.DailyTokens.Sum(d => d.Tokens), week.DailyTokens.Sum(d => d.BillableTokens),
-                    week.DailyTokens.Select(d => (d.DayStart.ToString(L10n.IsChinese ? "M月d日" : "MMM d"), DayValue(d))).ToList(), week.ByModel, summary.AsOf);
+                slice = new Slice(provider, dollars, week.Dollars, week.DailyTokens.Sum(d => d.Tokens), week.DailyTokens.Sum(d => d.BillableTokens),
+                    week.DailyTokens.Select(d => (Label(d.DayStart.DateTime), DayValue(d))).ToList(), week.ByModel, summary.AsOf)
+                {
+                    TokenBars = week.DailyTokens.Select(d => (Label(d.DayStart.DateTime), DayTokens(d))).ToList(),
+                };
+                break;
             default:
-                return new Slice(provider, dollars, summary.MonthDollars, summary.MonthTokens, summary.MonthBillableTokens,
-                    Days(new DateTime(today.Year, today.Month, 1)), summary.MonthModels, summary.AsOf);
+                var first = new DateTime(today.Year, today.Month, 1);
+                slice = new Slice(provider, dollars, summary.MonthDollars, summary.MonthTokens, summary.MonthBillableTokens,
+                    Days(first, DayValue), summary.MonthModels, summary.AsOf) { TokenBars = Days(first, DayTokens) };
+                break;
         }
+        return slice with { Recent = summary.RecentModels.Count > 0, NameOf = summary.NameOf };
     }
 
     /// Cursor bills by its own plan and requests, not tokens; Antigravity
@@ -372,51 +452,45 @@ internal sealed partial class CostPage : IDisposable
     private FrameworkElement AgentCard(Slice slice)
     {
         var panel = new StackPanel { Spacing = 10 };
-        var head = new Grid { ColumnSpacing = 10 };
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.Children.Add(Mark(slice.Provider));
-        var name = new TextBlock { Text = ProviderIdentity.DisplayName(slice.Provider), Style = Res<Style>("BodyStrongTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(name, 1);
-        head.Children.Add(name);
-        var hero = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
-        var heroText = new TextBlock
-        {
-            Text = slice.AsOf is null ? "—" : slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice),
-            Style = Res<Style>("SubtitleTextBlockStyle"),
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
+        var heroText = HeroNumber(slice.AsOf is null ? "—" : slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice));
         var sliceTokens = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? slice.Billable : slice.Tokens;
         if (slice.AsOf is not null)
         {
             if (slice.Dollars) Counted(heroText, $"{slice.Provider}-spend", slice.Spend, Formatting.Money);
             else Counted(heroText, $"{slice.Provider}-tokens", sliceTokens, CountedTokens);
         }
-        hero.Children.Add(heroText);
-        var captionText = new TextBlock
-        {
-            Text = slice.AsOf is null ? L10n.Tr("Not scanned yet")
-                : slice.Dollars ? L10n.TrFormat("{0} tokens", Tokens(slice)) : L10n.Tr("tokens · billed by Cursor's own plan"),
-            Style = Res<Style>("CaptionTextBlockStyle"),
-            Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
+        var captionText = HeroCaption(slice.AsOf is null ? L10n.Tr("Not scanned yet")
+            : slice.Dollars ? L10n.TrFormat("{0} tokens", Tokens(slice)) : L10n.Tr("tokens · billed by Cursor's own plan"));
         if (slice.AsOf is not null && slice.Dollars)
         {
             var tokensFormat = L10n.Tr("{0} tokens");
             Counted(captionText, $"{slice.Provider}-tokens", sliceTokens, v => string.Format(tokensFormat, CountedTokens(v)));
         }
-        hero.Children.Add(captionText);
-        Grid.SetColumn(hero, 2);
-        head.Children.Add(hero);
-        panel.Children.Add(head);
+        panel.Children.Add(Head(slice.Provider, new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, Children = { heroText, captionText } }));
 
         // Bars wear the agent's character colour, as in the drawer.
         var swatch = App.Current.Drawer?.SwatchOf(slice.Provider)
             ?? DrawerLooks.Swatch(slice.Provider, DrawerLooks.For(slice.Provider).Color, DrawerStore.Shared.Theme);
         var accent = Looks.Pixel ? PixelTokens.Agent(slice.Provider, Brand.IsDark()) : Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
-        if (slice.AsOf is not null && slice.Bars.Count > 0) panel.Children.Add(Looks.Pixel ? PixelChart(slice, accent) : Chart(slice, accent));
+        if (slice.AsOf is not null && slice.Bars.Count > 0)
+        {
+            var chart = Looks.Pixel ? PixelChart(slice, accent) : Chart(slice, accent);
+            // Tokens where the other cards chart spend: the caption says so.
+            panel.Children.Add(!slice.TokenChart ? chart : new StackPanel
+            {
+                Spacing = _pixel ? 0 : 6,
+                Children =
+                {
+                    chart,
+                    new TextBlock
+                    {
+                        Text = L10n.Tr(_period == Period.Today ? "Tokens per hour (no price)" : "Tokens per day (no price)"),
+                        Style = Res<Style>("CaptionTextBlockStyle"),
+                        Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
+                    },
+                },
+            });
+        }
 
         var models = slice.Models.Take(3).ToList();
         if (models.Count > 0)
@@ -433,7 +507,7 @@ internal sealed partial class CostPage : IDisposable
                 var line = new Grid { ColumnSpacing = 8 };
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var modelName = new TextBlock { Text = model.Model, TextTrimming = TextTrimming.CharacterEllipsis };
+                var modelName = new TextBlock { Text = slice.NameOf(model.Model), TextTrimming = TextTrimming.CharacterEllipsis };
                 // The pixel face is the kit's only type; Fluent shows names in a mono face.
                 if (!Looks.Pixel)
                 {
@@ -456,6 +530,11 @@ internal sealed partial class CostPage : IDisposable
         else if (slice.AsOf is not null && slice.Tokens == 0)
         {
             panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in this period"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
+        }
+        else if (slice.AsOf is not null && _period == Period.Today && !slice.Recent)
+        {
+            // Today's models are the last five hours'; earlier work is on the chart.
+            panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in the last 5 hours"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
         }
         if (slice.Cursor is { } cursor && (TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? cursor.Billable : cursor.Tokens) is > 0 and var cursorTokens)
         {
@@ -483,8 +562,9 @@ internal sealed partial class CostPage : IDisposable
     }
 
     /// Bars scaled to the period's largest, rounded more at the top, at
-    /// most 22 wide and at least 6 tall; an idle hour or day is a faint dot.
-    /// Each carries its value as a tooltip.
+    /// most 22 wide and at least 6 tall; an idle hour or day is a faint dot,
+    /// one used without a price a dot in the agent's colour. Each carries
+    /// its value as a tooltip.
     private FrameworkElement Chart(Slice slice, Windows.UI.Color accent)
     {
         var max = slice.Bars.Max(b => b.Value);
@@ -494,7 +574,8 @@ internal sealed partial class CostPage : IDisposable
         for (var i = 0; i < slice.Bars.Count; i++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var (label, value) = slice.Bars[i];
+            var (_, value) = slice.Bars[i];
+            var (tip, unpriced) = Reading(slice, i);
             FrameworkElement column = value > 0 && max > 0
                 ? new Border
                 {
@@ -509,10 +590,10 @@ internal sealed partial class CostPage : IDisposable
                     Width = 4,
                     Height = 4,
                     VerticalAlignment = VerticalAlignment.Bottom,
-                    Fill = idle,
-                    Opacity = 0.35,
+                    Fill = unpriced ? fill : idle,
+                    Opacity = unpriced ? 1 : 0.35,
                 };
-            ToolTipService.SetToolTip(column, Tip($"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}"));
+            ToolTipService.SetToolTip(column, Tip(tip));
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
             var quiet = !(value > 0 && max > 0);
@@ -522,7 +603,8 @@ internal sealed partial class CostPage : IDisposable
     }
 
     /// Under Pixel: stacks of 4-DIP blocks, at most 12 (72 DIP) in the
-    /// agent's colour; an idle hour or day keeps one faint block.
+    /// agent's colour; an idle hour or day keeps one faint block, one used
+    /// without a price a hollow block in the agent's colour.
     private FrameworkElement PixelChart(Slice slice, Windows.UI.Color accent)
     {
         var max = slice.Bars.Max(b => b.Value);
@@ -533,11 +615,20 @@ internal sealed partial class CostPage : IDisposable
         for (var i = 0; i < slice.Bars.Count; i++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var (label, value) = slice.Bars[i];
+            var (_, value) = slice.Bars[i];
+            var (tip, unpriced) = Reading(slice, i);
             var blocks = value > 0 && max > 0 ? Math.Clamp((int)Math.Round(value / max * 12), 1, 12) : 0;
             var column = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Bottom, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-            for (var b = 0; b < Math.Max(1, blocks); b++) column.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Height = 4, Fill = blocks > 0 ? fill : idle });
-            ToolTipService.SetToolTip(column, Tip($"{label}  ·  {(slice.Dollars ? Formatting.Money(value) : Formatting.CompactTokens((long)value))}"));
+            if (unpriced)
+            {
+                // Three cells tall, so its outline and its hollow keep whole cells.
+                column.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Height = 3 * PixelPlate.Cell, Stroke = fill, StrokeThickness = PixelPlate.Cell });
+            }
+            else
+            {
+                for (var b = 0; b < Math.Max(1, blocks); b++) column.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Height = 4, Fill = blocks > 0 ? fill : idle });
+            }
+            ToolTipService.SetToolTip(column, Tip(tip));
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
             _columns.Add(new Column(slice.Provider, i, slice.Bars.Count, column, Math.Max(1, blocks), blocks == 0));
@@ -545,30 +636,68 @@ internal sealed partial class CostPage : IDisposable
         return grid;
     }
 
+    /// A column's tooltip, and whether its hour or day was used without a
+    /// price: no spend to chart, but tokens.
+    private static (string Tip, bool Unpriced) Reading(Slice slice, int index)
+    {
+        var (label, value) = slice.Bars[index];
+        if (!slice.Dollars || slice.TokenChart) return ($"{label}  ·  {Formatting.CompactTokens((long)value)}", false);
+        var tokens = slice.TokenBars.ElementAtOrDefault(index).Value;
+        return value <= 0 && tokens > 0
+            ? ($"{label}  ·  {L10n.TrFormat("{0} tokens", Formatting.CompactTokens((long)tokens))}  ·  {L10n.Tr("no price")}", true)
+            : ($"{label}  ·  {Formatting.Money(value)}", false);
+    }
+
     /// A counted token figure reads as the page does, in whole tokens.
     private static string CountedTokens(double tokens) => Formatting.CompactTokens((long)Math.Round(tokens));
 
-    /// Antigravity's card: no log to count, and the way to its quota.
+    /// A card's head: the agent's mark and name, and at the right its number
+    /// over a caption.
+    private static Grid Head(DisplayProvider provider, FrameworkElement numbers)
+    {
+        var head = new Grid { ColumnSpacing = 10 };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.Children.Add(Mark(provider));
+        var name = new TextBlock { Text = ProviderIdentity.DisplayName(provider), Style = Res<Style>("BodyStrongTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(name, 1);
+        head.Children.Add(name);
+        Grid.SetColumn(numbers, 2);
+        head.Children.Add(numbers);
+        return head;
+    }
+
+    private static TextBlock HeroNumber(string text) => new()
+    {
+        Text = text,
+        Style = Res<Style>("SubtitleTextBlockStyle"),
+        HorizontalAlignment = HorizontalAlignment.Right,
+    };
+
+    private static TextBlock HeroCaption(string text) => new()
+    {
+        Text = text,
+        Style = Res<Style>("CaptionTextBlockStyle"),
+        Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
+        HorizontalAlignment = HorizontalAlignment.Right,
+    };
+
+    /// Antigravity's card: no log to count, and the way to its quota. Its
+    /// head keeps the numbers' room, unseen, so its name lines up with the
+    /// name on the card beside it.
     private static FrameworkElement NoLogCard(DisplayProvider provider, Action showAgents)
     {
-        var mark = Mark(provider);
         var agents = new HyperlinkButton { Content = L10n.Tr("See its quota on the Agents page"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left };
         agents.Click += (_, _) => showAgents();
+        var room = new StackPanel { Opacity = 0, Children = { HeroNumber("—"), HeroCaption("—") } };
+        foreach (var text in room.Children) AutomationProperties.SetAccessibilityView(text, AccessibilityView.Raw);
         return Surface(new StackPanel
         {
             Spacing = 8,
             Children =
             {
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 10,
-                    Children =
-                    {
-                        mark,
-                        new TextBlock { Text = ProviderIdentity.DisplayName(provider), Style = Res<Style>("BodyStrongTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center },
-                    },
-                },
+                Head(provider, room),
                 new TextBlock
                 {
                     Text = L10n.Tr("Antigravity keeps no local usage log."),

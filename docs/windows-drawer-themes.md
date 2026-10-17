@@ -326,6 +326,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
   | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings |
   | `AGENTISLAND_DEBUG_SETTINGS_FILM=<dir>` | The same for Settings' own moments: a page switch, expanders, agents hidden and shown, an agent opened from the drawer, a meter counting, an agent card moved by its arrows and one dragged by its grip (taken, held past the next, let go), a switch flipping and a button pressed. It hides, moves and flips for real: restore the settings afterwards. `AGENTISLAND_DEBUG_FILM_ONLY=<names>` films only the strips starting with those comma-separated names |
+  | `AGENTISLAND_DEBUG_COST_SAMPLE=1` | With `AGENTISLAND_DEBUG_OPEN_COST=1`, gives Kimi Code and Grok a sample day (Kimi Code's K3 at noon yesterday and its K2.8 Preview, which has no price, at 1:00 and 3:00; Grok at 2:00) to check a chart of tokens, a day used without a price and a quiet last five hours; render after 8:00 |
   | `AGENTISLAND_DEBUG_COST_FILM=<dir>` | The same for the usage numbers on Settings' Usage & cost page: two period switches and a scan counting |
   | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
   | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |

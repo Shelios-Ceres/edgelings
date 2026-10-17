@@ -25,6 +25,17 @@ public sealed record ProviderCostSummary(
     public ReportSlice LastSevenDays { get; init; } = ReportSlice.Empty;
     public DateTimeOffset? AsOf { get; init; }
 
+    /// Today's tokens by local hour, 24 points, for a chart with no spend to
+    /// show: everything that crossed the wire, and the billable part.
+    public IReadOnlyList<long> TodayHourlyTokens { get; init; } = new long[24];
+    public IReadOnlyList<long> TodayHourlyBillableTokens { get; init; } = new long[24];
+
+    /// What the agent itself calls its models, by model id (Kimi Code names
+    /// its plan's aliases); an id it doesn't name reads as itself.
+    public IReadOnlyDictionary<string, string> ModelNames { get; init; } = new Dictionary<string, string>();
+
+    public string NameOf(string model) => ModelNames.TryGetValue(model, out var name) ? name : model;
+
     public static ProviderCostSummary Empty { get; } = new(
         0, 0, 0, 0, 0, 0,
         new double[24], Array.Empty<double>(),
@@ -122,6 +133,8 @@ public static class CostSummarizer
         double todayDollars = 0, monthDollars = 0;
         long todayTokens = 0, todayBillable = 0, monthTokens = 0, monthBillable = 0;
         var hourly = new double[24];
+        var hourlyTokens = new long[24];
+        var hourlyBillable = new long[24];
         var daily = new double[DateTime.DaysInMonth(now.Year, now.Month)];
         var recent = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
         var weekly = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
@@ -142,7 +155,10 @@ public static class CostSummarizer
                 todayDollars += dollars;
                 todayTokens += tokenEvent.WireTokens;
                 todayBillable += tokenEvent.BillableTokens;
-                hourly[Math.Clamp(local.Hour, 0, 23)] += dollars;
+                var hour = Math.Clamp(local.Hour, 0, 23);
+                hourly[hour] += dollars;
+                hourlyTokens[hour] += tokenEvent.WireTokens;
+                hourlyBillable[hour] += tokenEvent.BillableTokens;
             }
             if (local >= monthStart)
             {
@@ -194,6 +210,8 @@ public static class CostSummarizer
         {
             AsOf = now,
             LastSevenDays = Slice(events, LastSevenDaysStart(now), now.AddTicks(1)),
+            TodayHourlyTokens = hourlyTokens,
+            TodayHourlyBillableTokens = hourlyBillable,
         };
     }
 

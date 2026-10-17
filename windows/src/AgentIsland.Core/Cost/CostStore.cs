@@ -135,7 +135,7 @@ public sealed class CostStore : INotifyPropertyChanged
         var antigravityTask = Task.Run(() => CostSummarizer.Summarize(AntigravityLogReader.Scan(lookback), now));
         var grokTask = Task.Run(() => CostSummarizer.Summarize(GrokLogReader.Scan(lookback), now));
         var cursorTask = Task.Run(() => CostSummarizer.Summarize(CursorLogReader.Scan(lookback), now));
-        var kimiTask = Task.Run(() => CostSummarizer.Summarize(KimiLogReader.Scan(lookback), now));
+        var kimiTask = Task.Run(() => CostSummarizer.Summarize(KimiLogReader.Scan(lookback), now) with { ModelNames = KimiLogReader.ModelNames() });
         var deepSeekTask = Task.Run(() => CostSummarizer.Summarize(DeepSeekLogReader.Scan(lookback), now));
         _ = Task.WhenAll(claudeTask, codexTask, antigravityTask, grokTask, cursorTask, kimiTask, deepSeekTask).ContinueWith(_ =>
         {

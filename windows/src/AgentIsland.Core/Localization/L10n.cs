@@ -696,6 +696,9 @@ public static class L10n
         ["Models, last 5 hours"] = "模型（最近 5 小时）",
         ["no price"] = "无价格",
         ["No sessions in this period"] = "这段时间没有会话",
+        ["No sessions in the last 5 hours"] = "最近 5 小时没有会话",
+        ["Tokens per hour (no price)"] = "每小时 Token（无价格）",
+        ["Tokens per day (no price)"] = "每天 Token（无价格）",
         ["Antigravity keeps no local usage log."] = "Antigravity 不在本机保存用量日志。",
         ["See its quota on the Agents page"] = "在「智能体」页查看它的配额",
     };
