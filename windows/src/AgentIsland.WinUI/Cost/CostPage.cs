@@ -469,9 +469,9 @@ internal sealed partial class CostPage : IDisposable
         panel.Children.Add(Head(slice.Provider, new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, Children = { heroText, captionText } }));
 
         // Bars wear the agent's character colour, as in the drawer.
-        var swatch = App.Current.Drawer?.SwatchOf(slice.Provider)
-            ?? DrawerLooks.Swatch(slice.Provider, DrawerLooks.For(slice.Provider).Color, DrawerStore.Shared.Theme);
-        var accent = Looks.Pixel ? PixelTokens.Agent(slice.Provider, Brand.IsDark()) : Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
+        var accent = Looks.Pixel
+            ? PixelTokens.Agent(slice.Provider, Brand.IsDark())
+            : Brand.Rgb(Brand.Readable(DrawerLooks.ClassicSwatch(slice.Provider), Brand.IsDark()));
         if (slice.AsOf is not null && slice.Bars.Count > 0)
         {
             var chart = Looks.Pixel ? PixelChart(slice, accent) : Chart(slice, accent);

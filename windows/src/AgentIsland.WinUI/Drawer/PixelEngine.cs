@@ -75,12 +75,8 @@ internal sealed class PixelEngine : ICharacterEngine
 
     public CharacterTheme Theme => CharacterTheme.Pixel;
 
-    public int AddBot(DisplayProvider provider, string shape, string color, double tempo, int seed) =>
+    public int AddBot(DisplayProvider provider, double tempo, int seed) =>
         Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), seed, tempo));
-
-    public void SetLook(int bot, string shape, string color)
-    {
-    }
 
     public void SetState(int bot, string state, double phase) => _host.InvokeMethod("setState", bot, state, phase);
 

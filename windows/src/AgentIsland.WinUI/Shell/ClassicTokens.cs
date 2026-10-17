@@ -105,14 +105,10 @@ internal static class ClassicTokens
         return Color.FromArgb(255, Mix(color.R, paper.R), Mix(color.G, paper.G), Mix(color.B, paper.B));
     }
 
-    /// The colour a provider's character wears: the one picked in its menu,
-    /// lifted on dark surfaces when it is near black.
-    public static Color Identity(DisplayProvider provider, bool dark)
-    {
-        var swatch = App.Current.Drawer?.SwatchOf(provider)
-            ?? DrawerLooks.Swatch(provider, DrawerLooks.For(provider).Color, CharacterTheme.Classic);
-        return Brand.Rgb(Brand.Readable(swatch, dark));
-    }
+    /// The colour a provider's desk companion wears, lifted on dark surfaces
+    /// when it is near black.
+    public static Color Identity(DisplayProvider provider, bool dark) =>
+        Brand.Rgb(Brand.Readable(DrawerLooks.ClassicSwatch(provider), dark));
 
     /// Face eyes: white, or ink on a disc too light for white to read.
     public static Color EyesOn(Color disc)

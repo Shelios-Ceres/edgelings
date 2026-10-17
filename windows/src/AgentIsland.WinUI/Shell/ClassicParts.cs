@@ -50,59 +50,6 @@ public sealed class FaceChip : Grid
     }
 }
 
-/// A face chip as a bitmap, for places that take an icon (menu items):
-/// drawn at the display's pixels with 4 x 4 samples per pixel.
-internal static class FaceBitmap
-{
-    private static readonly Dictionary<(Color, int), Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap> Cache = new();
-
-    public static ImageSource Of(Color disc, double dip, double scale)
-    {
-        var size = (int)Math.Round(dip * scale);
-        if (Cache.TryGetValue((disc, size), out var cached)) return cached;
-        var eyes = ClassicTokens.EyesOn(disc);
-        var pixels = new byte[size * size * 4];
-        double r = size / 2.0, ew = 0.17 * size / 2, eh = 0.28 * size / 2, ey = size * (0.5 - 0.17) + eh;
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                int inDisc = 0, inEye = 0;
-                for (var sy = 0; sy < 4; sy++)
-                {
-                    for (var sx = 0; sx < 4; sx++)
-                    {
-                        double px = x + (sx + 0.5) / 4, py = y + (sy + 0.5) / 4;
-                        if ((px - r) * (px - r) + (py - r) * (py - r) > r * r) continue;
-                        inDisc++;
-                        foreach (var side in new[] { -1, 1 })
-                        {
-                            var ex = r + side * 0.155 * size;
-                            if ((px - ex) * (px - ex) / (ew * ew) + (py - ey) * (py - ey) / (eh * eh) <= 1) inEye++;
-                        }
-                    }
-                }
-                var a = inDisc / 16.0;
-                var e = inDisc == 0 ? 0 : (double)inEye / inDisc;
-                byte Channel(byte d, byte i) => (byte)Math.Round((d * (1 - e) + i * e) * a);
-                var o = (y * size + x) * 4;
-                pixels[o] = Channel(disc.B, eyes.B);
-                pixels[o + 1] = Channel(disc.G, eyes.G);
-                pixels[o + 2] = Channel(disc.R, eyes.R);
-                pixels[o + 3] = (byte)Math.Round(a * 255);
-            }
-        }
-        var bitmap = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(size, size);
-        using (var stream = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsStream(bitmap.PixelBuffer))
-        {
-            stream.Write(pixels, 0, pixels.Length);
-        }
-        bitmap.Invalidate();
-        Cache[(disc, size)] = bitmap;
-        return bitmap;
-    }
-}
-
 /// The Classic busy sign (M16): an accent face whose eyes glance left, then
 /// right, and back over 1.6 s on inOut, blinking near the end of each look.
 /// It runs only while busy and on screen, and holds still with animations

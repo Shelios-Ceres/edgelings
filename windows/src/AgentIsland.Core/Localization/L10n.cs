@@ -565,8 +565,6 @@ public static class L10n
         ["Switch"] = "切换",
         ["Sign in again"] = "重新登录",
         ["Waiting for login…"] = "等待登录…",
-        ["Character"] = "角色",
-        ["How this agent looks in the drawer"] = "这个智能体在抽屉里的样子",
         ["Local sessions only — no quota to sync"] = "只读取本机会话——没有可同步的配额",
         ["Waiting for the first sync"] = "等待首次同步",
         ["Awaiting sync"] = "等待同步",

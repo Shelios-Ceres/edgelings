@@ -51,7 +51,7 @@ public static class PixelThemeTests
             var kind = DrawerLooks.Kind(provider);
             Expect(DrawerLooks.PixelSwatch(provider) == swatches[kind], $"{provider}'s colour matches the engine's {kind}");
         }
-        Expect(DrawerLooks.Swatch(DisplayProvider.Claude, "blue", CharacterTheme.Pixel) == 0xD77757, "the pixel theme uses the bot's own colour");
+        Expect(DrawerLooks.Swatch(DisplayProvider.Claude, CharacterTheme.Pixel) == 0xD77757, "the pixel theme uses the bot's own colour");
         Console.WriteLine("PASS each provider's pixel bot and colour match the engine");
 
         // The pixel panels read in English inside L10n.English(), and only there.

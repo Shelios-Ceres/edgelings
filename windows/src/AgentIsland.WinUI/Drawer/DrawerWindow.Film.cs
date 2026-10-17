@@ -15,7 +15,7 @@ using static AgentIsland.WinUI.Shell.Motion;
 namespace AgentIsland.WinUI.Drawer;
 
 /// AGENTISLAND_DEBUG_DRAWER_FILM=<dir>: the drawer's moments frame by frame,
-/// and a sheet of its bots in a few states, rendered off-screen at 150 % on
+/// and sheets of its bots in every state, rendered off-screen at 150 % on
 /// plain light and dark ground for design QA. The moments step on their own
 /// clock here, Pixel tick by tick and Classic every 33 ms, with the same
 /// moves and painter as the live drawer, so each frame is exact; the bots
@@ -29,12 +29,12 @@ internal sealed partial class DrawerWindow
     private const float WindowWidth = (float)(InnerInset + BotSize + EdgeInset);
 
     /// One frame of a film: the window in stage DIPs and its bots, posed.
-    private sealed record Shot(Rect Window, float Edge, (int Index, float X, float Y, BotPose Pose)[] Bots, IReadOnlyDictionary<int, string>? Svgs = null);
+    private sealed record Shot(Rect Window, float Edge, (int Index, float X, float Y, BotPose Pose)[] Bots);
 
     /// AGENTISLAND_DEBUG_DRAWER_MOMENTS=1: every drawer moment live, one
     /// after another, each traced (AGENTISLAND_DEBUG_TRACE) as it starts
-    /// and ends. It changes the edge, the shown agents and a look, and puts
-    /// them back.
+    /// and ends. It changes the edge and the shown agents, and puts them
+    /// back.
     public async void DebugMoments()
     {
         async Task Step(string name, Action action, int waitMs)
@@ -53,13 +53,6 @@ internal sealed partial class DrawerWindow
         {
             await Step($"leave {second.Provider}", () => ProviderVisibilityStore.Shared.SetShown(second.Provider, false), 1200);
             await Step($"appear {second.Provider}", () => ProviderVisibilityStore.Shared.SetShown(second.Provider, true), 1200);
-        }
-        if (_colors is { Count: > 1 } colors && _bots.FirstOrDefault(b => b.Visible) is { } first)
-        {
-            var color = first.Color;
-            var next = colors[(colors.ToList().IndexOf(color) + 1) % colors.Count];
-            await Step($"look {first.Provider} {next}", () => SetLook(first.Provider, first.Shape, next), 900);
-            await Step($"look {first.Provider} {color}", () => SetLook(first.Provider, first.Shape, color), 900);
         }
         await Step("lift", () =>
         {
@@ -199,22 +192,6 @@ internal sealed partial class DrawerWindow
                 ? Still(column.Window, 1, all, away, ms)
                 : Still(left.Window, -1, left.Bots, back, ms - turn)));
 
-            if (!pixel)
-            {
-                // M20: the top bot turns and comes back in the next colour.
-                var top = order[0];
-                var bot = _bots[top];
-                var next = _colors is { Count: > 0 } colors ? colors[(colors.ToList().IndexOf(bot.Color) + 1) % colors.Count] : bot.Color;
-                engine.SetLook(top, bot.Shape, next);
-                var turned = Frames(engine)[top];
-                engine.SetLook(top, bot.Shape, bot.Color);
-                var flip = DrawerMoves.Flip(New(all, 1, dark), top, () => { });
-                films.Add(("m20-look", flip.DurationMs, ms => Still(column.Window, 1, all, flip, ms) with
-                {
-                    Svgs = ms >= 167 ? new Dictionary<int, string> { [top] = turned } : null,
-                }));
-            }
-
             foreach (var (name, ms, shot) in films)
             {
                 Strip(device, Path.Combine(directory, $"{name}-{style}-{(dark ? "dark" : "light")}.png"),
@@ -323,7 +300,7 @@ internal sealed partial class DrawerWindow
         {
             foreach (var (index, x, y, pose) in shot.Bots)
             {
-                var svg = shot.Svgs?.GetValueOrDefault(index) ?? svgs.GetValueOrDefault(index);
+                var svg = svgs.GetValueOrDefault(index);
                 if (svg is null) continue;
                 if (!rasters.TryGetValue(svg, out var raster))
                 {
@@ -341,24 +318,46 @@ internal sealed partial class DrawerWindow
         }
     }
 
-    /// Every bot idle, reading, asking, sending, orbiting, finished, locked
-    /// and, where the set draws it, resting, each a drawer at 0.5, 0.9 and
-    /// 1.3 s into the state (resting's slow loop at its settled start, a
-    /// breath in and its slow blink), on light then dark ground.
+    /// Every bot in every state a phase plays (resting too, where the set
+    /// draws it), in each of its fidgets, and poked while it rests: each a
+    /// drawer at three moments (0.5, 0.9 and 1.3 s in; resting's slow loop at
+    /// its settled start, a breath in and its slow blink; the poke's wake and
+    /// the eyes closing again), on light then dark ground.
     private void Sheet(CanvasDevice device, ICharacterEngine engine, string directory, string style, bool pixel, IReadOnlyList<int> order)
     {
         var column = Column(order, (StageWidth - WindowWidth) / 2);
-        foreach (var state in new[] { "idle", "reading", "asking", "sending", "orbit", "finished", "locked", Resting }.Where(engine.Draws))
+        var takes = new List<(string Name, Func<int, string> State, double[] Times, double PokeAt)>();
+        var states = Enum.GetValues<AgentPhase>()
+            .SelectMany(phase => new[] { DrawerLooks.Entry(phase, _loopTheme), DrawerLooks.Hold(phase, _loopTheme) })
+            .Append(Resting)
+            .Distinct()
+            .Where(engine.Draws);
+        foreach (var state in states)
+            takes.Add((state, _ => state, state == Resting ? new[] { 0.5, 2.5, 5.0 } : new[] { 0.5, 0.9, 1.3 }, double.NaN));
+        for (var k = 0; k < 3; k++)
         {
-            var times = state == Resting ? new[] { 0.5, 2.5, 5.0 } : new[] { 0.5, 0.9, 1.3 };
-            foreach (var index in order) engine.SetState(index, state, 0);
+            var nth = k;
+            string? Fidget(int index) => engine.Fidgets(_bots.First(b => b.Index == index).Provider).ElementAtOrDefault(nth);
+            if (order.Any(index => Fidget(index) is not null))
+                takes.Add(($"fidget-{k + 1}", index => Fidget(index) ?? "idle", new[] { 0.5, 0.9, 1.3 }, double.NaN));
+        }
+        if (engine.Draws(Resting)) takes.Add(("resting-poke", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
+        foreach (var (name, stateOf, times, pokeAt) in takes)
+        {
+            foreach (var index in order) engine.SetState(index, stateOf(index), 0);
             var shots = new List<Dictionary<int, string>>();
             var clock = 0.0;
+            var poked = double.IsNaN(pokeAt);
             var dts = Enumerable.Repeat(1 / 30.0, _slots.Length).ToArray();
             foreach (var time in times)
             {
                 while (clock < time - 1e-6)
                 {
+                    if (!poked && clock >= pokeAt - 1e-6)
+                    {
+                        foreach (var index in order) engine.Poke(index);
+                        poked = true;
+                    }
                     engine.Tick(dts, BotSize);
                     clock += 1 / 30.0;
                 }
@@ -372,7 +371,8 @@ internal sealed partial class DrawerWindow
             {
                 ds.Clear(Color.FromArgb(255, 0x80, 0x80, 0x80));
                 var text = new CanvasTextFormat { FontFamily = "Segoe UI", FontSize = 12 };
-                ds.DrawText($"{state} · {style} · at {string.Join(", ", times.Select(t => $"{t:0.0} s"))}, light then dark · 150 %", gap, 5,
+                var poke = double.IsNaN(pokeAt) ? "" : $", poked at {pokeAt:0.0} s";
+                ds.DrawText($"{name} · {style} · at {string.Join(", ", times.Select(t => $"{t:0.0} s"))}{poke}, light then dark · 150 %", gap, 5,
                     Color.FromArgb(255, 255, 255, 255), text);
                 var k = 0;
                 foreach (var dark in new[] { false, true })
@@ -384,7 +384,7 @@ internal sealed partial class DrawerWindow
                     }
                 }
             }
-            target.SaveAsync(Path.Combine(directory, $"sheet-{state}-{style}.png")).AsTask().GetAwaiter().GetResult();
+            target.SaveAsync(Path.Combine(directory, $"sheet-{name}-{style}.png")).AsTask().GetAwaiter().GetResult();
             foreach (var raster in rasters.Values) raster.Dispose();
         }
         // Back to what each agent is doing.

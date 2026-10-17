@@ -1,15 +1,14 @@
 using System.IO;
 using System.Text.RegularExpressions;
 using AgentIsland.Core;
-using AgentIsland.Localization;
 using AgentIsland.Model;
 
 namespace AgentIsland.Tests;
 
 /// The Classic theme's rules in DrawerLooks against the engine the app ships
 /// (AgentIsland.WinUI/Drawer/Characters/classic.mjs): every phase plays a
-/// state the engine has, the calm and one-shot sets, the default looks, the
-/// fidgets and the palette match, and every shape has a name in the menus.
+/// state the engine has, the calm and one-shot sets, each agent's companion,
+/// colour and fidgets match.
 public static class ClassicThemeTests
 {
     public static void RunAll()
@@ -19,19 +18,14 @@ public static class ClassicThemeTests
         var calm = List(engine, "CALM");
         var settle = Regex.Matches(Block(engine, "SETTLE"), @"(\w+): \['(\w+)'")
             .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
-        var kinds = Regex.Matches(Block(engine, "KIND"), @"(\w+): \{ shape: '(\w+)', color: '(\w+)', fidgets: \[([^\]]*)\] \}")
-            .ToDictionary(m => m.Groups[1].Value, m => (Shape: m.Groups[2].Value, Color: m.Groups[3].Value,
+        var kinds = Regex.Matches(Block(engine, "KIND"), @"(\w+): \{ object: '(\w+)', swatch: '#([0-9A-F]{6})', fidgets: \[([^\]]*)\] \}")
+            .ToDictionary(m => m.Groups[1].Value, m => (Object: m.Groups[2].Value, Swatch: Convert.ToUInt32(m.Groups[3].Value, 16),
                 Fidgets: Regex.Matches(m.Groups[4].Value, @"'(\w+)'").Select(f => f.Groups[1].Value).ToList()));
-        var palette = Regex.Matches(Block(engine, "COLOR_HEX"), @"(\w+): '#([0-9A-F]{6})'")
-            .ToDictionary(m => m.Groups[1].Value, m => Convert.ToUInt32(m.Groups[2].Value, 16));
-        var shapes = Regex.Matches(Block(engine, "SHAPES"), @"\n  (\w+): \{\n    d: ")
-            .Select(m => m.Groups[1].Value)
-            .ToList();
         var loops = Regex.Matches(Block(engine, "CYCLE"), @"(\w+): [\d.]+")
             .Select(m => m.Groups[1].Value)
             .ToHashSet();
-        Expect(phases.Count > 20 && calm.Count > 0 && settle.Count > 0 && kinds.Count == 7 && palette.Count == 11
-            && shapes.Count == 12 && loops.Count > 20, "the engine file parses");
+        Expect(phases.Count > 20 && calm.Count > 0 && settle.Count > 0 && kinds.Count == 7 && loops.Count > 20,
+            "the engine file parses");
 
         foreach (var phase in Enum.GetValues<AgentPhase>())
         {
@@ -58,46 +52,18 @@ public static class ClassicThemeTests
         foreach (var provider in DisplayProviders.All)
         {
             var kind = DrawerLooks.Kind(provider);
-            Expect(kinds.TryGetValue(kind, out var look), $"the engine has a {kind} bot");
-            Expect(DrawerLooks.Default(provider) == (look.Shape, look.Color), $"{provider}'s default look is the engine's {kind}");
-            Expect(look.Fidgets.Count > 0, $"{provider} has something to do when idle");
-            foreach (var fidget in look.Fidgets)
+            Expect(kinds.TryGetValue(kind, out var companion), $"the engine has a {kind} companion");
+            Expect(DrawerLooks.ClassicSwatch(provider) == companion.Swatch,
+                $"{provider}'s Classic colour is the engine's #{companion.Swatch:X6}, got #{DrawerLooks.ClassicSwatch(provider):X6}");
+            Expect(DrawerLooks.Swatch(provider, CharacterTheme.Classic) == companion.Swatch, $"{provider}'s Classic theme colour is its companion's");
+            Expect(companion.Fidgets.Count > 0, $"{provider} has something to do when idle");
+            foreach (var fidget in companion.Fidgets)
             {
                 Expect(loops.Contains(fidget) && !DrawerLooks.IsOneShot(fidget, CharacterTheme.Classic),
                     $"{provider}'s fidget '{fidget}' is a looping state the engine draws");
             }
         }
-        Console.WriteLine("PASS each provider's default look and fidgets match the engine");
-
-        foreach (var (color, hex) in palette)
-        {
-            Expect(DrawerLooks.Swatch(color) == hex, $"'{color}' is the engine's #{hex:X6}");
-            Expect(DrawerLooks.ColorLabel(color) != "", $"'{color}' has a label");
-        }
-        Expect(DrawerLooks.Swatch(DisplayProvider.Claude, "green", CharacterTheme.Classic) == palette["green"],
-            "the Classic theme uses the picked colour");
-        Console.WriteLine("PASS the palette matches the engine");
-
-        var language = L10n.Current;
-        L10n.Current = L10n.Language.SimplifiedChinese;
-        try
-        {
-            foreach (var shape in shapes)
-            {
-                var label = DrawerLooks.ShapeLabel(shape);
-                Expect(label != char.ToUpperInvariant(shape[0]) + shape[1..], $"shape '{shape}' has a Chinese name");
-            }
-            foreach (var color in palette.Keys)
-            {
-                var label = DrawerLooks.ColorLabel(color);
-                Expect(label != char.ToUpperInvariant(color[0]) + color[1..], $"colour '{color}' has a Chinese name");
-            }
-        }
-        finally
-        {
-            L10n.Current = language;
-        }
-        Console.WriteLine("PASS every shape and colour has a name in the menus");
+        Console.WriteLine("PASS each provider's companion colour and fidgets match the engine");
         Console.WriteLine("ClassicThemeTests GREEN");
     }
 

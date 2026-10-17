@@ -3,13 +3,13 @@ using AgentIsland.Localization;
 namespace AgentIsland.Model;
 
 /// How a provider's character looks and which state each phase plays. The
-/// drawer's two character sets, the pixel bots and the Classic shapes, are
-/// bundled engines that share one set of state names. Classic's default
-/// looks follow each brand (Kimi Code's round blue mascot, DeepSeek's blue
-/// whale, Cursor's black); brands that share a colour share it here too, by
-/// the user's choice (2026-10-11).
+/// drawer's two character sets, the pixel bots and the Classic desk
+/// companions, are bundled engines that share one set of state names; each
+/// agent has one look in each, in its own colour.
 public static class DrawerLooks
 {
+    /// The WPF drawer's look picker (the WinUI drawer has none): each agent's
+    /// default shape and colour, after its brand.
     public static (string Shape, string Color) Default(DisplayProvider provider) => provider switch
     {
         DisplayProvider.Claude => ("sparkle", "orange"),
@@ -91,10 +91,23 @@ public static class DrawerLooks
         _ => 0xD77757,
     };
 
-    /// A provider's colour in a theme: the pixel bot's own, or the classic
-    /// colour the user picked.
-    public static uint Swatch(DisplayProvider provider, string color, CharacterTheme theme) =>
-        theme == CharacterTheme.Pixel ? PixelSwatch(provider) : Swatch(color);
+    /// Each desk companion's own colour (the Classic engine's swatchOf); no
+    /// two agents share one. Cursor's black is lifted on dark surfaces by
+    /// Brand.Readable.
+    public static uint ClassicSwatch(DisplayProvider provider) => provider switch
+    {
+        DisplayProvider.Codex => 0x2D8CFF,
+        DisplayProvider.Antigravity => 0x8E63F5,
+        DisplayProvider.Grok => 0x6E7480,
+        DisplayProvider.Cursor => 0x24252C,
+        DisplayProvider.Kimi => 0x1D4E9E,
+        DisplayProvider.DeepSeek => 0x4D6BFE,
+        _ => 0xD97757,
+    };
+
+    /// A provider's colour in a theme: its pixel bot's or its desk companion's.
+    public static uint Swatch(DisplayProvider provider, CharacterTheme theme) =>
+        theme == CharacterTheme.Pixel ? PixelSwatch(provider) : ClassicSwatch(provider);
 
     /// The state a phase enters, one per phase. Both themes' engines draw
     /// these names; a theme with names of its own would map them here.
@@ -185,14 +198,14 @@ public static class DrawerLooks
         _ => "Idle",
     });
 
+    /// The WPF drawer's look picker labels.
     public static string ShapeLabel(string shape) =>
         L10n.Tr(shape.Length == 0 ? shape : char.ToUpperInvariant(shape[0]) + shape[1..]);
 
     public static string ColorLabel(string color) =>
         L10n.Tr(color.Length == 0 ? color : char.ToUpperInvariant(color[0]) + color[1..]);
 
-    /// The Classic engine's palette (its colorOf, 0xRRGGBB), for card dots,
-    /// quota bars and the fallback characters drawn when the engine cannot run.
+    /// The WPF drawer's palette (0xRRGGBB), for its look picker's colours.
     public static uint Swatch(string color) => color switch
     {
         "black" => 0x24252C,

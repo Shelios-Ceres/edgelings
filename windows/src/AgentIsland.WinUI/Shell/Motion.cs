@@ -1,7 +1,7 @@
 namespace AgentIsland.WinUI.Shell;
 
 /// The motion system both styles share: the same moments (INTERACTIONS.md,
-/// M1-M20), each style with its own numbers. Classic eases on cubic Béziers
+/// M1-M19), each style with its own numbers. Classic eases on cubic Béziers
 /// over Fluent's duration ladder; Pixel steps whole 2-DIP cells on a 30-tick
 /// clock. A track gives one value at a time since its moment started.
 internal static class Motion

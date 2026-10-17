@@ -57,8 +57,6 @@ internal sealed partial class DrawerWindow : Window
         public required DisplayProvider Provider { get; init; }
         public required TriggerTool Tool { get; init; }
         public required int Index { get; init; }
-        public required string Shape { get; set; }
-        public required string Color { get; set; }
         public Rect Bounds { get; set; }
         public bool Visible { get; set; }
         public AgentPhase Phase { get; set; }
@@ -104,11 +102,6 @@ internal sealed partial class DrawerWindow : Window
     private ICharacterEngine? _engine;
     private CharacterTheme _theme;
     private volatile CharacterTheme _loopTheme;
-    // The Classic engine's shapes and colours for the look picker; null in
-    // the pixel theme, which hides the picker.
-    private IReadOnlyList<string>? _shapes;
-    private IReadOnlyList<string>? _colors;
-    private Func<string, string?>? _shapeFor;
     private readonly SvgCanvas _svg = new();
     private readonly List<Bot> _bots = new();
     private DrawerActivityFrame _activity = new(Array.Empty<(DisplayProvider, AgentPhase, string?, int)>());
@@ -153,7 +146,7 @@ internal sealed partial class DrawerWindow : Window
     private int _pressY;
     private int _pressTop;
     private bool _closed;
-    // The drawer moment playing (M1, M2, M6, M18, M20): the loop draws its
+    // The drawer moment playing (M1, M2, M6, M18): the loop draws its
     // bots in their poses instead of the scene. Set on the UI thread.
     private volatile DrawerMoment? _moment;
     private Action? _afterMoment;
@@ -179,14 +172,11 @@ internal sealed partial class DrawerWindow : Window
         _engine = CreateEngine(_theme);
         foreach (var provider in DisplayProviders.All)
         {
-            var (shape, color) = ValidLook(provider, DrawerLooks.For(provider));
             var bot = new Bot
             {
                 Provider = provider,
                 Tool = provider.ToTriggerTool(),
                 Index = _bots.Count,
-                Shape = shape,
-                Color = color,
             };
             AddBot(_engine, bot);
             _bots.Add(bot);
@@ -339,25 +329,7 @@ internal sealed partial class DrawerWindow : Window
         Close();
     }
 
-    /// The classic engine's shapes and colours; null without it or in the
-    /// pixel theme, where each bot has its one look.
-    public IReadOnlyList<string>? Shapes => _shapes;
-
-    public IReadOnlyList<string>? Colors => _colors;
-
-    /// The provider's colour in the current theme, for cards and charts.
-    public uint SwatchOf(DisplayProvider provider) => SwatchOf(_bots.First(b => b.Provider == provider));
-
-    private uint SwatchOf(Bot bot) => DrawerLooks.Swatch(bot.Provider, bot.Color, _theme);
-
-    public (string Shape, string Color) LookOf(DisplayProvider provider)
-    {
-        var bot = _bots.First(b => b.Provider == provider);
-        return (bot.Shape, bot.Color);
-    }
-
-    public void SetLook(DisplayProvider provider, string shape, string color) =>
-        ChangeLook(_bots.First(b => b.Provider == provider), shape, color);
+    private uint SwatchOf(Bot bot) => DrawerLooks.Swatch(bot.Provider, _theme);
 
     /// What the provider's character is doing: for Grok, Cursor's work too.
     public (AgentPhase Phase, string? Detail) PhaseOf(DisplayProvider provider)
@@ -417,18 +389,6 @@ internal sealed partial class DrawerWindow : Window
         _teardown.Add(() => source.PropertyChanged -= h);
     }
 
-    // MARK: - Layout
-
-    /// A saved look the Classic engine can draw: an old shape name maps to
-    /// the nearest, and anything else falls back to the agent's default.
-    private (string Shape, string Color) ValidLook(DisplayProvider provider, (string Shape, string Color) look)
-    {
-        if (_shapes is null || _colors is null) return look;
-        var fallback = DrawerLooks.Default(provider);
-        return (_shapeFor?.Invoke(look.Shape) ?? fallback.Shape,
-            _colors.Contains(look.Color) ? look.Color : fallback.Color);
-    }
-
     // MARK: - Theme
 
     /// The theme's engine, or null when V8 cannot run it; the drawer then
@@ -446,18 +406,13 @@ internal sealed partial class DrawerWindow : Window
         {
             CrashLog.Write(error, theme == CharacterTheme.Pixel ? "Pixel engine" : "Classic engine");
         }
-        var classic = engine as ClassicEngine;
-        _shapes = classic?.Shapes;
-        _colors = classic?.Colors;
-        _shapeFor = classic is null ? null : classic.ShapeFor;
         return engine;
     }
 
     private static void AddBot(ICharacterEngine? engine, Bot bot)
     {
         if (engine is null) return;
-        var index = engine.AddBot(bot.Provider, bot.Shape, bot.Color,
-            DrawerLooks.TempoOf(bot.Provider), Random.Shared.Next(1, 1_000_000));
+        var index = engine.AddBot(bot.Provider, DrawerLooks.TempoOf(bot.Provider), Random.Shared.Next(1, 1_000_000));
         if (index != bot.Index) throw new InvalidOperationException($"engine index {index} for drawer bot {bot.Index}");
     }
 
@@ -472,7 +427,6 @@ internal sealed partial class DrawerWindow : Window
         var rest = new List<(int Index, string Hold, bool Resting, uint Swatch, string[] Fidgets)>();
         foreach (var bot in _bots)
         {
-            (bot.Shape, bot.Color) = ValidLook(bot.Provider, (bot.Shape, bot.Color));
             AddBot(engine, bot);
             var resting = bot.Rest is not null;
             var hold = resting && engine?.Draws(Resting) == true ? Resting
@@ -830,7 +784,6 @@ internal sealed partial class DrawerWindow : Window
     /// circles return and `after` runs, on the UI thread.
     private void Play(DrawerMoment moment, Action? after = null)
     {
-        if (_moment is { } old) _commands.Enqueue(old.RunRest);
         _afterMoment = after;
         _moment = moment;
         Win32.SetWindowRgn(_hwnd, IntPtr.Zero, true);
@@ -858,7 +811,6 @@ internal sealed partial class DrawerWindow : Window
     private void ClearMoment()
     {
         _momentGuard.Stop();
-        if (_moment is { } old) _commands.Enqueue(old.RunRest);
         _moment = null;
         _afterMoment = null;
         ApplyRegion();
@@ -1090,7 +1042,6 @@ internal sealed partial class DrawerWindow : Window
         var now = _clock.Elapsed.TotalSeconds;
         var moment = _moment;
         var momentMs = moment is null ? 0 : (now - moment.Start) * 1000;
-        moment?.RunDue(momentMs);
         _due.Clear();
         foreach (var (index, _, _) in scene.Shown)
         {
@@ -1513,9 +1464,9 @@ internal sealed partial class DrawerWindow : Window
         PointInt32? at = keepOpen
             ? new PointInt32(scene.Left + (int)(bot.Bounds.X * scene.Scale), scene.Top + (int)(bot.Bounds.Bottom * scene.Scale))
             : null;
-        _ = DrawerMenu.ShowAsync(bot.Provider, bot.Shape, bot.Color, _shapes, _colors,
+        _ = DrawerMenu.ShowAsync(bot.Provider,
             _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(),
-            (shape, color) => ChangeLook(bot, shape, color), keepOpen, at, scene.Scale);
+            keepOpen, at);
     }
 
     private void Drag()
@@ -1594,27 +1545,6 @@ internal sealed partial class DrawerWindow : Window
             Play(DrawerMoves.Spring(NewMoment(shown, side), TopDown(shown), _tug));
             _tug = 0;
         }
-    }
-
-    private void ChangeLook(Bot bot, string shape, string color)
-    {
-        bot.Shape = shape;
-        bot.Color = color;
-        DrawerStore.Shared.SetLook(bot.Provider, shape, color);
-        var index = bot.Index;
-        var swatch = SwatchOf(bot);
-        void Swap()
-        {
-            _engine?.SetLook(index, shape, color);
-            _slots[index].Swatch = swatch;
-            _slots[index].NextStep = 0;
-        }
-        // M20: the bot turns like a coin and its new look swaps in edge-on.
-        if (_shown && bot.Visible && !_reducedMotion && _theme == CharacterTheme.Classic && _moment is null)
-        {
-            Play(DrawerMoves.Flip(NewMoment(_scene.Shown, DrawerStore.Shared.Side), index, Swap));
-        }
-        else _commands.Enqueue(Swap);
     }
 
     /// AGENTISLAND_DEBUG_DRAWER_STATS: game-loop rate and process CPU, once a

@@ -9,23 +9,17 @@ using Microsoft.UI.Xaml.Media;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// A character's right-click menu: its look, which characters the drawer
-/// shows, which edge it docks to, and the app's windows.
+/// A character's right-click menu: which characters the drawer shows, which
+/// edge it docks to, and the app's windows.
 internal static class DrawerMenu
 {
     /// Under Classic the title's mark loads first: an icon swapped in while
     /// the menu is open closes it.
     public static async Task ShowAsync(
         DisplayProvider provider,
-        string shape,
-        string color,
-        IReadOnlyList<string>? shapes,
-        IReadOnlyList<string>? colors,
         IReadOnlyList<(DisplayProvider Provider, bool Requested)> requestedVisibility,
-        Action<string, string> changeLook,
         bool keepOpen = false,
-        Windows.Graphics.PointInt32? at = null,
-        double scale = 1)
+        Windows.Graphics.PointInt32? at = null)
     {
         var pixel = Looks.Pixel;
         var dark = Brand.IsDark();
@@ -47,33 +41,6 @@ internal static class DrawerMenu
         }
         menu.Items.Add(title);
         menu.Items.Add(new MenuFlyoutSeparator());
-
-        if (shapes is not null && colors is not null)
-        {
-            var shapeMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Shape"), Icon = MenuHost.Glyph("\uE76E") };
-            foreach (var option in shapes)
-            {
-                var item = new RadioMenuFlyoutItem { Text = DrawerLooks.ShapeLabel(option), GroupName = "shape", IsChecked = option == shape };
-                item.Click += (_, _) => changeLook(option, color);
-                shapeMenu.Items.Add(item);
-            }
-            var colorMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Color"), Icon = MenuHost.Glyph("\uE790") };
-            foreach (var option in colors)
-            {
-                var item = new RadioMenuFlyoutItem
-                {
-                    Text = DrawerLooks.ColorLabel(option),
-                    GroupName = "color",
-                    IsChecked = option == color,
-                    Icon = new ImageIcon { Source = FaceBitmap.Of(Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(option), dark)), 16, scale) },
-                };
-                item.Click += (_, _) => changeLook(shape, option);
-                colorMenu.Items.Add(item);
-            }
-            menu.Items.Add(shapeMenu);
-            menu.Items.Add(colorMenu);
-            menu.Items.Add(new MenuFlyoutSeparator());
-        }
 
         // Hiding one takes it out of the menus and the Cost window as well.
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Shown agents"), Icon = MenuHost.Glyph("\uE890") };

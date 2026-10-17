@@ -6,11 +6,10 @@ using Microsoft.ClearScript.V8;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// The Classic bots in embedded V8: Characters/classic.mjs is the approved
-/// round 3 engine from windows/notes/classic-grok-20261015, with resting and
-/// idle-only fidgets (sha256 28b43507…), our own code, shipped with the app. Twelve shapes in eleven
-/// colours, picked per bot in its menu; frames are vector SVG, drawn
-/// antialiased.
+/// The Classic bots in embedded V8: Characters/classic.mjs is the desk
+/// companions engine from windows/notes/classic-grok-20261015/companions
+/// (sha256 937db3ce…), our own code, shipped with the app. One companion
+/// per agent, in its own colour; frames are vector SVG, drawn antialiased.
 internal sealed class ClassicEngine : ICharacterEngine
 {
     public const string EngineFile = "classic.mjs";
@@ -22,15 +21,11 @@ internal sealed class ClassicEngine : ICharacterEngine
         const bots = [];
         globalThis.agentIslandClassic = {
             phases: () => lib.PHASES.join(','),
-            shapes: () => lib.SHAPE_NAMES.join(','),
-            colors: () => lib.COLORS.join(','),
-            shapeFor: name => lib.shapeFor(name) ?? '',
             fidgets: kind => lib.fidgetsOf(kind).join(','),
-            add(kind, shape, color, seed, tempo) {
-                bots.push(lib.createBot(kind, { seed, tempo, rim: true, shape, color }));
+            add(kind, seed, tempo) {
+                bots.push(lib.createBot(kind, { seed, tempo, rim: true }));
                 return bots.length - 1;
             },
-            setLook(i, shape, color) { bots[i].setLook(shape, color); },
             setState(i, state, phase) { bots[i].setState(state, phase); },
             setGaze(i, dx, dy) { bots[i].setGaze(dx, dy); },
             clearGaze(i) { bots[i].clearGaze(); },
@@ -62,8 +57,6 @@ internal sealed class ClassicEngine : ICharacterEngine
             _engine.Execute(new DocumentInfo(hostUri) { Category = ModuleCategory.Standard }, HostModule);
             _host = (ScriptObject)_engine.Script.agentIslandClassic;
             _phases = ((string)_host.InvokeMethod("phases")).Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
-            Shapes = ((string)_host.InvokeMethod("shapes")).Split(',');
-            Colors = ((string)_host.InvokeMethod("colors")).Split(',');
             foreach (var provider in DisplayProviders.All)
             {
                 var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.Kind(provider));
@@ -79,21 +72,8 @@ internal sealed class ClassicEngine : ICharacterEngine
 
     public CharacterTheme Theme => CharacterTheme.Classic;
 
-    /// The shapes and colours for the look picker, in menu order.
-    public IReadOnlyList<string> Shapes { get; }
-
-    public IReadOnlyList<string> Colors { get; }
-
-    /// The shape drawn for a saved name, or null when none fits: the Grok Bot
-    /// study copy's names map to the nearest (square to squircle, and so on).
-    public string? ShapeFor(string name) =>
-        (string)_host.InvokeMethod("shapeFor", name) is { Length: > 0 } shape ? shape : null;
-
-    public int AddBot(DisplayProvider provider, string shape, string color, double tempo, int seed) =>
-        Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), shape, color, seed, tempo));
-
-    /// Takes effect on the bot's next frame.
-    public void SetLook(int bot, string shape, string color) => _host.InvokeMethod("setLook", bot, shape, color);
+    public int AddBot(DisplayProvider provider, double tempo, int seed) =>
+        Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), seed, tempo));
 
     public void SetState(int bot, string state, double phase) => _host.InvokeMethod("setState", bot, state, phase);
 

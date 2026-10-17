@@ -154,11 +154,6 @@ internal sealed class AgentSection
         }
         Expander.Items.Add(_signIn);
         if (provider == DisplayProvider.Claude) Expander.Items.Add(PromptHookCard(root));
-
-        if (App.Current.Drawer is { Shapes: { } shapes, Colors: { } colors } drawer)
-        {
-            Expander.Items.Add(LookCard(drawer, shapes, colors));
-        }
     }
 
     public SettingsExpander Expander { get; }
@@ -431,9 +426,7 @@ internal sealed class AgentSection
     private Windows.UI.Color Accent()
     {
         if (Looks.Pixel) return PixelTokens.Agent(_provider, Brand.IsDark());
-        var swatch = App.Current.Drawer?.SwatchOf(_provider)
-            ?? DrawerLooks.Swatch(_provider, DrawerLooks.For(_provider).Color, DrawerStore.Shared.Theme);
-        return Brand.Rgb(Brand.Readable(swatch, Brand.IsDark()));
+        return Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(_provider, DrawerStore.Shared.Theme), Brand.IsDark()));
     }
 
     private static string MeterTitle(string label) => label switch
@@ -476,50 +469,6 @@ internal sealed class AgentSection
             },
             HeaderIcon = Icon("\uE8D7"),
             Content = toggle,
-        };
-    }
-
-    private SettingsCard LookCard(Drawer.DrawerWindow drawer, IReadOnlyList<string> shapes, IReadOnlyList<string> colors)
-    {
-        var (shape, color) = drawer.LookOf(_provider);
-        var shapeBox = new ComboBox { MinWidth = 130 };
-        UseKit(shapeBox);
-        Name(shapeBox, "Shape", L10n.Tr("Shape"));
-        foreach (var option in shapes) shapeBox.Items.Add(DrawerLooks.ShapeLabel(option));
-        shapeBox.SelectedIndex = Math.Max(0, shapes.ToList().IndexOf(shape));
-        var colorBox = new ComboBox { MinWidth = 150 };
-        UseKit(colorBox);
-        Name(colorBox, "Color", L10n.Tr("Color"));
-        var dark = Brand.IsDark();
-        foreach (var option in colors)
-        {
-            var optionPanel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 8,
-                Children =
-                {
-                    new FaceChip(14, Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(option), dark))) { VerticalAlignment = VerticalAlignment.Center },
-                    new TextBlock { Text = DrawerLooks.ColorLabel(option), VerticalAlignment = VerticalAlignment.Center },
-                },
-            };
-            AutomationProperties.SetName(optionPanel, DrawerLooks.ColorLabel(option));
-            colorBox.Items.Add(optionPanel);
-        }
-        colorBox.SelectedIndex = Math.Max(0, colors.ToList().IndexOf(color));
-        void Apply()
-        {
-            if (shapeBox.SelectedIndex < 0 || colorBox.SelectedIndex < 0) return;
-            drawer.SetLook(_provider, shapes[shapeBox.SelectedIndex], colors[colorBox.SelectedIndex]);
-        }
-        shapeBox.SelectionChanged += (_, _) => Apply();
-        colorBox.SelectionChanged += (_, _) => Apply();
-        return new SettingsCard
-        {
-            Header = L10n.Tr("Character"),
-            Description = L10n.Tr("How this agent looks in the drawer"),
-            HeaderIcon = Icon("\uE790"),
-            Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { shapeBox, colorBox } },
         };
     }
 

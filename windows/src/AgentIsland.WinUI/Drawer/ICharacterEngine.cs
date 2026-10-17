@@ -2,18 +2,16 @@ using AgentIsland.Model;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// What the drawer needs from a character set: one bot per provider, added
-/// in drawer order so engine indices match the drawer's, driven by state
-/// names and handing back one SVG per bot per tick. The pixel and Classic
-/// engines both run in V8 behind it.
+/// What the drawer needs from a character set: one bot per provider, each in
+/// its one look (neither set has a look picker), added in drawer order so
+/// engine indices match the drawer's, driven by state names and handing back
+/// one SVG per bot per tick. The pixel and Classic engines both run in V8
+/// behind it.
 internal interface ICharacterEngine : IDisposable
 {
     CharacterTheme Theme { get; }
 
-    int AddBot(DisplayProvider provider, string shape, string color, double tempo, int seed);
-
-    /// Recolours or reshapes a bot; a no-op for sets with one look per bot.
-    void SetLook(int bot, string shape, string color);
+    int AddBot(DisplayProvider provider, double tempo, int seed);
 
     /// phase is where in its cycle the state starts (0-1); negative lets the
     /// engine pick, so bots entering a state together never move as one.

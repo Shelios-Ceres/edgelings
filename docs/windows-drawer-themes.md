@@ -7,10 +7,10 @@ chosen in **Settings → Drawer → Character style** and switched live:
 
 | | Pixel (default) | Classic |
 |---|---|---|
-| Characters | Seven pixel bots, one per agent, from a bundled engine | Twelve recolourable shapes in eleven colours, from a bundled engine |
+| Characters | Seven pixel bots, one per agent, from a bundled engine | Six desk companions from a bundled engine (Cursor shares Grok's planet, in its own colour); flat vector, no look picker |
 | Panels | Opaque pixel panels, English, in the Ark Pixel font | Paper with a soft tail and shadow, in the app language |
 | Settings and menus | The pixel kit (`Shell/PixelTheme.xaml`) | The Classic kit (`Shell/ClassicTheme.xaml`): rounder Fluent with the Sky accent |
-| Agent colour | Each bot's own colour | The colour picked in the bot's right-click menu |
+| Agent colour | Each bot's own colour | Each companion's own colour |
 
 This document is the contract for adding a theme: what it **must** provide,
 what it **may** change, what it **must not** touch, how to wire it in and how
@@ -141,11 +141,6 @@ It must export:
 | `swatchOf(kind)` | The bot's colour, as `0xRRGGBB` |
 | `settleOf(state)` | A one-shot state's resting state, else `null` |
 
-A theme with a look picker, like Classic, also exports `SHAPE_NAMES`,
-`COLORS`, `colorOf(color)` and `shapeFor(name)` (the shape drawn for a saved
-name, mapping old names to the nearest), takes `shape` and `color` in
-`createBot`, and gives each bot `setLook(shape, color)`.
-
 And a bot must offer:
 
 | Member | Meaning |
@@ -223,7 +218,7 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   smooth vector motion may follow the display.
 - The numbers of the drawer's moments: how bots slide in and out (reveal,
   hide, a bot shown or hidden, an edge switch), lift and land when the
-  drawer is dragged, refuse a locked drag, and change look. The moments
+  drawer is dragged, and refuse a locked drag. The moments
   themselves are the app's (`Drawer/DrawerMoment.cs`, on the clock and curves
   in `Shell/Motion.cs`): Pixel steps whole 2-DIP cells on a 30-tick clock,
   and Classic eases on cubic Béziers over Fluent's 83 to 500 ms durations.
@@ -260,8 +255,6 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
 - **Saved settings.** The theme is saved by name under
   `AgentIsland.drawer.theme`. Add `CharacterTheme` values; never rename or
   reorder existing ones, or users' choices are lost.
-- **The look picker.** Shape and colour picking belongs to Classic. A theme
-  with fixed looks reports no shapes or colours, and the menus hide it.
 
 ## 6. Crisp pixels (grid-based themes)
 
@@ -288,14 +281,13 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
    `CopyToOutputDirectory`, and list it in `Drawer/Characters/.gitattributes`
    with `-text` so line-ending conversion never changes its bytes.
 2. **Host.** Add a class implementing `ICharacterEngine`: copy `PixelEngine`
-   (or `ClassicEngine`, for a look picker), which keeps one host module,
-   crosses into V8 once per frame for every bot and turns the drawer's gaze
-   box into a pointer offset.
+   or `ClassicEngine`, which keep one host module, cross into V8 once per
+   frame for every bot and turn the drawer's gaze box into a pointer offset.
 3. **Theme value.** Append to `CharacterTheme` in
    `AgentIsland.Core/Model/DrawerStore.cs`.
 4. **Rules.** In `AgentIsland.Core/Model/DrawerLooks.cs`: each agent's kind,
    `Entry` and `Hold` for every phase, `IsCalm`, `IsOneShot`, the swatches
-   and `Swatch(provider, color, theme)`.
+   and `Swatch(provider, theme)`.
 5. **Engine choice and pacing.** Create the host in
    `DrawerWindow.CreateEngine`; give the theme its frame-rate rule in `Step`
    and `Pace`, and aliased drawing in `OnDraw` if it is grid-based.
@@ -333,7 +325,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
-  | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and every bot idle, reading, asking, sending, in orbit, finished and locked |
+  | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and a sheet of every bot in each state a phase plays (resting too, where its set draws it), in each of its fidgets, and poked while it rests |
   | `AGENTISLAND_DEBUG_POPUP_FILM=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, steps the card's and the bubbles' moments by hand and saves each as a strip of its frames, printed from the test window so the paper's shadow shows; every agent's card among them, in two columns there |
   | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
   | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings |
@@ -388,19 +380,23 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 10. Reference: the Classic theme
 
-- **Engine**: `Drawer/Characters/classic.mjs`, approved round 3 with
-  `resting` and idle-only fidgets (2026-10-17), SHA-256
-  `28b43507981704c750d83225bf789882e8092726eeab784452a3605f14f3b007`; vector
+- **Engine**: `Drawer/Characters/classic.mjs`, the desk companions approved
+  2026-10-17, SHA-256
+  `937db3ce938a446390f861aeb41ab4f9f42d3a418fc2aa84d6e0fcf7c700edc5`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
-  frames up to 1,740 bytes. Each of the twelve shapes stands on its own
-  baseline, and every frame stays within the circle (22 DIP of the centre).
-- **Swatches**: the colour picked in each bot's menu (`DrawerLooks.Swatch`,
-  the engine's `colorOf`); on dark surfaces a near-black one is lifted to
+  frames up to 3.2 KB. Each agent is a desk object with a face: Claude a
+  succulent, Codex a mug, Antigravity a paper plane, Grok a planet (Cursor
+  shares it, in its own colour), Kimi Code a moon lamp and DeepSeek a whale
+  stapler. Each works its own mechanism through the work states; the only
+  badges are asking's "?" and approving's "!", each made of its companion's
+  world. Every frame stays within the circle (22 DIP of the centre).
+- **Swatches**: each companion's own colour (`DrawerLooks.ClassicSwatch`,
+  the engine's `swatchOf`); on dark surfaces a near-black one is lifted to
   `#D6D6D6`.
 
-  | black | brown | red | orange | yellow | green | cyan | violet | magenta | gray | blue |
-  |---|---|---|---|---|---|---|---|---|---|---|
-  | `#24252C` | `#9C6B45` | `#F04A55` | `#FF7A2E` | `#FFB51F` | `#22BF7A` | `#17B5C7` | `#8E63F5` | `#E9529E` | `#858A96` | `#2D8CFF` |
+  | Claude | Codex | Antigravity | Grok | Cursor | Kimi Code | DeepSeek |
+  |---|---|---|---|---|---|---|
+  | `#D97757` | `#2D8CFF` | `#8E63F5` | `#6E7480` | `#24252C` | `#1D4E9E` | `#4D6BFE` |
 
 - **Panel colours**:
 
