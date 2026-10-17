@@ -292,13 +292,17 @@ internal sealed class HoverCard : IDisposable
             Play(83, t => _host.Opacity = (float)Motion.Linear(t / 83), CompletePresentation);
             return;
         }
+        Play(250, t => Opening(request, t), CompletePresentation);
+    }
+
+    /// Classic's M3 open, ms in: it fades in over 167 ms and grows from 0.9
+    /// over 250, drifting in 8 DIP from the bot's side.
+    private void Opening(Request request, double ms)
+    {
         var drift = request.CharacterRight ? 8.0 : -8.0;
-        Play(250, t =>
-        {
-            _host.Opacity = (float)Motion.Linear(t / 167);
-            _host.Scale = Uniform(Lerp(0.9, 1, Motion.SoftPop(t / 250)));
-            _host.Translation = Target + new Vector3((float)Lerp(drift, 0, Motion.Out(t / 250)), 0, 0);
-        }, CompletePresentation);
+        _host.Opacity = (float)Motion.Linear(ms / 167);
+        _host.Scale = Uniform(Lerp(0.9, 1, Motion.SoftPop(ms / 250)));
+        _host.Translation = Target + new Vector3((float)Lerp(drift, 0, Motion.Out(ms / 250)), 0, 0);
     }
 
     /// A card on its way out comes back, from the frame on screen.
@@ -355,12 +359,19 @@ internal sealed class HoverCard : IDisposable
             }, CompletePresentation);
             return;
         }
+        var left = (double)_host.Translation.X;
         var top = (double)_host.Translation.Y;
+        var width = _width;
         var height = _plateHeight;
         var aim = _aim;
         var reach = _reach;
         var outgoing = Detach();
         Present(request);
+        if (Math.Abs(_width - width) > 0.5)
+        {
+            SwitchWidth(request, outgoing, new Rect(left, top, width, height), aim - top, reach);
+            return;
+        }
         Whole();
         _card.Opacity = 0;
         var top1 = _bounds.Top;
@@ -384,6 +395,50 @@ internal sealed class HoverCard : IDisposable
         });
     }
 
+    /// M3 switch to a card of another width under Classic (to or from the
+    /// all-agents card in columns): the paper can't glide between widths, so
+    /// the old card fades out over 83 ms on its own paper while the new one
+    /// opens (M3) from 42 ms, the new over the old, and the card never reads
+    /// blank. old is the old paper in drawer DIPs, aim and reach its tail's.
+    private void SwitchWidth(Request request, Border outgoing, Rect old, double aim, double reach)
+    {
+        _host.Children.Remove(outgoing);
+        _outgoing = null;
+        var paper = new PaperPlate();
+        paper.Set(old.Width, old.Height, radius: 16, halfBase: 10, reach: reach, pointLeft: !request.CharacterRight,
+            tailY: reach > 0.01 ? aim : null, ClassicTokens.Get("Paper", request.Dark), ClassicTokens.Get("Hairline", request.Dark));
+        var leaving = new Grid
+        {
+            IsHitTestVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Translation = new Vector3((float)old.Left, (float)old.Top, 0),
+            Children = { paper, outgoing },
+        };
+        Canvas.SetLeft(leaving, Canvas.GetLeft(_host));
+        Canvas.SetTop(leaving, Canvas.GetTop(_host));
+        _stage.Children.Insert(0, leaving);
+        Rest();
+        Play(42 + 250, t =>
+        {
+            leaving.Opacity = (float)(1 - Motion.Linear(t / 83));
+            Opening(request, t - 42);
+        }, CompletePresentation);
+        _leaving = leaving;
+    }
+
+    // The old card fading out of a switch between widths.
+    private Grid? _leaving;
+
+    private void EndLeaving()
+    {
+        if (_leaving is not { } leaving) return;
+        _leaving = null;
+        _stage.Children.Remove(leaving);
+        foreach (var layer in leaving.Children.OfType<Border>()) layer.Child = null;
+        leaving.Children.Clear();
+    }
+
     /// M4 under Classic: the paper glides to the new content's height and
     /// tail over 250 ms on inOut; each text that changed fades out over 83 ms
     /// as its new reading fades in after it over 167, settling 3 DIP, while
@@ -394,6 +449,7 @@ internal sealed class HoverCard : IDisposable
     private void Refresh(Request request)
     {
         var top = (double)_host.Translation.Y;
+        var width = _width;
         var height = _plateHeight;
         var aim = _aim;
         var reach = _reach;
@@ -403,6 +459,13 @@ internal sealed class HoverCard : IDisposable
         _recount = true;
         Present(request);
         _recount = false;
+        if (Math.Abs(_width - width) > 0.5)
+        {
+            // The all-agents card gained or lost a column: it swaps at once.
+            Drop(outgoing);
+            Rest();
+            return;
+        }
         Whole();
         var top1 = _bounds.Top;
         var height1 = _contentSize.Height;
@@ -525,15 +588,15 @@ internal sealed class HoverCard : IDisposable
     {
         _pixelPlate.Visibility = request.Pixel ? Visibility.Visible : Visibility.Collapsed;
         _paper.Visibility = request.Pixel ? Visibility.Collapsed : Visibility.Visible;
-        if (_contentKey != request.Key)
+        var room = Room(request);
+        if (_contentKey != request.Key || _room != room)
         {
             _dark = request.Dark;
             _paperInk = !request.Pixel;
             _card.Padding = request.Pixel ? PixelPadding : PaperPadding;
-            _width = request.Pixel ? PixelCardWidth : CardWidth;
+            using (request.Pixel ? L10n.English() : null) Build(request);
             _card.Width = _host.Width = _width;
-            using (request.Pixel ? L10n.English() : null) Build(request.Sections, request.Pixel);
-            if (request.Pixel) UsePixelFace(_body, PixelPlate.FontSize(request.Scale));
+            _room = room;
             _builds++;
             _card.Measure(new Size(_width, double.PositiveInfinity));
             _contentSize = _card.DesiredSize;
@@ -685,6 +748,7 @@ internal sealed class HoverCard : IDisposable
     {
         _motion?.Stop();
         _motion = null;
+        EndLeaving();
         if (_outgoing is { } layer) Drop(layer);
         // A refresh cut short (a close, a switch) leaves its texts mid-swap;
         // the same content shown again isn't rebuilt.
@@ -731,20 +795,134 @@ internal sealed class HoverCard : IDisposable
         _size.Dispose();
     }
 
-    private void Build(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel)
+    /// The room the all-agents card has: its height on the screen, and its
+    /// width beside the drawer. One character's card needs none.
+    private static Size Room(Request request)
     {
+        if (request.Sections.Count < 2) return default;
+        var beside = request.CharacterRight
+            ? request.Anchor.Left - Gap - request.Area.Left
+            : request.Area.Right - request.Anchor.Right - Gap;
+        return new Size(Math.Max(0, beside - 6), Math.Max(0, request.Area.Height - 12));
+    }
+
+    // The room the content was built for.
+    private Size _room;
+
+    /// The card's sections, divided. The all-agents card stands in one
+    /// column while it fits the screen's height; past it, its sections run
+    /// down one column and on to the next, in as few columns as fit, cut so
+    /// the tallest is as short as it can be, each column as wide as one
+    /// character's card, with a divider between them.
+    private void Build(Request request)
+    {
+        var pixel = request.Pixel;
         _body.Children.Clear();
         _built = new();
         _counting.Clear();
+        var padding = pixel ? PixelPadding : PaperPadding;
+        var column = (pixel ? PixelCardWidth : CardWidth) - padding.Left - padding.Right;
+        var sections = request.Sections.Select(section =>
+        {
+            var built = Section(section.Card, section.Swatch, pixel);
+            if (pixel) ApplyPixelFace(built, PixelPlate.FontSize(request.Scale));
+            return built;
+        }).ToList();
+        var columns = Columns(sections, column, pixel, Room(request));
+        _width = padding.Left + columns.Count * column + (columns.Count - 1) * Gutter(pixel) + padding.Right;
+        if (columns.Count == 1)
+        {
+            Stack(_body, sections, column, pixel);
+            _shares = _built;
+            return;
+        }
+        var grid = new Grid();
+        var tallest = 0.0;
+        for (var c = 0; c < columns.Count; c++)
+        {
+            if (c > 0) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gutter(pixel)) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(column) });
+            var stack = new StackPanel();
+            Stack(stack, columns[c], column, pixel);
+            Grid.SetColumn(stack, 2 * c);
+            grid.Children.Add(stack);
+            tallest = Math.Max(tallest, Tall(columns[c], pixel));
+        }
+        for (var c = 1; c < columns.Count; c++)
+        {
+            var rule = Rule(pixel, tallest);
+            Grid.SetColumn(rule, 2 * c - 1);
+            grid.Children.Add(rule);
+        }
+        _body.Children.Add(grid);
+        _shares = _built;
+    }
+
+    /// The sections in columns, as few as fit the room's height and width,
+    /// each run as short as the cut allows; one column if none fits beside
+    /// the drawer.
+    private static List<List<UIElement>> Columns(List<UIElement> sections, double column, bool pixel, Size room)
+    {
+        var one = new List<List<UIElement>> { sections };
+        if (sections.Count < 2) return one;
+        foreach (var section in sections) section.Measure(new Size(column, double.PositiveInfinity));
+        var padding = pixel ? PixelPadding : PaperPadding;
+        var height = room.Height - padding.Top - padding.Bottom;
+        if (Tall(sections, pixel) <= height) return one;
+        List<List<UIElement>>? best = null;
+        var shortest = double.MaxValue;
+        for (var count = 2; count <= sections.Count; count++)
+        {
+            if (padding.Left + count * column + (count - 1) * Gutter(pixel) + padding.Right > room.Width) break;
+            var (cuts, tallest) = Cut(sections, 0, count, pixel);
+            if (tallest >= shortest) continue;
+            shortest = tallest;
+            best = new List<List<UIElement>>();
+            var from = 0;
+            foreach (var to in cuts.Append(sections.Count))
+            {
+                best.Add(sections.GetRange(from, to - from));
+                from = to;
+            }
+            if (tallest <= height) break;
+        }
+        return best ?? one;
+    }
+
+    /// Where to cut the sections from `from` on into `count` runs so the
+    /// tallest is as short as it can be: the index each later run starts
+    /// at. Of equal cuts the earlier runs take more.
+    private static (List<int> Cuts, double Tallest) Cut(List<UIElement> sections, int from, int count, bool pixel)
+    {
+        if (count == 1) return (new List<int>(), Tall(sections.GetRange(from, sections.Count - from), pixel));
+        (List<int> Cuts, double Tallest) best = (new List<int>(), double.MaxValue);
+        for (var cut = from + 1; cut <= sections.Count - count + 1; cut++)
+        {
+            var rest = Cut(sections, cut, count - 1, pixel);
+            var tallest = Math.Max(Tall(sections.GetRange(from, cut - from), pixel), rest.Tallest);
+            if (tallest <= best.Tallest) best = (rest.Cuts.Prepend(cut).ToList(), tallest);
+        }
+        return best;
+    }
+
+    /// A column's height: its measured sections and the dividers between.
+    private static double Tall(List<UIElement> sections, bool pixel) =>
+        sections.Sum(section => section.DesiredSize.Height) + (sections.Count - 1) * (pixel ? 2 * 9 + PixelPlate.Cell : 2 * 10 + 1);
+
+    /// Between columns: the padding on each side of a divider.
+    private static double Gutter(bool pixel) => (pixel ? PixelPadding.Left : PaperPadding.Left) * 2 + (pixel ? PixelPlate.Cell : 1);
+
+    /// Sections one under another, a divider between each two.
+    private static void Stack(Panel panel, List<UIElement> sections, double width, bool pixel)
+    {
         for (var i = 0; i < sections.Count; i++)
         {
-            var (card, swatch) = sections[i];
             if (i > 0)
             {
-                _body.Children.Add(pixel
+                panel.Children.Add(pixel
                     ? new Line
                     {
-                        X2 = _width - PixelPadding.Left - PixelPadding.Right,
+                        X2 = width,
                         StrokeThickness = PixelPlate.Cell,
                         StrokeDashArray = new DoubleCollection { 1, 1 },
                         Stroke = Res<Brush>("DividerStrokeColorDefaultBrush"),
@@ -757,10 +935,31 @@ internal sealed class HoverCard : IDisposable
                         Margin = new Thickness(0, 10, 0, 10),
                     });
             }
-            _body.Children.Add(Section(card, swatch, pixel));
+            panel.Children.Add(sections[i]);
         }
-        _shares = _built;
     }
+
+    /// The divider between columns, down the tallest: Pixel's dashed a cell
+    /// wide on whole cells, Classic's a hairline.
+    private static FrameworkElement Rule(bool pixel, double height) => pixel
+        ? new Line
+        {
+            X1 = PixelPlate.Cell / 2,
+            X2 = PixelPlate.Cell / 2,
+            Y2 = Math.Floor(height / PixelPlate.Cell) * PixelPlate.Cell,
+            Width = PixelPlate.Cell,
+            StrokeThickness = PixelPlate.Cell,
+            StrokeDashArray = new DoubleCollection { 1, 1 },
+            Stroke = Res<Brush>("DividerStrokeColorDefaultBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+        }
+        : new Rectangle
+        {
+            Width = 1,
+            Fill = Res<Brush>("DividerStrokeColorDefaultBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
 
     /// Every line of a pixel panel in the pixel face, at a size that keeps
     /// its pixels whole. Weights stay regular: the face has no bold, and a
@@ -1113,6 +1312,7 @@ internal sealed class HoverCard : IDisposable
     private void Play(double ms, Action<double> frame, Action completed)
     {
         _motion?.Stop();
+        EndLeaving();
         _animating = true;
         _transitions++;
         var generation = ++_generation;

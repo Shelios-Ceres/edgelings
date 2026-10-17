@@ -385,6 +385,17 @@ internal sealed class HoverCardPreview : Window
             await Task.Delay(500);
             await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-row-gone-{name}.png"), () => ShowRefreshed(Refreshed(longer)), _pixel, Crop(card), before: true);
             _card.Hide();
+            // M3 for the all-agents card, which takes a second column here: it
+            // opens, gives way to one character's card, and closes.
+            var all = new Rect(area.Right - 92 - 10 - 580, area.Top, 620, area.Height);
+            await Film(Path.Combine(directory, $"m3-all-open-{name}.png"), all, ShowAll);
+            await Film(Path.Combine(directory, $"m3-all-switch-{name}.png"), all, () => ShowTarget(1));
+            _card.Hide();
+            ShowAll();
+            UiMoment.Finish();
+            await Task.Delay(500);
+            await Film(Path.Combine(directory, $"m3-all-close-{name}.png"), all, () => _card.Hide(animated: true));
+            _card.Hide();
             var bubble = new Rect(area.Right - 92 - 10 - 260, Anchor(0).Top - 70, 340, 190);
             _bubble ??= new SpeechBubble(_surface, inWindow: true);
             foreach (var kind in Enum.GetValues<LineKind>())
@@ -430,6 +441,11 @@ internal sealed class HoverCardPreview : Window
             return new() { (frame, x0, y0, w, h) };
         };
     }
+
+    /// Every synthetic character's card at once, as the drawer's Reveal shows it.
+    private void ShowAll() =>
+        _card.Show(Names.Select((_, i) => (Card(i), Swatches[i])).ToArray(), _pixel, characterRight: true,
+            Anchor(1), Area, reducedMotion: _reduced.IsChecked == true || Motion.ReducedMotion);
 
     private void ShowRefreshed(StatusCard card) =>
         _card.Show(new[] { (card, Swatches[1]) }, _pixel, characterRight: true, Anchor(1), Area, Motion.ReducedMotion);

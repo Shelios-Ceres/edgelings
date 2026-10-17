@@ -1292,7 +1292,21 @@ internal sealed partial class DrawerWindow : Window
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
         var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, height / 2 - BotSize / 2, BotSize, BotSize);
         _card.Show(sections, pixel, DrawerStore.Shared.Side == DrawerSide.Right, anchor,
-            WorkAreaDip(), _reducedMotion, retarget);
+            CardArea(), _reducedMotion, retarget);
+    }
+
+    /// Where the card may go: the screen's work area, or with
+    /// AGENTISLAND_DEBUG_WORK_HEIGHT=<DIP> only that much of it, to check the
+    /// all-agents card's columns as on a shorter screen.
+    private Rect CardArea()
+    {
+        var area = WorkAreaDip();
+        if (double.TryParse(Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_WORK_HEIGHT"), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var height) && height > 0 && height < area.Height)
+        {
+            area.Height = height;
+        }
+        return area;
     }
 
     /// Closes the card once the pointer is off every character; the region
