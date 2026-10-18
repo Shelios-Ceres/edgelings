@@ -42,7 +42,7 @@ internal static class DrawerMenu
         menu.Items.Add(title);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        // Hiding one takes it out of the menus and the Cost window as well.
+        // Hiding one takes it out of the menus and Usage & cost as well.
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Shown agents"), Icon = MenuHost.Glyph("\uE890") };
         foreach (var (other, on) in DrawerVisibility.Switches(requestedVisibility))
         {

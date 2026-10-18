@@ -132,14 +132,14 @@ internal static class SettingsUi
     }
 
     /// Every switch that shows or hides an agent, named and explained alike:
-    /// hiding one takes it out of the drawer, its menus and the Cost window.
+    /// hiding one takes it out of the drawer, its menus and Usage & cost.
     public static void NameShownSwitch(ToggleSwitch toggle, string agent)
     {
         // Once: an order row is renamed as it moves, and a tooltip replaced
         // while open would stay on screen.
         if (ToolTipService.GetToolTip(toggle) is null)
         {
-            ToolTipService.SetToolTip(toggle, Tip(L10n.Tr("Show in the drawer, its menus and the Cost window")));
+            SetTip(toggle, L10n.Tr("Show in the drawer, its menus and Usage & cost"));
         }
         AutomationProperties.SetName(toggle, L10n.TrFormat("Show {0}", agent));
     }
@@ -289,9 +289,14 @@ internal static class SettingsUi
         block.Blocks.Add(line);
     }
 
-    /// A tooltip in the current look; tooltips open in popups, beyond the
-    /// window's styles.
-    public static object Tip(string text) => new ToolTip { Content = text, Style = Looks.Kit<Style>("ToolTipStyle") };
+    /// A tooltip in the current look (tooltips open in popups, beyond the
+    /// window's styles) that closes as the pointer leaves its owner.
+    public static void SetTip(FrameworkElement owner, string text)
+    {
+        var tip = new ToolTip { Content = text, Style = Looks.Kit<Style>("ToolTipStyle") };
+        ToolTipService.SetToolTip(owner, tip);
+        tip.Opened += (_, _) => TipGuard.Watch(tip, owner);
+    }
 
     public static async Task Alert(XamlRoot root, string title, string message)
     {

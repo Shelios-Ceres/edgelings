@@ -86,7 +86,7 @@ internal sealed class AgentSection
         grip.VerticalAlignment = VerticalAlignment.Center;
         Grip = new DragGrip { Width = GripWidth, VerticalAlignment = VerticalAlignment.Top, Children = { grip } };
         Name(Grip, "Grip", L10n.Tr("Drag to reorder"));
-        ToolTipService.SetToolTip(Grip, L10n.Tr("Drag to reorder"));
+        SetTip(Grip, L10n.Tr("Drag to reorder"));
         if (_pixel)
         {
             Shadow = new PixelSurface { Fill = Res<Brush>("PixelShadow"), Outline = Res<Brush>("PixelShadow"), Visibility = Visibility.Collapsed };

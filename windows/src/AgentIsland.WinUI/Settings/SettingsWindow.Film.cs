@@ -31,12 +31,21 @@ internal sealed partial class SettingsWindow
         {
             window.SelectPage(Page.Agents);
             await Task.Delay(800);
-            if (Descendants(window._scroll).Select(ToolTipService.GetToolTip).OfType<ToolTip>().FirstOrDefault() is { } tip)
+            // A shown switch's tip, the longest on the page.
+            if (window._agents.Values.Select(section => ToolTipService.GetToolTip(section.ShownSwitch)).OfType<ToolTip>().FirstOrDefault() is { } tip)
             {
                 var before = UiMoment.Latest;
                 tip.IsOpen = true;
                 if (await PopupPrint.NextMoment(before) is { } moment) await PopupPrint.FilmAsync(Path.Combine(directory, $"m14-tooltip-{name}.png"), moment, pixel);
                 tip.IsOpen = false;
+                // A closed tip's popup goes with it; a Closed state that never
+                // completes once left every one on screen.
+                await Task.Delay(300);
+                if (window.Content.XamlRoot is { } tipRoot)
+                {
+                    var left = VisualTreeHelper.GetOpenPopupsForXamlRoot(tipRoot).Count(popup => popup.Child is ToolTip);
+                    DebugTrace.Write($"tooltip popups open after closing: {left}");
+                }
             }
             window.SelectPage(Page.Drawer);
             await Task.Delay(800);

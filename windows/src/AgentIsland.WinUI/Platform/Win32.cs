@@ -55,6 +55,9 @@ internal static class Win32
     public static extern bool GetCursorPos(out POINT point);
 
     [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]

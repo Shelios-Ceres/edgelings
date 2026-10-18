@@ -593,7 +593,7 @@ internal sealed partial class CostPage : IDisposable
                     Fill = unpriced ? fill : idle,
                     Opacity = unpriced ? 1 : 0.35,
                 };
-            ToolTipService.SetToolTip(column, Tip(tip));
+            SetTip(column, tip);
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
             var quiet = !(value > 0 && max > 0);
@@ -628,7 +628,7 @@ internal sealed partial class CostPage : IDisposable
             {
                 for (var b = 0; b < Math.Max(1, blocks); b++) column.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Height = 4, Fill = blocks > 0 ? fill : idle });
             }
-            ToolTipService.SetToolTip(column, Tip(tip));
+            SetTip(column, tip);
             Grid.SetColumn(column, i);
             grid.Children.Add(column);
             _columns.Add(new Column(slice.Provider, i, slice.Bars.Count, column, Math.Max(1, blocks), blocks == 0));

@@ -1015,13 +1015,11 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToolTip">
+                    <!-- No OpenStates: WinUI closes a tip's popup once its Closed
+                         state's storyboard completes, so a Closed state without
+                         one left every closed tip on screen. Pixel's tip goes at
+                         once. -->
                     <Grid x:Name="LayoutRoot">
-                        <VisualStateManager.VisualStateGroups>
-                            <VisualStateGroup x:Name="OpenStates">
-                                <VisualState x:Name="Closed" />
-                                <VisualState x:Name="Opened" />
-                            </VisualStateGroup>
-                        </VisualStateManager.VisualStateGroups>
                         <shell:PixelSurface Fill="{ThemeResource PixelPaper}" Outline="{ThemeResource PixelLine}" HardShadow="{ThemeResource PixelShadow}" />
                         <ContentPresenter HorizontalContentAlignment="Stretch" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Margin="{TemplateBinding Padding}" Foreground="{TemplateBinding Foreground}" TextWrapping="Wrap" LineHeight="20" LineStackingStrategy="BlockLineHeight" />
                     </Grid>

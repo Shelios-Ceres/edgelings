@@ -625,7 +625,7 @@ public static class L10n
         ["Show {0}"] = "显示 {0}",
         ["Shown agents"] = "显示的智能体",
         ["Hidden"] = "隐藏",
-        ["Show in the drawer, its menus and the Cost window"] = "在抽屉、菜单和成本窗口中显示",
+        ["Show in the drawer, its menus and Usage & cost"] = "在抽屉、菜单和用量与成本页中显示",
         ["Move up"] = "上移",
         ["Move down"] = "下移",
         ["Locked in place.\nRight-click to unlock."] = "已经固定住啦，右键可以解锁",
