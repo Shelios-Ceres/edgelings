@@ -109,11 +109,11 @@ public sealed class DrawerStore : INotifyPropertyChanged
         Raise(nameof(IsShown));
     }
 
-    /// Frame-rate ceiling for busy characters: 0 follows the display's
-    /// refresh rate.
+    /// Frame-rate ceiling for busy characters: 60 by default; 0 follows the
+    /// display's refresh rate.
     public int FrameRate
     {
-        get => Preferences.Get<int?>(FrameRateKey) ?? 0;
+        get => Preferences.Get<int?>(FrameRateKey) ?? 60;
         set
         {
             if (FrameRate == value) return;
