@@ -1285,9 +1285,8 @@ internal sealed partial class DrawerWindow : Window
 
     private static StatusCard CardFor(Bot bot, CharacterTheme theme)
     {
-        var card = LongText(StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running));
-        card = card with { Phase = DrawerLooks.CardPhase(bot.Phase, bot.Rest is not null, theme) };
-        return bot.Rest is { } rest ? card with { Detail = RestDetail(rest, bot.Provider) } : card;
+        var card = LongText(StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running) with { Phase = DrawerLooks.CardPhase(bot.Phase, false, theme) });
+        return bot.Rest is { } rest ? card with { Phase = DrawerLooks.CardPhase(bot.Phase, true, theme), Detail = RestDetail(rest, bot.Provider) } : card;
     }
 
     /// AGENTISLAND_DEBUG_CARD_TEXT=long: the longest a card says, to check

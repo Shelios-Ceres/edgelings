@@ -116,10 +116,13 @@ How states behave:
   in; a covered window still counts as open), its bot plays `resting` instead
   of `idle`. Any other phase still shows, so a minimized terminal mid-task
   shows its work. The card reads "Resting", with "App closed", "Minimized"
-  or "In the tray". `resting` is a calm loop, set apart from `idle` and from
-  the quota's `sleeping`; it belongs in `PHASES` and `CALM`, and its start
-  (phase 0) is the settled pose, which reduced motion holds still. A set
-  that doesn't draw it yet shows `idle` without fidgets instead.
+  or "In the tray". Pixel's words follow its looks, since its `resting`
+  draws the z's and its `sleeping` the doze: away reads "Sleeping", and out
+  of quota "Resting". `resting` is a calm loop, set apart from `idle` and
+  from the quota's `sleeping`; it belongs in `PHASES` and `CALM`, and its
+  start (phase 0) is the settled pose, which reduced motion holds still
+  (Pixel's `sleeping` too). A set that doesn't draw it yet shows `idle`
+  without fidgets instead.
 
 ### 3.3 Engine module
 

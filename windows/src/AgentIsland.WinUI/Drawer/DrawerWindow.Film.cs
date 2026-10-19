@@ -344,8 +344,9 @@ internal sealed partial class DrawerWindow
         if (engine.Draws(Resting)) takes.Add(("resting-poke", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
         if (engine.Draws("sleeping")) takes.Add(("sleeping-poke", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
         // Reduced motion: the blend into the settled pose, then still, and a poke does nothing.
+        // Classic's `sleeping` keeps moving under reduced motion, so only Pixel's gets a take.
         if (engine.Draws(Resting)) takes.Add(("resting-reduced", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
-        if (engine.Draws("sleeping")) takes.Add(("sleeping-reduced", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
+        if (pixel && engine.Draws("sleeping")) takes.Add(("sleeping-reduced", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
         foreach (var (name, stateOf, times, pokeAt) in takes)
         {
             foreach (var index in order) engine.SetState(index, stateOf(index), 0);
