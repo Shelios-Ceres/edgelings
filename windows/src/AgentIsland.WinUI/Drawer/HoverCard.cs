@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Diagnostics;
+using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
@@ -1087,6 +1088,11 @@ internal sealed class HoverCard : IDisposable
             panel.Children.Add(line);
             top = 4;
         }
+        if (card.Waiting.Rows.Count > 0)
+        {
+            panel.Children.Add(WaitingList(card.Waiting, indent, top, pixel, swatch));
+            top = 4;
+        }
         var meters = new Grid { Margin = new Thickness(indent, top, 0, 0), RowSpacing = 6, ColumnSpacing = 8 };
         meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
         meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1171,6 +1177,46 @@ internal sealed class HoverCard : IDisposable
             panel.Children.Add(notes);
         }
         return panel;
+    }
+
+    /// The sessions that wait on the user: a title and what it waits for on
+    /// each row, an agent's own message in quotes under its row. A title is
+    /// the user's own text, so it trims rather than flows.
+    private static StackPanel WaitingList(StatusWaitingList waiting, double indent, double top, bool pixel, uint swatch)
+    {
+        var list = new StackPanel { Margin = new Thickness(indent, top, 0, 0), Spacing = 2 };
+        foreach (var row in waiting.Rows)
+        {
+            var line = new Grid { ColumnSpacing = 8 };
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var title = Caption(row.Title, "TextFillColorSecondaryBrush");
+            title.TextWrapping = TextWrapping.Wrap;
+            title.MaxLines = 2;
+            Place(line, title, 0, 0);
+            var word = Caption(row.Word, row.Kind == SessionEventKind.Error ? "SystemFillColorCriticalBrush" : "TextFillColorTertiaryBrush");
+            if (!pixel)
+            {
+                // Classic's words are coloured by what they ask for.
+                word.Foreground = row.Kind switch
+                {
+                    SessionEventKind.Approval => ClassicTokens.Brush("Caution", _dark),
+                    SessionEventKind.Question => ClassicTokens.Brush("AccentText", _dark),
+                    SessionEventKind.Error or SessionEventKind.TaskSkipped => ClassicTokens.Brush("Critical", _dark),
+                    _ => ClassicTokens.Brush("Text2", _dark),
+                };
+                title.Foreground = ClassicTokens.Brush("Text", _dark);
+            }
+            word.HorizontalAlignment = HorizontalAlignment.Right;
+            word.VerticalAlignment = VerticalAlignment.Top;
+            Place(line, word, 0, 1);
+            list.Children.Add(line);
+        }
+        if (waiting.More > 0)
+        {
+            list.Children.Add(Caption(string.Format(L10n.Tr("+{0} more"), waiting.More), pixel ? "TextFillColorSecondaryBrush" : "TextFillColorTertiaryBrush"));
+        }
+        return list;
     }
 
     /// A label column, a stretching value and an end-aligned value.

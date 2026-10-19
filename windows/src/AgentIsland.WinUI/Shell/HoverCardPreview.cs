@@ -1,3 +1,5 @@
+using AgentIsland.Core;
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Drawer;
 using AgentIsland.WinUI.Platform;
@@ -156,6 +158,12 @@ internal sealed class HoverCardPreview : Window
         AutomationProperties.SetName(_diagnostics, "悬浮卡诊断计数");
         _surface.Children.Add(_status);
         _surface.Children.Add(_diagnostics);
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_POPUP_FILM") is { Length: > 0 })
+        {
+            // A film shows the card and the bubble alone, not the test window's own text.
+            foreach (var element in new UIElement[] { heading, description, actions, motion, _passThrough, _status, _diagnostics })
+                element.Visibility = Visibility.Collapsed;
+        }
         _surface.SizeChanged += (_, _) => Layout();
         _surface.Loaded += (_, _) =>
         {
@@ -352,6 +360,21 @@ internal sealed class HoverCardPreview : Window
             var name = (_pixel ? "pixel" : "classic") + "-" + (Brand.IsDark() ? "dark" : "light") + (Motion.ReducedMotion ? "-reduced" : "");
             var area = Area;
             var card = new Rect(area.Right - 92 - 10 - 300, area.Top, 380, area.Height);
+            if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FILM_ONLY") == "queue")
+            {
+                UiMoment.Manual = false;
+                await QueueFilmAsync(directory, name, new Rect(area.Right - 92 - 10 - 260, Anchor(0).Top - 70, 340, 190));
+                DebugTrace.Write("popup film saved in " + directory);
+                return;
+            }
+            if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FILM_ONLY") == "session")
+            {
+                // Only the per-session bubbles and the card's list.
+                _bubble ??= new SpeechBubble(_surface, inWindow: true);
+                await SessionFilm(directory, name, new Rect(area.Right - 92 - 10 - 260, Anchor(0).Top - 70, 340, 190));
+                DebugTrace.Write("popup film saved in " + directory);
+                return;
+            }
             await Film(Path.Combine(directory, $"m3-open-{name}.png"), card, () => ShowTarget(0));
             await Film(Path.Combine(directory, $"m3-switch-{name}.png"), card, () => ShowTarget(1));
             await Film(Path.Combine(directory, $"m3-close-{name}.png"), card, () => _card.Hide(animated: true));
@@ -411,6 +434,7 @@ internal sealed class HoverCardPreview : Window
                     () => _bubble.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, Motion.ReducedMotion, kind));
             }
             await Film(Path.Combine(directory, $"m5-dismiss-{name}.png"), bubble, () => _bubble.Hide(animated: true));
+            await SessionFilm(directory, name, bubble);
         }
         catch (Exception error)
         {
@@ -422,6 +446,119 @@ internal sealed class HoverCardPreview : Window
         }
         DebugTrace.Write("popup film saved in " + directory);
     }
+
+    private static readonly DateTimeOffset FilmNow = DateTimeOffset.UtcNow;
+
+    private static SessionEvent Waiting(string title, SessionEventKind kind, int minutesAgo = 1) =>
+        new(TriggerTool.Claude, title, title, kind, kind + ":" + title, FilmNow.AddMinutes(-minutesAgo));
+
+    /// A stock line, in the app's language (Pixel's panels read in English).
+    private string Stock(string line)
+    {
+        using (_pixel ? L10n.English() : null) return L10n.Tr(line);
+    }
+
+    /// Phase 3: the bubbles that say only stock lines (a merged one says how
+    /// many sessions wait), and the card's list of waiting sessions.
+    private async Task SessionFilm(string directory, string name, Rect bubble)
+    {
+        string File(string take) => Path.Combine(directory, $"{take}-{name}.png");
+        var reduced = Motion.ReducedMotion;
+        void Say(string line, LineKind kind) =>
+            _bubble!.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, reduced, kind);
+        await Film(File("m5-done"), bubble, () => Say(Stock("Done \u2014 your turn!"), LineKind.Done));
+        await Film(File("m5-approval"), bubble, () => Say(Stock("Can I run this? Needs your OK."), LineKind.Waiting));
+        await Film(File("m5-question"), bubble, () => Say(Stock("Quick question for you."), LineKind.Waiting));
+        await Film(File("m5-error"), bubble, () => Say(Stock("Hit an error."), LineKind.Error));
+        string Count(int n) { using (_pixel ? L10n.English() : null) return BotLines.SummaryTitle(n); }
+        await Film(File("m5-merged"), bubble, () => Say(Count(_pixel ? 3 : 2), LineKind.Waiting));
+        _bubble!.Hide(animated: false);
+
+        var card = new Rect(Area.Right - 92 - 10 - 300, Area.Top, 380, Area.Height);
+        var few = new[]
+        {
+            Waiting("Windows Builder", SessionEventKind.Approval),
+            Waiting("Main", SessionEventKind.Done, 3),
+            Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
+        };
+        var many = new[]
+        {
+            Waiting("Windows Builder", SessionEventKind.Approval),
+            Waiting("Main", SessionEventKind.Question),
+            Waiting("A very long session title that has to wrap onto a second line and then trim", SessionEventKind.Error),
+            Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
+            Waiting("Classic style design", SessionEventKind.Done, 4),
+            Waiting("Pixel-Art design", SessionEventKind.Done, 6),
+            Waiting("Context length", SessionEventKind.Done, 8),
+        };
+        StatusWaitingList List(SessionEvent[] events) =>
+            _pixel ? StatusWaitingList.Of(events) : StatusWaitingList.ForClassic(events, FilmNow);
+        await Film(File("m6-waiting-few"), card, () =>
+            _card.Show(new[] { (Card(0) with { Waiting = List(few) }, Swatches[0]) }, _pixel, characterRight: true, Anchor(0), Area, reduced));
+        // A card shown over a card is a refresh, not an open: close it first.
+        _card.Hide();
+        UiMoment.Finish();
+        await Task.Delay(500);
+        await Film(File("m6-waiting-many"), card, () =>
+            _card.Show(new[] { (Card(0) with { Waiting = List(many) }, Swatches[0]) }, _pixel, characterRight: true, Anchor(0), Area, reduced));
+        _card.Hide();
+    }
+
+    /// AGENTISLAND_DEBUG_QUEUE_FILM=<dir>: two sessions of one agent finish a
+    /// second apart, and the bot's queue says them in real time with the
+    /// style's own rules: a frame every half second for seven seconds. (The
+    /// drawer film shows the bot's hop; here the bubble's timing is the point.)
+    private async Task QueueFilmAsync(string directory, string name, Rect crop)
+    {
+        Directory.CreateDirectory(directory);
+        _bubble ??= new SpeechBubble(_surface, inWindow: true);
+        var queue = new SpeechQueue { Rules = _pixel ? SpeechRules.Pixel : SpeechRules.Classic };
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        _bubble.Closed += () => queue.Dismissed(clock.Elapsed.TotalSeconds);
+        var frames = new List<(string, List<(byte[], int, int, int, int)>)>();
+        var capture = Crop(crop);
+        var added = false;
+        var nextShot = 0.0;
+        while (clock.Elapsed.TotalSeconds < 7)
+        {
+            var t = clock.Elapsed.TotalSeconds;
+            if (t >= 0.0 && !added)
+            {
+                added = true;
+                queue.Add(Waiting("first", SessionEventKind.Done, 0));
+            }
+            if (t >= 1.0 && queue.Count + (queue.Shown is null ? 0 : 1) < 2 && !_secondAdded)
+            {
+                _secondAdded = true;
+                queue.Add(Waiting("second", SessionEventKind.Done, 0));
+            }
+            if (queue.Next(t) is { } speech)
+            {
+                using (_pixel ? L10n.English() : null)
+                {
+                    // The two sessions say different stock lines, so the hand-off shows.
+                    var line = speech.IsSummary ? BotLines.SummaryTitle(speech.Events.Count) : BotLines.For(speech.First, new Random(1)) ?? "";
+                    for (var seed = 2; line == _lastLine && seed < 40 && !speech.IsSummary; seed++) line = BotLines.For(speech.First, new Random(seed)) ?? "";
+                    _lastLine = line;
+                    var seconds = _pixel ? 5.5 : Math.Clamp(2 + 0.05 * line.Length, 4.5, 9);
+                    _bubble.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, Motion.ReducedMotion, LineKind.Done, TimeSpan.FromSeconds(seconds));
+                }
+                DebugTrace.Write($"queue film: bubble at {t:F2} s");
+            }
+            if (t >= nextShot)
+            {
+                var shot = await Task.Run(capture);
+                frames.Add(($"{t:F1} s", shot));
+                nextShot += 0.5;
+            }
+            await Task.Delay(40);
+        }
+        await PopupPrint.SaveStrip(Path.Combine(directory, $"queue-{name}.png"), frames);
+        _bubble.Hide(animated: false);
+    }
+
+    private bool _secondAdded;
+    private string? _lastLine;
 
     /// This window's print, cut to `crop` (DIPs), for the hand clock's films.
     private Func<List<(byte[] Pixels, int Left, int Top, int Width, int Height)>> Crop(Rect crop)
@@ -512,9 +649,9 @@ internal sealed class HoverCardPreview : Window
 
     private static StatusCard Card(int target) => target switch
     {
-        0 => new(DisplayProvider.Claude, "Claude", "Thinking", null,
-            new("Tasks", "2 running", "2"),
-            new[] { new StatusMeter("5h", "42%", 0.42, 0.42, "Resets in 2h 15m") },
+        0 => new(DisplayProvider.Claude, "Claude", DrawerLooks.PhaseLabel(AgentPhase.Thinking), null,
+            StatusCards.Tasks(2),
+            new[] { new StatusMeter(L10n.Tr("5h"), "42%", 0.42, 0.42, L10n.TrFormat("Resets {0}", "2h 15m")) },
             null, Array.Empty<StatusPhrase>()),
         1 => new(DisplayProvider.Codex, "Codex", "Running commands", "Synthetic tool · build preview",
             new("Tasks", "3 running", "3"),

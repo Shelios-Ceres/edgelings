@@ -18,6 +18,71 @@ public sealed record StatusTokens(string Label, string Today, string TodayNumber
 /// to emphasise.
 public sealed record StatusTasks(string Label, string Text, string Number);
 
+/// One session that waits on the user, as a card's list shows it: its title
+/// and the word for what it waits for.
+public sealed record StatusWaiting(string Title, string Word, SessionEventKind Kind);
+
+/// The sessions that wait on the user: at most three rows (Classic's: four),
+/// then how many more.
+public sealed record StatusWaitingList(IReadOnlyList<StatusWaiting> Rows, int More)
+{
+    public static readonly StatusWaitingList Empty = new(Array.Empty<StatusWaiting>(), 0);
+    public const int MaxRows = 3;
+    public const int ClassicMaxRows = 4;
+    /// How long a finished turn or an error stays on Classic's card.
+    public static readonly TimeSpan ClassicFor = TimeSpan.FromMinutes(15);
+
+    /// Classic's list: approvals, questions, errors (a scheduled task that
+    /// did not run among them) and finished turns, each of the last two for
+    /// fifteen minutes.
+    public static StatusWaitingList ForClassic(IEnumerable<SessionEvent> waiting, DateTimeOffset now)
+    {
+        var ordered = waiting
+            .Where(e => e.Kind is SessionEventKind.Approval or SessionEventKind.Question || now - e.At < ClassicFor)
+            .OrderBy(e => e.Kind switch
+            {
+                SessionEventKind.Approval => 0,
+                SessionEventKind.Question => 1,
+                SessionEventKind.Error or SessionEventKind.TaskSkipped => 2,
+                _ => 3,
+            })
+            .ThenByDescending(e => e.At)
+            .ToList();
+        var rows = ordered.Take(ClassicMaxRows)
+            .Select(e => new StatusWaiting(e.Title, BotLines.Word(e.Kind, classic: true), e.Kind))
+            .ToList();
+        return new StatusWaitingList(rows, ordered.Count - rows.Count);
+    }
+
+    /// Approvals first, then questions, errors and finished turns; the newest
+    /// first within each. A scheduled task that did not run is a moment, not
+    /// a session, so it has no row. A title the pixel face cannot set (it has
+    /// no hanzi, kana or hangul) gives way to "A session".
+    public static StatusWaitingList Of(IEnumerable<SessionEvent> waiting)
+    {
+        var ordered = waiting
+            .Where(e => e.Kind != SessionEventKind.TaskSkipped)
+            .OrderBy(e => e.Kind switch
+            {
+                SessionEventKind.Approval => 0,
+                SessionEventKind.Question => 1,
+                SessionEventKind.Error => 2,
+                _ => 3,
+            })
+            .ThenByDescending(e => e.At)
+            .ToList();
+        var rows = ordered.Take(MaxRows)
+            .Select(e => new StatusWaiting(HasCjk(e.Title) ? "A session" : e.Title, BotLines.Word(e.Kind), e.Kind))
+            .ToList();
+        return new StatusWaitingList(rows, ordered.Count - rows.Count);
+    }
+
+    /// Han, CJK symbols and punctuation, kana, Hangul or full-width forms.
+    public static bool HasCjk(string text) => text.Any(c =>
+        c is >= '\u3000' and <= '\u303F' or >= '\u3040' and <= '\u30FF' or >= '\u3400' and <= '\u4DBF'
+            or >= '\u4E00' and <= '\u9FFF' or >= '\uAC00' and <= '\uD7AF' or >= '\uF900' and <= '\uFAFF' or >= '\uFF00' and <= '\uFFEF');
+}
+
 /// One phrase of a card's note and the numbers in it to emphasise. Lead is
 /// a label its parts stand under, each on a line of its own (Kimi Code's
 /// month: "Month:" over each app's share).
@@ -44,6 +109,9 @@ public sealed record StatusCard(
     IReadOnlyList<StatusPhrase> Note)
 {
     public string? Plan { get; init; }
+
+    /// Sessions of this agent that wait on the user.
+    public StatusWaitingList Waiting { get; init; } = StatusWaitingList.Empty;
 }
 
 public static class StatusCards

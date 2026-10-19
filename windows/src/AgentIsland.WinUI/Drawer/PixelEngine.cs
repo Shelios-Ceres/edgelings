@@ -88,6 +88,9 @@ internal sealed class PixelEngine : ICharacterEngine
 
     public void Poke(int bot) => _host.InvokeMethod("poke", bot);
 
+    /// Pixel's answer to every event is its poke hop; the host decides when.
+    public void Cue(int bot, string kind) => Poke(bot);
+
     public string[] Fidgets(DisplayProvider provider) =>
         _fidgets.TryGetValue(provider, out var fidgets) ? fidgets : Array.Empty<string>();
 

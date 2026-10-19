@@ -326,28 +326,37 @@ internal sealed partial class DrawerWindow
     private void Sheet(CanvasDevice device, ICharacterEngine engine, string directory, string style, bool pixel, IReadOnlyList<int> order)
     {
         var column = Column(order, (StageWidth - WindowWidth) / 2);
-        var takes = new List<(string Name, Func<int, string> State, double[] Times, double PokeAt)>();
+        var takes = new List<(string Name, Func<int, string> State, double[] Times, double PokeAt, string? Cue)>();
         var states = Enum.GetValues<AgentPhase>()
             .SelectMany(phase => new[] { DrawerLooks.Entry(phase, _loopTheme), DrawerLooks.Hold(phase, _loopTheme) })
             .Append(Resting)
             .Distinct()
             .Where(engine.Draws);
         foreach (var state in states)
-            takes.Add((state, _ => state, state == Resting ? new[] { 0.5, 2.5, 5.0 } : new[] { 0.5, 0.9, 1.3 }, double.NaN));
+            takes.Add((state, _ => state, state == Resting ? new[] { 0.5, 2.5, 5.0 } : new[] { 0.5, 0.9, 1.3 }, double.NaN, null));
         for (var k = 0; k < 3; k++)
         {
             var nth = k;
             string? Fidget(int index) => engine.Fidgets(_bots.First(b => b.Index == index).Provider).ElementAtOrDefault(nth);
             if (order.Any(index => Fidget(index) is not null))
-                takes.Add(($"fidget-{k + 1}", index => Fidget(index) ?? "idle", new[] { 0.5, 0.9, 1.3 }, double.NaN));
+                takes.Add(($"fidget-{k + 1}", index => Fidget(index) ?? "idle", new[] { 0.5, 0.9, 1.3 }, double.NaN, null));
         }
-        if (engine.Draws(Resting)) takes.Add(("resting-poke", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
-        if (engine.Draws("sleeping")) takes.Add(("sleeping-poke", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
+        if (engine.Draws(Resting)) takes.Add(("resting-poke", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5, null));
+        if (engine.Draws("sleeping")) takes.Add(("sleeping-poke", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5, null));
         // Reduced motion: the blend into the settled pose, then still, and a poke does nothing.
         // Classic's `sleeping` keeps moving under reduced motion, so only Pixel's gets a take.
-        if (engine.Draws(Resting)) takes.Add(("resting-reduced", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
-        if (pixel && engine.Draws("sleeping")) takes.Add(("sleeping-reduced", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
-        foreach (var (name, stateOf, times, pokeAt) in takes)
+        if (engine.Draws(Resting)) takes.Add(("resting-reduced", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5, null));
+        if (pixel && engine.Draws("sleeping")) takes.Add(("sleeping-reduced", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5, null));
+        // A session's event while the agent keeps working: Pixel hops as a click makes it;
+        // Classic plays each cue over the working pose (and the emotes over idle).
+        if (pixel) takes.Add(("work-hop", _ => "working", new[] { 0.45, 0.65, 1.0 }, 0.4, null));
+        if (pixel) takes.Add(("work-hop-reduced", _ => "working", new[] { 0.45, 0.65, 1.0 }, 0.4, null));
+        else
+        {
+            foreach (var cue in new[] { "done", "note", "ask", "alert", "error" })
+                takes.Add(($"cue-{cue}", _ => "working", cue is "ask" or "alert" or "error" ? new[] { 0.5, 1.2, 2.0 } : new[] { 0.45, 0.65, 1.0 }, 0.4, cue));
+        }
+        foreach (var (name, stateOf, times, pokeAt, cue) in takes)
         {
             foreach (var index in order) engine.SetState(index, stateOf(index), 0);
             var shots = new List<Dictionary<int, string>>();
@@ -361,7 +370,14 @@ internal sealed partial class DrawerWindow
                 {
                     if (!poked && clock >= pokeAt - 1e-6)
                     {
-                        if (!still) foreach (var index in order) engine.Poke(index);
+                        if (!still)
+                        {
+                            foreach (var index in order)
+                            {
+                                if (cue is null) engine.Poke(index);
+                                else engine.Cue(index, cue);
+                            }
+                        }
                         poked = true;
                     }
                     if (still && clock >= 0.5) Array.Fill(dts, double.NaN);

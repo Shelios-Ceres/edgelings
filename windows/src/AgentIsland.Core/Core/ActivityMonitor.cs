@@ -27,6 +27,16 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// Raised on the UI thread with what each scan found new in any session:
+    /// a turn that ended, a question, a permission prompt, an error, a message
+    /// the agent sent. Each is raised once.
+    public event Action<IReadOnlyList<SessionEvent>>? SessionEventsRaised;
+
+    /// Everything that waits on the user right now, across every session.
+    public IReadOnlyList<SessionEvent> Waiting { get; private set; } = Array.Empty<SessionEvent>();
+
+    private readonly SessionEventDetector _events = new();
+
     /// Providers whose session status is actually scanned. Cursor is absent
     /// All five ride the scan. Cursor graduated once the real signal was
     /// found: each workspace's state.vscdb (and its -wal journal) is written
@@ -187,10 +197,14 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         // last-working stamp and keep a finished guest turn reading as work.
         var lastWorkingSnapshot = new Dictionary<string, DateTimeOffset>(
             _lastWorking, StringComparer.OrdinalIgnoreCase);
-        Task.Run(() => new Scan(
-                PrepareSessions(SessionScanner.MonitoringScan(now, lastWorkingSnapshot), now),
-                AgentProcesses.Gone(),
-                InternetStatus.IsOffline(now)))
+        Task.Run(() =>
+            {
+                var gone = AgentProcesses.Gone();
+                var offline = InternetStatus.IsOffline(now);
+                var sessions = Settle(
+                    PrepareSessions(SessionScanner.MonitoringScan(now, lastWorkingSnapshot), now), gone, offline);
+                return new Scan(sessions, offline, _events.Observe(sessions, now));
+            })
             .ContinueWith(task =>
             {
                 var scan = task.IsCompletedSuccessfully ? task.Result : Scan.Empty;
@@ -201,7 +215,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                 try
                 {
                     IsOffline = scan.Offline;
-                    Apply(Settle(scan.Sessions, scan.Gone, scan.Offline), now);
+                    Apply(scan.Sessions, now);
+                    Waiting = scan.Observed.Waiting;
+                    if (scan.Observed.Fresh.Count > 0) SessionEventsRaised?.Invoke(scan.Observed.Fresh);
                 }
                 finally
                 {
@@ -215,9 +231,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             }, UiThread.Scheduler);
     }
 
-    private sealed record Scan(List<ScannedSession> Sessions, IReadOnlySet<TriggerTool> Gone, bool Offline)
+    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed)
     {
-        public static readonly Scan Empty = new(new List<ScannedSession>(), new HashSet<TriggerTool>(), false);
+        public static readonly Scan Empty = new(new List<ScannedSession>(), false, SessionObservation.Empty);
     }
 
     internal static List<ScannedSession> PrepareSessions(IEnumerable<ScannedSession> sessions, DateTimeOffset now)

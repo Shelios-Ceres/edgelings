@@ -508,7 +508,7 @@ internal sealed partial class SettingsWindow : Window
             Combo(new[] { L10n.Tr("Pixel"), L10n.Tr("Classic") }, store.Theme == CharacterTheme.Pixel ? 0 : 1,
                 index => store.Theme = index == 0 ? CharacterTheme.Pixel : CharacterTheme.Classic)));
         body.Children.Add(Card(L10n.Tr("Character lines"),
-            L10n.Tr("A character speaks up in a bubble when its agent is done, needs your approval or hits an error"),
+            L10n.Tr("A character speaks up in a bubble when a session is done, asks you something, needs your approval or hits an error"),
             "\uE8BD", Toggle(store.SpeechBubbles, on => store.SpeechBubbles = on)));
 
         body.Children.Add(Section(L10n.Tr("Placement")));

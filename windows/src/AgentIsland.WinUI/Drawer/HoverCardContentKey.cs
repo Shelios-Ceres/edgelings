@@ -25,6 +25,8 @@ internal static class HoverCardContentKey
             Add(card.Plan);
             Add(card.Tasks is not null);
             if (card.Tasks is { } tasks) { Add(tasks.Label); Add(tasks.Text); Add(tasks.Number); }
+            Add(card.Waiting.More); Add(card.Waiting.Rows.Count);
+            foreach (var row in card.Waiting.Rows) { Add(row.Title); Add(row.Word); }
             Add(card.Meters.Count);
             foreach (var meter in card.Meters)
             {

@@ -92,6 +92,7 @@ public static class Program
             LaunchAtLoginTests.RunAll();
             ScannerCwdTests.RunAll();
             AgentPresenceTests.RunAll();
+            SessionEventTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }

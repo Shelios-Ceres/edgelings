@@ -229,6 +229,9 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
   let nextBlink = T + 0.8 + random() * 3;
   let blinkAt = -99;
   let pokeAt = -99;
+  let pokeHappy = true;
+  let cueAt = -99;
+  let cueKind = '';
   let rimOn = rim;
   let pose = null;
 
@@ -257,7 +260,15 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
     setGaze(dx, dy) { gaze = [dx, dy]; },
     clearGaze() { gaze = null; },
     setRim(on) { rimOn = on; },
-    poke() { pokeAt = T; },
+    poke() { pokeAt = T; pokeHappy = true; },
+    // A one-shot cue for a line the host speaks while the bot keeps its
+    // state: 'done' is the poke's happy hop, 'note' the hop alone, 'ask' and
+    // 'alert' pop up the "?" or "!" for a moment, and 'error' frets with a
+    // shake. Unknown kinds do nothing.
+    cue(kind) {
+      if (kind === 'done' || kind === 'note') { pokeAt = T; pokeHappy = kind === 'done'; }
+      else if (kind === 'ask' || kind === 'alert' || kind === 'error') { cueAt = T; cueKind = kind; }
+    },
     advance(dt) {
       dt = Math.max(0, Math.min(dt, 0.25)) * tempo;
       T += dt;
@@ -296,17 +307,28 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
       const hop = p >= 0 && p < 0.55 ? bump(p / 0.42) : 0;
       const squash = p >= 0 && p < 0.55 ? kick(p, 22, 8) * 0.05 : 0;
       const stir = p >= 0 && p < 2.6 ? smooth(p / 0.15) * (1 - smooth((p - 1.2) / 1.4)) : 0;
+      // A cue holds its emote or fret for 1.8 s; an error flinches and
+      // shakes first, then sags with worried eyes cast down.
+      const c = T - cueAt;
+      const held = c >= 0 && c < 2.2 ? smooth(c / 0.3) * (1 - smooth((c - 1.8) / 0.4)) : 0;
+      const fret = cueKind === 'error' ? held : 0;
+      const shake = fret && c < 0.6 ? 3 * Math.sin(c * TAU * 6) * (1 - smooth(c / 0.6)) : 0;
+      const flinch = fret && c < 0.5 ? bump(c / 0.5) : 0;
       const live = {
         ...pose,
-        y: pose.y - hop * obj.hop,
+        y: pose.y - hop * obj.hop + 0.5 * fret,
         float: pose.float + hop * obj.hopFloat,
         sx: pose.sx * (1 + squash),
         sy: pose.sy * (1 - squash),
-        rot: pose.rot + lean * obj.tilt * 0.5,
-        look: [eyes[0], eyes[1]],
+        rot: pose.rot + lean * obj.tilt * 0.5 + shake,
+        look: [eyes[0], lerp(eyes[1], 0.4, 0.7 * fret)],
+        wide: Math.max(pose.wide, 0.6 * flinch),
         open: pose.open * (1 - blink),
         rest: pose.rest * (1 - stir),
-        happy: Math.max(pose.happy, p >= 0 && p < 0.5 ? bump(p / 0.5) : 0),
+        happy: Math.max(pose.happy, pokeHappy && p >= 0 && p < 0.5 ? bump(p / 0.5) : 0),
+        ask: cueKind === 'ask' ? Math.max(pose.ask, held) : pose.ask,
+        alert: cueKind === 'alert' ? Math.max(pose.alert, held) : pose.alert,
+        worry: Math.max(pose.worry, fret),
       };
       return draw(live, { id, rim: rimOn, obj, size });
     },
@@ -860,7 +882,7 @@ Object.assign(OBJ, {
         { d: rrect(11.8 - 2 * sp, 11.2 - 1.4 * sp, 4 * sp, 2.8 * sp, 0.8 * sp), fill: screen, bare: true },
       );
       if (o.send > 0.04) {
-        const k = clamp(3 * o.send), px = 29 + dx + 4 * o.send, py = top + 3 - 6 * o.send;
+        const k = clamp(3 * o.send), px = 29 + dx + 3.6 * o.send, py = top + 3 - 5.4 * o.send;
         parts.push({ d: rrect(px - 1.6 * k, py - 1.2 * k, 3.2 * k, 2.4 * k, 0.6 * k), fill: C.glow });
       }
       let over = '';

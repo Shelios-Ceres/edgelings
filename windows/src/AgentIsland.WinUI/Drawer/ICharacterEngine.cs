@@ -25,6 +25,10 @@ internal interface ICharacterEngine : IDisposable
     /// A click: a nod or a hop.
     void Poke(int bot);
 
+    /// A one-shot cue for a session's event while the bot's state stays the
+    /// agent's: done, note, ask, alert or error. Classic plays its own; Pixel hops.
+    void Cue(int bot, string kind);
+
     /// The little things the provider's bot does now and then while idle.
     string[] Fidgets(DisplayProvider provider);
 

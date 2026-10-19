@@ -29,7 +29,7 @@ internal sealed class SpeechBubble
 {
     private const double MaxWidth = 240;
     private const double Gap = 10;
-    private static readonly TimeSpan Linger = TimeSpan.FromSeconds(4.5);
+    public static readonly TimeSpan DefaultLinger = TimeSpan.FromSeconds(4.5);
 
     private readonly Panel _root;
     private static readonly Thickness TextPadding = new(14, 9, 14, 10);
@@ -70,11 +70,14 @@ internal sealed class SpeechBubble
         root.Children.Add(_popup);
         _linger = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _linger.IsRepeating = false;
-        _linger.Interval = Linger;
+        _linger.Interval = DefaultLinger;
         _linger.Tick += (_, _) => Hide(animated: true);
     }
 
     public bool IsOpen => _popup.IsOpen;
+
+    /// The bubble is gone: its time ran out, or it was taken back.
+    public event Action? Closed;
 
     /// The pop each kind of line gets.
     public static LineKind KindOf(AgentPhase phase) => phase switch
@@ -88,7 +91,8 @@ internal sealed class SpeechBubble
     /// anchor and area are in the drawer window's DIPs; characterRight means
     /// the character is to the bubble's right.
     /// swatch is the speaking character's colour, outlining the pixel panel.
-    public void Say(string line, uint swatch, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion, LineKind kind)
+    public void Say(string line, uint swatch, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion, LineKind kind,
+        TimeSpan? linger = null)
     {
         if (_root.XamlRoot is not { } xamlRoot) return;
         _popup.XamlRoot = xamlRoot;
@@ -146,6 +150,7 @@ internal sealed class SpeechBubble
         _pane.CenterPoint = new Vector3((float)(characterRight ? size.Width : 0), (float)Math.Clamp(_aim, 0, size.Height), 0);
 
         _linger.Stop();
+        _linger.Interval = linger ?? DefaultLinger;
         _motion?.Stop();
         Rest();
         if (!_popup.IsOpen) _popup.IsOpen = true;
@@ -308,6 +313,7 @@ internal sealed class SpeechBubble
         _motion = null;
         _popup.IsOpen = false;
         Rest();
+        Closed?.Invoke();
     }
 
     private static Vector3 Uniform(double scale) => new((float)scale, (float)scale, 1);

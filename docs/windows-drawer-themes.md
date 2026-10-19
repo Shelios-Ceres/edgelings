@@ -152,6 +152,7 @@ And a bot must offer:
 | `setGaze(dx, dy)` | Look toward the pointer: its offset from the bot's centre in DIPs, sent while it is within 480 DIP |
 | `clearGaze()` | Look ahead again |
 | `poke()` | A click: a short hop or nod |
+| `cue(kind)` | Optional. A one-shot cue over the current pose while the bot's state stays the agent's: `done`, `note`, `ask`, `alert` or `error` (§3.8). An engine without it is fine; one that lacks a kind ignores it. Classic has it; Pixel's host hops with `poke()` instead |
 | `advance(dt)` | Move time on by `dt` seconds |
 | `svg(size, id)` | The current frame (§3.4) |
 | `state` | The state it is in now, after any settling |
@@ -209,6 +210,63 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
   Claude Code's own mascot.)
 - A downloaded asset must be checked against its publisher's checksum, and
   its source, version and checksum recorded in the commit message.
+
+### 3.8 When a bot speaks
+
+A bot speaks in a bubble beside it. Two kinds of line exist, and neither
+needs the agent's own app to notify anything: every line is read from the
+transcripts (and, for permission prompts, the opt-in hook), so the user can
+switch an app's notifications off and still hear from the bots.
+
+**A bubble says only a stock line** (`Model/BotLines.cs`): done, needs your
+approval, has a question, an error, or that a scheduled task could not run.
+It never names the session and never shows anything the agent wrote (not
+Claude's `PushNotification` text either: a push comes with a turn that ends
+or a question, and those speak). Several waiting at once say how many:
+"N sessions need you".
+
+**Per session** (`Core/SessionEvents.cs`). Each scan compares every session
+of every agent with what it already told (`SessionEventDetector`). An event
+is keyed by its session, its turn and its kind, so a later scan never repeats
+it; the first scan only learns, so whatever already waits at launch is on the
+card but never speaks. A finished turn is news for two minutes.
+
+| Event | Read from |
+|---|---|
+| A turn ended and waits on the user (a scheduled task's run too) | The transcript's turn state |
+| A turn ended on an error | The same, with the transcript's last line |
+| A question (AskUserQuestion, ExitPlanMode, an MCP elicitation) | The transcript's open tool call |
+| A permission prompt | The `ClaudeHooks` markers (the opt-in Notification hook); Kimi Code's desktop server |
+| A scheduled task that could not run | `scheduled-tasks.json`'s `recordedSkips`, when its key or value changes |
+
+Rate limits, sign-in and network trouble stay phase-based: they hit every
+session of an agent at once, so they speak once per agent, as before, gated by
+`SpeechGapSeconds`. A bubble that came from a session stays through a change
+of the agent's overall phase; only a phase line is taken back by one.
+
+**The queue** (`Model/SpeechQueue.cs`). Each bot has one. An event whose
+session has moved on (it started a new turn, the prompt was answered, it was
+archived) is dropped from the queue or taken back from the bubble. Opening a
+bot's card hides its bubble and clears its queue: the card's list shows the
+same news. Character lines off, a hidden bot and the first seconds still
+silence everything. The two styles space and merge differently:
+
+| | Pixel | Classic |
+|---|---|---|
+| Between bubbles | one at a time; the next pops 0.5 s after the last went | a bubble that has shown 2.5 s is replaced by the next |
+| Merging | three or more waiting become "N sessions need you" | two or more |
+| A session's older event | stays queued | replaced by its newer one |
+| How long | 5.5 s; a merged one 7 s | `clamp(2 + 0.05 × weight, 4.5, 9)` s (a CJK character weighs 2); a request at least 8 s |
+| The character | hops once with the bubble (the click's hop), but not for an error, not when its phase just changed, not under reduced motion | `cue(kind)`: `done` hops, `ask` and `alert` pop the emote, `error` flinches; skipped when the bot's state already shows it; reduced motion keeps only `ask` and `alert` |
+
+**The card** lists, between the Tasks row and the meters, the sessions that
+wait on the user: Pixel at most three (approval, question, error, done; the
+newest first), Classic at most four with its status words and colours (a
+finished turn or an error for 15 minutes), then "+N more". A session's title
+is the user's own text, so a row may wrap to two lines and trim. Under Pixel a
+title holding CJK characters (the face has none) gives way to "A session";
+Classic shows it as written. The list shows whether character lines are on or
+off. The all-agents card has none.
 
 ## 4. Free to change (may)
 
@@ -275,6 +333,7 @@ outlines, bar track. Text uses the system's Fluent text brushes for the mode.
 - A Latin-only face means English text. Build the card, bubble and detail
   text inside `L10n.English()`; a caption a store translated when it was set
   comes back to English through `L10n.Relocalize`.
+- Under Pixel, the user's own text that holds CJK characters (a session's title in the card's list) does not show: a stand-in ("A session") takes its place. Classic shows it as written.
 
 ## 7. Wiring checklist
 
@@ -377,7 +436,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   Bars are 14 blocks of 4 × 6 DIP with 2-DIP gaps; any non-zero share fills
   at least one block, and a window that failed to load is an empty bar at
   half opacity. Bubbles are at most 240 DIP wide, with 14/9/14/10 DIP text
-  padding, and linger 4.5 s.
+  padding; a stock line lingers 4.5 s, a session's 5.5 s (§3.8).
 - **Type**: Ark Pixel 10px Prop latin (OFL-1.1), 13⅓ DIP at 150 %, regular
   weight, English.
 
@@ -385,7 +444,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 - **Engine**: `Drawer/Characters/classic.mjs`, the second cast of desk
   companions approved 2026-10-19, SHA-256
-  `3d53d0ead74b3b33246e75851b0f64f09a512f85d3b35bce7b8a1a996fdf8f07`; vector
+  `f98b869fdc4a66cefa6632895977bdcb350dd51834ccf7a6cca458fec54d1d31`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
   frames up to 2.7 KB. Each agent is a companion with a face: a succulent
   (Claude), a desk computer (Codex), a flying saucer (Antigravity), a ringed
@@ -423,6 +482,6 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   in 40 · * · 58 DIP columns 8 apart; bars are 6-DIP pills with a 6-DIP
   minimum fill. Bubbles are at most 240 DIP wide, rounded 12 (less on a
   one-line bubble, so the tail fits), with a tail of half-base 6 and reach
-  7 and 15/9/15/10 DIP text padding; they linger 4.5 s.
+  7 and 15/9/15/10 DIP text padding; a stock line lingers 4.5 s (§3.8).
 - **Type**: Segoe UI Variable in the app language: the agent's name 13/18
   semibold, rows 12/16, bubbles 13/18.
