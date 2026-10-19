@@ -88,8 +88,15 @@ public static class SessionTurnState
                     // Agent runs usually end on the final tool result (marked
                     // toolEndsTurn) rather than an assistant stop; without
                     // this a finished agent never reads as done.
-                    if (sidechainIsTheConversation && Jsonl.GetBool(root, "toolEndsTurn") == true)
-                        return new SessionTurnStatus(true, Key(root, lines[i]), Date(root));
+                    if (Jsonl.GetBool(root, "toolEndsTurn") == true)
+                    {
+                        if (sidechainIsTheConversation)
+                            return new SessionTurnStatus(true, Key(root, lines[i]), Date(root));
+                        // In a main transcript this is a headless SDK run (a
+                        // security review, say) that ends on its structured
+                        // output: finished, and nobody is waiting on it.
+                        return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), Idle: true);
+                    }
                     // Image captions, command caveats and compaction summaries
                     // are not prompts.
                     if (Jsonl.GetBool(root, "isMeta") == true || Jsonl.GetBool(root, "isCompactSummary") == true) continue;

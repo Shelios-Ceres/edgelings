@@ -95,12 +95,7 @@ public static class SessionScanner
             if (session.IsArchived) continue;
             if (string.IsNullOrEmpty(session.CliSessionId)) continue;
             transcripts.TryGetValue(session.CliSessionId, out var transcript);
-            var state = SessionState(
-                transcript,
-                now,
-                lastWorking,
-                session.LastActivityAt,
-                SessionTurnState.Claude);
+            var state = ClaudeSessionState(transcript, now, lastWorking, session);
             output.Add(new ScannedSession(
                 TriggerTool.Claude,
                 session.CliSessionId,
@@ -128,14 +123,17 @@ public static class SessionScanner
         {
             desktopSessions.TryGetValue(sid, out var desktop);
             if (excludeArchived && desktop is { IsArchived: true }) continue;
+            // A headless SDK run (Claude Desktop's security reviews, say)
+            // that no desktop session points at is machine work, not a
+            // conversation: nobody is ever "up" in it.
+            if (desktop is null && IsSdkTranscript(path)) continue;
             var cwd = desktop?.Cwd is { Length: > 0 } dc ? dc : CwdFromClaudeTranscript(path);
             var title = desktop?.Title ?? "";
-            var state = SessionState(
-                path,
-                now,
-                lastWorking,
-                desktop?.LastActivityAt,
-                SessionTurnState.Claude);
+            var state = ClaudeSessionState(path, now, lastWorking, desktop);
+            // An archived session is one the user put away: it may still run,
+            // but a finished or failed turn in it never asks for them.
+            if (desktop is { IsArchived: true } && state.Status != ActivityState.Working)
+                state = (ActivityState.Idle, state.TurnKey, state.Modified);
             output.Add(new ScannedSession(
                 TriggerTool.Claude,
                 sid,
@@ -159,6 +157,63 @@ public static class SessionScanner
         var segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (segments.Contains("subagents", StringComparer.OrdinalIgnoreCase)) return true;
         return segments[^1].StartsWith("agent-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// Claude Desktop's date for a session's latest turn start. Newer desktops
+    /// write latestUserFrameAt: when the latest user or peer message reached
+    /// the session, which matches every turn start. lastActivityAt is also
+    /// written after a turn has ended, so it only stands in for a desktop that
+    /// has no frame date, with the bookkeeping grace.
+    private static (DateTimeOffset? Date, TimeSpan Grace) DesktopTurnStart(DesktopSession? desktop) =>
+        desktop is null ? (null, DesktopBookkeepingGrace)
+        : desktop.UserFrameAt is { } frame ? (frame, TimeSpan.Zero)
+        : (desktop.LastActivityAt, DesktopBookkeepingGrace);
+
+    internal static (ActivityState Status, string? TurnKey, DateTimeOffset Modified) ClaudeSessionState(
+        string? path,
+        DateTimeOffset now,
+        IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
+        DesktopSession? desktop)
+    {
+        var (date, grace) = DesktopTurnStart(desktop);
+        return SessionState(path, now, lastWorking, date, SessionTurnState.Claude,
+            requireTurn: true, externalGrace: grace);
+    }
+
+    private static readonly Dictionary<string, bool> SdkTranscripts = new(StringComparer.Ordinal);
+
+    /// True when a transcript was written by a headless SDK run, which names
+    /// its entrypoint "sdk-py", "sdk-ts" and the like in its first records.
+    internal static bool IsSdkTranscript(string path)
+    {
+        lock (SdkTranscripts)
+        {
+            if (SdkTranscripts.TryGetValue(path, out var known)) return known;
+        }
+        var sdk = false;
+        try
+        {
+            using var stream = OpenShared(path);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            for (var i = 0; i < 40 && reader.ReadLine() is { } line; i++)
+            {
+                using var doc = Jsonl.TryParseLine(line);
+                if (doc is null || doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                if (Jsonl.GetString(doc.RootElement, "entrypoint") is not { } entrypoint) continue;
+                sdk = entrypoint.StartsWith("sdk-", StringComparison.Ordinal);
+                break;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+        lock (SdkTranscripts)
+        {
+            if (SdkTranscripts.Count > 5000) SdkTranscripts.Clear();
+            SdkTranscripts[path] = sdk;
+        }
+        return sdk;
     }
 
     // MARK: - Codex: %USERPROFILE%\.codex\sessions (CODEX_HOME overrides)
@@ -804,8 +859,9 @@ public static class SessionScanner
         return output;
     }
 
-    private sealed record DesktopSession(
-        string CliSessionId, string Title, string Cwd, bool IsArchived, DateTimeOffset? LastActivityAt);
+    internal sealed record DesktopSession(
+        string CliSessionId, string Title, string Cwd, bool IsArchived, DateTimeOffset? LastActivityAt,
+        DateTimeOffset? UserFrameAt);
 
     private static IEnumerable<string> EnumerateDesktopSessionFiles()
     {
@@ -886,7 +942,7 @@ public static class SessionScanner
         }
     }
 
-    private static DesktopSession? ParseDesktopSessionFile(string path)
+    internal static DesktopSession? ParseDesktopSessionFile(string path)
     {
         try
         {
@@ -895,12 +951,14 @@ public static class SessionScanner
             var root = doc.RootElement;
             var cliSessionId = Jsonl.GetString(root, "cliSessionId") ?? "";
             var ms = Jsonl.GetDouble(root, "lastActivityAt") ?? Jsonl.GetDouble(root, "createdAt");
+            var frame = Jsonl.GetDouble(root, "latestUserFrameAt");
             return new DesktopSession(
                 cliSessionId,
                 Jsonl.GetString(root, "title") ?? "",
                 Jsonl.GetString(root, "cwd") ?? "",
                 Jsonl.GetBool(root, "isArchived") ?? false,
-                ms is { } m ? DateTimeOffset.FromUnixTimeMilliseconds((long)m) : null);
+                ms is { } m ? DateTimeOffset.FromUnixTimeMilliseconds((long)m) : null,
+                frame is { } f and > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)f) : null);
         }
         catch
         {
@@ -955,12 +1013,19 @@ public static class SessionScanner
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
         DateTimeOffset? externalActivityDate,
         Func<IReadOnlyList<string>, SessionTurnStatus> turnState,
-        Func<string, List<string>>? tail = null)
+        Func<string, List<string>>? tail = null,
+        bool requireTurn = false,
+        TimeSpan? externalGrace = null)
     {
         if (path is null)
             return (ActivityState.Idle, null, externalActivityDate ?? DateTimeOffset.MinValue);
 
-        var (turn, fileModified) = ReadTurn(path, turnState, tail ?? (p => TailLines(p)));
+        var (turn, fileModified) = ReadTurn(path, turnState, tail ?? (p => TailLines(p)), requireTurn);
+        // A transcript that shows no turn at all is working only while the
+        // desktop says a turn began inside the attention window: the file's
+        // write time alone proves nothing.
+        if (requireTurn && turn.Key is null && externalActivityDate is null)
+            return (ActivityState.Idle, null, fileModified);
         var semanticModified = LatestDate(turn.ActivityDate, externalActivityDate);
         var effectiveModified = semanticModified ?? fileModified;
         // For a finished turn, external activity inside the bookkeeping grace
@@ -968,7 +1033,7 @@ public static class SessionScanner
         // so it must not suppress needsYou. Genuine "user came back" activity
         // lands minutes later, far past the grace.
         var externalReference = turn.IsDone
-            ? turn.ActivityDate?.Add(DesktopBookkeepingGrace)
+            ? turn.ActivityDate?.Add(externalGrace ?? DesktopBookkeepingGrace)
             : turn.ActivityDate;
         var externalIsNewer = IsLater(externalActivityDate, externalReference);
         var age = now - effectiveModified;
@@ -1002,6 +1067,8 @@ public static class SessionScanner
 
     // MARK: - Turn parse cache
 
+    private static readonly long[] WidenedTailBytes = { 1L << 20, 4L << 20 };
+
     private static readonly Dictionary<string, (long Ticks, long Size, SessionTurnStatus Turn, DateTimeOffset Modified)>
         TurnCache = new(StringComparer.Ordinal);
 
@@ -1026,7 +1093,8 @@ public static class SessionScanner
     /// (working / needsYou / idle) is still computed fresh each scan from
     /// the cached turn, so nothing about detection changes — only redundant IO.
     private static (SessionTurnStatus Turn, DateTimeOffset Modified) ReadTurn(
-        string path, Func<IReadOnlyList<string>, SessionTurnStatus> turnState, Func<string, List<string>> tail)
+        string path, Func<IReadOnlyList<string>, SessionTurnStatus> turnState, Func<string, List<string>> tail,
+        bool widen = false)
     {
         try
         {
@@ -1043,6 +1111,16 @@ public static class SessionScanner
             }
             var modified = Mtime(path);
             var parsed = turnState(tail(path));
+            // Huge lines (attachments) can push the last conversation line
+            // out of the usual window; look further back before giving up.
+            if (widen && parsed.Key is null)
+            {
+                foreach (var bytes in WidenedTailBytes)
+                {
+                    parsed = turnState(TailLines(path, bytes, keep: 4000));
+                    if (parsed.Key is not null) break;
+                }
+            }
             lock (TurnCacheGate)
             {
                 // Bound the cache against pathological growth (project-folder

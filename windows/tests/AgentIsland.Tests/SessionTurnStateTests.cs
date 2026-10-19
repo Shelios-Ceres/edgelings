@@ -23,6 +23,14 @@ public static class SessionTurnStateTests
             ("desktop bookkeeping write does not suppress fresh end_turn", TestDesktopBookkeepingWriteDoesNotSuppressFreshEndTurn),
             ("desktop activity well after end_turn still suppresses", TestDesktopActivityWellAfterEndTurnStillSuppresses),
             ("claude streaming assistant is working", TestClaudeStreamingAssistantIsWorking),
+            ("sdk run ending on a structured output is idle", TestSdkStructuredOutputIsIdle),
+            ("sdk transcript is recognised by its entrypoint", TestSdkTranscriptDetected),
+            ("huge attachment line after the last assistant line keeps the turn known", TestHugeLineKeepsTurnKnown),
+            ("unknown turn works only while the desktop's turn start is recent", TestUnknownTurnWithoutDesktopDateIsIdle),
+            ("desktop lastActivityAt after the turn does not make it work", TestLateLastActivityDoesNotWork),
+            ("peer message after end_turn starts a working turn", TestPeerMessageStartsTurn),
+            ("session file without latestUserFrameAt behaves as before", TestNoFrameDateFallsBack),
+            ("desktop archived flag is read", TestArchivedFlagIsRead),
         };
 
         foreach (var (name, test) in tests)
@@ -245,6 +253,164 @@ public static class SessionTurnStateTests
         {
             File.Delete(tmp);
         }
+    }
+
+    // MARK: - Phase 3.1: honest Claude state
+
+    private static readonly string[] EndedTurn =
+    {
+        """{"type":"user","uuid":"u1","timestamp":"2026-10-19T13:00:00.000Z","message":{"role":"user","content":"hi"}}""",
+        """{"type":"assistant","uuid":"a1","timestamp":"2026-10-19T13:00:10.000Z","message":{"stop_reason":"end_turn"}}""",
+    };
+
+    private sealed class DesktopFile : IDisposable
+    {
+        public string Path { get; }
+
+        public DesktopFile(long? activityMs, long? frameMs, bool archived)
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"agent-island-desktop-{Guid.NewGuid()}.json");
+            var fields = new List<string> { "\"cliSessionId\":\"s1\"", "\"cwd\":\"D:\\\\x\"" };
+            if (activityMs is { } a) fields.Add($"\"lastActivityAt\":{a}");
+            if (frameMs is { } f) fields.Add($"\"latestUserFrameAt\":{f}");
+            if (archived) fields.Add("\"isArchived\":true");
+            File.WriteAllText(Path, "{" + string.Join(",", fields) + "}");
+        }
+
+        public void Dispose() => File.Delete(Path);
+    }
+
+    private static long Ms(string raw) => Date(raw).ToUnixTimeMilliseconds();
+
+    private static (ActivityState Status, string? TurnKey, DateTimeOffset Modified) ClaudeScan(
+        string[] lines, DateTimeOffset now, DesktopFile? desktop)
+    {
+        SessionScanner.ClearTurnCache();
+        var tmp = WriteTranscript(lines, now);
+        try
+        {
+            var session = desktop is null ? null : SessionScanner.ParseDesktopSessionFile(desktop.Path);
+            return SessionScanner.ClaudeSessionState(tmp, now, EmptyLastWorking, session);
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
+    private static void TestSdkStructuredOutputIsIdle()
+    {
+        var now = Date("2026-10-19T13:05:00.000Z");
+        var state = ClaudeScan(new[]
+        {
+            """{"type":"user","uuid":"u1","entrypoint":"sdk-py","timestamp":"2026-10-19T13:00:00.000Z","message":{"role":"user","content":"Review this change"}}""",
+            """{"type":"assistant","uuid":"a1","timestamp":"2026-10-19T13:04:00.000Z","message":{"stop_reason":"tool_use"}}""",
+            """{"type":"user","uuid":"u2","toolEndsTurn":true,"timestamp":"2026-10-19T13:04:30.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Structured output provided successfully"}]}}""",
+        }, now, desktop: null);
+        Expect(state.Status == ActivityState.Idle, $"a finished sdk run needs no one, got {state.Status}");
+    }
+
+    private static void TestSdkTranscriptDetected()
+    {
+        var at = Date("2026-10-19T13:00:00.000Z");
+        var sdk = WriteTranscript(new[]
+        {
+            """{"type":"queue-operation","sessionId":"s"}""",
+            """{"type":"user","entrypoint":"sdk-py","uuid":"u1","message":{"role":"user","content":"x"}}""",
+        }, at);
+        var desktopRun = WriteTranscript(new[]
+        {
+            """{"type":"user","entrypoint":"claude-desktop","uuid":"u1","message":{"role":"user","content":"x"}}""",
+        }, at);
+        var noEntrypoint = WriteTranscript(new[] { """{"type":"user","uuid":"u1"}""" }, at);
+        try
+        {
+            Expect(SessionScanner.IsSdkTranscript(sdk), "sdk-py is a machine run");
+            Expect(!SessionScanner.IsSdkTranscript(desktopRun), "claude-desktop is a conversation");
+            Expect(!SessionScanner.IsSdkTranscript(noEntrypoint), "no entrypoint is a conversation");
+        }
+        finally
+        {
+            File.Delete(sdk);
+            File.Delete(desktopRun);
+            File.Delete(noEntrypoint);
+        }
+    }
+
+    private static void TestHugeLineKeepsTurnKnown()
+    {
+        // The attachment line after the last assistant line is far bigger
+        // than the usual 128 KB tail, so only a wider read finds the turn.
+        var now = Date("2026-10-19T13:05:00.000Z");
+        var big = "{\"type\":\"attachment\",\"uuid\":\"x\",\"data\":\"" + new string('x', 300_000) + "\"}";
+        var lines = new List<string>(EndedTurn) { big };
+        using var desktop = new DesktopFile(null, Ms("2026-10-19T13:00:00.000Z"), archived: false);
+        var state = ClaudeScan(lines.ToArray(), now, desktop);
+        Expect(state.TurnKey == "a1", $"the turn must be found past the huge line, got {state.TurnKey}");
+        Expect(state.Status == ActivityState.NeedsYou, $"a finished turn waits on the user, got {state.Status}");
+    }
+
+    private static void TestUnknownTurnWithoutDesktopDateIsIdle()
+    {
+        var now = Date("2026-10-19T13:05:00.000Z");
+        var noTurn = new[] { """{"type":"mode","sessionId":"s1"}""" };
+        // Nothing in the file reads as a turn, and no desktop session says one began.
+        var bare = ClaudeScan(noTurn, now, desktop: null);
+        Expect(bare.Status == ActivityState.Idle, $"a file's write time alone is not work, got {bare.Status}");
+        using var started = new DesktopFile(null, Ms("2026-10-19T13:04:00.000Z"), archived: false);
+        var working = ClaudeScan(noTurn, now, started);
+        Expect(working.Status == ActivityState.Working, $"a turn the desktop started a minute ago works, got {working.Status}");
+        using var old = new DesktopFile(null, Ms("2026-10-19T12:00:00.000Z"), archived: false);
+        var idle = ClaudeScan(noTurn, now, old);
+        Expect(idle.Status == ActivityState.Idle, $"outside the attention window it is idle, got {idle.Status}");
+    }
+
+    private static void TestLateLastActivityDoesNotWork()
+    {
+        // The desktop wrote lastActivityAt 13 minutes after the turn began;
+        // the turn start (latestUserFrameAt) is before the turn's end.
+        var now = Date("2026-10-19T13:20:00.000Z");
+        using var desktop = new DesktopFile(Ms("2026-10-19T13:13:00.000Z"), Ms("2026-10-19T13:00:00.000Z"), archived: false);
+        var state = ClaudeScan(EndedTurn, now, desktop);
+        Expect(state.Status == ActivityState.NeedsYou, $"a turn that ended ten minutes ago still waits, got {state.Status}");
+    }
+
+    private static void TestPeerMessageStartsTurn()
+    {
+        // A peer message is an isMeta line the transcript scan skips; the
+        // desktop's frame date after the last end_turn is the only trace.
+        var now = Date("2026-10-19T13:05:00.000Z");
+        var frame = Ms("2026-10-19T13:04:00.000Z");
+        using var desktop = new DesktopFile(frame, frame, archived: false);
+        var lines = new List<string>(EndedTurn)
+        {
+            """{"type":"user","uuid":"m1","isMeta":true,"timestamp":"2026-10-19T13:04:00.100Z","message":{"role":"user","content":"peer says go"}}""",
+        };
+        var state = ClaudeScan(lines.ToArray(), now, desktop);
+        Expect(state.Status == ActivityState.Working, $"a peer message starts a turn, got {state.Status}");
+    }
+
+    private static void TestNoFrameDateFallsBack()
+    {
+        // lastActivityAt 3 s after the end: bookkeeping, inside the grace.
+        using (var desktop = new DesktopFile(Ms("2026-10-19T13:00:13.000Z"), null, archived: false))
+        {
+            var state = ClaudeScan(EndedTurn, Date("2026-10-19T13:00:48.000Z"), desktop);
+            Expect(state.Status == ActivityState.NeedsYou, $"bookkeeping inside the grace must not suppress, got {state.Status}");
+        }
+        // lastActivityAt two minutes after the end: the user is back.
+        using (var desktop = new DesktopFile(Ms("2026-10-19T13:02:10.000Z"), null, archived: false))
+        {
+            var state = ClaudeScan(EndedTurn, Date("2026-10-19T13:02:30.000Z"), desktop);
+            Expect(state.Status == ActivityState.Working, $"later activity without a frame date still means work, got {state.Status}");
+        }
+    }
+
+    private static void TestArchivedFlagIsRead()
+    {
+        using var desktop = new DesktopFile(null, Ms("2026-10-19T13:00:00.000Z"), archived: true);
+        var session = SessionScanner.ParseDesktopSessionFile(desktop.Path);
+        Expect(session is { IsArchived: true }, "the archived flag must be read from the session file");
     }
 
     private static readonly IReadOnlyDictionary<string, DateTimeOffset> EmptyLastWorking =
