@@ -385,7 +385,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 - **Engine**: `Drawer/Characters/classic.mjs`, the second cast of desk
   companions approved 2026-10-19, SHA-256
-  `2d9434d7768c8d9ee0bc3586d7c089400c8e5298fd0d04842fcc3d8f2b446a6a`; vector
+  `3d53d0ead74b3b33246e75851b0f64f09a512f85d3b35bce7b8a1a996fdf8f07`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
   frames up to 2.7 KB. Each agent is a companion with a face: a succulent
   (Claude), a desk computer (Codex), a flying saucer (Antigravity), a ringed

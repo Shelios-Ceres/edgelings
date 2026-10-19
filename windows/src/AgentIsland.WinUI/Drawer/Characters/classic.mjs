@@ -593,9 +593,10 @@ const LOOP = {
 
   // Fidgets: short idle habits the drawer starts now and then. Each is play:
   // happy or curious eyes, never a badge, a work rhythm or closed eyes.
-  // Plays with its own toy, eyes smiling: the rosette fans, the steam cloud
-  // puffs up, the plane loops, the moon zips round the ring, the moon lamp
-  // spins up, the whale spouts and flicks its tail.
+  // Plays with its own toy, eyes smiling: the rosette fans, the computer's
+  // screen brightens as it bobs, the saucer's lights spin round, the moon
+  // zips round the ring, the helmet floats up, the submarine surfaces in a
+  // burst of bubbles.
   fiddle(u) {
     const play = Math.pow(Math.sin(PI * u), 2);
     return { play, happy: 0.9 * smooth(seg(u, 0.08, 0.22)) * (1 - smooth(seg(u, 0.78, 0.92))), y: -0.5 * play, gazeW: 0.3 };
@@ -801,12 +802,11 @@ const OBJ = {
 
 };
 
-// MARK: - The new companions (2026-10-19)
+// MARK: - Computer, saucer, submarine and helmet
 //
-// The looks the user picked: a desk computer for Codex, a flying saucer for
-// Antigravity, a submarine for DeepSeek and an astronaut helmet for Kimi
-// Code. Each reads the pose channels its own way. Claude and Grok keep
-// theirs and, like all of them, now pop an emote instead of wearing a badge.
+// Codex's desk computer, Antigravity's flying saucer, DeepSeek's submarine
+// and Kimi Code's astronaut helmet. Each reads the pose channels its own
+// way and pops its "?" and "!" as an emote in its own colour.
 
 // A >_ prompt at (x, y) at scale s, the output marks typed after it and the
 // caret after them.

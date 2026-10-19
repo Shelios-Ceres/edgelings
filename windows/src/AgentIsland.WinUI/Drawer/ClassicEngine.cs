@@ -8,7 +8,7 @@ namespace AgentIsland.WinUI.Drawer;
 
 /// The Classic bots in embedded V8: Characters/classic.mjs is the desk
 /// companions engine from windows/notes/classic-grok-20261015/companions2
-/// (sha256 2d9434d7…), our own code, shipped with the app. One companion
+/// (sha256 3d53d0ea…), our own code, shipped with the app. One companion
 /// per agent, in its own colour; frames are vector SVG, drawn antialiased.
 internal sealed class ClassicEngine : ICharacterEngine
 {
