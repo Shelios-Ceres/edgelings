@@ -450,7 +450,7 @@ internal sealed partial class DrawerWindow : Window
                 slot.Gazing = false;
                 slot.Svg = null;
                 slot.NextStep = 0;
-                engine?.SetState(index, hold, hold == Resting && _reducedMotion ? 0 : -1);
+                engine?.SetState(index, hold, HoldsStill(hold, theme, _reducedMotion) ? 0 : -1);
             }
             old?.Dispose();
         });
@@ -955,13 +955,20 @@ internal sealed partial class DrawerWindow : Window
             slot.Fidget = null;
             slot.NextFidget = slot.Since + FidgetGap * (0.5 + Random.Shared.NextDouble());
             // Reduced motion rests in the settled pose (the loop's start), held still.
-            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || entry == Resting && _reducedMotion ? 0 : -1);
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || HoldsStill(entry, theme, _reducedMotion) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
     }
 
     private const string Resting = "resting";
+    private const string Sleeping = "sleeping";
+
+    /// The two calm sleep looks hold still under reduced motion. Pixel's
+    /// `sleeping` (out of quota) is the breathing doze; its `resting` (app
+    /// away) draws z's. Classic's `sleeping` keeps animating.
+    private static bool HoldsStill(string state, CharacterTheme theme, bool reduced) =>
+        reduced && (state == Resting || state == Sleeping && theme == CharacterTheme.Pixel);
     private static readonly bool DebugRest = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REST") == "1";
 
     /// Why an idle character rests: every app of its agent (Grok's with
@@ -1070,9 +1077,9 @@ internal sealed partial class DrawerWindow : Window
         foreach (var index in _due)
         {
             var slot = _slots[index];
-            // Under reduced motion a resting character holds still, once its
+            // Under reduced motion a sleeping character holds still, once its
             // blend into the settled pose is done.
-            dts[index] = reduced && slot.EngineState == Resting && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
+            dts[index] = HoldsStill(slot.EngineState, theme, reduced) && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
             slot.LastStep = now;
             var fps = !DrawerLooks.IsCalm(slot.EngineState, theme) ? activeFps : near ? gazeFps : calmFps;
             var interval = 1.0 / fps;
@@ -1276,10 +1283,11 @@ internal sealed partial class DrawerWindow : Window
 
     private Bot BotOf(DisplayProvider provider) => _bots.First(b => b.Provider == provider);
 
-    private static StatusCard CardFor(Bot bot)
+    private static StatusCard CardFor(Bot bot, CharacterTheme theme)
     {
         var card = LongText(StatusCards.For(bot.Provider, bot.Phase, bot.Detail, bot.Running));
-        return bot.Rest is { } rest ? card with { Phase = L10n.Tr("Resting"), Detail = RestDetail(rest, bot.Provider) } : card;
+        card = card with { Phase = DrawerLooks.CardPhase(bot.Phase, bot.Rest is not null, theme) };
+        return bot.Rest is { } rest ? card with { Detail = RestDetail(rest, bot.Provider) } : card;
     }
 
     /// AGENTISLAND_DEBUG_CARD_TEXT=long: the longest a card says, to check
@@ -1308,7 +1316,7 @@ internal sealed partial class DrawerWindow : Window
         using (pixel ? L10n.English() : null)
         {
             sections = Ordered(_bots.Where(b => b.Visible && (_cardBot is null || b == _cardBot)))
-                .Select(b => (CardFor(b), Brand.Readable(SwatchOf(b), dark)))
+                .Select(b => (CardFor(b, _theme), Brand.Readable(SwatchOf(b), dark)))
                 .ToList();
         }
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
@@ -1424,8 +1432,8 @@ internal sealed partial class DrawerWindow : Window
                 var index = bot.Index;
                 _commands.Enqueue(() =>
                 {
-                    // A character resting still under reduced motion stays still.
-                    if (!(_reducedMotion && _slots[index].EngineState == Resting)) _engine?.Poke(index);
+                    // A character asleep under reduced motion stays still.
+                    if (!HoldsStill(_slots[index].EngineState, _theme, _reducedMotion)) _engine?.Poke(index);
                     _slots[index].NextStep = 0;
                 });
                 // A click opens the character's agent in Settings; the shared

@@ -498,6 +498,7 @@ public static class L10n
         ["Sign-in needed"] = "需要登录",
         ["Idle"] = "空闲",
         ["Resting"] = "休息中",
+        ["Sleeping"] = "睡觉中",
         ["App closed"] = "应用已关闭",
         ["Grok and Cursor closed"] = "Grok 和 Cursor 都已关闭",
         ["Minimized"] = "已最小化",

@@ -346,8 +346,8 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 9. Reference: the Pixel theme
 
-- **Engine**: `Drawer/Characters/characters.mjs`, approved v4, SHA-256
-  `f919eff7db4125913bdf6523396ba074ddc27ee0926739e3212131d8e377c26f`; a
+- **Engine**: `Drawer/Characters/characters.mjs`, approved v5.1, SHA-256
+  `b95350269ba74e61ab8c69e543ed8a75267e036c4cb9ebe546d34796217e567f`; a
   22 × 22 grid of 2-DIP cells, a one-cell white rim, 0.32 s pose blends;
   every frame within 22 DIP of the box centre, so nothing meets the
   drawer's circle.

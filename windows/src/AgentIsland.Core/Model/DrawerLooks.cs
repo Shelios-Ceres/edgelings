@@ -85,7 +85,7 @@ public static class DrawerLooks
         DisplayProvider.Codex => 0x9EA1AB,
         DisplayProvider.Antigravity => 0x3D7BF5,
         DisplayProvider.Grok => 0x0B0B0C,
-        DisplayProvider.Cursor => 0x45454F,
+        DisplayProvider.Cursor => 0x0B0B0C,
         DisplayProvider.Kimi => 0x2B8BFF,
         DisplayProvider.DeepSeek => 0x4D6BFE,
         _ => 0xD77757,
@@ -197,6 +197,16 @@ public static class DrawerLooks
         AgentPhase.AuthRequired => "Sign-in needed",
         _ => "Idle",
     });
+
+    /// The head word of a character's card. Pixel's words follow its looks:
+    /// an agent whose app is away is "Sleeping", one out of quota "Resting".
+    /// Classic keeps its own: "Resting" while away, "Out of quota".
+    public static string CardPhase(AgentPhase phase, bool away, CharacterTheme theme)
+    {
+        if (theme != CharacterTheme.Pixel) return away ? L10n.Tr("Resting") : PhaseLabel(phase);
+        if (away) return L10n.Tr("Sleeping");
+        return phase == AgentPhase.RateLimited ? L10n.Tr("Resting") : PhaseLabel(phase);
+    }
 
     /// The WPF drawer's look picker labels.
     public static string ShapeLabel(string shape) =>

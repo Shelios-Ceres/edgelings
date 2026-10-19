@@ -83,13 +83,12 @@ internal static class PixelTokens
     }
 
     /// An agent's colour, made readable on paper, for bars, chips and charts.
-    public static Color Agent(DisplayProvider provider, bool dark) => Brand.Rgb(provider switch
+    public static Color Agent(DisplayProvider provider, bool dark) => Brand.Rgb(provider.Character() switch
     {
         DisplayProvider.Claude => dark ? 0xE8916Eu : 0xC2603F,
         DisplayProvider.Codex => dark ? 0xB9BCC6u : 0x6E717C,
         DisplayProvider.Antigravity => dark ? 0x7FA6FFu : 0x2F6BE0,
         DisplayProvider.Grok => dark ? 0xD9D9E0u : 0x2B2B33,
-        DisplayProvider.Cursor => dark ? 0xB4B4C0u : 0x45454F,
         DisplayProvider.Kimi => dark ? 0x6FB2FFu : 0x1F72E0,
         _ => dark ? 0x8EA0FFu : 0x4058E8,
     });

@@ -48,7 +48,7 @@ internal static partial class PixelIcons
     public static string Markup(string name) => string.Concat(Runs(Grids[name].Rows, '#')
         .Select(run => $"M{run.X * C},{run.Y * C}h{run.Length * C}v{C}h-{run.Length * C}z"));
 
-    public static ImageSource Face(DisplayProvider provider) => Svg(FaceGrids[provider]);
+    public static ImageSource Face(DisplayProvider provider) => Svg(FaceGrids[provider.Character()]);
 
     public static ImageSource Logo() => Svg(LogoGrid);
 

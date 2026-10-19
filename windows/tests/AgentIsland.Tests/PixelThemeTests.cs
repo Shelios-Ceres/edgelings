@@ -22,6 +22,8 @@ public static class PixelThemeTests
             .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
         var swatches = Regex.Matches(engine, @"CHARACTERS\.(\w+) = \{[^}]*?swatch: 0x([0-9A-Fa-f]{6})", RegexOptions.Singleline)
             .ToDictionary(m => m.Groups[1].Value, m => Convert.ToUInt32(m.Groups[2].Value, 16));
+        // v5.1 draws Cursor as Grok: CHARACTERS.cursor = CHARACTERS.grok.
+        if (Regex.IsMatch(engine, @"CHARACTERS\.cursor = CHARACTERS\.grok;")) swatches["cursor"] = swatches["grok"];
         Expect(phases.Count > 20 && calm.Count > 0 && kinds.Count == 7 && settle.Count > 0 && swatches.Count == 7,
             "the engine file parses");
 
@@ -81,6 +83,17 @@ public static class PixelThemeTests
             L10n.Current = language;
         }
         Console.WriteLine("PASS the pixel panels' English stays inside its scope");
+
+        Expect(DrawerLooks.CardPhase(AgentPhase.Thinking, true, CharacterTheme.Pixel) == L10n.Tr("Sleeping")
+            && DrawerLooks.CardPhase(AgentPhase.RateLimited, false, CharacterTheme.Pixel) == L10n.Tr("Resting")
+            && DrawerLooks.CardPhase(AgentPhase.Thinking, false, CharacterTheme.Pixel) == DrawerLooks.PhaseLabel(AgentPhase.Thinking),
+            "pixel cards say Sleeping when the app is away and Resting when out of quota");
+        Expect(DrawerLooks.CardPhase(AgentPhase.Thinking, true, CharacterTheme.Classic) == L10n.Tr("Resting")
+            && DrawerLooks.CardPhase(AgentPhase.RateLimited, false, CharacterTheme.Classic) == DrawerLooks.PhaseLabel(AgentPhase.RateLimited),
+            "classic cards keep their words");
+        Expect(DrawerLooks.PixelSwatch(DisplayProvider.Cursor) == DrawerLooks.PixelSwatch(DisplayProvider.Grok),
+            "Cursor wears Grok's colour in Pixel");
+        Console.WriteLine("PASS pixel card words follow the looks; Cursor looks like Grok");
         Console.WriteLine("PixelThemeTests GREEN");
     }
 

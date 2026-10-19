@@ -1,8 +1,8 @@
 // Agent Island drawer characters.
 //
 // One pixel bot per agent, after Clawd, Claude Code's own pixel mascot, each
-// drawn from the idea behind that agent's icon: Clawd, the Codex cloud,
-// Antigravity's rainbow "A", Grok's ring head, Cursor's cube, Kimi Code's
+// drawn from the idea behind that agent's icon: Clawd, the Codex notebook,
+// Antigravity's balloon, Grok's ring head (which Cursor shares), Kimi Code's
 // blob and terminal, DeepSeek's whale. Every live phase has its own motion.
 //
 // Pure JS, no DOM: the drawer runs it in embedded V8, the preview page in a
@@ -16,10 +16,11 @@ export const PHASES = [
   'idle', 'thinking', 'streaming', 'reading', 'searching', 'web', 'writing', 'running',
   'controlling', 'spawning', 'orbit', 'sending', 'asking', 'approving', 'compacting',
   'working', 'finished', 'listening', 'failed', 'broken', 'offline', 'sleeping', 'locked',
+  'resting',
 ];
 
 // States slow enough for the drawer's calm frame rate.
-export const CALM = ['idle', 'listening', 'broken', 'offline', 'sleeping', 'locked'];
+export const CALM = ['idle', 'listening', 'broken', 'offline', 'sleeping', 'locked', 'resting'];
 
 // One-shot entries: how long each plays and the state it settles into.
 const SETTLE = { finished: ['listening', 1.7], failed: ['broken', 1.5] };
@@ -81,7 +82,12 @@ const CHARACTERS = {};
 
 // Expression channels every pose carries; the pixel eyes read them.
 const EYE_KEYS = ['open', 'happy', 'cross', 'sad', 'wide', 'sleep', 'wink', 'squint'];
-const REST_EYES = { look: [0, 0], gazeW: 1, blink: 1, open: 1, happy: 0, cross: 0, sad: 0, wide: 0, sleep: 0, wink: 0, squint: 0 };
+const REST_EYES = { look: [0, 0], gazeW: 1, blink: 1, open: 1, happy: 0, cross: 0, sad: 0, wide: 0, sleep: 0, wink: 0, squint: 0, stir: 0 };
+// A dozing bot (a pose with stir: 1, out of quota) keeps its eyes closed; it half-opens
+// them and looks when the pointer comes within WAKE DIP, and a poke opens
+// them for STIR seconds.
+const STIR = 1.4;
+const WAKE = 120;
 
 // Numbers blend; anything else (a limb pose, a prop name) switches halfway.
 function mixPoses(a, b, w, angles) {
@@ -160,7 +166,9 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
       if (gaze) {
         const sat = v => v / Math.sqrt(1 + v * v);
         const g = [sat(gaze[0] / 70), sat(gaze[1] / 70)];
-        target = [lerp(target[0], g[0], pose.gazeW), lerp(target[1], g[1], pose.gazeW)];
+        const resting = pose.stir > 0.5;
+        const gw = resting && T - pokeAt < STIR ? 1 : resting && Math.hypot(gaze[0], gaze[1]) >= WAKE ? 0 : pose.gazeW;
+        target = [lerp(target[0], g[0], gw), lerp(target[1], g[1], gw)];
       }
       const follow = 1 - Math.exp(-dt * 11);
       look[0] += (target[0] - look[0]) * follow;
@@ -168,13 +176,18 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
     },
     svg(size = 44, id = 'b') {
       if (!pose) pose = blended();
+      // A poke stirs a resting bot: its eyes open for a moment, then it
+      // settles again.
+      const close = gaze && Math.hypot(gaze[0], gaze[1]) < WAKE;
+      const shown = pose.stir > 0.5 && T - pokeAt < STIR ? { ...pose, eyes: 'open', sleep: 0, blink: 1 }
+        : pose.stir > 0.5 && close ? { ...pose, eyes: 'rest' } : pose;
       const q = T - blinkAt;
-      const blink = pose.blink > 0.5 && q < 0.17 ? bump(q / 0.17) : 0;
+      const blink = shown.blink > 0.5 && q < 0.17 ? bump(q / 0.17) : 0;
       const eye = { look: [look[0], look[1]] };
-      for (const key of EYE_KEYS) eye[key] = pose[key];
-      eye.open = pose.open * (1 - blink);
+      for (const key of EYE_KEYS) eye[key] = shown[key];
+      eye.open = shown.open * (1 - blink);
       const c = { T, id, rim: rimWidth, eye, k };
-      const body = def.draw(pose, c);
+      const body = def.draw(shown, c);
       // A click makes the character hop a whole pixel (2 DIP), so pixel art
       // stays on its grid.
       const p = T - pokeAt;
@@ -387,8 +400,6 @@ const PIX = {
   env: ['#######', '#w###w#', '##w#w##', '###w###', '#######'],
   prompt: ['#....', '.#...', '..#..', '.#...', '#.###'],
   wifi: ['.#####.', '#.....#', '..###..', '.#...#.', '...#...'],
-  hammerUp: ['###', '###', '.#.', '.#.', '.#.'],
-  hammerDown: ['##...', '#####', '##...'],
   mag: ['.##..', '#ww#.', '#ww#.', '.##..', '...##'],
   tear: ['#', '#'],
   bubble: ['.#####.', '#ddddd#', '#ddddd#', '.#####.', '.#.....'],
@@ -415,8 +426,11 @@ function pxEyes(cv, at, c, mode, color, look = true) {
     const mm = wink ? 'happy' : m;
     if (mm === 'x') for (const [dx, dy] of [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]]) cv.put(x + dx, y + 1 + dy, color);
     else if (mm === 'happy') { cv.put(x - 1, y + 1, color); cv.put(x, y, color); cv.put(x + 1, y + 1, color); }
+    // Content: closed and curved down, at peace.
+    else if (mm === 'content') { cv.put(x - 1, y, color); cv.put(x, y + 1, color); cv.put(x + 1, y, color); }
     else if (mm === 'closed') cv.rect(side < 0 ? x - 1 : x, y + 1, 2, 1, color);
-    else if (mm === 'blink' || mm === 'focus') cv.put(x, y + 1, color);
+    // Resting eyes are half-closed: the lower cell only, still glancing.
+    else if (mm === 'blink' || mm === 'focus' || mm === 'rest') cv.put(x, y + 1, color);
     else if (mm === 'wide') cv.rect(x, y - 1, 1, 3, color);
     else if (mm === 'sad') { cv.put(x, y + 1, color); cv.put(x + (side < 0 ? 1 : -1), y, color); }
     else cv.rect(x, y, 1, 2, color);
@@ -485,7 +499,7 @@ function basePose(s, t, T) {
     }
     case 'working': {
       const swing = Math.floor(t * 4) % 2;
-      return { armR: swing ? 'high' : 'out', eyes: 'focus', look: [1, 1], gazeW: 0, prop: 'hammer', propT: t, propU: swing };
+      return { dx: -2, armR: swing ? 'high' : 'out', eyes: 'focus', look: [1, 1], gazeW: 0, prop: 'hammer', propT: t, propU: swing };
     }
     case 'finished': {
       const air = t < 0.5;
@@ -501,10 +515,20 @@ function basePose(s, t, T) {
       return { dy: 2, legs: 'tuck', armL: 'down', armR: 'down', eyes: 'sad', dim: 1, look: [0, 1], gazeW: 0.2, prop: 'tear', propT: t };
     case 'offline':
       return { armL: 'down', armR: 'down', look: [Math.floor(t / 0.9) % 2 ? 1 : -1, 0], gazeW: 0.1, prop: 'nowifi', propT: t };
-    case 'sleeping':
+    case 'resting':
+      // The agent's app is closed, minimized or in the tray: asleep, z's
+      // rising.
       return { dy: 2, legs: 'tuck', armL: 'down', armR: 'down', sleep: 1, blink: 0, dim: 0.35, gazeW: 0, prop: 'zz', propT: T };
     case 'locked':
       return { armR: Math.floor(t * 2) % 3 === 0 ? 'high' : 'up', look: [1, -1], gazeW: 0, prop: 'lock', propT: t };
+    case 'sleeping': {
+      // Out of quota: settled down a cell or two, eyes closed and content,
+      // one slow breath every 4 s. No props and no z's (those are resting's,
+      // the app away). When the pointer comes close it half-opens its eyes
+      // and looks; a poke opens them (stir, in the core).
+      const up = frac(t / 4) >= 0.45 && frac(t / 4) < 0.8 ? 1 : 0;
+      return { dy: 2 - up, legs: 'sit', armL: 'down', armR: 'down', eyes: 'content', blink: 0, look: [0, 0], gazeW: 0.6, stir: 1 };
+    }
     case 'wave':
       return { armR: Math.floor(t * 4) % 2 ? 'wave' : 'up', happy: 1, gazeW: 0 };
     case 'hop': {
@@ -528,6 +552,7 @@ const PIXEL_CYCLE = {
   idle: 30, thinking: 6, streaming: 4, reading: 4.8, searching: 6.4, web: 6, writing: 4, running: 2.4,
   controlling: 4.8, spawning: 2.6, orbit: 9, sending: 2.2, asking: 2.4, approving: 4.8, compacting: 3.6,
   working: 3, finished: 1.7, listening: 9, failed: 1.5, broken: 10, offline: 6, sleeping: 8, locked: 6,
+  resting: 8,
 };
 
 // MARK: - Shared props
@@ -647,12 +672,25 @@ function pxProp(cv, back, p, a, pal, c) {
       }
       return true;
     case 'hammer': {
+      // Driving a post in beside it, never hitting its own head (the user,
+      // 2026-10-19). The post stands right of the body where the circle is
+      // widest, and the bot steps left as far as it fits: the hammer goes up
+      // beside the head, then down on the post's cap.
       const up = p.propU;
-      float(g => {
-        const hx = a.right - 1, hy = up ? top - 4 : top + 2;
-        g.glyph(up ? PIX.hammerUp : PIX.hammerDown, hx, hy, GRAY);
-        if (!up) for (const [dx, dy] of [[5, -1], [6, 1], [4, 2]]) g.put(hx + dx, hy + dy, Math.floor(t * 8) % 2 ? '#FFD36B' : WHITE);
-      });
+      const x = 18, y = 11;
+      fitDraw(cv, g => {
+        g.rect(x, y, 2, 3, '#C8955A');
+        g.rect(x + 1, y, 1, 3, '#A4743F');
+        g.rect(x, y - 1, 2, 1, '#5E616C');
+        if (up) {
+          g.rect(x - 3, y - 6, 3, 2, GRAY);
+          g.put(x - 2, y - 4, '#B07A45');
+        } else {
+          g.rect(x, y - 3, 2, 2, GRAY);
+          g.rect(x - 1, y - 2, 1, 2, '#B07A45');
+          if (Math.floor(t * 8) % 2) g.put(x - 1, y - 4, '#FFD36B');
+        }
+      }, null);
       return true;
     }
     case 'sparks':
@@ -726,7 +764,7 @@ function pxProp(cv, back, p, a, pal, c) {
   function clawd(cv, p, c, color) {
     const W = rnd(lerp(W0, 8, p.sq)), H = rnd(lerp(H0, 6, p.sq));
     const x0 = X0 + rnd(p.dx) + rnd((W0 - W) / 2), y0 = Y0 + rnd(p.dy) + (H0 - H);
-    const legs = { stand: [2, 2, 2, 2], walk1: [1, 2, 1, 2], walk2: [2, 1, 2, 1], tuck: [0, 0, 0, 0], jump: [1, 1, 1, 1] }[p.legs] ?? [2, 2, 2, 2];
+    const legs = { stand: [2, 2, 2, 2], walk1: [1, 2, 1, 2], walk2: [2, 1, 2, 1], tuck: [0, 0, 0, 0], jump: [1, 1, 1, 1], sit: [1, 1, 1, 1] }[p.legs] ?? [2, 2, 2, 2];
     const legCols = p.legs === 'jump' ? [0, 2, W - 3, W - 1] : [1, 3, W - 4, W - 2];
     legCols.forEach((lc, i) => { if (legs[i]) cv.rect(x0 + lc, y0 + H, 1, legs[i], color); });
     cv.rect(x0, y0, W, H, color);
@@ -755,7 +793,14 @@ function pxProp(cv, back, p, a, pal, c) {
     cycle: PIXEL_CYCLE,
     rest: PIXEL_REST,
     pose(s, t, T) {
-      return basePose(s, t, T);
+      const b = basePose(s, t, T);
+      switch (s) {
+        // Offline: its spinner's sparkle stalls, grey, a dot blinking on.
+        case 'offline': return { ...b, prop: 'stall' };
+        // Locked: a padlock hangs on its front; it tugs with both arms.
+        case 'locked': return { ...b, armL: b.armR, prop: 'padlock' };
+        default: return b;
+      }
     },
     draw(p, c) {
       const color = p.dim > 0.5 ? DULL : ORANGE;
@@ -764,101 +809,100 @@ function pxProp(cv, back, p, a, pal, c) {
       const a = clawd(cv, q, c, color);
       const body = { ...pal, body: color };
       if (q.prop === 'think') fitDraw(cv, g => g.glyph(SPINNER[Math.floor(q.propT * 7) % SPINNER.length], a.mid - 2, a.top - 7, ORANGE));
+      else if (q.prop === 'stall') fitDraw(cv, g => {
+        g.glyph(SPINNER[3], a.mid - 2, a.top - 7, '#A79A94');
+        if (Math.floor(q.propT * 2) % 2) g.put(a.mid + 4, a.top - 3, '#A79A94');
+      });
+      else if (q.prop === 'padlock') {
+        const up = Math.floor(q.propT * 2) % 3 === 0 ? 1 : 0;
+        fitDraw(cv, g => g.glyph(PIX.lock, a.mid - 2, a.top + 3 - up, '#C9A23A', { w: DARK }), null);
+      }
       else pxProp(cv, back, q, a, body, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
-// MARK: - Codex · the pixel puff cloud
+// MARK: - Codex · the notebook
 //
-// The classic cloud: a big puff and a small one on a flat base, pale with
-// the logo's grey line and the family's slit eyes. It floats, and sprouts
-// little arms only to wave, cheer or type. It thinks under a ring of six
-// dots, drizzles tokens as it streams, types a line between < and > as it
-// writes, turns into a storm cloud when something fails and rains a little
-// when it is sad. (Round 4, 2026-10-15: the user's pick over a cloud on
-// feet; round 3's cloud with arms retired.) 14 cells wide so it and its
-// weather fit inside the drawer's circle.
+// A spiral notebook, drawn from Codex's own concept Folio (a page with a blue
+// bookmark, a gold dog-ear and bracket hands) rather than traced from it:
+// Folio's bookmark becomes the elastic band down the cover, its dog-ear the
+// gold ribbon out of the bottom, its hands two little ink arms. A title label
+// sits under the rings and a pencil is tucked into the band. Its rings
+// rattle while it thinks, it writes along its cover, a red scribble crosses
+// it out when something fails, and it sits down to rest. (The user's pick,
+// 2026-10-17, over round 4's puff cloud, which is kept in retired/.)
 
 (() => {
-  const FILL = '#F6F7F9', SHADE = '#E2E4EA', LINE = '#7D808B', INK = '#2E3038';
-  const STORM = '#B4B7C0', STORM_SHADE = '#A3A6B0', STORM_LINE = '#6E717C';
-  const GREEN = '#10A37F';
-  const X0 = 4, Y0 = 6;
-  // The six-dot ring, 4 × 3, over the big puff.
-  const RING = [[1, 0], [2, 0], [3, 1], [2, 2], [1, 2], [0, 1]];
-  const PUFF = [
-    '.......####...',
-    '......######..',
-    '.##...######..',
-    '####.########.',
-    '##############',
-    '##############',
-    '##############',
-    '.############.',
-    '..##########..',
-  ];
-  const PUFF_SMALL = [
-    '.....###..',
-    '.##.#####.',
-    '##########',
-    '##########',
-    '.########.',
-  ];
-  const MINI = ['...##..', '.##oo#.', '#ooooo#', '#oeoeo#', '.#####.'];
+  const COVER = '#FFF2D8', COVER_SHADE = '#EADBBE', INK = '#263349';
+  const BAND = '#4D96EB', BAND_DARK = '#3166A4', GOLD = '#F2BB55', GOLD_DARK = '#C9922E';
+  const RING = '#8D94A6', LABEL = '#FFFFFF', LINE = '#4D96EB', WRITING = '#8FB4E8', RED = '#D9534F';
+  const ERASER = '#F09A9A', FERRULE = '#C3C8D4';
+  const DIM_COVER = '#D9D2C4', DIM_SHADE = '#C8C0B0', DIM_BAND = '#8C9DB5', DIM_GOLD = '#BDB4A1';
+  // 12 × 9 with its rings above and ribbon below; low enough that it can hop
+  // a cell and still sit two cells down to rest inside the drawer's circle.
+  const W = 12, H = 9, X0 = 5, Y0 = 6;
+  const MINI = ['.#.#.', 'cccbb', 'cccbb', 'cccbb', '..g..'];
   const pal = {
-    main: '#9EA1AB', body: FILL, dark: INK, light: '#B9BCC6', accent: INK, ink: LINE,
-    mini: (cv, x, y) => cv.glyph(MINI, x, y, LINE, { o: FILL, e: INK }),
+    main: BAND, body: COVER, dark: INK, light: '#9DBFEA', accent: BAND, ink: INK, paper: '#FFFFFF',
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, RING, { c: COVER, b: BAND, g: GOLD }),
   };
-  // Arms only when the pose reaches: out and down keep the cloud's outline.
-  // They rise straight up, which is all the room the circle leaves.
-  const ARMS = { up: [[0, 0], [0, -1]], high: [[0, 0], [0, -1], [0, -2]], wave: [[0, 0], [0, -1], [0, -2]], tap: [[0, 0]] };
+  // Little arms, 1 × 2, against the cover: [cells in toward it, row], raised
+  // arms stepping in, the room the circle leaves.
+  const ARMS = { out: [1, 4], up: [1, 2], high: [1, 0], wave: [1, 1], down: [1, 6], tap: [2, 7] };
+  // What it writes along its cover, word by word: [column, length].
+  const WORDS = [[1, 3], [5, 2], [8, 1]];
 
-  // Paints the rows, shade on the last two, and returns the cells.
-  function paint(cv, rows, x0, y0, fill, shade) {
+  function notebook(cv, p, c) {
+    const dim = p.dim > 0.5;
+    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy);
     const cells = [];
-    rows.forEach((row, j) => [...row].forEach((ch, i) => {
-      if (ch !== '#') return;
-      cv.put(x0 + i, y0 + j, j >= rows.length - 2 ? shade : fill);
-      cells.push([x0 + i, y0 + j]);
-    }));
-    return cells;
-  }
-
-  // One line round the cells, corners included: the shared outline steps
-  // round corners only, which breaks the logo's stroke into dots on the
-  // cloud's diagonal edges.
-  function outline8(cv, list, color) {
-    const mine = new Set(list.map(([x, y]) => `${x},${y}`));
-    for (const [x, y] of list) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!mine.has(`${x + dx},${y + dy}`) && !cv.has(x + dx, y + dy)) cv.put(x + dx, y + dy, color);
+    const put = (x, y, color) => { cv.put(x, y, color); cells.push([x, y]); };
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const shade = j === H - 1 || i === W - 1;
+      put(x0 + i, y0 + j, dim ? (shade ? DIM_SHADE : DIM_COVER) : shade ? COVER_SHADE : COVER);
     }
-  }
-
-  function cloud(cv, p, c) {
-    const stormy = p.dim > 0.5, small = p.sq > 0.5;
-    const fill = stormy ? STORM : FILL;
-    const rows = small ? PUFF_SMALL : PUFF;
-    const x0 = X0 + rnd(p.dx) + (small ? 2 : 0), y0 = Y0 + rnd(p.dy) + (small ? 4 : 0);
-    const cells = paint(cv, rows, x0, y0, fill, stormy ? STORM_SHADE : SHADE);
-    if (!stormy && !small) for (const [dx, dy] of [[8, 1], [9, 1], [7, 2], [1, 3]]) cv.put(x0 + dx, y0 + dy, '#FFFFFF');
-    const w = rows[0].length, ay = y0 + (small ? 3 : 6);
+    // The elastic band down the right of the cover.
+    for (let j = 0; j < H; j++) { put(x0 + 9, y0 + j, dim ? DIM_BAND : BAND); put(x0 + 10, y0 + j, dim ? DIM_BAND : BAND_DARK); }
+    // The ribbon out of the bottom.
+    put(x0 + 5, y0 + H, dim ? DIM_GOLD : GOLD);
+    put(x0 + 5, y0 + H + 1, dim ? DIM_GOLD : GOLD_DARK);
+    cv.outline(cells, INK);
+    // Feet, under the outline.
+    const legs = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [0, 0], tuck: [0, 0], sit: [0, 0] }[p.legs] ?? [1, 1];
+    if (legs[0]) cv.rect(x0 + 2, y0 + H + 1, 2, 1, INK);
+    if (legs[1]) cv.rect(x0 + 7, y0 + H + 1, 2, 1, INK);
+    // The spiral: rings over the top edge, punched holes under them; they
+    // rattle while it thinks.
+    const rattle = p.rattle ? Math.floor(c.T * 8) % 2 : -1;
+    const gone = p.lost ? Math.floor(c.T * 3) % 6 : -1;
+    for (let i = 0; i < 6; i++) {
+      const x = x0 + 1 + i * 2, up = i % 2 === rattle ? 1 : 0;
+      if (p.lost) { if (i !== gone && i !== (gone + 3) % 6) cv.put(x, y0 - 1, '#C3C8D4'); }
+      else cv.put(x, y0 - 1 - up, RING);
+      if (up) cv.put(x, y0 - 1, INK);
+      if (i < 4) cv.put(x, y0, INK);
+    }
+    // The title label under the rings, and the pencil tucked into the band.
+    cv.rect(x0 + 2, y0 + 1, 5, 2, dim ? '#E6E1D6' : LABEL);
+    cv.rect(x0 + 3, y0 + 1, 3, 1, dim ? '#8A8F9C' : LINE);
+    cv.put(x0 + 10, y0 - 2, dim ? '#C9B8B8' : ERASER);
+    cv.put(x0 + 10, y0 - 1, dim ? '#B8B8B8' : FERRULE);
+    for (let j = 0; j <= 3; j++) cv.put(x0 + 10, y0 + j, dim ? DIM_GOLD : GOLD);
     for (const [side, mode] of [[-1, p.armL], [1, p.armR]]) {
-      const sx = side < 0 ? x0 - 1 : x0 + w;
-      for (const [dx, dy] of ARMS[mode] ?? []) {
-        cv.put(sx + dx * side, ay + dy, fill);
-        cells.push([sx + dx * side, ay + dy]);
-      }
+      const [inward, row] = ARMS[mode] ?? ARMS.out;
+      cv.rect(side < 0 ? x0 - 3 + inward : x0 + W + 2 - inward, y0 + row, 1, 2, INK);
     }
-    outline8(cv, cells, stormy ? STORM_LINE : LINE);
-    const eyes = small ? [[x0 + 3, y0 + 2], [x0 + 6, y0 + 2]] : [[x0 + 4, y0 + 5], [x0 + 9, y0 + 5]];
+    // Locked: a diary clasp over the band, its keyhole dark.
+    if (p.clasp) {
+      cv.rect(x0 + 8, y0 + 3, 4, 3, dim ? DIM_GOLD : GOLD);
+      cv.rect(x0 + 8, y0 + 5, 4, 1, dim ? DIM_GOLD : GOLD_DARK);
+      cv.rect(x0 + 9, y0 + 3, 1, 2, INK);
+    }
+    const eyes = [[x0 + 2, y0 + 4], [x0 + 6, y0 + 4]];
     pxEyes(cv, eyes, c, p.eyes, INK);
-    return {
-      x0, y0, w, eyes, hands: true,
-      mid: x0 + w / 2, top: y0 - 1, left: x0, right: x0 + w - 1, ground: y0 + rows.length + 1,
-      midY: y0 + 5, front: y0 + 7,
-    };
+    return { x0, y0, eyes, hands: true, mid: x0 + 5, top: y0 - 2, left: x0, right: x0 + W - 1, ground: y0 + H + 2, midY: y0 + 4, front: y0 + 6, pageX: x0 + 1 };
   }
 
   CHARACTERS.codex = {
@@ -866,58 +910,41 @@ function pxProp(cv, back, p, a, pal, c) {
     swatch: 0x9EA1AB,
     fidgets: ['wave', 'hop', 'peek'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST },
+    rest: { ...PIXEL_REST, rattle: 0, lost: 0, clasp: 0 },
     pose(s, t, T) {
       const b = basePose(s, t, T);
       switch (s) {
-        case 'streaming': return { ...b, prop: 'tokens' };
-        case 'writing': return { ...b, dy: -1, prop: 'braces' };
-        case 'running': return { ...b, dy: Math.floor(t * 10) % 2 ? 0 : -1, prop: 'run' };
-        case 'failed': return { ...b, prop: 'bolt' };
-        case 'broken': return { ...b, prop: 'rain' };
+        // Thinking: its rings rattle, dots counting beside it.
+        case 'thinking': return { ...b, rattle: 1, prop: 'dots' };
+        // Writing: words write themselves along the cover as its arms tap.
+        case 'writing': return { ...b, armL: Math.floor(t * 8) % 2 ? 'tap' : 'down', armR: Math.floor(t * 8) % 2 ? 'down' : 'tap', dy: 0, prop: 'words', look: [0, 1] };
+        case 'failed': return { ...b, prop: 'cross' };
+        case 'offline': return { ...b, lost: 1, prop: '' };
+        case 'locked': return { ...b, clasp: 1, prop: '', look: [1, 0] };
         default: return b;
       }
     },
     draw(p, c) {
       const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => cloud(g, q, c));
-      const a = cloud(cv, q, c);
+      const q = settle(p, (g, q) => notebook(g, q, c));
+      const a = notebook(cv, q, c);
       const t = q.propT;
       switch (q.prop) {
-        case 'think': {
-          const k = Math.floor(t * 8) % 6;
-          fitDraw(cv, g => RING.forEach(([dx, dy], i) => g.put(a.x0 + 7 + dx, a.y0 - 4 + dy, i === k ? GREEN : i === (k + 5) % 6 ? '#7FCDB7' : '#C5C8D0')));
+        case 'dots': {
+          const n = 1 + Math.floor(t * 2) % 3;
+          fitDraw(cv, g => { for (let i = 0; i < n; i++) g.put(a.right + 2 + i, a.top + 1 - i, BAND); });
           break;
         }
-        case 'tokens':
-          // A drizzle of tokens from under the cloud.
-          for (let i = 0; i < 3; i++) {
-            const k = rnd(frac(steps(t, 8) * 0.8 + i / 3) * 2);
-            fitDraw(cv, g => g.rect(a.x0 + 3 + i * 3, a.ground + k, 2, 1, i === 1 ? GREEN : '#9EA1AB'), null);
-          }
+        case 'words': {
+          // Word by word along the cover, under the face, then again.
+          const n = rnd(clamp(frac(t / 2.4) / 0.8) * 6);
+          let k = 0;
+          for (const [col, len] of WORDS) for (let i = 0; i < len; i++) if (k++ < n) cv.put(a.x0 + col + i, a.y0 + 7, WRITING);
           break;
-        case 'braces':
-          // A line types itself out between < and >, under the cloud.
-          fitDraw(cv, g => {
-            const y = a.ground;
-            g.glyph(['.#', '#.', '.#'], a.x0 + 1, y, LINE);
-            g.glyph(['#.', '.#', '#.'], a.x0 + 11, y, LINE);
-            const len = Math.floor(frac(t / 2) * 8);
-            g.rect(a.x0 + 3, y + 1, len, 1, INK);
-            if (Math.floor(t * 3) % 2) g.rect(a.x0 + 3 + len, y, 1, 3, GREEN);
-          }, null);
-          break;
-        case 'bolt':
-          if (t > 0.3 && Math.floor(t * 6) % 3 !== 0) fitDraw(cv, g => g.glyph(['.##', '.#.', '##.', '.#.', '#..'], a.mid - 1, a.ground - 1, '#F2C230'), null);
-          break;
-        case 'rain':
-          for (let i = 0; i < 4; i++) {
-            const u = frac(steps(t, 8) * 1.2 + i / 4);
-            fitDraw(cv, g => g.rect(a.left + 2 + i * 3, a.ground - 1 + rnd(u * 2), 1, 2, '#7FB4FF'), null);
-          }
-          break;
-        case 'sparks':
-          pxProp(cv, back, q, a, { ...pal, main: GREEN }, c);
+        }
+        case 'cross':
+          // A red scribble crosses the cover out.
+          if (t > 0.2) for (const [dx, dy] of [[2, 6], [6, 6], [3, 7], [4, 7], [5, 7], [2, 8], [6, 8]]) cv.put(a.x0 + dx, a.y0 + dy, RED);
           break;
         default:
           pxProp(cv, back, q, a, pal, c);
@@ -927,139 +954,132 @@ function pxProp(cv, back, p, a, pal, c) {
   };
 })();
 
-// MARK: - Antigravity · the pixel rainbow
+// MARK: - Antigravity · the balloon
 //
-// Antigravity's "A" as a pixel arch in rainbow stripes, hovering a couple
-// of pixels above its own shadow. Weightless and bright: its stripes flow
-// while it thinks, it throws confetti as it talks, sends rainbow Wi-Fi arcs
-// up for the web, launches a little rocket to send, and when something
-// fails the antigravity gives out and it drops to the ground, faded.
+// A hot-air balloon, drawn from Codex's own concept Aeri (a floating blue
+// "A" with a cream face band, a coral mouth and four satellites) rather than
+// traced from it: Aeri floats, so this one flies. Her four satellites (blue,
+// coral, yellow, green) become the gores of its envelope, curving in at the
+// crown and the skirt; her face band runs round its middle, with her coral
+// mouth on it when it's happy; a wicker basket hangs below with a sandbag each side. Its
+// gores turn while it thinks, its burner flares while it works, its envelope
+// sags onto the basket when it fails, and it lands to rest. (The user's
+// pick, 2026-10-17, over round 4's rainbow "A", which is kept in retired/.)
 
 (() => {
-  const BANDS = ['#F2483B', '#F2832B', '#F5BE2E', '#4DB86B', '#2FA3D6', '#3D7BF5'];
-  const GRAY = '#9EA3AE';
-  const DARK = '#1E2033';
-  const SHADOW = '#2A2E3A';
-  // 12 × 10 and hovering over a shadow on row 17, so it and its weather fit
-  // inside the drawer's circle (round 3 drew 14 × 12 over row 21).
-  const GROUND = 17, X0 = 5;
-  const ARCH = [
-    '.....##.....',
-    '....####....',
-    '...######...',
-    '..########..',
-    '..########..',
-    '.##########.',
-    '.##########.',
-    '############',
-    '####....####',
-    '###......###',
-  ];
-  const SQUAT = ARCH.filter((_, j) => j !== 3 && j !== 5);
-  const MINI = ['..##..', '.####.', '######', '##..##'];
-  const ARCS = [['.###.', '#...#'], ['..###..', '.#...#.', '#.....#'], ['...###...', '.##...##.', '#.......#']];
+  const GORES = [['#4D96EB', '#B7D5F5', '#3A7BC8'], ['#E77C65', '#F6B4A6', '#C9604B'], ['#F2BB55', '#FBE2AE', '#D49A33'], ['#56AB78', '#A9DDBB', '#3F8A5D']];
+  const DIM_GORES = [['#9EA6B4', '#C7CCD6', '#868E9C'], ['#B2A9A6', '#D3CDCB', '#988F8C'], ['#BDB4A1', '#DCD6CA', '#A39A88'], ['#A3ABA5', '#C9CFCB', '#8A928C']];
+  const FACE = '#FFF2D8', DIM_FACE = '#D9D2C4', INK = '#263349', MOUTH = '#E77C65';
+  const WICKER = '#D9A04A', WICKER_DARK = '#A8742E', RIM = '#7A5226', BAG = '#E6D3AE', BAG_DARK = '#BFA77A', BURNER = '#8D94A6';
+  const DIM_WICKER = '#B8AE9C', DIM_RIM = '#8E8678';
+  const FLAME = ['#F2BB55', '#E77C65'];
+  const X0 = 5, Y0 = 3;
+  // The envelope's rows, [first, last] cell from its left edge: a round
+  // crown, widest a third of the way down, tapering to the skirt.
+  const ENVELOPE = [[4, 7], [2, 9], [1, 10], [0, 11], [0, 11], [0, 11], [0, 11], [1, 10], [2, 9], [3, 8], [4, 7]];
+  // Let down (failed, broken): squat and slumped onto the basket.
+  const SAGGED = [[3, 8], [1, 10], [0, 11], [0, 11], [0, 11], [1, 10], [3, 8]];
+  const FACE_ROWS = [4, 5, 6];
+  const MINI = ['.##.', '####', '####', '.##.', '.#..'];
   const pal = {
-    main: BANDS[5], body: BANDS[2], dark: DARK, light: '#9FB8F5', accent: BANDS[0],
-    mini: (cv, x, y) => MINI.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === '#') cv.put(x + i, y + j, BANDS[Math.min(5, j + 1)]); })),
+    main: GORES[0][0], body: GORES[0][0], dark: INK, light: GORES[0][1], accent: MOUTH,
+    mini: (cv, x, y) => { cv.glyph(MINI, x, y, GORES[0][0]); cv.put(x + 2, y + 1, GORES[1][0]); cv.put(x + 2, y + 2, GORES[1][0]); cv.put(x + 1, y + 4, WICKER); },
   };
 
-  function arch(cv, shadowCv, p, c) {
-    const rows = p.sq > 0.5 ? SQUAT : ARCH;
-    const lift = rnd(p.lift);
-    const x0 = X0 + rnd(p.dx);
-    const bottom = GROUND - 1 - lift + rnd(p.dy);
-    const y0 = bottom - rows.length + 1;
-    const flow = rnd(p.flow);
-    const gray = p.dim;
-    rows.forEach((row, j) => [...row].forEach((ch, i) => {
-      if (ch !== '#') return;
-      // Lift a foot off the ground while walking.
-      const foot = j >= rows.length - 2;
-      if (foot && j === rows.length - 1 && ((p.legs === 'walk1' && i < 6) || (p.legs === 'walk2' && i >= 6))) return;
-      const band = ((Math.floor(j * 6 / rows.length) + flow) % 6 + 6) % 6;
-      cv.put(x0 + i, y0 + j, gray > 0.5 ? mixHex(BANDS[band], GRAY, 0.75) : BANDS[band]);
-    }));
-    // Its shadow: narrower and fainter the higher it floats.
-    const w = clamp(10 - lift * 2, 4, 10);
-    shadowCv.rect(x0 + 6 - w / 2, GROUND, w, 1, SHADOW);
-    const eyeRow = y0 + Math.round(rows.length * 0.42);
+  function balloon(cv, p, c) {
+    const dim = p.dim > 0.5;
+    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy);
+    const sag = p.sag > 0.5;
+    const rows = sag ? SAGGED : ENVELOPE;
+    // A sagging envelope slumps down onto the basket.
+    const top = y0 + (sag ? ENVELOPE.length - SAGGED.length + 2 : 0);
+    const spin = rnd(p.spin ?? 0);
+    const gores = dim ? DIM_GORES : GORES;
+    const faceRows = sag ? [2, 3, 4] : FACE_ROWS;
+    rows.forEach(([a, b], j) => {
+      const w = b - a + 1;
+      for (let i = a; i <= b; i++) {
+        // The gores curve in at the crown and the skirt: each row splits its
+        // own width four ways.
+        const g = gores[((Math.floor((i - a) * 4 / w) + spin) % 4 + 4) % 4];
+        const shine = !sag && ((j === 1 && i === 3) || (j === 2 && i === 2) || (j === 3 && i === 1));
+        const color = faceRows.includes(j) ? (dim ? DIM_FACE : FACE) : shine ? g[1] : j === rows.length - 1 ? g[2] : g[0];
+        cv.put(x0 + i, top + j, color);
+      }
+    });
+    // Ropes and the burner, the basket and its sandbags.
+    const bottom = y0 + 13;
+    if (!sag) {
+      for (const i of [4, 7]) { cv.put(x0 + i, y0 + 11, p.lock ? BURNER : INK); cv.put(x0 + i, y0 + 12, INK); }
+      cv.rect(x0 + 5, y0 + 12, 2, 1, BURNER);
+      if (p.smoke) {
+        // A puff from the dead burner, drifting out past the right rope.
+        const u = frac(c.T / 1.6);
+        if (u < 0.8) cv.rect(x0 + 8 + rnd(u * 2), y0 + 11 - rnd(u * 2), 2, 1, '#BDB7B4');
+      }
+      if (p.flame) {
+        const f = Math.floor(c.T * 8) % 2;
+        cv.put(x0 + 5, y0 + 11, FLAME[f]); cv.put(x0 + 6, y0 + 11, FLAME[1 - f]);
+      }
+    }
+    cv.rect(x0 + 3, bottom, 6, 1, dim ? DIM_RIM : RIM);
+    for (let i = 0; i < 6; i++) cv.put(x0 + 3 + i, bottom + 1, dim ? DIM_WICKER : i % 2 ? WICKER_DARK : WICKER);
+    cv.rect(x0 + 3, bottom + 2, 6, 1, dim ? DIM_RIM : WICKER_DARK);
+    for (const x of [x0 + 2, x0 + 9]) { cv.put(x, bottom, dim ? DIM_WICKER : BAG); cv.put(x, bottom + 1, dim ? DIM_WICKER : BAG_DARK); }
+    // Locked: a steel padlock hangs on the basket's front, its shackle round the
+    // burner, so it can't take off.
+    if (p.lock && !sag) {
+      cv.rect(x0 + 4, bottom, 4, 2, '#B9BECB');
+      cv.rect(x0 + 4, bottom + 1, 4, 1, BURNER);
+      cv.put(x0 + 5, bottom, INK);
+      cv.put(x0 + 5, bottom + 1, INK);
+    }
+    const eyeRow = top + faceRows[0];
     const eyes = [[x0 + 3, eyeRow], [x0 + 8, eyeRow]];
-    pxEyes(cv, eyes, c, p.eyes, DARK);
-    return { mid: x0 + 6, top: y0, left: x0, right: x0 + 12, ground: GROUND, midY: y0 + 5, front: y0 + 6, eyes, x0, y0 };
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    // The coral mouth shows only when it's happy (the user, 2026-10-19).
+    if (c.eye.happy > 0.5) cv.rect(x0 + 5, eyeRow + 2, 2, 1, dim ? '#B2A9A6' : MOUTH);
+    return { x0, y0: top, eyes, mid: x0 + 6, top, left: x0, right: x0 + 11, ground: bottom + 2, midY: top + 5, front: top + 7, pageX: x0 + 2 };
   }
 
   CHARACTERS.antigravity = {
     name: 'Antigravity',
     swatch: 0x3D7BF5,
-    fidgets: ['hop', 'shimmer', 'peek'],
+    fidgets: ['spin', 'puff', 'hop'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, lift: 2, flow: 0 },
+    rest: { ...PIXEL_REST, spin: 0, flame: 0, sag: 0, lock: 0, smoke: 0 },
     pose(s, t, T) {
       const b = basePose(s, t, T);
-      const hover = frac(T / 1.6) < 0.5 ? 2 : 3;
+      // Rising and sinking on the air, a cell at a time.
+      const ride = frac(T / 3) < 0.5 ? 0 : -1;
       switch (s) {
-        case 'thinking': return { ...b, lift: 3, flow: Math.floor(t * 6), prop: 'think' };
-        case 'streaming': return { ...b, lift: hover, prop: 'confetti' };
-        case 'web': return { ...b, lift: hover, prop: 'arcs' };
-        case 'sending': return { ...b, lift: hover, prop: 'rocket', propU: frac(t / 2.2) };
-        case 'running': return { ...b, lift: 0, dy: 0 };
-        case 'searching': return { ...b, lift: hover };
-        case 'finished': return { ...b, lift: 2 - rnd(b.dy), dy: 0, flow: Math.floor(t * 8), prop: 'sparks' };
-        case 'asking': return { ...b, lift: 2 - rnd(b.dy), dy: 0 };
-        case 'failed': return { ...b, lift: t < 0.3 ? 2 - Math.floor(t * 10) : 0 };
-        case 'broken': return { ...b, lift: frac(t / 4.5) < 0.12 ? 1 : 0, dy: 0 };
-        case 'sleeping': return { ...b, lift: 0, dy: 0 };
-        case 'offline': return { ...b, lift: hash(Math.floor(T * 6)) > 0.7 ? 1 : 2, dim: hash(Math.floor(T * 6) + 1) > 0.6 ? 1 : 0 };
-        case 'shimmer': return { ...b, lift: hover, flow: Math.floor(t * 6), happy: 1, gazeW: 0 };
-        case 'hop': return { ...b, lift: 2 - rnd(b.dy), dy: 0 };
-        default: return { ...b, lift: hover, dy: 0 };
+        case 'idle': return { ...b, dy: ride };
+        // Thinking: the envelope turns slowly, gore by gore.
+        case 'thinking': return { ...b, dy: ride, spin: Math.floor(t / 0.6) % 4, look: [0, -1], prop: '' };
+        // Busy: the burner flares.
+        case 'writing': case 'working': case 'running': return { ...b, dy: 0, flame: 2, prop: s === 'working' ? b.prop : '' };
+        case 'failed': return { ...b, sag: t > 0.3 ? 1 : 0, dy: 0 };
+        case 'broken': return { ...b, sag: 1, dy: 0 };
+        // Offline: the burner has gone out; it hangs low, smoke drifting off.
+        case 'offline': return { ...b, dy: 1, smoke: 1, prop: '' };
+        // Locked: a padlock on the burner, so it can't take off; landed.
+        case 'locked': return { ...b, dy: 1, lock: 1, prop: '', look: [0, 1] };
+        // Asleep (its app away) it has landed, basket on the ground.
+        case 'resting': return { ...b, dy: 1 };
+        // Out of quota: landed too, rising a cell on each slow breath.
+        case 'sleeping': return { ...b, dy: b.dy - 1 };
+        // Fidgets: one full turn; a puff of the burner and a lift.
+        case 'spin': return { ...b, spin: t > 0.4 && t < 2.0 ? Math.floor((t - 0.4) / 0.4) + 1 : 0, happy: t > 0.4 && t < 2.0 ? 1 : 0, gazeW: 0 };
+        case 'puff': return { ...b, flame: t > 0.3 && t < 1.2 ? 2 : 0, dy: t > 0.6 && t < 1.8 ? -1 : 0, look: [0, -1], gazeW: 0 };
+        default: return b;
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => arch(g, canvas(), q, c));
-      const a = arch(cv, shade, q, c);
-      const t = q.propT;
-      // Single-cell particles only show where the circle allows.
-      const dot = (x, y, color) => { if (safe(x, y)) cv.put(x, y, color); };
-      switch (q.prop) {
-        case 'think':
-          if (Math.floor(t * 4) % 2) fitDraw(cv, g => g.glyph(PIX.spark, a.mid - 2, a.top - 4, BANDS[Math.floor(t * 4) % 6]));
-          break;
-        case 'confetti':
-          for (let i = 0; i < 5; i++) {
-            const u = frac(steps(t, 8) * 0.9 + i / 5);
-            const dir = i % 2 ? 1 : -1;
-            dot(a.mid + dir * rnd(u * (2 + i)), a.top - 1 - rnd(u * 4) + rnd(u * u * 3), BANDS[i % 6]);
-          }
-          break;
-        case 'arcs': {
-          // Two Wi-Fi arcs over the apex, the room the circle leaves.
-          const k = Math.floor(t * 3) % 3;
-          for (let i = 0; i < k; i++) {
-            const g = ARCS[i];
-            fitDraw(cv, h => h.glyph(g, a.mid - 1 - (g[0].length >> 1), a.top - 1 - i * 2 - g.length + 1, BANDS[i * 2]));
-          }
-          break;
-        }
-        case 'rocket': {
-          const u = q.propU;
-          if (u > 0.25 && u < 0.6) {
-            const y = rnd(lerp(a.top - 2, 2, (u - 0.25) / 0.35));
-            fitDraw(cv, g => { g.rect(a.mid - 1, y, 2, 2, BANDS[2]); g.put(a.mid - 1, y + 2, BANDS[1]); g.put(a.mid, y + 3, BANDS[0]); });
-          } else if (u >= 0.6 && u < 0.9) {
-            const r = rnd((u - 0.6) / 0.3 * 3) + 1;
-            [[-r, 0], [r, 0], [0, -r], [0, r]].forEach(([dx, dy], i) => dot(a.mid + dx, 4 + dy, BANDS[[0, 2, 3, 5][i]]));
-          }
-          break;
-        }
-        case 'sparks':
-          pxProp(cv, back, q, a, { ...pal, main: BANDS[0] }, c);
-          break;
-        default:
-          pxProp(cv, back, q, a, pal, c);
-      }
-      return pixels(shade, { ...c, rim: 0 }, 0.22) + pixels(back, c, 0.7) + pixels(cv, c);
+      const back = canvas(), cv = canvas();
+      const q = settle(p, (g, q) => balloon(g, q, c));
+      const a = balloon(cv, q, c);
+      pxProp(cv, back, q, a, pal, c);
+      return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
@@ -1111,8 +1131,10 @@ function pxProp(cv, back, p, a, pal, c) {
         : e.open < 0.45 ? 'blink' : p.eyes;
       if (mood === 'cross') for (const [dx, dy] of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, 2], [1, 2], [-1, 3], [2, 3]]) cv.put(x + dx, top + dy, ink);
       else if (mood === 'happy') for (const [dx, dy] of [[-1, 2], [0, 1], [1, 1], [2, 2]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'content') for (const [dx, dy] of [[-1, 2], [0, 3], [1, 3], [2, 2]]) cv.put(x + dx, top + dy, ink);
       else if (mood === 'closed') cv.rect(x - (right ? 0 : 1), top + 3, 3, 1, ink);
-      else if (mood === 'blink') cv.rect(x, top + 2, 2, 1, ink);
+      // Resting holds the eyes half-closed, the shape of a blink.
+      else if (mood === 'blink' || mood === 'rest') cv.rect(x, top + 2, 2, 1, ink);
       else if (mood === 'focus') cv.rect(x, top + 1, 2, 2, ink);
       else if (mood === 'wide') cv.rect(x, top - 1, 2, h + 1, ink);
       else if (mood === 'sad') { cv.rect(x, top + 2, 2, 2, ink); cv.put(right ? x : x + 1, top + 1, ink); }
@@ -1155,7 +1177,8 @@ function pxProp(cv, back, p, a, pal, c) {
         case 'compacting': return { ...b, prop: 'swirl' };
         case 'asking': return { ...b, face: 'bang', prop: '' };
         case 'approving': return { ...b, glow: 1 };
-        case 'offline': return { ...b, dashed: 1 };
+        case 'offline': return { ...b, dashed: 1, prop: '' };
+        case 'locked': return { ...b, prop: 'shackle', look: [0, -1] };
         case 'finished': return { ...b, glow: 1 };
         case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, gazeW: 0.3 };
         default: return b;
@@ -1198,6 +1221,13 @@ function pxProp(cv, back, p, a, pal, c) {
             if (i === 1) dot(cv, a.cx, a.cy + 9 + flick, '#F2483B');
           }
           break;
+        case 'shackle': {
+          // A padlock's shackle over the ring, so the whole bot reads as a lock.
+          const steel = '#8D8C94';
+          for (let x = a.cx - 2; x <= a.cx + 3; x++) dot(cv, x, a.cy - 8, steel);
+          for (const x of [a.cx - 2, a.cx + 3]) dot(cv, x, a.cy - 7, steel);
+          break;
+        }
         case 'swirl':
           for (let i = 0; i < 6; i++) {
             const u = frac(steps(t, 8) / 1.1 + i / 6);
@@ -1214,165 +1244,18 @@ function pxProp(cv, back, p, a, pal, c) {
   };
 })();
 
-// MARK: - Cursor · the pixel cube
-//
-// Cursor's cube as classic 2:1 pixel isometry: a graphite box with a white
-// pointer arrow on its right face, slit eyes on its left and two tiny legs.
-// Crisp and precise; its signs are the cursor shapes everyone knows: the
-// hourglass while it thinks, Tab's ghost text, the I-beam, the help arrow,
-// the busy ring and the not-allowed circle.
-
-(() => {
-  const TOP = '#D4D4DC', EDGE = '#F4F4F8', LEFT = '#5E5E6A', RIGHT = '#30303A';
-  const DIM_TOP = '#A9A9B0', DIM_LEFT = '#77777E', DIM_RIGHT = '#55555C';
-  const WHITE = '#F2F2F5';
-  const DARK = '#1A1A20';
-  const RED = '#D9534F';
-  // One row up from round 3, so the idle bob keeps the legs inside the circle.
-  const X0 = 5, Y0 = 5;
-  const ARROW = ['#...', '##..', '###.', '####', '..#.', '...#'];
-  // Compact signs, sized for the room the circle leaves round the cube.
-  const HOURGLASS = [
-    ['#####', '.#s#.', '..#..', '.#.#.', '#####'],
-    ['#####', '.#.#.', '..s..', '.#.#.', '#####'],
-    ['#####', '.#.#.', '..#..', '.#s#.', '#####'],
-  ];
-  const NOPE = ['.###.', '#..##', '#.#.#', '##..#', '.###.'];
-  const IBEAM = ['###', '.#.', '.#.', '###'];
-  const MINI = ['..tt..', 'tttttt', 'llttrr', 'lllrrr', 'lllrrr', '.llrr.'];
-  const pal = {
-    main: LEFT, body: LEFT, dark: DARK, light: '#C4C4CE', accent: DARK,
-    mini: (cv, x, y) => cv.glyph(MINI, x, y, LEFT, { t: TOP, l: LEFT, r: RIGHT }),
-  };
-
-  // A crisp 2:1 isometric cube, hand-drawn: T top, L left, R right face.
-  const cubeRows = side => [
-    '.....TT.....',
-    '...TTTTTT...',
-    '.TTTTTTTTTT.',
-    'LETTTTTTTTER',
-    'LLLEETTEERRR',
-    'LLLLLEERRRRR',
-    ...Array.from({ length: side }, () => 'LLLLLLRRRRRR'),
-    '.LLLLLRRRRR.',
-    '...LLLRRR...',
-    '.....LR.....',
-  ];
-
-  function cube(cv, p, c) {
-    const side = p.sq > 0.5 ? 1 : 4;
-    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy) + (4 - side);
-    const dim = p.dim > 0.5;
-    const rows = cubeRows(side);
-    cv.glyph(rows, x0, y0, TOP, { T: dim ? DIM_TOP : TOP, E: dim ? DIM_TOP : EDGE, L: dim ? DIM_LEFT : LEFT, R: dim ? DIM_RIGHT : RIGHT });
-    // A dark outline keeps the pale top face crisp on pale walls.
-    const cells = [];
-    rows.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== '.') cells.push([x0 + i, y0 + j]); }));
-    cv.outline(cells, DARK);
-    // The pointer on the right face, and legs under the bottom edges.
-    if (p.face !== 'off') cv.glyph(side > 2 ? ARROW : ARROW.slice(0, 4), x0 + 7, y0 + 5, dim ? '#9A9AA2' : WHITE);
-    const legs = { stand: [2, 2], walk1: [1, 2], walk2: [2, 1], jump: [1, 1], tuck: [0, 0] }[p.legs] ?? [2, 2];
-    const bottom = y0 + 8 + side;
-    if (legs[0]) cv.rect(x0 + 3, bottom, 1, legs[0], DARK);
-    if (legs[1]) cv.rect(x0 + 8, bottom, 1, legs[1], DARK);
-    const arm = (s, mode) => {
-      const x = s < 0 ? x0 - 1 : x0 + 12;
-      const dy = { out: 0, up: -1, high: -2, down: 1, wave: -2, tap: 1 }[mode] ?? 0;
-      const y = y0 + 6 + dy;
-      const color = s < 0 ? (dim ? DIM_LEFT : LEFT) : (dim ? DIM_RIGHT : RIGHT);
-      cv.put(x, y, color);
-      if (mode === 'high' || mode === 'wave') cv.put(x + (mode === 'wave' ? s : 0), y - 1, color);
-    };
-    arm(-1, p.armL);
-    arm(1, p.armR);
-    // Slit eyes painted on the left face, stepping down its slope.
-    const eyes = [[x0 + 1, y0 + 6], [x0 + 3, y0 + 7]];
-    pxEyes(cv, eyes, c, p.eyes, dim ? '#C9C9CF' : WHITE);
-    return { mid: x0 + 6, top: y0, left: x0, right: x0 + 12, ground: bottom + 2, midY: y0 + 6, front: y0 + 8, pageX: x0 + 4, eyes, x0, y0, hands: false };
-  }
-
-  CHARACTERS.cursor = {
-    name: 'Cursor',
-    swatch: 0x45454F,
-    fidgets: ['hop', 'click', 'peek'],
-    cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, face: 'on' },
-    pose(s, t, T) {
-      const b = basePose(s, t, T);
-      switch (s) {
-        case 'streaming': return { ...b, prop: 'ghost', propU: frac(t / 1.8) };
-        case 'writing': return { ...b, prop: 'ibeam' };
-        case 'controlling': return { ...b, face: frac(t / 1.2) > 0.1 ? 'off' : 'on' };
-        case 'asking': return { ...b, prop: 'help' };
-        case 'failed': return { ...b, prop: 'nope' };
-        case 'broken': return { ...b, prop: 'nope' };
-        case 'offline': return { ...b, prop: 'busy' };
-        case 'listening': return { ...b, prop: 'caret' };
-        case 'click': return { ...basePose('controlling', t, T), face: 'off' };
-        default: return b;
-      }
-    },
-    draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => cube(g, q, c));
-      const a = cube(cv, q, c);
-      const t = q.propT;
-      switch (q.prop) {
-        case 'think':
-          fitDraw(cv, g => g.glyph(HOURGLASS[Math.floor(t * 2.5) % 3], a.mid + 3, a.top - 2, DARK, { s: '#F5BE2E' }));
-          break;
-        case 'ghost': {
-          // Tab's grey ghost text runs out over the cube, then is taken.
-          const u = q.propU, len = rnd(clamp(u / 0.55) * 10);
-          fitDraw(cv, g => {
-            const x = a.mid - 5, y = a.top - 2;
-            if (u < 0.62) for (let i = 0; i < len; i += 2) g.put(x + i, y, '#A5A5B0');
-            else g.rect(x, y, 10, 1, DARK);
-            if (u > 0.6 && u < 0.72) g.rect(x, y - 1, 10, 1, '#FFFFFF');
-          });
-          break;
-        }
-        case 'ibeam': {
-          const len = Math.floor(frac(t / 2) * 9);
-          fitDraw(cv, g => {
-            const x = a.mid - 5, y = a.top - 2;
-            g.rect(x, y, len, 1, DARK);
-            if (Math.floor(t * 3) % 2) g.glyph(IBEAM, x - 1 + len, y - 2, DARK);
-          });
-          break;
-        }
-        case 'help':
-          fitDraw(cv, g => g.glyph(PIX.arrow, a.left, a.top - 2, DARK, { w: '#FFFFFF' }));
-          fitDraw(cv, g => g.glyph(PIX.q, a.right - 3, a.top - 2, DARK));
-          break;
-        case 'nope':
-          fitDraw(cv, g => g.glyph(NOPE, a.right - 3, a.top - 2, RED));
-          if (q.cross > 0.5) pxProp(cv, back, { ...q, prop: 'smoke' }, a, pal, c);
-          break;
-        case 'busy': {
-          const ring = [[1, 0], [2, 0], [3, 0], [4, 1], [4, 2], [4, 3], [3, 4], [2, 4], [1, 4], [0, 3], [0, 2], [0, 1]];
-          const k = Math.floor(t * 10) % ring.length;
-          fitDraw(cv, g => ring.forEach(([dx, dy], i) => g.put(a.right - 3 + dx, a.top - 2 + dy, (i - k + ring.length) % ring.length < 3 ? '#3D7BF5' : '#C9CBD3')));
-          break;
-        }
-        case 'caret':
-          if (frac(c.T / 1.06) < 0.55) fitDraw(cv, g => g.glyph(IBEAM, a.right + 1, a.midY - 2, DARK));
-          break;
-        default:
-          pxProp(cv, back, q, a, pal, c);
-      }
-      return pixels(back, c, 0.7) + pixels(cv, c);
-    },
-  };
-})();
+// Cursor shares Grok's subscription, so it has no character of its own any
+// more (the user, 2026-10-19): it draws Grok's ring.
+CHARACTERS.cursor = CHARACTERS.grok;
 
 // MARK: - Kimi Code · the pixel blob and its terminal
 //
 // Kimi Code's mascot in pixels: a round blue blob with tall white eyes,
-// sitting on a navy terminal, a little droplet floating by. The terminal
-// does the talking — it types, scrolls, greps, asks [Y/n], fills a
-// progress bar, turns red on errors — and the droplet becomes thought
-// bubbles, a globe, a speech bubble, a sweat drop or a sleepy nose bubble.
+// sitting on a navy terminal. The terminal does the talking — it types,
+// scrolls, greps, asks [Y/n], fills a progress bar, turns red on errors —
+// and the family's shared signs show the rest, but for a sleepy nose bubble
+// and a question mark while it's locked. (v5: the droplet that floated by
+// its shoulder is gone, the user's call, 2026-10-17; they kept those two.)
 
 (() => {
   const BLUE = '#2B8BFF';
@@ -1383,10 +1266,9 @@ function pxProp(cv, back, p, a, pal, c) {
   const WHITE = '#FFFFFF';
   const DULL = '#7C93AE';
   // A cell smaller than round 3 all round, with the terminal's bottom
-  // corners rounded, so it and its droplet fit inside the drawer's circle.
+  // corners rounded, so it fits inside the drawer's circle.
   const CX = 11, CY = 9, R0 = 5;
   const TERM = { x: 4, y: 13, w: 14, h: 5 };
-  const DROP = ['.##', '###', '#..'];
   const CHEV = ['#.', '.#', '#.'];
   const MINI = ['.####.', '######', '#w##w#', '######', '.####.'];
   const pal = {
@@ -1415,7 +1297,8 @@ function pxProp(cv, back, p, a, pal, c) {
     cv.rect(TERM.x + 1, TERM.y + TERM.h - 1, TERM.w - 2, 1, fill);
     const row = TERM.y + 2, x0 = TERM.x + 2;
     const ink = p.dim > 0.5 ? '#9FB0C4' : WHITE;
-    if (!red && p.term !== 'yn' && p.term !== 'lock' && p.term !== 'check') cv.glyph(CHEV, x0, row - 1, ink);
+    // Resting: a quiet prompt, dimmed, with no caret.
+    if (!red && p.term !== 'yn' && p.term !== 'lock' && p.term !== 'check') cv.glyph(CHEV, x0, row - 1, p.term === 'rest' ? '#55708F' : ink);
     let caret = x0 + 3;
     const blink = frac(c.T / 1.05) < 0.55;
     switch (p.term) {
@@ -1461,40 +1344,50 @@ function pxProp(cv, back, p, a, pal, c) {
       case 'red':
         cv.glyph(['#.#', '.#.', '#.#'], TERM.x + 7, row - 1, WHITE);
         return;
+      case 'lost':
+        // Offline: a × where the caret was, blinking dim and bright.
+        cv.glyph(['#.#', '.#.', '#.#'], caret, row - 1, Math.floor(t * 2) % 2 ? '#7FA3CC' : '#55708F');
+        return;
     }
-    if (p.term !== 'off' && blink) cv.rect(caret, row + 1, 2, 1, CURSOR);
+    if (p.term !== 'off' && p.term !== 'rest' && blink) cv.rect(caret, row + 1, 2, 1, CURSOR);
   }
 
   CHARACTERS.kimi = {
     name: 'Kimi Code',
     swatch: 0x2B8BFF,
-    fidgets: ['hop', 'type', 'peek'],
+    // v5: 'type' was terminal typing, so an idle Kimi looked busy. v5.1: a
+    // jelly squish makes three again.
+    fidgets: ['hop', 'squish', 'peek'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, term: 'prompt', termU: 0, drop: 'drop' },
+    rest: { ...PIXEL_REST, term: 'prompt', termU: 0, sign: '' },
     pose(s, t, T) {
       const b = basePose(s, t, T);
       const nod = Math.floor(t * 4) % 2;
       switch (s) {
-        case 'thinking': return { ...b, term: 'dots', drop: 'think' };
+        case 'thinking': return { ...b, term: 'dots' };
         case 'streaming': return { ...b, dy: nod, term: 'type', termU: t / 3 };
         case 'reading': return { ...b, dy: 1, term: 'scroll', termU: 1.5, look: [0, 1] };
         case 'searching': return { ...b, dx: 0, term: 'grep', look: [Math.floor(t / 0.5) % 2 ? 1 : -1, 1] };
-        case 'web': return { ...b, dy: 0, drop: 'globe', look: [1, -1] };
+        case 'web': return { ...b, dy: 0, look: [1, -1] };
         case 'writing': return { ...b, dy: Math.floor(t * 8) % 2, term: 'type', termU: t / 1.4, look: [0, 1] };
-        case 'running': return { ...b, dy: -(Math.floor(t * 10) % 2), term: 'scroll', termU: 6, drop: 'sweat', eyes: 'focus' };
+        case 'running': return { ...b, dy: -(Math.floor(t * 10) % 2), term: 'scroll', termU: 6, eyes: 'focus' };
         case 'working': return { ...b, dy: nod, term: 'type', termU: t / 5 };
         case 'approving': return { ...b, term: 'yn', eyes: 'wide' };
         case 'compacting': return { ...b, term: 'bar' };
         case 'finished': return { ...b, term: 'check' };
         case 'failed': return { ...b, term: 'red' };
         case 'broken': return { ...b, dy: 1, term: 'red' };
-        case 'offline': return { ...b, term: 'dots', drop: 'gray' };
-        case 'sleeping': return { ...b, dy: 1, term: 'off', drop: 'snot' };
-        case 'locked': return { ...b, term: 'lock', drop: 'ask' };
-        case 'asking': return { ...b, drop: 'ask' };
-        case 'sending': return { ...b, drop: 'fly', propU: frac(t / 2.2) };
-        case 'spawning': return { ...b, drop: 'none' };
-        case 'type': return { ...b, term: 'type', termU: t < 1.5 ? t / 2.4 : Math.max(0, (3 - t) / 2.4) };
+        case 'offline': return { ...b, term: 'lost', prop: '' };
+        // Squish: it squashes, springs up tall, wobbles and settles, smiling.
+        case 'squish': {
+          const k = Math.floor(t / 0.2);
+          const sq = [0.8, -0.5, 0.45, -0.25, 0.15][k] ?? 0;
+          return { ...b, sq, dy: sq < 0 ? -1 : 0, happy: t > 0.1 && t < 1.6 ? 1 : 0, gazeW: 0 };
+        }
+        case 'resting': return { ...b, dy: 1, term: 'off', sign: 'snot' };
+        case 'locked': return { ...b, term: 'lock', sign: 'ask' };
+        // Out of quota: sunk a cell into the terminal, a quiet prompt.
+        case 'sleeping': return { ...b, dy: b.dy - 1, term: 'rest' };
         default: return b;
       }
     },
@@ -1505,59 +1398,19 @@ function pxProp(cv, back, p, a, pal, c) {
       const b = blob(cv, q, c);
       terminal(cv, q, c, t);
       const a = { mid: b.cx, top: b.top, left: b.cx - 6, right: b.cx + 6, ground: TERM.y + TERM.h, midY: rnd(b.cy), front: rnd(b.cy), eyes: b.eyes };
-      // The droplet and what it turns into, just above the blob's right
-      // shoulder: the room the circle leaves. It shimmers instead of bobbing.
-      const dx = 13, dy = 3;
-      const drop = color => fitDraw(cv, g => {
-        g.glyph(DROP, dx, dy, color);
-        if (frac(c.T / 1.9) < 0.5) g.put(dx + 2, dy, SHINE);
-      });
-      switch (q.drop) {
-        case 'drop': drop(b.body); break;
-        case 'gray':
-          drop('#9AA6B2');
-          fitDraw(cv, g => g.glyph(PIX.excl, dx + 4, dy - 1, '#D9534F'));
-          break;
-        case 'think':
-          for (let i = 0; i < 3; i++) {
-            const u = frac(steps(t, 6) * 0.7 + i / 3);
-            const size = 1 + rnd(u * 1.5);
-            fitDraw(cv, g => g.rect(13 + rnd(u * 3), 6 - rnd(u * 4), size, size, b.body));
-          }
-          break;
-        case 'globe': fitDraw(cv, g => g.glyph(PIX.globe[Math.floor(t * 4) % 3], dx, dy - 1, SHINE)); break;
-        case 'sweat': {
-          const u = frac(steps(t, 8) / 1.2);
-          fitDraw(cv, g => g.glyph(['#', '#'], b.cx + 6, b.top + 2 + rnd(u * 5), '#BFE0FF'), null);
-          break;
-        }
-        case 'snot': {
-          const r = 1 + Math.floor((Math.sin(c.T * 1.2) + 1) * 1.2);
-          const x = b.cx + 5, y = b.cy + 1;
-          fitDraw(cv, g => {
-            g.shape((u, v) => Math.hypot(u - x - 0.5, v - y - 0.5) <= r + 0.3, x - r - 1, y - r - 1, r * 2 + 3, r * 2 + 3, '#CFE6FF');
-            g.put(x - 1, y - r + 1, WHITE);
-          }, null);
-          break;
-        }
-        case 'ask':
-          fitDraw(cv, g => g.glyph(PIX.q, dx, dy - 1, b.body));
-          break;
-        case 'fly': {
-          // The droplet folds into a note, flies up over the head and pops.
-          const u = q.propU;
-          if (u < 0.3) { drop(b.body); break; }
-          const v = clamp((u - 0.3) / 0.5);
-          if (v < 1) {
-            const x = rnd(lerp(dx, a.mid - 3, v)), y = rnd(lerp(dy, 1, v));
-            fitDraw(cv, g => { g.rect(x, y, 5, 3, b.body); for (let i = 0; i < 2; i++) g.put(x + 1 + i * 2, y + 1, WHITE); });
-          } else if (u < 0.88) fitDraw(cv, g => g.glyph(PIX.spark, a.mid - 1, 2, SHINE));
-          if (u > 0.85) drop(b.body);
-          break;
-        }
-      }
-      // The terminal and the droplet already tell these phases.
-      const told = ['think', 'bubble', 'page', 'mag', 'globe', 'keys', 'run', 'hammer', 'q', 'sign', 'nowifi', 'lock', 'mail'];
+      // A nose bubble while it sleeps, a question mark while it's locked,
+      // above the blob's right shoulder.
+      if (q.sign === 'snot') {
+        const r = 1 + Math.floor((Math.sin(c.T * 1.2) + 1) * 1.2);
+        const x = b.cx + 5, y = b.cy + 1;
+        fitDraw(cv, g => {
+          g.shape((u, v) => Math.hypot(u - x - 0.5, v - y - 0.5) <= r + 0.3, x - r - 1, y - r - 1, r * 2 + 3, r * 2 + 3, '#CFE6FF');
+          g.put(x - 1, y - r + 1, WHITE);
+        }, null);
+      } else if (q.sign === 'ask') fitDraw(cv, g => g.glyph(PIX.q, 13, 2, b.body));
+      // The terminal already tells these phases; the shared signs show the
+      // rest (the globe, the question mark, no Wi-Fi, the letter, z's).
+      const told = ['think', 'bubble', 'page', 'mag', 'keys', 'run', 'hammer', 'sign', 'lock'];
       if (!told.includes(q.prop)) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -1622,7 +1475,9 @@ function pxProp(cv, back, p, a, pal, c) {
   CHARACTERS.deepseek = {
     name: 'DeepSeek',
     swatch: 0x4D6BFE,
-    fidgets: ['spout', 'hop', 'peek'],
+    // v5: 'spout' was sending's spout, so an idle whale looked like it was
+    // sending; a quick wave of its flukes is idle play.
+    fidgets: ['flukes', 'hop', 'peek'],
     cycle: PIXEL_CYCLE,
     rest: { ...PIXEL_REST, wag: 0 },
     pose(s, t, T) {
@@ -1639,8 +1494,12 @@ function pxProp(cv, back, p, a, pal, c) {
         case 'asking': return { ...b, wag, dy: 0, prop: 'qspout' };
         case 'failed': return { ...b, dy: t < 0.6 ? 0 : 2, wag: 0, prop: 'sink' };
         case 'broken': return { ...b, wag: 0, prop: 'sink' };
-        case 'sleeping': return { ...b, wag: 0, prop: 'zzb' };
-        case 'spout': return { ...b, wag, prop: 'spout', propU: clamp(t / 2.2) * 0.85, happy: 1, gazeW: 0 };
+        case 'resting': return { ...b, wag: 0, prop: 'zzb' };
+        case 'offline': return { ...b, wag, prop: 'dive' };
+        case 'locked': return { ...b, wag: 0, prop: 'cork' };
+        case 'flukes': return { ...b, wag: t < 1.6 ? (Math.floor(t * 5) % 2 ? 2 : 0) : wag, happy: t > 0.2 && t < 1.9 ? 1 : 0, gazeW: 0 };
+        // Out of quota: lower in the water, the tail swaying at a third the pace.
+        case 'sleeping': return { ...b, wag: Math.floor(t / 1.5) % 2 };
         case 'finished': return { ...b, wag: Math.floor(t * 8) % 2, prop: t < 0.7 ? 'sparks' : 'splash' };
         default: return { ...b, wag };
       }
@@ -1724,6 +1583,25 @@ function pxProp(cv, back, p, a, pal, c) {
             if (u < 0.85) fitDraw(cv, g => g.glyph(i ? PIX.zs : PIX.z, hx + 2 + i * 2, hy - 3 - rnd(u * 4) - i * 2, WATER));
           }
           break;
+        case 'dive': {
+          // Under the surface: a wavy line over its back, bubbles going up.
+          for (let x = 0; x < GRID; x++) {
+            const y = a.top - 1 + ((Math.floor(x / 2) + Math.floor(t * 3)) % 2);
+            if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, WATER);
+          }
+          for (let i = 0; i < 2; i++) {
+            const u = frac(t / 1.8 + i / 2);
+            dot(hx + i * 2 - 1, a.top - 3 - rnd(u * 3), WATER);
+          }
+          break;
+        }
+        case 'cork': {
+          // A cork in the blowhole; now and then it squeezes out a drop.
+          cv.rect(hx, hy - 2, 2, 2, '#C8955A');
+          cv.rect(hx, hy - 2, 2, 1, '#A4743F');
+          if (frac(t / 1.6) < 0.35) { dot(hx - 1, hy - 1, WATER); dot(hx + 2, hy - 1, WATER); }
+          break;
+        }
         case 'splash':
           if (t < 1.5) for (const [dx, dy] of [[-3, 0], [3, 0], [-5, 1], [5, 1], [0, -1]]) dot(a.mid + dx + (Math.floor(t * 8) % 2), a.ground + dy - 2, WATER);
           break;

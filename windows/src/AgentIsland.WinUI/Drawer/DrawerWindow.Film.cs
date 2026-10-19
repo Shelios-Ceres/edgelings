@@ -342,12 +342,17 @@ internal sealed partial class DrawerWindow
                 takes.Add(($"fidget-{k + 1}", index => Fidget(index) ?? "idle", new[] { 0.5, 0.9, 1.3 }, double.NaN));
         }
         if (engine.Draws(Resting)) takes.Add(("resting-poke", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
+        if (engine.Draws("sleeping")) takes.Add(("sleeping-poke", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
+        // Reduced motion: the blend into the settled pose, then still, and a poke does nothing.
+        if (engine.Draws(Resting)) takes.Add(("resting-reduced", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5));
+        if (engine.Draws("sleeping")) takes.Add(("sleeping-reduced", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5));
         foreach (var (name, stateOf, times, pokeAt) in takes)
         {
             foreach (var index in order) engine.SetState(index, stateOf(index), 0);
             var shots = new List<Dictionary<int, string>>();
             var clock = 0.0;
             var poked = double.IsNaN(pokeAt);
+            var still = name.EndsWith("-reduced");
             var dts = Enumerable.Repeat(1 / 30.0, _slots.Length).ToArray();
             foreach (var time in times)
             {
@@ -355,9 +360,10 @@ internal sealed partial class DrawerWindow
                 {
                     if (!poked && clock >= pokeAt - 1e-6)
                     {
-                        foreach (var index in order) engine.Poke(index);
+                        if (!still) foreach (var index in order) engine.Poke(index);
                         poked = true;
                     }
+                    if (still && clock >= 0.5) Array.Fill(dts, double.NaN);
                     engine.Tick(dts, BotSize);
                     clock += 1 / 30.0;
                 }
