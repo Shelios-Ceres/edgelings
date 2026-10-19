@@ -1,13 +1,13 @@
 // Agent Island - Classic desk companions
 //
-// The Classic style's characters: six desk companions of our own, inspired
-// by Codex's desk-object concepts. A potted succulent whose rosette echoes
-// Claude's starburst, a coffee mug steaming a little cloud (Codex), a paper
-// plane folded like an A (Antigravity), a ringed planet ornament (Grok, and
-// Cursor), a moon lamp from the dark side of the moon (Kimi Code) and a whale
-// stapler (DeepSeek). Each acts out its state with its eyes, its posture and
-// its own mechanism; the only badges are "?" (asking) and "!" (approving),
-// each made of its companion's own material.
+// The Classic style's characters: six desk companions of our own. A potted
+// succulent whose rosette echoes Claude's starburst, a little desk computer
+// with >_ in its screen (Codex), a violet flying saucer (Antigravity), a
+// ringed planet ornament (Grok, and Cursor), an astronaut helmet with a >_
+// collar (Kimi Code) and a deep-sea submarine with a whale's tail
+// (DeepSeek). Each acts out its state with its eyes, its posture and its own
+// mechanism; the only badges are "?" (asking) and "!" (approving), popped up
+// over the head like an emote in the companion's own colour.
 //
 // Pure JS, with no imports, DOM, timers or platform randomness: every random
 // choice comes from the bot's seed, so the same seed and calls always draw
@@ -359,25 +359,30 @@ function eyePair(o, E, col) {
   return P(fills, F(col)) + P(lines, S(col, sw));
 }
 
-// The "?" and "!", as strokes scaled by k and centred near (dx, dy).
-function glyph(g, col, k, dx = 0, dy = 0) {
-  const X = v => n(dx + v * k), Y = v => n(dy + v * k);
-  const dot = `<circle cx="${X(0)}" cy="${Y(1.75)}" r="${n(0.58 * k)}"${F(col)}/>`;
-  if (g === '?') return P(`M${X(-1)} ${Y(-1)}C${X(-1)} ${Y(-2.3)} ${X(1.1)} ${Y(-2.35)} ${X(1.1)} ${Y(-1.05)}C${X(1.1)} ${Y(-0.15)} ${X(0)} ${Y(-0.15)} ${X(0)} ${Y(0.5)}`, S(col, k)) + dot;
-  return P(`M${X(0)} ${Y(-1.9)}V${Y(0.45)}`, S(col, 1.1 * k)) + dot;
-}
-
-// The only badges: "?" while asking and "!" while approving. Each object
-// carries them in its own material, a small sticker over its shoulder (see
-// each object's badge in 30-objects.js). It grows in as it fades in, pulses
-// while approving, and moves its own way with bob while asking.
+// The only badges: "?" while asking and "!" while approving, popped up
+// from the companion like an emote: the glyph itself as a fat sticker in the
+// companion's main colour under the same white rim as its body. It springs
+// up out of the head with an overshoot as it appears, sways while asking
+// and pulses while approving. obj.emote = { at, color }.
+const EMOTE = { s: 1.55, w: 2.5 };
+// Where an emote can sit: pulled in toward the centre until the glyph, at
+// its biggest pop, stays inside the drawer's circle.
+const emoteAt = ([x, y]) => {
+  const d = Math.hypot(x - 22, y - 22), lim = 15;
+  return d > lim ? [22 + (x - 22) * lim / d, 22 + (y - 22) * lim / d] : [x, y];
+};
 function badge(o, obj) {
   const q = o.ask >= o.alert, v = q ? o.ask : o.alert, a = clamp(v);
   if (a < 0.02) return '';
-  const s = (0.55 + 0.45 * a) * Math.max(1, v), [x, y] = obj.badge.at;
-  const b = obj.badge.draw(q ? '?' : '!', o.bob);
-  const r = rad(b.rot ?? 0), c = Math.cos(r) * s, si = Math.sin(r) * s;
-  return `<g${matrix(c, si, -si, c, x + (b.dx ?? 0), y + (b.dy ?? 0))}${O(a)}>${b.body}</g>`;
+  const { s: k, w } = EMOTE, e = obj.emote, [x, y] = e.at;
+  const s = backOut(a, 2.4) * Math.max(1, v), r = rad(q ? -8 + 10 * o.bob : -4);
+  const c = Math.cos(r) * s, si = Math.sin(r) * s;
+  const X = v => n(v * k);
+  const line = q ? `M${X(-1.05)} ${X(-1)}C${X(-1.05)} ${X(-2.4)} ${X(1.15)} ${X(-2.45)} ${X(1.15)} ${X(-1.05)}C${X(1.15)} ${X(-0.15)} 0 ${X(-0.2)} 0 ${X(0.55)}`
+    : `M0 ${X(-2)}V${X(0.5)}`;
+  const dot = (rr, col) => `<circle cx="0" cy="${X(1.85)}" r="${n(rr)}"${F(col)}/>`;
+  return `<g${matrix(c, si, -si, c, x, y + 2.6 * (1 - a))}>` + P(line, S(PAPER, w + RIM)) + dot(w * 0.7 + RIM / 2, PAPER)
+    + P(line, S(e.color, w)) + dot(w * 0.7, e.color) + '</g>';
 }
 
 // MARK: - States
@@ -657,9 +662,7 @@ const stateOf = name => STATES[name] ?? STATES.idle;
 //   hopFloat how much of a poke's hop goes to a floating part instead
 //   mech     where the mechanism is from the eyes (spawning looks there)
 //   outDir   where its output goes (sending watches it)
-//   badge    where its "?" and "!" sit (at) and how they're drawn:
-//            draw(glyph, bob) returns markup round (0, 0), and how it turns
-//            (rot) and moves (dx, dy) with bob
+//   emote    where its "?" and "!" pop up (at) and in which colour
 //   eyes     { x, y, gap, w, h, travel } at rest
 
 const n1 = v => { const r = Math.round(v * 10) / 10; return r === 0 ? '0' : String(r); };
@@ -679,8 +682,6 @@ function bezTo(p, t) {
   const a = mid(p[0], p[1], t), b = mid(p[1], p[2], t), c = mid(p[2], p[3], t), d = mid(a, b, t);
   return [a, d, mid(d, mid(b, c, t), t)];
 }
-// Maps every point of a path written with M, L, C and Z only.
-const mapD = (d, f) => d.replace(/(-?[\d.]+) (-?[\d.]+)/g, (_, x, y) => xy(f(+x, +y)));
 // An arc of an ellipse (rx, ry) turned rot degrees about (cx, cy), from
 // parameter a0 to a1 degrees, in pieces of at most a quarter turn.
 function ellArc(cx, cy, rx, ry, rot, a0, a1) {
@@ -691,12 +692,6 @@ function ellArc(cx, cy, rx, ry, rot, a0, a1) {
   for (let i = 1; i <= k; i++) d += `A${n(rx)} ${n(ry)} ${n(rot)} 0 ${a1 > a0 ? 1 : 0} ${pt(a0 + (a1 - a0) * i / k)}`;
   return d;
 }
-// A star of k points (outer R, inner r) round (cx, cy), turned rot degrees.
-const starD = (cx, cy, k, R, r, rot = 0) => poly(Array.from({ length: 2 * k }, (_, i) => {
-  const a = rad(rot - 90 + i * 180 / k), q = i % 2 ? r : R;
-  return [cx + q * Math.cos(a), cy + q * Math.sin(a)];
-}));
-const disc = (x, y, r, col, extra = '') => `<circle cx="${n(x)}" cy="${n(y)}" r="${n(r)}"${F(col)}${extra}/>`;
 
 const OBJ = {
   // A terracotta pot holding a succulent whose rosette fans out like Claude's
@@ -706,11 +701,7 @@ const OBJ = {
   // leaves while it's locked.
   claude: {
     pivot: [22, 37.8], tilt: 6, hop: 1.6, hopFloat: 0,
-    // A garden label on its stake, rocking.
-    badge: { at: [31.4, 11], draw: (g, bob) => {
-      const tag = 'M-2.3 -3.3H2.3A1 1 0 0 1 3.3 -2.3V1.3A1 1 0 0 1 2.3 2.3H0.9L0 5.2L-0.9 2.3H-2.3A1 1 0 0 1 -3.3 1.3V-2.3A1 1 0 0 1 -2.3 -3.3Z';
-      return { rot: -8 + 8 * bob, body: P(tag, RIMF) + P(tag, F('#6FA56E')) + P(rrect(-2.5, -2.5, 5, 4, 0.7), F('#FBF8EE')) + glyph(g, '#33261F', 0.66, 0, -0.45) };
-    } },
+    emote: { at: emoteAt([32.2, 10.4]), color: '#D97757' },
     mech: [-0.8, -0.7], outDir: [0.7, -0.7],
     eyes: { x: 22, y: 31.9, gap: 7, w: 3, h: 5.1, travel: 1.1 },
     draw(o, id, rim) {
@@ -764,128 +755,6 @@ const OBJ = {
     },
   },
 
-  // A blue mug of coffee whose steam gathers into a little cloud that reads
-  // >_. The steam rises and puffs as it works, the cloud types its output
-  // after the prompt and sends it off as a puff, buds a second cloud while
-  // spawning, and goes thin and low when paused or broken (the mug chipped);
-  // a lid holds the steam in while it's locked.
-  codex: {
-    pivot: [20.6, 37.2], tilt: 5, hop: 1.4, hopFloat: 0.5,
-    // A sugar cube, bouncing.
-    badge: { at: [35.2, 16.4], draw: (g, bob) => {
-      const hex = 'M-3 -2L-1.6 -3.4H3.4V1.6L2 3H-3Z';
-      return { rot: 6 * bob, dy: -0.7 * bob, body: P(hex, RIMF) + P(hex, F('#FFFFFF'))
-        + P('M-1.6 -3.4H3.4L2 -2H-3Z', F('#EEF1F5')) + P('M2 -2L3.4 -3.4V1.6L2 3Z', F('#D5DAE2'))
-        + P(hex + 'M-3 -2H2V3M2 -2L3.4 -3.4', S('#9AA0AA', 0.55, 'round', true)) + glyph(g, '#3C4048', 0.7, -0.5, 0.6) };
-    } },
-    mech: [-0.6, -0.9], outDir: [0.7, -0.8],
-    eyes: { x: 20.6, y: 29.6, gap: 6.6, w: 2.8, h: 5, travel: 1.1 },
-    draw(o, id, rim) {
-      const C = { mug: '#2D8CFF', lip: '#5AA5FF', coffee: '#6B4A36', lid: '#1F6FD6', cloud: '#FFFFFF', line: '#9AA0AA', ink: '#3C4048', eye: '#FFFFFF' };
-      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
-      const lift = clamp(0.9 * o.float + 1.2 * o.play - 0.5 * o.slack - 1.4 * o.bend - 0.6 * clamp(o.press), -1.8, 1.2);
-      const puff = 0.4 * o.beat + 0.5 * o.play + 0.3 * clamp(o.out) - 0.5 * clamp(-o.spread) - 0.7 * o.bend - 0.8 * o.slack;
-      const gx = 20.6 + 1.2 * aim + 0.8 * o.alt + 1.6 * sp, gy = 10.8 - lift;
-      const fill = mixHex(C.cloud, '#D9DCE2', o.bend);
-      const lobes = [[-6.2, 1.4, 3.1], [-2.4, -1.4, 4.1], [3, -0.8, 3.7], [6.4, 1.6, 2.9], [0, 2, 3.8]].map(([x, y, r]) => [gx + x, gy + y, Math.max(0.6, r + puff)]);
-      if (sp > 0.05) lobes.push([10.4, 13.4, 2.2 * sp], [12.8, 12.6, 2.6 * sp]);
-      if (o.send > 0.04) lobes.push([gx + 7.6 + 2.6 * o.send, gy - 1.2 - 2.2 * o.send, (1.8 - 0.4 * o.send) * clamp(3 * o.send)]);
-      // One path per layer: the white rim, the grey outline, the white puffs.
-      const puffs = dr => lobes.map(([x, y, r]) => circ(x, y, r + dr)).join('');
-      const steam = [...(rim ? [{ d: puffs(0.65 + RIM / 2), fill: PAPER, bare: true }] : []), { d: puffs(0.65), fill: C.line, bare: true }, { d: puffs(0), fill, bare: true }];
-      let marks = '';
-      for (let i = 0; i < 3; i++) {
-        const a = clamp(o.marks - i);
-        if (a > 0.02) marks += `M${n(gx - 1.8 + 2.3 * i)} ${n(gy + 2.6)}H${n(gx - 1.8 + 2.3 * i + 1.3 * a)}`;
-      }
-      const caret = gx - 1.8 + 2.3 * clamp(o.marks, 0, 3);
-      const prompt = P(`M${n(gx - 5.2)} ${n(gy - 0.6)}L${n(gx - 3.2)} ${n(gy + 1)}L${n(gx - 5.2)} ${n(gy + 2.6)}`, S(C.ink, 1.2, 'round', true))
-        + (marks ? P(marks, S(C.ink, 1.2)) : '') + P(`M${n(caret)} ${n(gy + 2.6)}H${n(caret + 2.6)}`, S(C.ink, 1.2));
-      const ca = 1 - close;
-      const cloud = ca < 0.02 ? '' : `<g${O(ca)}>${body(steam, rim)}${prompt}</g>`;
-      const mug = [
-        { d: 'M30.4 24.2C36.6 24 36.8 33.2 30.4 32.8', line: [C.mug, 3] },
-        { d: 'M11.8 20.6H29.4A1.4 1.4 0 0 1 30.8 22V32.8A4.4 4.4 0 0 1 26.4 37.2H14.8A4.4 4.4 0 0 1 10.4 32.8V22A1.4 1.4 0 0 1 11.8 20.6Z', fill: C.mug },
-        { d: ell(20.6, 20.6, 10.2, 1.9), fill: C.lip },
-        { d: ell(20.6, 20.9, 8.8, 1.3 - 0.3 * o.beat), fill: C.coffee, bare: true },
-        { d: 'M12.4 19.2L14.8 19L13.4 21.2Z', fill: PAPER, bare: true, a: o.bend },
-      ];
-      let lid = '';
-      if (close > 0.02) {
-        const r = rad(-2.2 * o.turn), c = Math.cos(r), s = Math.sin(r);
-        lid = `<g${matrix(c, s, -s, c, 10 - (c * 10 - s * 21), 21 - (s * 10 + c * 21))}${O(close)}>`
-          + body([{ d: rrect(9.6, 18, 22, 3.2, 1.6), fill: C.lid }, { d: rrect(18.4, 16.4, 4.4, 2.4, 1.1), fill: C.lid }], rim) + '</g>';
-      }
-      return { defs: '', body: cloud + body(mug, rim) + eyePair(o, this.eyes, C.eye) + lid };
-    },
-  },
-
-  // A blue paper plane folded like an A, its tips dipped in Google's colours,
-  // hovering over its own shadow. It climbs with the work, banks toward each
-  // bearing, flaps on the beat, has its output written on a wing, zooms off
-  // to send, folds a second plane while spawning, and crumples a tip when it
-  // breaks; a pin holds it down while it's locked.
-  antigravity: {
-    pivot: [22, 35.4], tilt: 6, hop: 0.6, hopFloat: 1.4,
-    // A balloon on its string, floating.
-    badge: { at: [32.6, 10.6], draw: (g, bob) => {
-      const str = 'M0 3.2C-0.9 4.4 0.9 5.2 -0.1 6.4';
-      return { rot: 8 * bob, dy: -0.5 * bob, body: P(str, S(PAPER, 3.2)) + disc(0, -0.5, 3.7, PAPER, ` stroke="${PAPER}" stroke-width="2.6"`)
-        + P(str, S('#9AA0AA', 0.6)) + P('M-0.8 3.7H0.8L0 2.7Z', F('#C9362B')) + disc(0, -0.5, 3.7, '#EA4335')
-        + disc(-1.5, -2.3, 0.65, '#FFB3AA') + glyph(g, '#FFFFFF', 0.7, 0.2, -0.3) };
-    } },
-    mech: [-0.8, -0.6], outDir: [0.1, -0.95],
-    eyes: { x: 22, y: 19.8, gap: 6.4, w: 2.8, h: 5, travel: 1 },
-    draw(o, id, rim) {
-      const C = { lo: '#8E63F5', li: '#7A4FE6', ri: '#9B76F7', ro: '#B49AFA', keel: '#6440D0', red: '#EA4335', yellow: '#FBBC05', green: '#34A853', shadow: '#77739A', ink: '#3A2A86', eye: '#FFFFFF', pin: '#EA4335', shine: '#FFB3AA' };
-      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1);
-      const up = clamp((1.1 * o.float + 1.6 * o.play + 0.9 * clamp(o.out) + 2.6 * o.send - 0.9 * clamp(o.press) - 0.8 * o.slack - 0.6 * o.bend) * (1 - 0.9 * close), -1.2, 3);
-      const bank = 8 * aim + 6 * o.alt - 8 * o.play + 6 * o.bend;
-      const yaw = clamp(0.08 * o.turn, -1.6, 1.6), k = 1 - 0.12 * o.send;
-      const fold = 3.4 * clamp(-o.spread) - clamp(o.spread), flap = 1.4 * o.beat + 1.2 * o.play - 0.6 * o.slack - 0.6 * clamp(o.press);
-      const cb = Math.cos(rad(bank)) * k, sb = Math.sin(rad(bank)) * k;
-      const T = (x, y) => [22 + (x - 22) * cb - (y - 20) * sb, 20 - up + (x - 22) * sb + (y - 20) * cb];
-      const N = T(22 + 1.4 * yaw + 2 * o.bend, 5.4 + 1.6 * o.bend), I = T(22 + 2.2 * yaw, 28.4);
-      const Lt = T(7.2 + fold + 2.8 * o.bend, 31.6 - flap + 2.6 * o.bend), Rt = T(36.8 - fold, 31.6 - flap);
-      // Each wing folds once: a steep inner panel by the keel, a flat outer one.
-      const Cl = mid(I, Lt, 0.6), Cr = mid(I, Rt, 0.6);
-      const parts = [
-        { d: pill(22, 38.6, 10.4 * (1 - 0.08 * up), 1.5), fill: C.shadow, bare: true },
-        { d: poly([T(20.8 + 2.4 * yaw, 27.6), T(23.2 + 2.4 * yaw, 27.6), T(22 + 2.6 * yaw, 32.6)]), fill: C.keel },
-        { d: poly([N, Lt, Cl]), fill: C.lo },
-        { d: poly([N, Cl, I]), fill: C.li },
-        { d: poly([N, I, Cr]), fill: C.ri },
-        { d: poly([N, Cr, Rt]), fill: C.ro },
-        { d: poly([Lt, mid(Lt, N, 0.2), mid(Lt, Cl, 0.4)]), fill: C.red, bare: true },
-        { d: poly([Rt, mid(Rt, N, 0.2), mid(Rt, Cr, 0.4)]), fill: C.green, bare: true },
-        { d: poly([N, mid(N, Lt, 0.17), mid(N, Cl, 0.18), mid(N, I, 0.19), mid(N, Cr, 0.18), mid(N, Rt, 0.17)]), fill: C.yellow, bare: true },
-        { d: poly([Lt, mid(Lt, N, 0.26), mid(Lt, Cl, 0.55)]), fill: C.keel, bare: true, a: o.bend },
-      ];
-      if (o.bend > 0.02) {
-        const [a1, a2, a3] = [mid(mid(Lt, N, 0.5), Cl, 0.1), mid(mid(Lt, N, 0.42), Cl, 0.45), mid(mid(Lt, N, 0.5), Cl, 0.8)];
-        parts.push({ d: `M${xy(a1)}L${xy(a2)}L${xy(a3)}`, line: [C.keel, 0.8], join: true, bare: true, a: o.bend });
-      }
-      const s = clamp(o.spread, 0, 1.2);
-      if (s > 0.02) {
-        const c = Math.cos(rad(-28)) * s, si = Math.sin(rad(-28)) * s, m = (x, y) => [10.8 + x * c - y * si, 13 + x * si + y * c];
-        parts.push({ d: poly([m(0, -4), m(-2.9, 3), m(0, 1.8)]), fill: C.lo }, { d: poly([m(0, -4), m(0, 1.8), m(2.9, 3)]), fill: C.ro });
-      }
-      if (close > 0.02) parts.push({ c: [...T(22 + 2.2 * yaw, 24.6), 2.4], fill: C.pin, a: close });
-      let lines = '';
-      for (let i = 0; i < 3; i++) {
-        const len = [4.4, 3.8, 2.4][i] * clamp(o.marks - i), x0 = 25.4 + 2 * yaw, y0 = 23.4 + 1.8 * i;
-        if (len > 0.1) lines += `M${xy(T(x0, y0))}L${xy(T(x0 + len, y0 + 0.227 * len))}`;
-      }
-      const [ex, ey] = T(22 + 1.4 * yaw, this.eyes.y);
-      return {
-        defs: '',
-        body: body(parts, rim) + (lines ? P(lines, S(C.ink, 1.1)) : '')
-          + (close > 0.02 ? disc(...T(21.3, 23.9), 0.75, C.shine, O(close)) : '')
-          + eyePair(o, { ...this.eyes, x: ex, y: ey }, C.eye),
-      };
-    },
-  },
-
   // A dark planet ornament on a stand, its ring tilted like Grok's slash and
   // a small moon riding it. The ring tilts toward each bearing, the moon
   // circles while it waits, lights run along the ring with output, the moon
@@ -893,12 +762,7 @@ const OBJ = {
   // slips when it breaks, and closes into a flat slash while it's locked.
   grok: {
     pivot: [22, 37.4], tilt: 4, hop: 1.2, hopFloat: 0.8,
-    // A comet, gliding.
-    badge: { at: [13, 10.2], draw: (g, bob) => {
-      const tail = 'M-1.6 -2.2L-6 0.2M-2.2 0.6L-6.8 3.2M0.2 2.6L-4.2 5.2';
-      return { dx: 0.5 * bob, dy: -0.4 * bob, body: P(tail, S(PAPER, 4.1)) + disc(0, 0, 3.6, PAPER, ` stroke="${PAPER}" stroke-width="2.6"`)
-        + P(tail, S('#FFCF6E', 1.5)) + disc(0, 0, 3.6, '#FFF4D2', ' stroke="#F2B544" stroke-width="0.6"') + glyph(g, '#24252C', 0.7, 0.1, 0.1) };
-    } },
+    emote: { at: emoteAt([12.4, 9.6]), color: '#3B3F4A' },
     mech: [0.8, -0.4], outDir: [0.8, -0.6],
     eyes: { x: 22, y: 18.8, gap: 5.8, w: 2.8, h: 5, travel: 1.1 },
     draw(o, id, rim) {
@@ -935,135 +799,230 @@ const OBJ = {
     },
   },
 
-  // A moon lamp: the moon, lit warm on one side and Kimi blue on its dark
-  // side, over a navy base that reads >_. Its phase follows the work (fuller
-  // with output, waning when compacting or paused), it turns, levitates
-  // while it thinks, types after the prompt, glows to send and twinkles up
-  // stars while spawning; it cracks when it breaks, and the base's arms
-  // close round it while it's locked.
-  kimi: {
-    pivot: [22, 36.2], tilt: 5, hop: 0.8, hopFloat: 1.2,
-    // A star, twinkling.
-    badge: { at: [31.6, 11.2], draw: (g, bob) => {
-      const st = starD(0, 0.2, 5, 4.4, 2.5);
-      return { rot: 10 * bob, body: P(st, ` fill="${PAPER}" stroke="${PAPER}" stroke-width="4" stroke-linejoin="round"`)
-        + P(st, F('#FFD45C') + ' stroke="#FFD45C" stroke-width="1.4" stroke-linejoin="round"') + glyph(g, '#10325C', 0.68, 0, 0.5) };
-    } },
-    mech: [-0.8, -0.6], outDir: [0.6, -0.8],
-    eyes: { x: 19.6, y: 18.8, gap: 6, w: 2.7, h: 4.8, travel: 1.1 },
+};
+
+// MARK: - The new companions (2026-10-19)
+//
+// The looks the user picked: a desk computer for Codex, a flying saucer for
+// Antigravity, a submarine for DeepSeek and an astronaut helmet for Kimi
+// Code. Each reads the pose channels its own way. Claude and Grok keep
+// theirs and, like all of them, now pop an emote instead of wearing a badge.
+
+// A >_ prompt at (x, y) at scale s, the output marks typed after it and the
+// caret after them.
+function promptMarks(x, y, s, col, w, marks, gap = 2.2, caretCol = col) {
+  const x0 = x + 2.6 * s, k = clamp(marks, 0, 3);
+  let d = `M${n(x)} ${n(y - 1.6 * s)}L${n(x + 1.5 * s)} ${n(y)}L${n(x)} ${n(y + 1.6 * s)}`;
+  for (let i = 0; i < 3; i++) {
+    const a = clamp(marks - i);
+    if (a > 0.02) d += `M${n(x0 + gap * s * i)} ${n(y + 1.6 * s)}H${n(x0 + gap * s * i + 1.1 * s * a)}`;
+  }
+  const cx = x0 + gap * s * k;
+  return P(d, S(col, w, 'round', true)) + P(`M${n(cx)} ${n(y + 1.6 * s)}H${n(cx + 2.6 * s)}`, S(caretCol, w));
+}
+// Markup turned deg degrees about (px, py), then moved by (tx, ty).
+function turnG(deg, px, py, tx, ty, inner) {
+  if (Math.abs(deg) < 0.05 && Math.abs(tx) < 0.03 && Math.abs(ty) < 0.03) return inner;
+  const r = rad(deg), c = Math.cos(r), s = Math.sin(r);
+  return `<g${matrix(c, s, -s, c, px - (c * px - s * py) + tx, py - (s * px + c * py) + ty)}>${inner}</g>`;
+}
+// Colour blends in tenths, so a loop's first and last frames match exactly.
+const qMix = (a, b, t) => mixHex(a, b, Math.round(clamp(t) * 10) / 10);
+const zig = pts => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${n(x)} ${n(y)}`).join('');
+
+Object.assign(OBJ, {
+  // A little blue desk computer whose screen is its face. It types after
+  // the >_ in the screen's corner, swivels on its neck toward each search,
+  // rises on its neck while thinking, blinks its power light on the beat,
+  // pops a window while spawning and sends a packet off; its screen cracks
+  // when it breaks, asks for a password when it's locked and dims when
+  // paused.
+  computer: {
+    pivot: [22, 37.8], tilt: 5, hop: 1.4, hopFloat: 0.6,
+    emote: { at: emoteAt([32, 9]), color: '#2D8CFF' },
+    mech: [-0.8, -0.8], outDir: [0.7, -0.8],
+    eyes: { x: 22, y: 22.6, gap: 7, w: 2.8, h: 5, travel: 1.1 },
     draw(o, id, rim) {
-      const C = { lit: '#FFF3D6', crater: '#F3E1B5', dark: '#2E8FF7', pit: '#247DE3', edge: '#E6C988', base: '#1D4E9E', ink: '#FFFFFF', caret: '#6CB4FF', eye: '#10325C', star: '#FFD45C', halo: '#FFD98A' };
-      const close = smooth(seg(o.hold, 0.6, 1)), aim = clamp(o.aim, -1, 1);
-      const lift = clamp(1.4 * o.float + 1.8 * o.play - 0.4 * o.slack - 0.8 * clamp(o.press), -0.8, 2.4) * (1 - close);
-      const cx = 22, cy = 18.6 - lift, r = 10.2;
-      const ph = clamp(0.24 - 0.1 * clamp(o.out) + 0.2 * clamp(-o.spread) + 0.16 * o.slack + 0.1 * o.bend + 0.07 * (1 - o.orb[0]), 0.04, 0.62);
-      const k = r * (1 - 2 * ph), psi = -22 + 0.9 * o.turn + 14 * aim;
-      const [tx, ty] = turnPt(cx, cy - r, cx, cy, psi), [bx, by] = turnPt(cx, cy + r, cx, cy, psi);
-      const shade = `M${n(tx)} ${n(ty)}A${n(r)} ${n(r)} 0 0 1 ${n(bx)} ${n(by)}A${n(Math.abs(k))} ${n(r)} ${n(psi)} 0 ${k > 0 ? 0 : 1} ${n(tx)} ${n(ty)}Z`;
-      const lit = mixHex(mixHex(C.lit, '#FFFFFF', 0.6 * o.beat), '#CDD5E2', 0.5 * o.slack);
-      const cr = 1.4 * o.turn + 18 * aim + 150 * o.play;
-      // Craters turn with the moon; those on its dark side are darker.
-      const craters = [[-5.8, -4.4, 1.7], [-7.4, 4.6, 1.2], [0.6, -7.2, 1.1], [4.4, 5.8, 1.3], [6.6, -2.6, 1]].map(([x, y, q]) => {
-        const [px, py] = turnPt(cx + x, cy + y, cx, cy, cr), [u, v] = turnPt(px, py, cx, cy, -psi);
-        const dark = u - cx > k * Math.sqrt(Math.max(0, 1 - ((v - cy) / r) ** 2));
-        return { c: [px, py, q], fill: dark ? C.pit : mixHex(C.crater, lit, 0.5 * o.slack), bare: true };
-      });
+      const C = { case: '#2D8CFF', dark: '#1F6FD6', screen: '#10284F', glow: '#8CD8FF', text: '#8CC2FF', led: '#9BF0C0', off: '#2E6B55', crack: '#CFE3FF' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const lift = clamp(0.8 * o.float + 0.8 * o.play - 0.4 * o.slack, -0.6, 1.4);
+      const dx = 1.2 * aim + 0.04 * o.turn, top = 12 - lift;
+      const screen = qMix(qMix(C.screen, '#1B3E78', clamp(0.4 * o.play + 0.25 * clamp(o.out))), '#08142A', 0.5 * o.slack);
       const parts = [
-        { c: [cx, cy, r], fill: lit },
-        { d: shade, fill: C.dark, bare: true },
-        ...craters,
-        { d: rrect(12.2, 28.6, 19.6, 7.6, 2.6), fill: C.base },
+        { d: rrect(15, 34.4, 14, 3.4, 1.7), fill: C.dark },
+        { d: rrect(19.4, 31.5 - lift, 5.2, 4 + lift, 1), fill: C.dark },
+        { d: rrect(9 + dx, top, 26, 21, 6), fill: C.case },
+        { d: rrect(12.4 + dx, top + 3, 19.2, 15, 3.6), fill: screen, bare: true },
+        { c: [31.2 + dx, top + 19, 0.75], fill: qMix(C.off, C.led, clamp(0.4 + o.beat + o.press - o.slack)), bare: true },
       ];
-      if (close > 0.02) parts.push({ d: arcD(cx, cy, r + 1, 128, 128 + 106 * close) + arcD(cx, cy, r + 1, 52 - 106 * close, 52), line: [C.base, 2.4], a: close });
-      const sp = clamp(o.spread, 0, 1.2);
-      if (sp > 0.02) parts.push({ d: starD(10.4, 10.8, 4, 2.6 * sp, 0.9 * sp) + starD(7.4, 18.4, 4, 1.8 * sp, 0.65 * sp), fill: C.star });
-      let marks = '';
-      for (let i = 0; i < 3; i++) {
-        const a = clamp(o.marks - i);
-        if (a > 0.02) marks += `M${n(18.8 + 2.3 * i)} 33.8H${n(18.8 + 2.3 * i + 1.3 * a)}`;
+      if (sp > 0.08) parts.push(
+        { d: rrect(11.8 - 2.8 * sp, 11.2 - 2.2 * sp, 5.6 * sp, 4.4 * sp, 1.3 * sp), fill: C.case },
+        { d: rrect(11.8 - 2 * sp, 11.2 - 1.4 * sp, 4 * sp, 2.8 * sp, 0.8 * sp), fill: screen, bare: true },
+      );
+      if (o.send > 0.04) {
+        const k = clamp(3 * o.send), px = 29 + dx + 4 * o.send, py = top + 3 - 6 * o.send;
+        parts.push({ d: rrect(px - 1.6 * k, py - 1.2 * k, 3.2 * k, 2.4 * k, 0.6 * k), fill: C.glow });
       }
-      const caret = 18.8 + 2.3 * clamp(o.marks, 0, 3);
-      return {
-        defs: '',
-        body: (o.send > 0.02 ? disc(cx, cy, r + 2.2 + 2.2 * o.send, 'none', ` stroke="${C.halo}" stroke-width="${n(1.4 * clamp(4 * o.send) * (1 - 0.7 * o.send))}"`) : '')
-          + body(parts, rim) + P(arcD(cx, cy, r - 0.35, 90.2 + psi, 269.8 + psi), S(mixHex(C.edge, '#B9C1CE', 0.5 * o.slack), 0.7))
-          + (o.bend > 0.02 ? P(`M${n(cx - 3.2)} ${n(cy - r + 0.6)}L${n(cx - 1.6)} ${n(cy - 7.2)}L${n(cx - 3.4)} ${n(cy - 5.4)}L${n(cx - 2.2)} ${n(cy - 3.8)}`, S(C.base, 0.9, 'round', true) + O(o.bend)) : '')
-          + P('M15.2 30.6L17.2 32.2L15.2 33.8', S(C.ink, 1.2, 'round', true)) + (marks ? P(marks, S(C.ink, 1.2)) : '')
-          + P(`M${n(caret)} 33.8H${n(caret + 2.6)}`, S(mixHex(C.caret, C.base, 0.6 * o.slack), 1.2))
-          + eyePair(o, { ...this.eyes, y: this.eyes.y - lift }, C.eye),
-      };
+      let over = '';
+      if (o.bend > 0.05) over += P(zig([[27.4 + dx, top + 3.2], [25.6 + dx, top + 6.6], [27.8 + dx, top + 8.6], [26.4 + dx, top + 11.2]]), S(C.crack, 0.8 * clamp(2 * o.bend), 'round', true));
+      over += promptMarks(14.4 + dx, top + 6, 0.62, qMix(C.text, '#3F6E9E', 0.6 * o.slack), 0.9, o.marks);
+      const field = close > 0.3 ? P(rrect(15.4 + dx, top + 13.8, 13.2, 2.8, 1.4), F('#FFFFFF'))
+        + [0, 1, 2].map(i => `<circle cx="${n(18.6 + dx + 2.2 * i)}" cy="${n(top + 15.2)}" r="0.55"${F(C.screen)}/>`).join('') : '';
+      return { defs: '', body: body(parts, rim) + over + eyePair(o, { ...this.eyes, x: 22 + dx, y: top + 10.6 }, qMix(C.glow, '#3F6E9E', 0.5 * o.slack)) + field };
     },
   },
 
-  // A whale stapler: its back is the top arm, hinged under the tail, over a
-  // pale belly plate. The jaw chomps on the beat and opens with output, the
-  // blowhole spouts a drop per mark and a fountain to send, the tail wags
-  // and lifts, a calf swims out while spawning; a bent staple jams the jaw
-  // when it breaks, and a rubber band holds it shut while it's locked.
-  deepseek: {
-    pivot: [21.4, 36], tilt: 4, hop: 1.2, hopFloat: 0, offset: [-0.9, 0],
-    // A water drop, dripping.
-    badge: { at: [12.2, 10.4], draw: (g, bob) => {
-      const drop = 'M0 -5C1.6 -2.8 3.6 -0.8 3.6 1.4A3.6 3.6 0 0 1 -3.6 1.4C-3.6 -0.8 -1.6 -2.8 0 -5Z';
-      return { dy: 0.6 * bob, rot: 5 * bob, body: P(drop, RIMF) + P(drop, F('#4D6BFE')) + disc(-1.7, 0.2, 0.7, '#9FB4FF') + glyph(g, '#FFFFFF', 0.7, 0.3, 1.2) };
-    } },
-    mech: [-0.9, 0.3], outDir: [0.3, -0.9],
-    eyes: { x: 13.6, y: 24.6, gap: 5.2, w: 2.6, h: 4.6, travel: 1.1 },
+  // A violet flying saucer with a glass dome for a face. It hovers over a
+  // soft beam, banks toward each search and floats higher while thinking;
+  // its rim lights run round as it works and go once round while it waits,
+  // each mark rises up the beam as a spark, a parcel is beamed up to send
+  // and a little saucer launches while spawning. It lands with its lights
+  // dim when paused, tilts with a bent antenna when it breaks, and is
+  // tethered to the ground when it's locked.
+  saucer: {
+    pivot: [22, 36.6], tilt: 5, hop: 0.6, hopFloat: 1.4,
+    emote: { at: emoteAt([32.5, 9.5]), color: '#8E63F5' },
+    mech: [-0.8, -0.8], outDir: [0, 1],
+    eyes: { x: 22, y: 19.6, gap: 5.6, w: 2.4, h: 4, travel: 0.8 },
     draw(o, id, rim) {
-      const C = { back: '#4D6BFE', belly: '#B7C4FF', pleat: '#8C9EF2', fin: '#3F55CD', mouth: '#1E2A6B', water: '#BFD0FF', staple: '#8E97AD', band: '#F2A93B', eye: '#FFFFFF' };
-      const close = smooth(seg(o.hold, 0.6, 1)), aim = clamp(o.aim, -1, 1);
-      const jaw = clamp(7 * o.beat + 5 * clamp(o.out) + 12 * clamp(o.spread) + 6 * o.play + 3 * o.slack + 8 * o.bend, 0, 15) * (1 - 0.9 * close) + 1.2 * Math.max(0, o.turn) * close;
-      // The head and back are the stapler's arm, hinged at the back of the
-      // mouth; the belly plate runs on into the tail.
-      const J = (x, y) => turnPt(x, y, 32.4, 30.4, jaw);
-      const wag = 0.3 * o.turn + 3 * aim + 5 * o.alt - 8 * o.float - 14 * o.play + 10 * o.slack + 6 * o.bend;
-      const W = (x, y) => turnPt(x, y, 32.6, 26, wag);
+      const C = { hull: '#8E63F5', under: '#6440D0', dome: '#E6DCFF', beam: '#E3D8FF', eye: '#3A2A86', spark: '#FBBC05' };
+      const LIGHTS = ['#EA4335', '#FBBC05', '#34A853', '#4285F4'];
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const up = clamp(1.3 * o.float + 1.2 * o.play + 0.8 * clamp(o.out) - 1 * o.slack - 0.6 * clamp(o.press) - 0.6 * o.bend, -1.2, 2.6) * (1 - 0.6 * close);
+      const bank = 9 * aim + 6 * o.alt + 12 * o.bend;
+      // The beam narrows to nothing before it goes, never a thin stick.
+      const beamOn = clamp((clamp(1 - 1.8 * o.slack - 1.5 * o.bend - close) - 0.35) / 0.65);
+      const out = [];
+      if (beamOn > 0.05) {
+        const top = 28.6 - up, hw = 9.4 * (1 + 0.12 * o.beat) * beamOn, tw = 6.2 * beamOn;
+        out.push({ d: poly([[22 - tw, top], [22 + tw, top], [22 + hw, 36.6], [22 - hw, 36.6]]), fill: qMix(C.beam, '#F4EFFF', 0.6 * o.beat) });
+        for (let i = 0; i < 3; i++) {
+          const a = clamp(o.marks - i);
+          if (a > 0.02) out.push({ c: [22 + [-2.6, 1.8, -0.4][i], 35 - 2.2 * i - 1.2 * a, 0.95 * a], fill: C.spark, bare: true });
+        }
+      }
+      if (o.send > 0.04) {
+        const k = clamp(3 * o.send), py = lerp(35, 31 - up, smooth(o.send));
+        out.push({ d: rrect(22 - 1.3 * k, py - 1.3 * k, 2.6 * k, 2.6 * k, 0.6 * k), fill: C.spark });
+      }
+      if (close > 0.02) out.push({ d: `M22 ${n(30 - up)}V36.4`, line: [C.under, 0.9], a: close }, { d: rrect(20.6, 35.8, 2.8, 1.6, 0.8), fill: C.under, a: close });
+      if (sp > 0.08) out.push({ d: ell(10.4, 11.8, 4.2 * sp, 1.4 * sp), fill: C.hull }, { d: `M${n(10.4 - 2.2 * sp)} ${n(11.4)}A${n(2.2 * sp)} ${n(2.2 * sp)} 0 0 1 ${n(10.4 + 2.2 * sp)} 11.4Z`, fill: C.dome });
+      // The saucer: lights run round the rim (front half only).
+      const spin = 4 * o.turn + 360 * o.play + Math.atan2(o.orb[1], o.orb[0]) * 180 / PI;
+      const ant = o.bend > 0.05 ? [22 + 2.6 * o.bend, 11.2 + 0.6 * o.bend] : [22, 10.6];
       const parts = [
-        { d: mapD('M29.4 33.2C31.6 30.6 33.4 26.2 34.2 21.4L36.2 21.8C35.8 26.8 34 31.4 31.2 34.4Z', W), fill: C.back },
-        { d: mapD('M35.2 21.4C33.5 20.6 32 18.9 31.5 16.6C33.3 16.8 34.6 17.7 35.3 18.9C36.1 17.5 37.6 16.4 39.4 16C38.8 18.5 37.2 20.6 35.2 21.4Z', W), fill: C.back },
-        { d: 'M6.8 30.4C12 31.4 24 31.4 32.4 30.4L33.4 31.4C32.4 34.6 29.4 36 25 36H14.4C10 36 7.4 34 6.8 30.4Z', fill: C.belly },
-        { d: 'M10.6 32.8H18.4M12.2 34.4H19.6', line: [C.pleat, 0.7], bare: true },
-        { d: 'M19.6 32.4C22.4 32.6 24.6 34.2 25.4 36.8C22.6 36.8 20.4 35 19.6 32.4Z', fill: C.fin },
+        { d: `M22 14.4L${n(ant[0])} ${n(ant[1])}`, line: [C.under, 1.3] },
+        { c: [ant[0], ant[1] - 1, 1.5], fill: qMix('#7A6A2A', '#FBBC05', clamp(0.5 + o.beat - o.slack)) },
+        { d: ell(22, 25, 15, 5), fill: C.hull },
+        { d: ell(22, 27.1, 9, 2.3), fill: C.under, bare: true },
+        { d: 'M13 23.6A9 9 0 0 1 31 23.6Z', fill: C.dome },
       ];
-      if (jaw > 0.2) parts.push({ d: `M32.4 30.4C24 31.4 12 31.4 6.8 30.4L${xy(J(6.8, 30.4))}C${xy(J(12, 31.4))} ${xy(J(24, 31.4))} 32.4 30.4Z`, fill: C.mouth });
-      const s = clamp(o.spread, 0, 1.2);
-      if (s > 0.02) {
-        const m = (x, y) => [6.8 + (x - 6.8) * s, 26.6 + (y - 26.6) * s];
-        parts.push({ d: ell(6.8, 26.6, 2.4 * s, 1.7 * s) + poly([m(8.6, 26.2), m(10.2, 24.6), m(10, 27.2)]), fill: C.back });
-      }
-      if (o.bend > 0.02) parts.push({ d: 'M9.6 28.8L7.8 28.1L7 29.4L6 28.7', line: [C.staple, 0.9], join: true, a: o.bend });
-      parts.push({ d: mapD('M6.8 30.4C6.2 22.4 10.6 16.2 17.4 15.6C24.6 15 29.6 19.6 31.4 26L32.4 30.4C24 31.4 12 31.4 6.8 30.4Z', J), fill: C.back });
-      // The blowhole: a fountain to send or play, a drop on each mark.
-      const f = clamp(Math.max(1.1 * o.send, o.play, 0.5 * clamp(o.marks) + 0.2 * clamp(o.out)));
-      if (f > 0.02) {
-        const sp = (x, y) => J(19 + (x - 19) * f, 15.4 + (y - 15.4) * f);
-        parts.push({ d: mapD('M19 15.2C18.6 13.2 17.2 11.8 15.8 11M19 15.2C19.4 13.2 20.8 11.8 22.2 11', sp), line: [C.water, 1.4] });
-      }
-      [[15.4, 9.8], [19, 8.8], [22.6, 9.8]].forEach(([x, y], i) => {
-        const a = clamp(o.marks - i);
-        if (a > 0.02) parts.push({ c: [...J(x, y), 1.05 * a], fill: C.water });
+      LIGHTS.forEach((col, i) => {
+        const t = rad(25 + 43 * i + spin), s = Math.sin(t);
+        if (s > 0.12) parts.push({ c: [22 + 13 * Math.cos(t), 25.4 + 3.1 * s, 1.1], fill: qMix(col, C.under, clamp(0.6 * o.slack + (i === 2 ? o.bend : 0))), bare: true });
       });
-      if (close > 0.02) parts.push({ d: 'M11.4 17.6C10.8 24 10.8 30 11.4 36.2', line: [C.band, 1.5], a: close });
-      const [ex, ey] = J(this.eyes.x, this.eyes.y);
-      return { defs: '', body: body(parts, rim) + eyePair(o, { ...this.eyes, x: ex, y: ey }, C.eye) };
+      const saucer = body(parts, rim) + eyePair(o, this.eyes, C.eye);
+      return { defs: '', body: body(out, rim) + turnG(bank, 22, 24, 0, -up, saucer) };
     },
   },
-};
+
+  // A little deep-sea submarine whose tail is a whale's flukes. It dives
+  // and surfaces with the work, raises its periscope and turns it to each
+  // search, sends up a bubble per mark and pings a sonar ring to send, and
+  // a little sub slips out while spawning. Paused, it settles with its
+  // periscope down and its lights dim; broken, the periscope kinks; locked,
+  // it's anchored to the floor.
+  submarine: {
+    pivot: [21, 33], tilt: 4, hop: 1.2, hopFloat: 0,
+    emote: { at: emoteAt([33, 9]), color: '#4D6BFE' },
+    mech: [-0.8, -0.9], outDir: [-1, 0],
+    eyes: { x: 15.8, y: 23.8, gap: 5.8, w: 2.6, h: 4.6, travel: 1 },
+    draw(o, id, rim) {
+      const C = { hull: '#4D6BFE', dark: '#3248B8', stripe: '#B7C4FF', water: '#BFD0FF' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const oy = -clamp(1.1 * o.float + 0.8 * o.play - 0.6 * o.slack - 0.5 * clamp(o.press), -0.8, 1.6);
+      const h = (4.4 + 2.4 * clamp(Math.abs(aim) + 0.5 * o.play)) * (1 - 0.65 * Math.max(o.slack, close));
+      const dir = Math.abs(aim) < 0.04 ? 1 : clamp(aim * 4, -1, 1);
+      const top = 12 - h, kink = o.bend > 0.05;
+      const scope = kink ? `M19.6 12V${n(top + 1.2)}L${n(19.6 + 2.6 * o.bend)} ${n(top + 2.6)}` : `M19.6 12V${n(top)}H${n(19.6 + 3.8 * dir)}`;
+      const parts = [
+        { d: scope, line: [C.dark, 1.6] },
+        { d: rrect(15, 11.6, 9.4, 7.4, 2.6), fill: C.dark },
+        { d: poly([[33, 24], [37.8, 19 - 1.2 * o.beat], [38.2, 29 + 1.2 * o.beat]]), fill: C.dark, edge: 1.4 },
+        { d: pill(21, 24, 28, 14.4), fill: C.hull },
+        { d: rrect(10, 27, 22, 1.6, 0.8), fill: qMix(qMix(C.stripe, '#FFFFFF', clamp(0.6 * clamp(o.out) + 0.4 * o.beat)), '#6F82E0', clamp(0.7 * o.slack + 0.6 * o.bend)), bare: true },
+      ];
+      const bubbles = Math.max(o.marks, 3 * o.play);
+      [[36.2, 12.6, 1.3], [33.6, 10, 0.9], [31.4, 7.6, 1.1]].forEach(([x, y, r], i) => {
+        const a = clamp(bubbles - i);
+        if (a > 0.02) parts.push({ c: [x, y - 0.8 * a, r * a], fill: C.water });
+      });
+      if (o.send > 0.04) {
+        const k = clamp(4 * o.send), w = 1.4 * k * (1 - 0.6 * o.send);
+        parts.push({ d: arcD(10, 24, 2.4 + 2.6 * o.send, 150, 210), line: [C.water, w], bare: true }, { d: arcD(10, 24, 4.2 + 2.6 * o.send, 160, 200), line: [C.water, w * 0.8], bare: true });
+      }
+      const sub = body(parts, rim) + eyePair(o, this.eyes, '#FFFFFF');
+      const out = [];
+      if (sp > 0.08) out.push({ d: pill(10.6, 10.8, 8 * sp, 3.8 * sp), fill: C.hull }, { d: rrect(9.6, 10.8 - 3.2 * sp, 2.4 * sp, 1.8 * sp, 0.6 * sp), fill: C.dark });
+      if (close > 0.02) out.push({ d: `M21 ${n(31 + oy)}V35.2`, line: [C.dark, 0.9], a: close }, { d: 'M18.8 35.2A2.4 2.4 0 0 0 23.2 35.2M21 34.6V37.2', line: [C.dark, 1.2], a: close });
+      return { defs: '', body: body(out, rim) + turnG(0, 0, 0, 0, oy, sub) };
+    },
+  },
+
+  // A space helmet with a navy visor for a face, Kimi-blue trim and a >_
+  // collar. A scan light runs along the visor toward each search, the antenna
+  // light blinks with each mark, it radios a pulse to send and a little
+  // satellite pops out while spawning. It floats while it thinks; paused,
+  // the visor dims; broken, the visor cracks and the antenna bends; locked,
+  // the sun shutter slides down.
+  helmet: {
+    pivot: [22, 36.6], tilt: 5, hop: 1.4, hopFloat: 0,
+    emote: { at: emoteAt([33, 8.6]), color: '#1D4E9E' },
+    mech: [0.8, 0.8], outDir: [-0.7, -0.8],
+    eyes: { x: 22, y: 20, gap: 6.6, w: 2.8, h: 5, travel: 1 },
+    draw(o, id, rim) {
+      const C = { shell: '#DCE3EE', visor: '#1D4E9E', trim: '#2E8FF7', light: '#FFD45C', shutter: '#C9D3E3' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const oy = -clamp(0.7 * o.float + 0.8 * o.play - 0.4 * o.slack, -0.6, 1);
+      const ball = o.bend > 0.05 ? [11.4 + 0.6 * (1 - o.bend), 10.2] : [13.2, 8];
+      const glow = clamp(0.35 + o.beat + 0.7 * bump(frac(o.marks)) - 0.6 * o.slack);
+      const parts = [
+        { d: `M14.6 10.4L${n(ball[0] + 0.2)} ${n(ball[1] + 0.4)}`, line: [C.visor, 1.3] },
+        { c: [ball[0], ball[1], 1.3], fill: qMix('#6E6A4A', C.light, glow) },
+        { c: [8.8, 20, 1.8], fill: qMix(C.trim, '#9CD0FF', 0.6 * clamp(o.out)) }, { c: [35.2, 20, 1.8], fill: qMix(C.trim, '#9CD0FF', 0.6 * clamp(o.out)) },
+        { c: [22, 20, 13], fill: C.shell },
+        { d: rrect(12, 31, 20, 5.6, 2.8), fill: C.visor },
+        { d: rrect(12.4, 13, 19.2, 14, 7), fill: qMix(C.visor, '#0E2A55', 0.5 * o.slack), bare: true },
+      ];
+      if (o.send > 0.04) {
+        const k = clamp(4 * o.send), w = 1 * k * (1 - 0.6 * o.send);
+        parts.push({ d: arcD(ball[0], ball[1], 1.8 + 1.2 * o.send, 200, 250), line: [C.light, w], bare: true }, { d: arcD(ball[0], ball[1], 3 + 1.2 * o.send, 205, 245), line: [C.light, w * 0.8], bare: true });
+      }
+      let over = P(rrect(12.4, 13, 19.2, 14, 7), S(C.trim, 1.1)) + promptMarks(17.6, 33.8, 0.55, '#FFFFFF', 0.95, o.marks);
+      if (Math.abs(aim) > 0.05) over += `<circle cx="${n(22 + 6.4 * aim)}" cy="25.2" r="0.9"${F('#7CC2FF')}/>`;
+      if (o.bend > 0.05) over += P(zig([[27.6, 13.4], [25.8, 16.4], [28.4, 18], [26.8, 21]]), S('#CFE3FF', 0.8 * clamp(2 * o.bend), 'round', true));
+      let shut = '';
+      if (close > 0.02) shut = P(`M12.4 20A7 7 0 0 1 19.4 13H24.6A7 7 0 0 1 31.6 20V${n(13 + 9 * close)}H12.4Z`, F(C.shutter));
+      const helmet = body(parts, rim) + over + eyePair(o, this.eyes, qMix('#FFFFFF', '#8FA3C7', 0.6 * o.slack)) + shut;
+      const sat = sp > 0.08 ? body([{ d: rrect(34.4 - 3.4 * sp, 31 - 0.7 * sp, 6.8 * sp, 1.4 * sp, 0.4 * sp), fill: C.trim }, { d: rrect(34.4 - 1.2 * sp, 31 - 1.2 * sp, 2.4 * sp, 2.4 * sp, 0.6 * sp), fill: C.shell }], rim) : '';
+      return { defs: '', body: sat + turnG(0, 0, 0, 0, oy, helmet) };
+    },
+  },
+});
 
 // MARK: - Kinds
 //
 // Each agent's companion, its colour for the app's chips, pucks and charts,
 // and its idle habits. Cursor folds into Grok in the drawer, so its bot is
-// Grok's planet, but it keeps its own colour (round 3's black) so charts
-// tell the two apart.
+// Grok's planet, in its own colour.
 const KIND = {
   claude: { object: 'claude', swatch: '#D97757', fidgets: ['fiddle', 'peek'] },
-  codex: { object: 'codex', swatch: '#2D8CFF', fidgets: ['fiddle', 'hop'] },
-  antigravity: { object: 'antigravity', swatch: '#8E63F5', fidgets: ['fiddle', 'sway'] },
+  codex: { object: 'computer', swatch: '#2D8CFF', fidgets: ['fiddle', 'hop'] },
+  antigravity: { object: 'saucer', swatch: '#8E63F5', fidgets: ['fiddle', 'sway'] },
   grok: { object: 'grok', swatch: '#6E7480', fidgets: ['fiddle', 'peek'] },
   cursor: { object: 'grok', swatch: '#24252C', fidgets: ['fiddle', 'peek'] },
-  kimi: { object: 'kimi', swatch: '#1D4E9E', fidgets: ['fiddle', 'hop'] },
-  deepseek: { object: 'deepseek', swatch: '#4D6BFE', fidgets: ['fiddle', 'sway'] },
+  kimi: { object: 'helmet', swatch: '#1D4E9E', fidgets: ['fiddle', 'sway'] },
+  deepseek: { object: 'submarine', swatch: '#4D6BFE', fidgets: ['fiddle', 'peek'] },
 };
 
 // MARK: - Drawing

@@ -383,16 +383,17 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 10. Reference: the Classic theme
 
-- **Engine**: `Drawer/Characters/classic.mjs`, the desk companions approved
-  2026-10-17, SHA-256
-  `937db3ce938a446390f861aeb41ab4f9f42d3a418fc2aa84d6e0fcf7c700edc5`; vector
+- **Engine**: `Drawer/Characters/classic.mjs`, the second cast of desk
+  companions approved 2026-10-19, SHA-256
+  `2d9434d7768c8d9ee0bc3586d7c089400c8e5298fd0d04842fcc3d8f2b446a6a`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
-  frames up to 3.2 KB. Each agent is a desk object with a face: Claude a
-  succulent, Codex a mug, Antigravity a paper plane, Grok a planet (Cursor
-  shares it, in its own colour), Kimi Code a moon lamp and DeepSeek a whale
-  stapler. Each works its own mechanism through the work states; the only
-  badges are asking's "?" and approving's "!", each made of its companion's
-  world. Every frame stays within the circle (22 DIP of the centre).
+  frames up to 2.7 KB. Each agent is a companion with a face: a succulent
+  (Claude), a desk computer (Codex), a flying saucer (Antigravity), a ringed
+  planet (Grok, and Cursor in its own colour), an astronaut helmet (Kimi
+  Code) and a submarine (DeepSeek). Each works its own mechanism through the
+  work states; the only emotes are asking's "?" and approving's "!", which
+  pop up from the head as glyph stickers in the companion's colour. Every
+  frame stays within the circle (22 DIP of the centre).
 - **Swatches**: each companion's own colour (`DrawerLooks.ClassicSwatch`,
   the engine's `swatchOf`); on dark surfaces a near-black one is lifted to
   `#D6D6D6`.
