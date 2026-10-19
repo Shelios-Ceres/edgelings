@@ -48,6 +48,77 @@ internal static class Win32
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
     public static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MinMaxInfo
+    {
+        public POINT Reserved;
+        public POINT MaxSize;
+        public POINT MaxPosition;
+        public POINT MinTrackSize;
+        public POINT MaxTrackSize;
+    }
+
+    public static bool TryGetMonitorAreas(IntPtr monitor, out RECT bounds, out RECT work)
+    {
+        var info = new MONITORINFOEX { Size = Marshal.SizeOf<MONITORINFOEX>() };
+        var ok = GetMonitorInfo(monitor, ref info);
+        bounds = info.Monitor;
+        work = info.Work;
+        return ok;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NcCalcSizeParams
+    {
+        public RECT Rect0;
+        public RECT Rect1;
+        public RECT Rect2;
+        public IntPtr WindowPos;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool IsZoomed(IntPtr hwnd);
+
+    /// DWMWA_EXTENDED_FRAME_BOUNDS: the window's visible bounds, without the
+    /// invisible resize border Windows adds.
+    public static int DwmGetExtendedFrameBounds(IntPtr hwnd, out RECT bounds) => DwmGetWindowAttribute(hwnd, 9, out bounds, Marshal.SizeOf<RECT>());
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT value, int size);
+
+    public delegate bool EnumChildProc(IntPtr hwnd, IntPtr data);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr data);
+
+    public static string ClassOf(IntPtr hwnd)
+    {
+        var name = new StringBuilder(128);
+        GetClassName(hwnd, name, name.Capacity);
+        return name.ToString();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetGuiResources(IntPtr process, uint flags);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    /// This process's GDI (0) or USER (1) object count.
+    public static uint GuiObjects(uint kind) => GetGuiResources(GetCurrentProcess(), kind);
+
+    /// Windows 10 1903+: whether Windows' snapping arranged the window.
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowArranged(IntPtr hwnd);
+
+    public static bool TryGetWorkArea(IntPtr monitor, out RECT work)
+    {
+        var info = new MONITORINFOEX { Size = Marshal.SizeOf<MONITORINFOEX>() };
+        var ok = GetMonitorInfo(monitor, ref info);
+        work = info.Work;
+        return ok;
+    }
+
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 

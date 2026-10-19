@@ -13,6 +13,7 @@ public sealed partial class App : Application
     private DrawerWindow? _drawer;
     private TrayIcon? _tray;
     private Window? _hoverPreview;
+    private Window? _frameSpike;
 
     public App()
     {
@@ -36,6 +37,16 @@ public sealed partial class App : Application
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();
         // The test window's cards read in the app's language too.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_FILM") is { Length: > 0 } frameFilm)
+        {
+            _frameSpike = new FrameFilm(frameFilm);
+            return;
+        }
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_SPIKE") == "1")
+        {
+            _frameSpike = new FrameSpike();
+            return;
+        }
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1")
         {
             _hoverPreview = new HoverCardPreview();

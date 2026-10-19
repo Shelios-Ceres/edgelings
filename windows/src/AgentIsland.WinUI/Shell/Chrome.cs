@@ -12,8 +12,11 @@ namespace AgentIsland.WinUI.Shell;
 
 /// The app windows' shared frame: a 32-DIP title bar drawn by the content
 /// with the app's mark, centred on the work area, and the look's kit. Under
-/// Classic: Mica and Windows' corners. Under Pixel: an opaque desk, square
-/// corners inside a pixel frame, the pixel logo and the pixel app icon.
+/// Classic: the window draws its own frame (ClassicFrame: an opaque desk,
+/// 16-DIP corners, an outline, a soft shadow and its own caption buttons),
+/// or under a high-contrast theme Mica and Windows' own frame. Under Pixel:
+/// an opaque desk, square corners inside a pixel frame, the pixel logo and
+/// the pixel app icon.
 internal static class Chrome
 {
     private const int DwmWindowCornerPreference = 33;
@@ -25,28 +28,42 @@ internal static class Chrome
     // By window handle, while the window is open.
     private static readonly Dictionary<IntPtr, WindowIcons> Icons = new();
     private static readonly HashSet<IntPtr> Pixelated = new();
+    // Windows under Classic's own frame.
+    private static readonly Dictionary<IntPtr, ClassicFrame> Frames = new();
+
+    /// Classic draws its own frame, except under a high-contrast theme, which
+    /// keeps Windows' own frame and system colours.
+    private static bool OwnFrame => !Looks.Pixel && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
 
     /// Returns the window's root: the title bar in row 0, content goes in
     /// row 1.
     public static Grid Apply(Window window, string title, double width, double height, double minWidth, double minHeight)
     {
         var root = Restyle(window, title);
-        var scale = Win32.GetDpiForWindow(WindowNative.GetWindowHandle(window)) / 96.0;
-        Centre(window, (int)(width * scale), (int)(height * scale));
+        var hwnd = WindowNative.GetWindowHandle(window);
+        var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
+        // The sizes are the body's: the frame's transparent margin goes outside them.
+        var room = Frames.ContainsKey(hwnd) ? ClassicFrame.Room : new Thickness(0);
+        double extraW = room.Left + room.Right, extraH = room.Top + room.Bottom;
+        Centre(window, (int)((width + extraW) * scale), (int)((height + extraH) * scale), room, scale);
         if (window.AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.PreferredMinimumWidth = (int)(minWidth * scale);
-            presenter.PreferredMinimumHeight = (int)(minHeight * scale);
+            presenter.PreferredMinimumWidth = (int)((minWidth + extraW) * scale);
+            presenter.PreferredMinimumHeight = (int)((minHeight + extraH) * scale);
         }
         return root;
     }
 
-    private static void Centre(Window window, int width, int height)
+    /// Centres the window, or its body when a frame's margin surrounds it.
+    private static void Centre(Window window, int width, int height, Thickness room = default, double scale = 1)
     {
         var area = DisplayArea.GetFromWindowId(window.AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        var w = Math.Min(width, area.Width);
-        var h = Math.Min(height, area.Height);
-        window.AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - w) / 2, area.Y + (area.Height - h) / 2, w, h));
+        int rl = (int)(room.Left * scale), rt = (int)(room.Top * scale), rr = (int)(room.Right * scale), rb = (int)(room.Bottom * scale);
+        var w = Math.Min(width, area.Width + rl + rr);
+        var h = Math.Min(height, area.Height + rt + rb);
+        var x = area.X + (area.Width - (w - rl - rr)) / 2 - rl;
+        var y = area.Y + (area.Height - (h - rt - rb)) / 2 - rt;
+        window.AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
     }
 
     /// Keeps a window Apply framed for its next opening: the system's close
@@ -96,10 +113,13 @@ internal static class Chrome
     public static Grid Restyle(Window window, string title)
     {
         window.Title = title;
-        window.ExtendsContentIntoTitleBar = true;
         var hwnd = WindowNative.GetWindowHandle(window);
         var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
         var pixel = Looks.Pixel;
+        var framed = OwnFrame;
+        // Back to Windows' own frame (Pixel, or a high-contrast theme).
+        if (!framed && Frames.Remove(hwnd, out var left)) left.Dispose();
+        window.ExtendsContentIntoTitleBar = !framed;
 
         var root = new Grid();
         if (!Icons.TryGetValue(hwnd, out var icons))
@@ -125,9 +145,20 @@ internal static class Chrome
         else
         {
             if (Pixelated.Remove(hwnd)) Unpixelate(window, hwnd);
-            if (window.SystemBackdrop is not MicaBackdrop) window.SystemBackdrop = new MicaBackdrop();
+            if (framed)
+            {
+                if (!Frames.ContainsKey(hwnd))
+                {
+                    Frames[hwnd] = new ClassicFrame(window);
+                    window.Closed += (_, _) =>
+                    {
+                        if (Frames.Remove(hwnd, out var gone)) gone.Dispose();
+                    };
+                }
+            }
+            else if (window.SystemBackdrop is not MicaBackdrop) window.SystemBackdrop = new MicaBackdrop();
         }
-        window.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+        if (!framed) window.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
 
         var bar = new Grid { Padding = new Thickness(pixel ? 12 : 14, 0, 0, 0) };
         bar.Children.Add(new StackPanel
@@ -156,12 +187,18 @@ internal static class Chrome
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(bar);
+        if (framed) bar.Children.Add(Frames[hwnd].CreateButtons());
         if (pixel)
         {
             var frame = new Border { Style = (Style)Looks.Resource("PixelFrameStyle") };
             Grid.SetRowSpan(frame, 2);
             Canvas.SetZIndex(frame, 1);
             root.Children.Add(frame);
+        }
+        if (framed)
+        {
+            window.Content = Frames[hwnd].Wrap(root);
+            return root;
         }
         window.Content = root;
         window.SetTitleBar(bar);

@@ -37,6 +37,10 @@ internal static class DebugHooks
                 SettingsWindow.Open(DisplayProviders.Parse(settings));
             }
         }
+        // AGENTISLAND_DEBUG_FRAME_CYCLE=1: Settings opens, flips between the two
+        // looks 40 times and is closed and opened 40 times, logging the
+        // process's GDI and USER object counts (AGENTISLAND_DEBUG_TRACE).
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_CYCLE") == "1") _ = SettingsWindow.FrameCycleAsync();
         // AGENTISLAND_DEBUG_OPEN_COST=1: Settings on the Usage & cost page;
         // with AGENTISLAND_DEBUG_SNAPSHOT=<dir> each period is saved as a PNG.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_OPEN_COST") == "1")

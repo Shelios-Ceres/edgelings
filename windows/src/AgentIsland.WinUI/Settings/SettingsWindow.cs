@@ -78,6 +78,46 @@ internal sealed partial class SettingsWindow : Window
         Shell.Chrome.Show(_shared);
     }
 
+    /// AGENTISLAND_DEBUG_FRAME_CYCLE: the window's frame must leak no GDI or
+    /// USER objects over repeated look switches and closes.
+    public static async Task FrameCycleAsync()
+    {
+        try
+        {
+            await FrameCycleCoreAsync();
+        }
+        catch (Exception error)
+        {
+            DebugTrace.Write("frame cycle failed: " + error);
+        }
+    }
+
+    private static async Task FrameCycleCoreAsync()
+    {
+        string Counts() => $"GDI {Platform.Win32.GuiObjects(0)}, USER {Platform.Win32.GuiObjects(1)}";
+        Open();
+        await Task.Delay(3000);
+        var store = DrawerStore.Shared;
+        DebugTrace.Write("frame cycle start: " + Counts());
+        for (var i = 0; i < 8; i++)
+        {
+            store.Theme = i % 2 == 0 ? CharacterTheme.Pixel : CharacterTheme.Classic;
+            await Task.Delay(700);
+            if (i % 4 == 3) DebugTrace.Write($"after {i + 1} look switches: " + Counts());
+        }
+        store.Theme = CharacterTheme.Classic;
+        await Task.Delay(1000);
+        for (var i = 0; i < 40; i++)
+        {
+            _shared?.AppWindow.Hide();
+            await Task.Delay(250);
+            Open();
+            await Task.Delay(450);
+            if (i % 10 == 9) DebugTrace.Write($"after {i + 1} hide/open: " + Counts());
+        }
+        DebugTrace.Write("frame cycle end: " + Counts());
+    }
+
     /// AGENTISLAND_DEBUG_SNAPSHOT: every page, rendered by the app itself.
     public static async Task SnapshotPagesAsync(string directory, DisplayProvider? focus)
     {

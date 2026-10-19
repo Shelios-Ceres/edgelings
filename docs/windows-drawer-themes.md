@@ -396,6 +396,9 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_COST_FILM=<dir>` | The same for the usage numbers on Settings' Usage & cost page: two period switches and a scan counting |
   | `AGENTISLAND_DEBUG_DRAWER_MOMENTS=1` | Plays every drawer moment live, one after another; with `AGENTISLAND_DEBUG_TRACE=<file>`, each start and end is logged |
   | `AGENTISLAND_DEBUG_REDUCED_MOTION=1` | Acts as if Windows' animation effects were off |
+  | `AGENTISLAND_DEBUG_FRAME_SPIKE=1` | A bare window in Classic's frame, with the hit-test codes it answers at a list of points, its styles and object counts logged to `AGENTISLAND_DEBUG_TRACE`; with `AGENTISLAND_DEBUG_SNAPSHOT=<dir>` it also maximizes itself, logs where its rectangle lies, and prints itself |
+  | `AGENTISLAND_DEBUG_FRAME_FILM=<dir>` | Classic's frame drawn inside an ordinary window over stripes of two known greys: restored (active, inactive), snapped and maximized, the corners at 4x and the caption cells at rest, hover and pressed; light or dark follows `AGENTISLAND_DEBUG_THEME` |
+  | `AGENTISLAND_DEBUG_FRAME_CYCLE=1` | Opens Settings, flips the look 8 times and hides and reopens it 40 times, logging the GDI and USER object counts, which must stay flat |
   | `AGENTISLAND_DEBUG_REST=1` | Rests every idle bot, as if its agent's app were minimized |
 
   The live drawer is drawn by Win2D and cannot be snapshotted; the film
@@ -483,5 +486,27 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   minimum fill. Bubbles are at most 240 DIP wide, rounded 12 (less on a
   one-line bubble, so the tail fits), with a tail of half-base 6 and reach
   7 and 15/9/15/10 DIP text padding; a stock line lingers 4.5 s (§3.8).
+- **Window frame** (`Shell/ClassicFrame.cs`, `ClassicFrame.Visuals.cs`,
+  wired through `Chrome.Restyle`): Windows only rounds a window's corners by
+  preset, so under Classic the Settings window draws its own. The window is
+  borderless and transparent (the presenter's border and title bar off,
+  `TransparentBackdrop`, Windows' frame drawing off with
+  `DWMWA_NCRENDERING_POLICY`, the thick-frame styles kept for sizing); the
+  body is opaque on Desk, clipped to 16-DIP corners (a composition clip, which
+  antialiases), with a one-pixel outline over it and a two-layer shadow in a
+  transparent margin of 12/8/12/16 DIP that is also the resize band: a margin
+  that passes clicks on to the window behind cannot be had (a window region
+  would clip the shadow, and `HTTRANSPARENT` reaches only windows of the same
+  thread), so the fallback of the design (a smaller shadow, 0/4 blur 12 active
+  and 0/2 blur 8 inactive, the key layer's opacities as designed) shipped.
+  Moving, resizing and the snap-layouts flyout go through
+  `InputNonClientPointerSource` regions (caption, the three 46 x 32 caption
+  cells, the four borders; the overlap of two borders reads as the diagonal),
+  so Windows' own hit-test codes answer. Maximized, `WM_GETMINMAXINFO` makes
+  the window exactly the work area (otherwise a thick-frame window's
+  rectangle pokes out past it, over a transparent taskbar, as a white band);
+  snapped (`IsWindowArranged`) it is square and outlined; neither has a margin
+  or a shadow. A high-contrast theme keeps Windows' own frame. Pixel keeps
+  Windows' frame.
 - **Type**: Segoe UI Variable in the app language: the agent's name 13/18
   semibold, rows 12/16, bubbles 13/18.

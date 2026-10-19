@@ -288,6 +288,15 @@ public sealed class SoftShadow : Grid
             "Float" => dark
                 ? new[] { (12.0, 32.0, Ink(0.50)), (2.0, 8.0, Ink(0.30)) }
                 : new[] { (10.0, 28.0, Ink(0.16)), (2.0, 6.0, Ink(0.08)) },
+            // Classic's window, in the margin that is also its resize band: the
+            // smaller shadow D3 §5 gives when a margin that passes clicks on
+            // is not to be had.
+            "WindowActive" => dark
+                ? new[] { (4.0, 12.0, Ink(0.48)), (1.0, 3.0, Ink(0.40)) }
+                : new[] { (4.0, 12.0, Ink(0.16)), (1.0, 3.0, Ink(0.12)) },
+            "WindowInactive" => dark
+                ? new[] { (2.0, 8.0, Ink(0.32)), (1.0, 2.0, Ink(0.30)) }
+                : new[] { (2.0, 8.0, Ink(0.09)), (1.0, 2.0, Ink(0.08)) },
             "Paper" => dark
                 ? new[] { (8.0, 16.0, Ink(0.45)), (1.0, 2.0, Ink(0.35)) }
                 : new[] { (8.0, 14.0, Ink(0.13)), (1.0, 2.0, Ink(0.10)) },
