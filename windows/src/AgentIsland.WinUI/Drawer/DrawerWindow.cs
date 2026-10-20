@@ -698,13 +698,18 @@ internal sealed partial class DrawerWindow : Window
         UpdateCap();
         var monitor = Win32.MonitorFromWindow(_hwnd, Win32.MonitorDefaultToNearest);
         var foreground = Win32.GetForegroundWindow();
-        var covered = foreground != _hwnd && Win32.IsFullscreen(foreground, monitor);
+        var fullscreen = foreground != _hwnd && Win32.IsFullscreen(foreground, monitor);
+        // A full-screen overlay (the Win+Shift+S snipping layer) is not an
+        // app to step aside for: the drawer stays put beneath it, without
+        // jumping back on top, until it closes.
+        var overlay = fullscreen && Win32.IsOverlay(foreground);
+        var covered = fullscreen && !overlay;
         if (covered != _coveredByFullscreen)
         {
             _coveredByFullscreen = covered;
             ApplyVisibility();
         }
-        if (!_shown) return;
+        if (!_shown || overlay) return;
         KeepOnTop();
         if (--_topmostCountdown > 0) return;
         _topmostCountdown = TopmostEverySeconds;

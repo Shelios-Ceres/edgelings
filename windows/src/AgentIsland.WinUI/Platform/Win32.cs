@@ -342,6 +342,15 @@ internal static class Win32
             && rect.Right >= info.Monitor.Right && rect.Bottom >= info.Monitor.Bottom;
     }
 
+    /// A topmost window kept off the taskbar and Alt+Tab, such as the
+    /// Win+Shift+S snipping layer: it floats over everything for a moment
+    /// rather than being an app the user is in.
+    public static bool IsOverlay(IntPtr window)
+    {
+        var style = (long)GetWindowLongPtr(window, GwlExStyle);
+        return (style & WsExToolWindow) != 0 && (style & WsExTopmost) != 0;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct DispatcherQueueOptions
     {
