@@ -1180,8 +1180,8 @@ internal sealed class HoverCard : IDisposable
     }
 
     /// The sessions that wait on the user: a title and what it waits for on
-    /// each row, an agent's own message in quotes under its row. A title is
-    /// the user's own text, so it trims rather than flows.
+    /// each row. A title is the user's own text, so it trims after two lines
+    /// rather than flows.
     private static StackPanel WaitingList(StatusWaitingList waiting, double indent, double top, bool pixel, uint swatch)
     {
         var list = new StackPanel { Margin = new Thickness(indent, top, 0, 0), Spacing = 2 };

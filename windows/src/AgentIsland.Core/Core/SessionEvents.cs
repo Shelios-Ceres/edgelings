@@ -28,8 +28,7 @@ public sealed record SessionEvent(
     string Title,
     SessionEventKind Kind,
     string Key,
-    DateTimeOffset At,
-    string? Text = null)
+    DateTimeOffset At)
 {
     public string SessionKey => Tool.RawValue() + ":" + SessionId;
 }
@@ -75,14 +74,9 @@ public sealed class SessionEventDetector
         var waiting = new List<SessionEvent>();
         foreach (var session in ActivityMonitor.LatestSessions(sessions))
         {
-            var own = new List<SessionEvent>();
-            if (Wait(session, now, session.Label) is { } wait) own.Add(wait);
-
-            foreach (var item in own)
-            {
-                waiting.Add(item);
-                if (_seen.Add(item.Key) && _primed && IsNews(item, now)) fresh.Add(item);
-            }
+            if (Wait(session, now, session.Label) is not { } item) continue;
+            waiting.Add(item);
+            if (_seen.Add(item.Key) && _primed && IsNews(item, now)) fresh.Add(item);
         }
 
         foreach (var skipped in _skips())
@@ -134,13 +128,15 @@ public sealed class SessionEventDetector
 
     private static SessionEvent Prompt(ScannedSession session, string title, PhaseReading prompt, DateTimeOffset now)
     {
-        var at = prompt.At ?? now;
         var approval = prompt.Phase == AgentPhase.Approving;
+        // An undated prompt keys on its turn, never on the scan's clock, or
+        // every scan would raise it anew.
+        var stamp = prompt.At is { } at ? at.UtcTicks.ToString() : session.TurnKey ?? session.Modified.UtcTicks.ToString();
         return new SessionEvent(
             session.Tool, session.SessionId, title,
             approval ? SessionEventKind.Approval : SessionEventKind.Question,
-            (approval ? "approval:" : "question:") + session.Id + ":" + at.UtcTicks,
-            at);
+            (approval ? "approval:" : "question:") + session.Id + ":" + stamp,
+            prompt.At ?? now);
     }
 }
 

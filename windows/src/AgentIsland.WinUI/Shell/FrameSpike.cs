@@ -79,7 +79,7 @@ internal sealed class FrameSpike : Window
         info.AppendLine($"maximized: window {window.Left},{window.Top} {window.Right - window.Left}x{window.Bottom - window.Top}; client {client.Right}x{client.Bottom}; work {work.Left},{work.Top} {work.Right - work.Left}x{work.Bottom - work.Top}");
         var frame = new Win32.RECT();
         Win32.DwmGetExtendedFrameBounds(_hwnd, out frame);
-        info.AppendLine($"extended frame bounds {frame.Left},{frame.Top} {frame.Right - frame.Left}x{frame.Bottom - frame.Top}; zoomed {Win32.IsZoomed(_hwnd)}; arranged {Win32.IsWindowArranged(_hwnd)}");
+        info.AppendLine($"extended frame bounds {frame.Left},{frame.Top} {frame.Right - frame.Left}x{frame.Bottom - frame.Top}; zoomed {Win32.IsZoomed(_hwnd)}; arranged {Win32.IsArranged(_hwnd)}");
         DebugTrace.Write(info.ToString());
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_SNAPSHOT") is { Length: > 0 } directory && WindowPrint.Client(_hwnd) is { } shot)
             await SaveOverAsync(Path.Combine(directory, "frame-maximized-print.png"), shot.Pixels, shot.Width, shot.Height);

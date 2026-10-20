@@ -30,6 +30,8 @@ internal static class Chrome
     private static readonly HashSet<IntPtr> Pixelated = new();
     // Windows under Classic's own frame.
     private static readonly Dictionary<IntPtr, ClassicFrame> Frames = new();
+    // The smallest body each window allows, in DIP.
+    private static readonly Dictionary<IntPtr, (double Width, double Height)> Minimums = new();
 
     /// Classic draws its own frame, except under a high-contrast theme, which
     /// keeps Windows' own frame and system colours.
@@ -39,19 +41,28 @@ internal static class Chrome
     /// row 1.
     public static Grid Apply(Window window, string title, double width, double height, double minWidth, double minHeight)
     {
-        var root = Restyle(window, title);
         var hwnd = WindowNative.GetWindowHandle(window);
+        Minimums[hwnd] = (minWidth, minHeight);
+        var root = Restyle(window, title);
         var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
         // The sizes are the body's: the frame's transparent margin goes outside them.
-        var room = Frames.ContainsKey(hwnd) ? ClassicFrame.Room : new Thickness(0);
-        double extraW = room.Left + room.Right, extraH = room.Top + room.Bottom;
-        Centre(window, (int)((width + extraW) * scale), (int)((height + extraH) * scale), room, scale);
-        if (window.AppWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.PreferredMinimumWidth = (int)((minWidth + extraW) * scale);
-            presenter.PreferredMinimumHeight = (int)((minHeight + extraH) * scale);
-        }
+        var room = RoomOf(hwnd);
+        Centre(window, (int)((width + room.Left + room.Right) * scale), (int)((height + room.Top + room.Bottom) * scale), room, scale);
         return root;
+    }
+
+    private static Thickness RoomOf(IntPtr hwnd) => Frames.ContainsKey(hwnd) ? ClassicFrame.Room : new Thickness(0);
+
+    /// The window's minimum: its body's, with the frame's margin around it.
+    /// Classic's frame brings its own presenter, which forgets the old one's
+    /// minimum, so every restyle sets it again.
+    private static void KeepMinimum(Window window, IntPtr hwnd)
+    {
+        if (!Minimums.TryGetValue(hwnd, out var minimum) || window.AppWindow.Presenter is not OverlappedPresenter presenter) return;
+        var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
+        var room = RoomOf(hwnd);
+        presenter.PreferredMinimumWidth = (int)((minimum.Width + room.Left + room.Right) * scale);
+        presenter.PreferredMinimumHeight = (int)((minimum.Height + room.Top + room.Bottom) * scale);
     }
 
     /// Centres the window, or its body when a frame's margin surrounds it.
@@ -130,6 +141,7 @@ internal static class Chrome
                 icons.Dispose();
                 Icons.Remove(hwnd);
                 Pixelated.Remove(hwnd);
+                Minimums.Remove(hwnd);
             };
         }
         icons.Show(pixel, root);
@@ -159,6 +171,7 @@ internal static class Chrome
             else if (window.SystemBackdrop is not MicaBackdrop) window.SystemBackdrop = new MicaBackdrop();
         }
         if (!framed) window.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+        KeepMinimum(window, hwnd);
 
         var bar = new Grid { Padding = new Thickness(pixel ? 12 : 14, 0, 0, 0) };
         bar.Children.Add(new StackPanel

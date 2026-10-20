@@ -45,16 +45,14 @@ public static class BotLines
             : null,
     };
 
-    /// The one word the card's list and a summary give an event.
+    /// The one word the card's list gives an event.
     public static string Word(SessionEventKind kind, bool classic = false) => L10n.Tr(kind switch
     {
         SessionEventKind.Done => "Done",
         SessionEventKind.Question => classic ? "Asking" : "Question",
         SessionEventKind.Approval => classic ? "Needs OK" : "Approval",
-        SessionEventKind.Error => "Error",
         _ => "Error",
     });
-
 
     /// A summary's lead: how many sessions wait on the bot's agent.
     public static string SummaryTitle(int count) => string.Format(L10n.Tr("{0} sessions need you."), count);

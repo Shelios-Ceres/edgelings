@@ -28,8 +28,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// Raised on the UI thread with what each scan found new in any session:
-    /// a turn that ended, a question, a permission prompt, an error, a message
-    /// the agent sent. Each is raised once.
+    /// a turn that ended, a question, a permission prompt, an error, a
+    /// scheduled task that could not run. Each is raised once.
     public event Action<IReadOnlyList<SessionEvent>>? SessionEventsRaised;
 
     /// Everything that waits on the user right now, across every session.

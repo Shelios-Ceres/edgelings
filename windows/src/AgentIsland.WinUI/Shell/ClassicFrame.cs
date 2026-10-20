@@ -53,7 +53,6 @@ internal sealed partial class ClassicFrame : IDisposable
     private readonly IntPtr _hwnd;
     private readonly Win32.SubclassProc _proc;
     private readonly InputNonClientPointerSource _nonClient;
-    private readonly long _style;
 
     private readonly bool _visualOnly;
     private bool _square;
@@ -72,8 +71,7 @@ internal sealed partial class ClassicFrame : IDisposable
         _window = window;
         _visualOnly = visualOnly;
         _hwnd = WindowNative.GetWindowHandle(window);
-        _style = (long)Win32.GetWindowLongPtr(_hwnd, GwlStyle);
-        _nonClient = InputNonClientPointerSource.GetForWindowId(window.AppWindow.Id);
+        _nonClient =InputNonClientPointerSource.GetForWindowId(window.AppWindow.Id);
         _proc = Subclass;
         if (visualOnly) return;
 
@@ -127,7 +125,7 @@ internal sealed partial class ClassicFrame : IDisposable
         ShapeChanged?.Invoke();
     }
 
-    private bool IsSquare() => Win32.IsZoomed(_hwnd) || Win32.IsWindowArranged(_hwnd);
+    private bool IsSquare() => Win32.IsZoomed(_hwnd) || Win32.IsArranged(_hwnd);
 
     private IntPtr Subclass(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, IntPtr id, IntPtr data)
     {

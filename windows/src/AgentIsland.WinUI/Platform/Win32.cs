@@ -107,9 +107,28 @@ internal static class Win32
     /// This process's GDI (0) or USER (1) object count.
     public static uint GuiObjects(uint kind) => GetGuiResources(GetCurrentProcess(), kind);
 
-    /// Windows 10 1903+: whether Windows' snapping arranged the window.
+    private static bool _noArrangedQuery;
+
+    /// Whether Windows' snapping arranged the window. User32 exports
+    /// IsWindowArranged only from Windows 10 build 20348 (so on every
+    /// Windows 11); on older builds, which the app still runs on, a window
+    /// never reads as arranged.
+    public static bool IsArranged(IntPtr hwnd)
+    {
+        if (_noArrangedQuery) return false;
+        try
+        {
+            return IsWindowArranged(hwnd);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _noArrangedQuery = true;
+            return false;
+        }
+    }
+
     [DllImport("user32.dll")]
-    public static extern bool IsWindowArranged(IntPtr hwnd);
+    private static extern bool IsWindowArranged(IntPtr hwnd);
 
     public static bool TryGetWorkArea(IntPtr monitor, out RECT work)
     {

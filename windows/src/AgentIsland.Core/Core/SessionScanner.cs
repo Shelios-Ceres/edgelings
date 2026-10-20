@@ -1061,7 +1061,8 @@ public static class SessionScanner
 
     internal static bool HasOpenClaudeTurn(string path)
     {
-        var (turn, _) = ReadTurn(path, SessionTurnState.Claude, p => TailLines(p));
+        // Widened like the scan's own read: both share the turn cache.
+        var (turn, _) = ReadTurn(path, SessionTurnState.Claude, p => TailLines(p), widen: true);
         return turn.Key is not null && !turn.IsDone && !turn.Idle;
     }
 

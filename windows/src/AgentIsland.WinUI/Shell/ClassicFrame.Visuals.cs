@@ -48,10 +48,11 @@ internal sealed partial class ClassicFrame
         _host.Children.Add(_shadow);
         _host.Children.Add(_body);
         _host.Children.Add(_outline);
-        _body.SizeChanged += (_, _) => Reshape();
+        // Wired once: the body is the same element on every wrap.
         if (!_wired)
         {
             _wired = true;
+            _body.SizeChanged += (_, _) => Reshape();
             ShapeChanged += Reshape;
             WireButtons();
         }
@@ -138,9 +139,9 @@ internal sealed partial class ClassicFrame
         var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
         foreach (var (kind, glyph) in new[]
                  {
-                     (NonClientRegionKind.Minimize, ""),
-                     (NonClientRegionKind.Maximize, ""),
-                     (NonClientRegionKind.Close, ""),
+                     (NonClientRegionKind.Minimize, "\uE921"),
+                     (NonClientRegionKind.Maximize, "\uE922"),
+                     (NonClientRegionKind.Close, "\uE8BB"),
                  })
         {
             var cell = new CaptionCell(kind, glyph);
@@ -225,7 +226,7 @@ internal sealed partial class ClassicFrame
         public void Refresh(bool dark, bool active, bool square)
         {
             _square = square;
-            if (_kind == NonClientRegionKind.Maximize) _icon.Glyph = square ? "" : "";
+            if (_kind == NonClientRegionKind.Maximize) _icon.Glyph = square ? "\uE923" : "\uE922";
             var close = _kind == NonClientRegionKind.Close;
             // At rest the pill keeps its last colour while it fades out.
             if (_state != CaptionState.Rest)
