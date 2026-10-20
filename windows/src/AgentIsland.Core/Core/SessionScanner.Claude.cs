@@ -7,8 +7,7 @@ public static partial class SessionScanner
 {
     private static List<ScannedSession> ScanClaudeTranscripts(
         DateTimeOffset now,
-        IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
-        bool excludeArchived = false)
+        IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var (desktopSessions, replaced) = ClaudeDesktopIndex();
         var output = new List<ScannedSession>();
@@ -18,7 +17,6 @@ public static partial class SessionScanner
             // A transcript its desktop session has left behind is history:
             // the session goes on in the newer one, whose turns are its own.
             if (desktop is null && replaced.Contains(sid)) continue;
-            if (excludeArchived && desktop is { IsArchived: true }) continue;
             // A headless SDK run (Claude Desktop's security reviews, say)
             // that no desktop session points at is machine work, not a
             // conversation: nobody is ever "up" in it.

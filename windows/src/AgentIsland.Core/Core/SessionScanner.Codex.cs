@@ -5,11 +5,13 @@ namespace AgentIsland.Core;
 // Codex: the rollouts under ~/.codex/sessions and its session index.
 public static partial class SessionScanner
 {
+    private const int MonitoringCodexLimit = 120;
+
+    /// Every recent rollout, newest first, up to the limit; a project's
+    /// several threads each count.
     public static List<ScannedSession> ScanCodex(
         DateTimeOffset now,
-        IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
-        int limit = 30,
-        bool dedupeProjects = true)
+        IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var root = IslandPaths.CodexSessionsRoot;
         if (!Directory.Exists(root)) return new List<ScannedSession>();
@@ -23,7 +25,6 @@ public static partial class SessionScanner
 
         var titles = CodexTitleIndex();
         var output = new List<ScannedSession>();
-        var seenProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in files)
         {
             if (CachedCodexMeta(path) is not { } meta || string.IsNullOrEmpty(meta.Sid)) continue;
@@ -32,8 +33,6 @@ public static partial class SessionScanner
             // human in them at all, and subagent fan-out finishes constantly
             // without anyone's turn coming up.
             if (kind is CodexRolloutKind.Automation or CodexRolloutKind.Subagent) continue;
-            var projectKey = string.IsNullOrEmpty(cwd) ? sid : cwd;
-            if (dedupeProjects && !seenProjects.Add(projectKey)) continue;
             var state = SessionState(path, now, lastWorking, null, SessionTurnState.Codex);
             output.Add(new ScannedSession(
                 TriggerTool.Codex,
@@ -45,7 +44,7 @@ public static partial class SessionScanner
                 path,
                 state.TurnKey,
                 SessionLaunchTarget.Cli));
-            if (output.Count >= limit) break;
+            if (output.Count >= MonitoringCodexLimit) break;
         }
         return output;
     }

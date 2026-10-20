@@ -26,8 +26,6 @@ public static partial class SessionScanner
     /// window must not suppress needsYou.
     private static readonly TimeSpan DesktopBookkeepingGrace = TimeSpan.FromSeconds(25);
 
-    private const int MonitoringCodexLimit = 120;
-
     // MARK: - Entry points
 
     /// Monitoring scan: every Claude transcript (desktop-labelled when known),
@@ -38,8 +36,8 @@ public static partial class SessionScanner
     /// toggle (owner call, 2026-08-08).
     public static List<ScannedSession> MonitoringScan(DateTimeOffset now, IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
-        var output = ScanClaudeTranscripts(now, lastWorking, excludeArchived: false);
-        output.AddRange(ScanCodex(now, lastWorking, limit: MonitoringCodexLimit, dedupeProjects: false));
+        var output = ScanClaudeTranscripts(now, lastWorking);
+        output.AddRange(ScanCodex(now, lastWorking));
         output.AddRange(ScanGrok(now, lastWorking));
         output.AddRange(ScanAntigravity(now, lastWorking));
         output.AddRange(ScanCursor(now, lastWorking));
@@ -132,7 +130,9 @@ public static partial class SessionScanner
         if (path is null)
             return (ActivityState.Idle, null, externalActivityDate ?? DateTimeOffset.MinValue);
 
-        var (turn, fileModified) = ReadTurn(path, turnState, tail ?? (p => TailLines(p)), requireTurn);
+        // Claude's transcripts can hold lines far bigger than the usual tail
+        // read, so the scan that requires a turn looks further back for one.
+        var (turn, fileModified) = ReadTurn(path, turnState, tail ?? (p => TailLines(p)), widen: requireTurn);
         // A transcript that shows no turn at all is working only while the
         // desktop says a turn began inside the attention window: the file's
         // write time alone proves nothing.
