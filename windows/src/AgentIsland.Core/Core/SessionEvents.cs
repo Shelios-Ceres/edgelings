@@ -34,10 +34,7 @@ public sealed record SessionEvent(
 
 /// What one scan found: Fresh is what turned up since the last scan, Waiting
 /// everything that still waits on the user right now.
-public sealed record SessionObservation(IReadOnlyList<SessionEvent> Fresh, IReadOnlyList<SessionEvent> Waiting)
-{
-    public static readonly SessionObservation Empty = new(Array.Empty<SessionEvent>(), Array.Empty<SessionEvent>());
-}
+public sealed record SessionObservation(IReadOnlyList<SessionEvent> Fresh, IReadOnlyList<SessionEvent> Waiting);
 
 /// Compares what each scan sees of every session with what it has already
 /// told. The first scan only learns: whatever already waits at launch is on

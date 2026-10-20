@@ -1,0 +1,91 @@
+using AgentIsland.Core;
+
+namespace AgentIsland.Tests;
+
+/// What the monitor does when a scan throws, and CoreLog's write-once rule.
+public static class ActivityMonitorScanTests
+{
+    public static void RunAll()
+    {
+        var logged = new List<(string Context, string Message)>();
+        var previous = CoreLog.Sink;
+        try
+        {
+            CoreLog.Sink = (error, context) => logged.Add((context, error.Message));
+
+            CoreLog.Reset();
+            CoreLog.Error(new InvalidOperationException("one"), "scan");
+            CoreLog.Error(new InvalidOperationException("one"), "scan");
+            CoreLog.Error(new InvalidOperationException("two"), "scan");
+            CoreLog.Error(new InvalidOperationException("one"), "other");
+            CoreLog.Error(new ArgumentException("one"), "scan");
+            Expect(logged.Count == 4, $"each (context, type, message) is written once, got {logged.Count}");
+            Console.WriteLine("PASS core log: a failure that repeats is written once");
+
+            CoreLog.Sink = (_, _) => throw new IOException("the log itself failed");
+            CoreLog.Error(new InvalidOperationException("three"), "scan");
+            CoreLog.Sink = null;
+            CoreLog.Error(new InvalidOperationException("four"), "scan");
+            Console.WriteLine("PASS core log: a failing or missing sink never throws");
+
+            CoreLog.Sink = (error, context) => logged.Add((context, error.Message));
+            CoreLog.Reset();
+            logged.Clear();
+            KeepsStatesWhenAScanFails(logged);
+            Console.WriteLine("PASS activity monitor: a scan that throws keeps the states and is logged once");
+            Console.WriteLine("ActivityMonitorScanTests GREEN");
+        }
+        finally
+        {
+            CoreLog.Sink = previous;
+            CoreLog.Reset();
+        }
+    }
+
+    private static void KeepsStatesWhenAScanFails(List<(string Context, string Message)> logged)
+    {
+        // Grok has no usage overlay, and a finished turn is not abandoned by
+        // a missing process or a missing network, so its state is the scan's.
+        var waiting = new ScannedSession(TriggerTool.Grok, "s1", "", "A session", DateTimeOffset.UtcNow,
+            ActivityState.NeedsYou, null, "turn-1", SessionLaunchTarget.Cli);
+        var sessions = new List<ScannedSession> { waiting };
+        var failure = (Exception?)null;
+        var monitor = new ActivityMonitor
+        {
+            Scanner = (_, _) => failure is null ? sessions : throw failure,
+        };
+
+        Scan(monitor);
+        Expect(monitor.StateFor(TriggerTool.Grok) == ActivityState.NeedsYou, "the scan's state is published");
+        Expect(logged.Count == 0, "a good scan logs nothing");
+
+        failure = new InvalidOperationException("boom");
+        Scan(monitor);
+        Expect(monitor.StateFor(TriggerTool.Grok) == ActivityState.NeedsYou, "a failed scan leaves the state as it was, not idle");
+        Expect(logged.Count == 1 && logged[0].Context == "Activity scan" && logged[0].Message == "boom",
+            "the failure is logged with its context");
+
+        Scan(monitor);
+        Expect(logged.Count == 1, "the same failure on the next scan is not written again");
+
+        failure = null;
+        sessions.Clear();
+        Scan(monitor);
+        Expect(monitor.StateFor(TriggerTool.Grok) == ActivityState.Idle, "a scan that really finds nothing still clears the state");
+
+        failure = new InvalidOperationException("another");
+        Scan(monitor);
+        Expect(logged.Count == 2, "a different failure is written");
+    }
+
+    private static void Scan(ActivityMonitor monitor)
+    {
+        monitor.Tick();
+        monitor.LastScan!.GetAwaiter().GetResult();
+    }
+
+    private static void Expect(bool condition, string message)
+    {
+        if (!condition) throw new Exception(message);
+    }
+}

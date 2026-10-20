@@ -82,6 +82,7 @@ public static class Program
             GrokHooksTests.RunAll();
             LookCatalogTests.RunAll();
             ClaudeCredentialsTests.RunAll();
+            ActivityMonitorScanTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }

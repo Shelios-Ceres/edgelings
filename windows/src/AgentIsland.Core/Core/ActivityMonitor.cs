@@ -11,7 +11,7 @@ namespace AgentIsland.Core;
 public sealed class ActivityMonitor : INotifyPropertyChanged
 {
     public static ActivityMonitor Shared { get; } = new();
-    private ActivityMonitor() { }
+    internal ActivityMonitor() { }
 
     public sealed record ActiveThread(
         string SessionId,
@@ -84,6 +84,11 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// Windows has reported no internet for a while.
     public bool IsOffline { get; private set; }
 
+    /// Test seams: the scan each tick runs, and the task that applies its result.
+    internal Func<DateTimeOffset, IReadOnlyDictionary<string, DateTimeOffset>, List<ScannedSession>> Scanner { get; set; } =
+        SessionScanner.MonitoringScan;
+    internal Task? LastScan { get; private set; }
+
     private UiTimer? _timer;
     private TranscriptEventStream? _eventStream;
     private DateTimeOffset _lastEventKick = DateTimeOffset.MinValue;
@@ -147,7 +152,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         trailing.Start();
     }
 
-    private void Tick()
+    internal void Tick()
     {
         KimiUsageStore.Shared.NoticeSignIn();
         // One scan at a time; a kick that lands mid-scan queues exactly one
@@ -166,27 +171,36 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         // last-working stamp and keep a finished guest turn reading as work.
         var lastWorkingSnapshot = new Dictionary<string, DateTimeOffset>(
             _lastWorking, StringComparer.OrdinalIgnoreCase);
-        Task.Run(() =>
+        LastScan = Task.Run(() =>
             {
                 var gone = AgentProcesses.Gone();
                 var offline = InternetStatus.IsOffline(now);
                 var sessions = Settle(
-                    PrepareSessions(SessionScanner.MonitoringScan(now, lastWorkingSnapshot), now), gone, offline);
+                    PrepareSessions(Scanner(now, lastWorkingSnapshot), now), gone, offline);
                 return new Scan(sessions, offline, _events.Observe(sessions, now));
             })
             .ContinueWith(task =>
             {
-                var scan = task.IsCompletedSuccessfully ? task.Result : Scan.Empty;
                 // Apply reaches the alarm center and every bound surface. A
                 // throw there is swallowed by the continuation's own task, so
                 // without the finally the in-flight flag would latch and the
                 // monitor would silently never scan again.
                 try
                 {
-                    IsOffline = scan.Offline;
-                    Apply(scan.Sessions, now);
-                    Waiting = scan.Observed.Waiting;
-                    if (scan.Observed.Fresh.Count > 0) SessionEventsRaised?.Invoke(scan.Observed.Fresh);
+                    if (task.IsCompletedSuccessfully)
+                    {
+                        var scan = task.Result;
+                        IsOffline = scan.Offline;
+                        Apply(scan.Sessions, now);
+                        Waiting = scan.Observed.Waiting;
+                        if (scan.Observed.Fresh.Count > 0) SessionEventsRaised?.Invoke(scan.Observed.Fresh);
+                    }
+                    else
+                    {
+                        // A scan that failed says nothing about the agents: the
+                        // states stay as they were, not all idle.
+                        CoreLog.Error(task.Exception?.GetBaseException() ?? new OperationCanceledException(), "Activity scan");
+                    }
                 }
                 finally
                 {
@@ -200,10 +214,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             }, UiThread.Scheduler);
     }
 
-    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed)
-    {
-        public static readonly Scan Empty = new(new List<ScannedSession>(), false, SessionObservation.Empty);
-    }
+    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed);
 
     internal static List<ScannedSession> PrepareSessions(IEnumerable<ScannedSession> sessions, DateTimeOffset now)
     {

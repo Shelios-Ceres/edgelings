@@ -34,6 +34,7 @@ public sealed partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         UiThread.Capture();
+        CoreLog.Sink = CrashLog.Write;
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();
         // The test window's cards read in the app's language too.
