@@ -27,8 +27,7 @@ public static class Preferences
     {
         lock (Gate)
         {
-            LoadIfNeeded();
-            if (_values!.TryGetValue(key, out var element))
+            if (Values().TryGetValue(key, out var element))
             {
                 try { return element.Deserialize<T>(); }
                 catch { return default; }
@@ -41,8 +40,7 @@ public static class Preferences
     {
         lock (Gate)
         {
-            LoadIfNeeded();
-            return _values!.ContainsKey(key);
+            return Values().ContainsKey(key);
         }
     }
 
@@ -50,7 +48,7 @@ public static class Preferences
     {
         lock (Gate)
         {
-            _values = LoadFromDisk();
+            _values = Reload();
             _values[key] = JsonSerializer.SerializeToElement(value);
             Save();
         }
@@ -60,7 +58,7 @@ public static class Preferences
     {
         lock (Gate)
         {
-            _values = LoadFromDisk();
+            _values = Reload();
             if (_values.Remove(key)) Save();
         }
     }
@@ -74,7 +72,9 @@ public static class Preferences
     {
         lock (Gate)
         {
-            _values = LoadFromDisk();
+            // A file that cannot be read right now has nothing to sweep.
+            if (LoadFromDisk() is not { } values) return;
+            _values = values;
             var legacy = _values.Keys
                 .Where(k => k.StartsWith("MacIsland.", StringComparison.Ordinal))
                 .ToList();
@@ -89,27 +89,48 @@ public static class Preferences
         }
     }
 
-    private static void LoadIfNeeded()
+    /// The values in memory, read on first use. A file that cannot be read
+    /// right now is read again next time rather than taken as empty.
+    private static Dictionary<string, JsonElement> Values()
     {
-        _values ??= LoadFromDisk();
+        if (_values is null && LoadFromDisk() is { } loaded) _values = loaded;
+        return _values ?? new Dictionary<string, JsonElement>();
     }
 
-    private static Dictionary<string, JsonElement> LoadFromDisk()
+    /// What a write layers its key onto. A file that cannot be read right
+    /// now falls back to the values in memory: taking it as empty made that
+    /// write save one key over every other preference.
+    private static Dictionary<string, JsonElement> Reload() =>
+        LoadFromDisk() ?? _values ?? new Dictionary<string, JsonElement>();
+
+    /// The file's values: empty when there is no file yet or it is not
+    /// valid JSON (the next write replaces it), null when it cannot be read
+    /// right now.
+    private static Dictionary<string, JsonElement>? LoadFromDisk()
     {
-        try
+        var path = IslandPaths.SettingsFile;
+        for (var attempt = 0; ; attempt++)
         {
-            var path = IslandPaths.SettingsFile;
-            if (File.Exists(path))
+            try
             {
-                var text = File.ReadAllText(path);
-                return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(text)
+                if (!File.Exists(path)) return new Dictionary<string, JsonElement>();
+                return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(path))
                     ?? new Dictionary<string, JsonElement>();
             }
+            catch (JsonException)
+            {
+                return new Dictionary<string, JsonElement>();
+            }
+            catch (IOException) when (attempt < 2)
+            {
+                // An antivirus scan or another reader can hold it for a moment.
+                Thread.Sleep(20 * (attempt + 1));
+            }
+            catch
+            {
+                return null;
+            }
         }
-        catch
-        {
-        }
-        return new Dictionary<string, JsonElement>();
     }
 
     private static void Save()
