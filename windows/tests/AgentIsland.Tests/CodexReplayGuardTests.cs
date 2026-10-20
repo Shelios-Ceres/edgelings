@@ -1,4 +1,5 @@
 using AgentIsland.Cost;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -65,10 +66,5 @@ public static class CodexReplayGuardTests
             try { File.Delete(path); } catch { }
         }
         Console.WriteLine("CodexReplayGuardTests GREEN");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

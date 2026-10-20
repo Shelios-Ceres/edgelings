@@ -1,4 +1,5 @@
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -21,9 +22,4 @@ public static class LaunchAtLoginTests
 
     /// The first byte is the switch; the rest is when it was flipped.
     private static byte[] State(byte flag) => new byte[] { flag, 0, 0, 0, 0xD5, 0x92, 0xF6, 0xD5, 0x9D, 0x3B, 0xDD, 0x01 };
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 }

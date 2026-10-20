@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -70,11 +71,6 @@ public static class SessionEventTests
         new(TriggerTool.Claude, id, @"D:\x", title ?? "Session " + id, modified, status, "/t/" + id + ".jsonl", turn,
             SessionLaunchTarget.ClaudeDesktop)
         { PendingPrompt = prompt };
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 
     private static void TestFirstScanIsQuiet()
     {

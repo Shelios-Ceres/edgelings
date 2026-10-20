@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -111,9 +112,4 @@ public static class PixelThemeTests
         Regex.Matches(Regex.Match(engine, $@"export const {name} = \[(.*?)\];", RegexOptions.Singleline).Groups[1].Value, @"'(\w+)'")
             .Select(m => m.Groups[1].Value)
             .ToList();
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 }

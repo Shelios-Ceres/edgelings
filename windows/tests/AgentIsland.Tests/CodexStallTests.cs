@@ -1,5 +1,6 @@
 using System.Globalization;
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -158,11 +159,6 @@ public static class CodexStallTests
 
     private static string Line(DateTimeOffset at, string type, string payload) =>
         $$"""{"timestamp":"{{at.UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ}}","type":"{{type}}","payload":{{payload}}}""";
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 
     private static DateTimeOffset Date(string raw) =>
         DateTimeOffset.Parse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);

@@ -1,5 +1,6 @@
 using AgentIsland.Model;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -74,10 +75,5 @@ public static class UsageFreshnessTests
         var partial = Healthy() with { Weekly = new WindowUsage(0.65, Now.AddDays(2), "http 500") };
         Expect(UsageCachePolicy.SuccessfulUpdateAt(partial, Old, Now) == Old, "a partial failure is not a complete successful sync");
         Expect(AgentReports.WindowError(partial) == "http 500", "a nonzero failed secondary window still explains its error");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

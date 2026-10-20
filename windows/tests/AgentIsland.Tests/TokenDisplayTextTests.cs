@@ -2,6 +2,7 @@ using AgentIsland.Cost;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -83,9 +84,4 @@ public static class TokenDisplayTextTests
     }
 
     private static void EmptySnapshot() => Expect(ProviderCostSummary.Empty.AsOf, null);
-
-    private static void Expect<T>(T actual, T expected)
-    {
-        if (!EqualityComparer<T>.Default.Equals(actual, expected)) throw new Exception($"expected {expected}, got {actual}");
-    }
 }

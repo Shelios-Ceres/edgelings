@@ -3,6 +3,7 @@ using AgentIsland.Core;
 using AgentIsland.Cost;
 using AgentIsland.Model;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -261,10 +262,5 @@ public static class QuotaRetentionTests
         };
         var restored = JsonSerializer.Deserialize<Dictionary<string, TokenTotals>>(JsonSerializer.SerializeToElement(saved));
         Expect(restored is not null && restored["Claude"] == saved["Claude"], "the saved figures read back unchanged");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

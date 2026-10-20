@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -135,9 +136,4 @@ public static class KimiUsageTests
 
     private static ScannedSession Session(ActivityState status) =>
         new(TriggerTool.Kimi, "a", "", "a", Now, status, null, null, SessionLaunchTarget.Cli);
-
-    private static void Expect<T>(T actual, T expected)
-    {
-        if (!EqualityComparer<T>.Default.Equals(actual, expected)) throw new Exception($"expected {expected}, got {actual}");
-    }
 }

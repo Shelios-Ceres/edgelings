@@ -4,6 +4,7 @@ using AgentIsland.Model;
 using Microsoft.ClearScript;
 using Microsoft.ClearScript.JavaScript;
 using Microsoft.ClearScript.V8;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -140,10 +141,5 @@ public static class LookCatalogTests
             if (File.Exists(file)) return file;
         }
         throw new FileNotFoundException(string.Join("/", path));
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

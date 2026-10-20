@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -207,10 +208,5 @@ public static class ClaudeCredentialsTests
         var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
         Expect(result is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage },
             "a refresh that fails reads as a lost sign-in");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

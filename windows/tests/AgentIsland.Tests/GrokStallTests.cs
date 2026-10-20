@@ -1,5 +1,6 @@
 using System.Globalization;
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -132,10 +133,5 @@ public static class GrokStallTests
         {
             File.Delete(path);
         }
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

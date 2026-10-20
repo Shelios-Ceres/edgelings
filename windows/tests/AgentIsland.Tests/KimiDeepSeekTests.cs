@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -206,11 +207,6 @@ public static class KimiDeepSeekTests
 
     private static void DeepSeekPhase(AgentPhase expected, params string[] lines) =>
         Expect(AgentPhaseClassifier.DeepSeek(lines, Now).Phase, expected);
-
-    private static void Expect<T>(T actual, T expected)
-    {
-        if (!EqualityComparer<T>.Default.Equals(actual, expected)) throw new Exception($"expected {expected}, got {actual}");
-    }
 
     private static long Ms(int secondsAgo) => Now.AddSeconds(-secondsAgo).ToUnixTimeMilliseconds();
 

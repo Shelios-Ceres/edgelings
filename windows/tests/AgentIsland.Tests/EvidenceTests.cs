@@ -1,5 +1,6 @@
 using AgentIsland.Core;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -140,9 +141,4 @@ public static class EvidenceTests
 
     private static ScannedSession Session(TriggerTool tool, string id, ActivityState status) =>
         new(tool, id, "", id, DateTimeOffset.UtcNow, status, id + ".jsonl", null, SessionLaunchTarget.Cli);
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 }

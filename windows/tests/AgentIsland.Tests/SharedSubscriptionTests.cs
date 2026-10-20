@@ -1,6 +1,7 @@
 using AgentIsland.Core;
 using AgentIsland.Cost;
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -85,10 +86,5 @@ public static class SharedSubscriptionTests
         Expect(SharedSubscription.Plan("SUPERGROK", "PRO", shared: false) == "SUPERGROK", "billed apart, the badge is Grok's");
         Expect(SharedSubscription.Plan(null, "PRO", shared: false) == "PRO", "with only Cursor, its plan");
         Expect(SharedSubscription.Plan(null, null, shared: true) is null, "no plan, no chip");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

@@ -1,5 +1,6 @@
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -97,10 +98,5 @@ public static class LogParseCacheTests
         var reread = new LogParseCache(TriggerTool.Claude, "shared.json", cacheDirectory);
         var warm = reread.Walk(files, cutoff, _ => throw new Exception("a saved entry was not read back"));
         Expect(warm.Count > 0, "the saved cache is valid JSON that a new copy reads back");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

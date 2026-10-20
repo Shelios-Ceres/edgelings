@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -33,11 +34,6 @@ public static class GrokHooksTests
             Console.WriteLine($"PASS grok hooks: {name}");
         }
         Console.WriteLine("GrokHooksTests GREEN");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 
     /// A throwaway hooks folder, script folder and signal folder; real time,

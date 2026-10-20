@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using AgentIsland.Core;
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -85,9 +86,4 @@ public static class ClassicThemeTests
     /// The body of a top-level `const NAME = { ... };`, up to its closing line.
     private static string Block(string engine, string name) =>
         Regex.Match(engine, $@"\nconst {name} = \{{(.*?)\n?\}};", RegexOptions.Singleline).Groups[1].Value;
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 }

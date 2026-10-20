@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -172,11 +173,6 @@ public static class TokenAccountingTests
             last_token_usage = new { input_tokens = input, cached_input_tokens = cached, output_tokens = output },
         } },
     });
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 
     private sealed class Fixture : IDisposable
     {

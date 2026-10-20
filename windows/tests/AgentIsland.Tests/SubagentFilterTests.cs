@@ -1,4 +1,5 @@
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -36,11 +37,6 @@ public static class SubagentFilterTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("SubagentFilterTests GREEN");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 
     // MARK: - Claude turn state vs sidechain lines

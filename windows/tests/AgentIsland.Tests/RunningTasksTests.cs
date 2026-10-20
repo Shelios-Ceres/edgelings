@@ -1,4 +1,5 @@
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -126,9 +127,4 @@ public static class RunningTasksTests
 
     private static ScannedSession Session(TriggerTool tool, string id, ActivityState status, string? path = null) =>
         new(tool, id, "", id, DateTimeOffset.UtcNow, status, path ?? id + ".jsonl", null, SessionLaunchTarget.Cli);
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 }

@@ -1,4 +1,5 @@
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -91,10 +92,5 @@ public static class DrawerPlacementTests
             }), "Grok moves to the top; Cursor, left out, stays in its slot: " + string.Join(", ", order));
         Expect(DrawerPlacement.Reordered(saved, saved.Reverse()).SequenceEqual(saved.Reverse()), "a full list is taken as it is");
         Expect(DrawerPlacement.Reordered(order, Array.Empty<DisplayProvider>()).SequenceEqual(order), "an empty list changes nothing");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

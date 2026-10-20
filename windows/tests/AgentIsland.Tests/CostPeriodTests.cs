@@ -1,5 +1,6 @@
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -101,10 +102,5 @@ public static class CostPeriodTests
             "an hour must hold its own events only, and yesterday's must stay out");
         Expect(summary.TodayHourlyBillableTokens[4] == 300 && summary.TodayHourlyBillableTokens.Sum() == summary.TodayBillableTokens,
             "the billable hours must add up to the billable total");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

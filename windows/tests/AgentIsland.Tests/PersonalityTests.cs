@@ -1,4 +1,5 @@
 using AgentIsland.Model;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -14,10 +15,5 @@ public static class PersonalityTests
         Expect(tempos.All(t => t is >= 0.85 and <= 1.15), "tempos stay close enough to normal to look natural");
         Console.WriteLine("PASS every character has its own tempo");
         Console.WriteLine("PersonalityTests GREEN");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

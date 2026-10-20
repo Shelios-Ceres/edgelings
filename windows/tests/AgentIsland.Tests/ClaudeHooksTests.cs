@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -262,9 +263,4 @@ public static class ClaudeHooksTests
             ["type"] = type,
             ["at"] = at.ToUnixTimeMilliseconds(),
         }.ToJsonString());
-
-    private static void Expect<T>(T actual, T expected)
-    {
-        if (!EqualityComparer<T>.Default.Equals(actual, expected)) throw new Exception($"expected {expected}, got {actual}");
-    }
 }

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -28,11 +29,6 @@ public static class CodexAccountSwitcherTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("CodexAccountSwitcherTests GREEN");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 
     private static byte[] Credential(string account, string generation, string user = "user-one") =>

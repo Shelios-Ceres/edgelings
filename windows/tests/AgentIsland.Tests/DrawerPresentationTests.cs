@@ -1,6 +1,7 @@
 using AgentIsland.Core;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Drawer;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -125,9 +126,4 @@ public static class DrawerPresentationTests
     private static void TestGlassScale() =>
         Expect(HoverCardContentKey.Create(Sections, false, false, 1) == HoverCardContentKey.Create(Sections, false, false, 1.5),
             "system-font content does not rebuild solely for scale");
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
-    }
 }

@@ -1,4 +1,5 @@
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -48,10 +49,5 @@ public static class PreferencesTests
             CoreLog.Reset();
             Directory.Delete(root, recursive: true);
         }
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 }

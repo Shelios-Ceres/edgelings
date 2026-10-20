@@ -2,6 +2,7 @@ using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Cost;
 using Microsoft.Data.Sqlite;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -139,8 +140,6 @@ public static class OtherTokenAccountingTests
             totalTokens = input + output, costUsdTicks = 158652000,
         } } },
     });
-
-    private static void Expect(bool value, string message) { if (!value) throw new Exception(message); }
 
     private sealed class Fixture : IDisposable
     {

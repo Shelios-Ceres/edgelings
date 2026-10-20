@@ -1,4 +1,5 @@
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -18,11 +19,6 @@ public static class SecurityGuardTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("SecurityGuardTests GREEN");
-    }
-
-    private static void Expect(bool condition, string message)
-    {
-        if (!condition) throw new Exception(message);
     }
 
     /// A saved-account label becomes a FILENAME holding a live credential

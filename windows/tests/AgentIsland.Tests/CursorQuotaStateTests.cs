@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using AgentIsland.Localization;
 using AgentIsland.Usage;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -134,6 +135,4 @@ public static class CursorQuotaStateTests
         finally { L10n.Current = previous; }
     }
 
-    private static void Run(string name, Action test) { test(); Console.WriteLine($"PASS Cursor quota: {name}"); }
-    private static void Expect(bool condition, string message) { if (!condition) throw new Exception(message); }
-}
+    private static void Run(string name, Action test) { test(); Console.WriteLine($"PASS Cursor quota: {name}"); }}

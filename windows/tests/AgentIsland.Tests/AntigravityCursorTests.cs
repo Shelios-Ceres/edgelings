@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentIsland.Core;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -122,10 +123,5 @@ public static class AntigravityCursorTests
         };
         if (toolStatus is not null) bubble["toolFormerData"] = new JsonObject { ["name"] = "run_terminal_command_v2", ["status"] = toolStatus };
         return bubble.ToJsonString();
-    }
-
-    private static void Expect<T>(T actual, T expected)
-    {
-        if (!EqualityComparer<T>.Default.Equals(actual, expected)) throw new Exception($"expected {expected}, got {actual}");
     }
 }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using AgentIsland.Cost;
 using AgentIsland.Usage;
 using Microsoft.Data.Sqlite;
+using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
@@ -91,8 +92,6 @@ public static class CursorDatabaseTests
     }
 
     private static void Run(string name, Action action) { action(); Console.WriteLine($"PASS Cursor database: {name}"); }
-    private static void Expect(bool condition, string message) { if (!condition) throw new Exception(message); }
-
     private sealed class Fixture : IDisposable
     {
         private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "agentisland-cursor-db-" + Guid.NewGuid().ToString("N"));
