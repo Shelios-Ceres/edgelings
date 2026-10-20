@@ -37,13 +37,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     private readonly SessionEventDetector _events = new();
 
-    /// Providers whose session status is actually scanned. Cursor is absent
-    /// All five ride the scan. Cursor graduated once the real signal was
-    /// found: each workspace's state.vscdb (and its -wal journal) is written
-    /// continuously while a Cursor window is open — unlike the batch-written
-    /// conversation-search.db that disqualified it earlier. Its turn
-    /// detector is MtimeOnly, so it shows working/idle but can never raise a
-    /// false "your turn".
+    /// Providers whose session status is scanned. Cursor's comes from its
+    /// globalStorage database, where a bubble's type marks a real turn
+    /// boundary (SessionScanner.ScanCursor).
     private static readonly TriggerTool[] MonitoredProviders =
     {
         TriggerTool.Claude,
@@ -60,7 +56,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     // this port fixes). Replaced wholesale on each scan, never mutated in
     // place, so a binding reading `States` can never see a half-built map.
     private Dictionary<TriggerTool, ActivityState> _states = new();
-    private Dictionary<TriggerTool, ActivityState> _rawStates = new();
     private Dictionary<TriggerTool, ActiveThread> _threads = new();
     private Dictionary<TriggerTool, int> _running = new();
     private Dictionary<string, DateTimeOffset> _lastWorking = new();
@@ -90,6 +85,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     internal Task? LastScan { get; private set; }
 
     private UiTimer? _timer;
+    // Held only so the file watchers it owns stay alive: nothing reads it,
+    // and dropping it would let the GC stop them.
     private TranscriptEventStream? _eventStream;
     private DateTimeOffset _lastEventKick = DateTimeOffset.MinValue;
     private bool _kickPending;
@@ -119,7 +116,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// (this repo's own development sessions hit 70MB+) writes its
     /// transcript several times a second, and at the old 0.5s spacing the
     /// monitor burned ~45% of a core purely on directory enumeration + a
-    /// thousand stats per sweep. 2s keeps the your-turn alarm inside the
+    /// thousand stats per sweep. 2s keeps the your-turn state inside the
     /// "it just finished" moment (macOS lands at ~1.2s) at a quarter of
     /// the scan bill; the 6s timer still backstops missed events.
     private static readonly TimeSpan EventKickSpacing = TimeSpan.FromSeconds(2);
@@ -181,7 +178,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             })
             .ContinueWith(task =>
             {
-                // Apply reaches the alarm center and every bound surface. A
+                // Apply reaches every bound surface. A
                 // throw there is swallowed by the continuation's own task, so
                 // without the finally the in-flight flag would latch and the
                 // monitor would silently never scan again.
@@ -270,20 +267,17 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         var visibility = Model.ProviderVisibilityStore.Shared;
         UpdateLastWorking(sessions, now);
         var nextStates = new Dictionary<TriggerTool, ActivityState>();
-        var nextRaw = new Dictionary<TriggerTool, ActivityState>();
         var nextThreads = new Dictionary<TriggerTool, ActiveThread>();
         var nextRunning = new Dictionary<TriggerTool, int>();
         foreach (var tool in MonitoredProviders)
         {
             nextRunning[tool] = RunningCount(sessions, tool);
             var result = BestSession(sessions, tool);
-            nextRaw[tool] = result.State;
             if (result.Thread is { } thread) nextThreads[tool] = thread;
             nextStates[tool] = visibility.IsVisible(tool)
                 ? OverlayUsageAttention(result.State, UsageFor(tool))
                 : result.State;
         }
-        _rawStates = nextRaw;
         _threads = nextThreads;
         _running = nextRunning;
         _states = nextStates;
@@ -349,9 +343,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         return null;
     }
 
-    /// A running session outranks a finished one: with the turn alarms gone
-    /// nothing acknowledges a finished turn, so a needsYou ranked first would
-    /// mask a genuinely running sibling until it ages out. Trouble a session
+    /// A running session outranks a finished one: nothing acknowledges a
+    /// finished turn, so a needsYou ranked first would mask a genuinely
+    /// running sibling until it ages out. Trouble a session
     /// wrote down stays above working so real anomalies surface.
     private static int SelectionPriority(ScannedSession session) =>
         session.PendingPrompt is not null ? 4 : session.Status switch
