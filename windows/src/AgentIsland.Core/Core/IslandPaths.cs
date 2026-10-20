@@ -80,7 +80,6 @@ public static class IslandPaths
 
     public static string AppSupportDir => Path.Combine(RoamingAppData, "AgentIsland");
     public static string SettingsFile => Path.Combine(AppSupportDir, "settings.json");
-    public static string TriggerRunsDir => Path.Combine(AppSupportDir, "trigger-runs");
     public static string CacheDir => Path.Combine(LocalAppData, "AgentIsland", "cache");
 
     private static IReadOnlyList<string> ResolveClaudeConfigRoots()

@@ -33,13 +33,6 @@ public static class DisplayProviders
         DisplayProvider.DeepSeek,
     };
 
-    /// The two providers that carry the full monitoring stack.
-    public static readonly DisplayProvider[] FullyMonitored =
-    {
-        DisplayProvider.Claude,
-        DisplayProvider.Codex,
-    };
-
     /// Zero-intrusion providers, re-probed on the refresh cadence.
     public static readonly DisplayProvider[] Guests =
     {
@@ -83,14 +76,6 @@ public static class DisplayProviderExtensions
     };
 
     public static string DisplayName(this DisplayProvider provider) => ProviderIdentity.DisplayName(provider);
-
-    /// Full monitoring = official usage windows + transcript activity +
-    /// approaching-limit alerts. Badge-only providers report quota and stop.
-    public static bool HasFullMonitoring(this DisplayProvider provider) =>
-        provider is DisplayProvider.Claude or DisplayProvider.Codex;
-
-    /// Position in canonical slot order; the enum's declaration order is it.
-    public static int SlotOrder(this DisplayProvider provider) => (int)provider;
 
     /// The character a provider's work shows under. Cursor works under
     /// Grok's (the user's call, 2026-10-16): its activity, quota, tokens and

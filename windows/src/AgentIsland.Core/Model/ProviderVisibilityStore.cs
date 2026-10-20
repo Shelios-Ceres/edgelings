@@ -63,11 +63,6 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
 
     public bool ClaudeDetected => IsDetected(DisplayProvider.Claude);
     public bool CodexDetected => IsDetected(DisplayProvider.Codex);
-    public bool AntigravityDetected => IsDetected(DisplayProvider.Antigravity);
-    public bool GrokDetected => IsDetected(DisplayProvider.Grok);
-    public bool CursorDetected => IsDetected(DisplayProvider.Cursor);
-    public bool KimiDetected => IsDetected(DisplayProvider.Kimi);
-    public bool DeepSeekDetected => IsDetected(DisplayProvider.DeepSeek);
 
     /// Re-probe the zero-intrusion guests (macOS redetectGuests).
     public void RedetectGuests()

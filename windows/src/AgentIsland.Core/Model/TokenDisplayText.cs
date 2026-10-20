@@ -18,19 +18,6 @@ public static class TokenDisplayText
         ? "Input + output (excluding cache reads)"
         : "All tokens (including cache)");
 
-    public static string CompactModeLabel(TokenCountMode mode) => L10n.Tr(mode == TokenCountMode.Billable
-        ? "Tokens · no cache reads"
-        : "Tokens · including cache");
-
-    public static string TodayLabel(DateTimeOffset asOf, TimeZoneInfo? zone = null) =>
-        L10n.TrFormat("Today {0}", Local(asOf, zone).ToString("M/d", CultureInfo.InvariantCulture));
-
-    public static string MonthLabel(DateTimeOffset asOf, TimeZoneInfo? zone = null)
-    {
-        var local = Local(asOf, zone);
-        return L10n.IsChinese ? $"{local.Month}月" : local.ToString("MMM", CultureInfo.InvariantCulture);
-    }
-
     public static string PeriodRange(UsageDisplayPeriod period, DateTimeOffset asOf, TimeZoneInfo? zone = null)
     {
         var date = Local(asOf, zone).Date;

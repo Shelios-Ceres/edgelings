@@ -26,9 +26,6 @@ public sealed record WindowUsage(
 
     public bool AwaitingSync { get; init; }
 
-    /// A multi-day window (weekly-style) as opposed to an intra-day one.
-    public bool IsLongPeriod => (PeriodSeconds ?? 0) >= 2 * 86400;
-
     /// A reset ends the observed window; it does not tell us how much of the
     /// next window has already been used. Await a new reading instead of
     /// inventing a full balance and a future reset date.

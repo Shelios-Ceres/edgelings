@@ -41,16 +41,11 @@ public static class TokenDisplayTextTests
     {
         Expect(TokenDisplayText.ModeLabel(TokenCountMode.All), "All tokens (including cache)");
         Expect(TokenDisplayText.ModeLabel(TokenCountMode.Billable), "Input + output (excluding cache reads)");
-        L10n.Current = L10n.Language.SimplifiedChinese;
-        Expect(TokenDisplayText.CompactModeLabel(TokenCountMode.All), "Token · 含缓存");
-        Expect(TokenDisplayText.CompactModeLabel(TokenCountMode.Billable), "Token · 不含缓存读取");
-        L10n.Current = L10n.Language.English;
     }
 
     private static void SnapshotDate()
     {
         var started = TimeZoneInfo.ConvertTime(new DateTimeOffset(2026, 10, 13, 3, 59, 30, TimeSpan.Zero), NewYork);
-        var displayed = started.AddMinutes(2);
         var morning = TimeZoneInfo.ConvertTime(new DateTimeOffset(2026, 10, 12, 13, 0, 0, TimeSpan.Zero), NewYork);
         var summary = CostSummarizer.Summarize(new[]
         {
@@ -59,8 +54,6 @@ public static class TokenDisplayTextTests
         Expect(summary.AsOf, (DateTimeOffset?)started);
         Expect(summary.TodayTokens, 190L);
         Expect(summary.TodayBillableTokens, 150L);
-        Expect(TokenDisplayText.TodayLabel(summary.AsOf!.Value, NewYork), "Today 10/12");
-        Expect(TokenDisplayText.TodayLabel(displayed, NewYork), "Today 10/13");
         // Opening the same snapshot after midnight must not relabel its
         // October 12 counts as October 13 counts.
         Expect(TokenDisplayText.PeriodRange(UsageDisplayPeriod.Today, summary.AsOf.Value, NewYork), "2026-10-12");
@@ -71,7 +64,6 @@ public static class TokenDisplayTextTests
         var asOf = new DateTimeOffset(2027, 1, 3, 17, 0, 0, TimeSpan.Zero);
         Expect(TokenDisplayText.PeriodRange(UsageDisplayPeriod.Week, asOf, NewYork), "2026-12-28 – 2027-01-03");
         Expect(TokenDisplayText.PeriodRange(UsageDisplayPeriod.Month, asOf, NewYork), "2027-01-01 – 2027-01-03");
-        Expect(TokenDisplayText.MonthLabel(asOf, NewYork), "Jan");
     }
 
     private static void DaylightSaving()
@@ -86,13 +78,8 @@ public static class TokenDisplayTextTests
     {
         var zone = TimeZoneInfo.CreateCustomTimeZone("Test +05:45", TimeSpan.FromMinutes(345), "Test +05:45", "Test +05:45");
         var at = new DateTimeOffset(2026, 12, 31, 18, 30, 0, TimeSpan.Zero);
-        Expect(TokenDisplayText.TodayLabel(at, zone), "Today 1/1");
         Expect(TokenDisplayText.PeriodRange(UsageDisplayPeriod.Month, at, zone), "2027-01-01");
         Expect(TokenDisplayText.TimeZoneLabel(at, zone), "Test +05:45 (UTC+05:45)");
-        L10n.Current = L10n.Language.SimplifiedChinese;
-        Expect(TokenDisplayText.TodayLabel(at, zone), "今天 1/1");
-        Expect(TokenDisplayText.MonthLabel(at, zone), "1月");
-        L10n.Current = L10n.Language.English;
     }
 
     private static void EmptySnapshot() => Expect(ProviderCostSummary.Empty.AsOf, null);

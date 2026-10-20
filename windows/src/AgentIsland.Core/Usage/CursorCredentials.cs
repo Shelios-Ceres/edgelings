@@ -15,10 +15,6 @@ public static class CursorCredentials
 
     public static bool Exists() => File.Exists(StateDbPath);
 
-    public static Session? ReadSession() => ReadSnapshot()?.Session;
-    public static string? CachedPlan() => ReadSnapshot()?.Plan;
-    public static string? CachedEmail() => ReadSnapshot()?.Email;
-
     internal static Snapshot? ReadSnapshot() =>
         File.Exists(StateDbPath) ? ReadDatabase(StateDbPath) : null;
 

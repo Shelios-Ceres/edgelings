@@ -32,28 +32,6 @@ public sealed record AntigravityQuotaBucket(
         "daily" or "1d" => 24 * 60 * 60,
         _ => WeekSeconds,
     };
-
-    /// Compact name for the island strip. Known pools get a short hand-set
-    /// label; anything new falls back to Google's group name so a bucket we
-    /// have never seen still reads as itself instead of a raw id.
-    [JsonIgnore]
-    public string ShortLabel
-    {
-        get
-        {
-            var family = BucketId.Split('-').FirstOrDefault() ?? BucketId;
-            switch (family.ToLowerInvariant())
-            {
-                case "gemini": return "Gemini";
-                case "3p": return "Claude·GPT";
-                default:
-                    var trimmed = GroupLabel
-                        .Replace(" models", "", StringComparison.OrdinalIgnoreCase)
-                        .Trim();
-                    return trimmed.Length == 0 ? family : trimmed;
-            }
-        }
-    }
 }
 
 /// What the island renders for Antigravity. Serializable so the last good

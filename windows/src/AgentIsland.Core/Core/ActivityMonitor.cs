@@ -63,7 +63,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     private Dictionary<TriggerTool, ActivityState> _rawStates = new();
     private Dictionary<TriggerTool, ActiveThread> _threads = new();
     private Dictionary<TriggerTool, int> _running = new();
-    private Dictionary<TriggerTool, ActivityState> _demoStates = new();
     private Dictionary<string, DateTimeOffset> _lastWorking = new();
 
     /// Visible state for every monitored provider. Raised as one change so
@@ -72,18 +71,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     public IReadOnlyDictionary<TriggerTool, ActiveThread> Threads => _threads;
 
-    public ActivityState StateFor(TriggerTool provider)
-    {
-        if (_demoStates.TryGetValue(provider, out var demo)) return demo;
-        return _states.TryGetValue(provider, out var state) ? state : ActivityState.Idle;
-    }
-
-    /// Pre-overlay scan state. The turn-alarm confirm gate must read this:
-    /// the usage overlay (rateLimited/authRequired outrank needsYou) would
-    /// otherwise swallow alarms exactly when the quota is exhausted or the
-    /// network is down — the moments a finished turn most needs surfacing.
-    public ActivityState RawStateFor(TriggerTool provider) =>
-        _rawStates.TryGetValue(provider, out var state) ? state : ActivityState.Idle;
+    public ActivityState StateFor(TriggerTool provider) =>
+        _states.TryGetValue(provider, out var state) ? state : ActivityState.Idle;
 
     public ActiveThread? ThreadFor(TriggerTool provider) =>
         _threads.TryGetValue(provider, out var thread) ? thread : null;
@@ -94,26 +83,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     /// Windows has reported no internet for a while.
     public bool IsOffline { get; private set; }
-
-    // The island and tray bind to these two by name; they stay as thin views
-    // over the maps so those bindings keep working unchanged.
-    public ActivityState Claude => StateFor(TriggerTool.Claude);
-    public ActivityState Codex => StateFor(TriggerTool.Codex);
-    public ActiveThread? ClaudeThread => ThreadFor(TriggerTool.Claude);
-    public ActiveThread? CodexThread => ThreadFor(TriggerTool.Codex);
-
-    /// Recording rig / settings preview: pins every provider's published
-    /// state, or clears the pin when passed null.
-    public void Demo(ActivityState? state)
-    {
-        var next = new Dictionary<TriggerTool, ActivityState>();
-        if (state is { } forced)
-        {
-            foreach (var tool in TriggerToolExtensions.All) next[tool] = forced;
-        }
-        _demoStates = next;
-        RaiseAll();
-    }
 
     private UiTimer? _timer;
     private TranscriptEventStream? _eventStream;
@@ -431,18 +400,12 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         session.TurnKey,
         session.LaunchTarget) { PendingPrompt = session.PendingPrompt };
 
-    /// Both the maps and the two named views have to be announced: the island
-    /// and tray listen for "Claude"/"Codex", the five-wide panel reads the
-    /// maps, and a provider whose notification is missing simply stops
-    /// updating on screen.
+    /// Both maps are announced on every scan: a surface bound to one of them
+    /// simply stops updating on screen if its notification is missing.
     private void RaiseAll()
     {
         Raise(nameof(States));
         Raise(nameof(Threads));
-        Raise(nameof(Claude));
-        Raise(nameof(Codex));
-        Raise(nameof(ClaudeThread));
-        Raise(nameof(CodexThread));
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

@@ -38,13 +38,6 @@ public static class ProviderIdentity
 
     public static uint Accent(TriggerTool tool) => Accent(tool.ToDisplayProvider());
 
-    /// The brand ramp: Antigravity carries Google's four hues, everyone else
-    /// their accent twice, so every consumer can treat the brand as a gradient.
-    public static IReadOnlyList<uint> BrandRamp(DisplayProvider provider) =>
-        provider == DisplayProvider.Antigravity ? GoogleRamp : new[] { Accent(provider), Accent(provider) };
-
-    private static readonly uint[] GoogleRamp = { 0x4285F4, 0x34A853, 0xFBBC05, 0xEA4335 };
-
     /// CLI executable name; null where the product is app-only.
     public static string? CliName(DisplayProvider provider) => provider switch
     {

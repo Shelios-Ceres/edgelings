@@ -358,29 +358,6 @@ public sealed class UsageStore : INotifyPropertyChanged
         Preferences.Set(CacheKey, snapshot);
     }
 
-    // MARK: - Preview injection (status guide)
-
-    /// Replace current values with hand-tuned percentages so the alert
-    /// engine's pulse + tint behavior can be exercised without waiting for a
-    /// real provider crossing. The next scheduled poll overwrites them.
-    public void InjectPreviewUsage(double claudeFiveHour, double codexFiveHour)
-    {
-        var now = DateTimeOffset.Now;
-        var fiveHourReset = now.AddSeconds(2 * 3600 + 14 * 60);
-        var weeklyReset = now.AddSeconds(4 * 86400 + 6 * 3600);
-        Claude = new AppUsage(
-            new WindowUsage(claudeFiveHour, fiveHourReset, null),
-            new WindowUsage(0.45, weeklyReset, null),
-            Claude.Plan ?? "max");
-        Codex = new AppUsage(
-            new WindowUsage(codexFiveHour, fiveHourReset, null),
-            new WindowUsage(0.30, weeklyReset, null),
-            Codex.Plan ?? "pro");
-        RecordSuccessfulUpdate(claude: true, Claude, now);
-        RecordSuccessfulUpdate(claude: false, Codex, now);
-        RefreshWarning = null;
-    }
-
     // MARK: - Re-auth
 
     public bool ReauthenticateCodex()

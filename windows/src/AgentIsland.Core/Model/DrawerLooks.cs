@@ -32,9 +32,6 @@ public static class DrawerLooks
     public static uint Swatch(DisplayProvider provider, CharacterTheme theme) =>
         LookCatalog.Of(theme, provider).Swatch;
 
-    /// A provider's pixel bot's colour in its picked look.
-    public static uint PixelSwatch(DisplayProvider provider) => Swatch(provider, CharacterTheme.Pixel);
-
     /// A provider's desk companion's colour in its picked look; Cursor's
     /// black is lifted on dark surfaces by Brand.Readable.
     public static uint ClassicSwatch(DisplayProvider provider) => Swatch(provider, CharacterTheme.Classic);

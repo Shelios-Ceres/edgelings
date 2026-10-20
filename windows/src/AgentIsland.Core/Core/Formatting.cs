@@ -2,17 +2,6 @@ namespace AgentIsland.Core;
 
 public static class Formatting
 {
-    /// Single-unit compact duration: "45s", "12m", "3h", "4d" — matches the
-    /// macOS Duration.compact used in reset countdowns and captions.
-    public static string CompactDuration(TimeSpan span)
-    {
-        var seconds = Math.Max(0, span.TotalSeconds);
-        if (seconds < 60) return $"{(int)seconds}s";
-        if (seconds < 3600) return $"{(int)(seconds / 60)}m";
-        if (seconds < 86400) return $"{(int)(seconds / 3600)}h";
-        return $"{(int)(seconds / 86400)}d";
-    }
-
     /// The one percent readout in the app: a 0-1 fraction as whole points.
     ///
     /// Away-from-zero, not .NET's default banker's rounding. Swift's

@@ -12,7 +12,6 @@ public sealed record Speech(IReadOnlyList<SessionEvent> Events)
     /// Whether this speaks for a question or a permission prompt, which pops
     /// as a request and sits ahead of the rest.
     public bool NeedsAnswer => Events.Any(e => e.Kind is SessionEventKind.Question or SessionEventKind.Approval);
-    public bool IsError => !IsSummary && First.Kind == SessionEventKind.Error;
 }
 
 /// How a style spaces and merges what a bot has to say. The two styles

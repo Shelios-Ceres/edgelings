@@ -7,8 +7,6 @@ namespace AgentIsland.Cost;
 /// ordinary input, so their creation rate is the input rate.
 public static class Pricing
 {
-    public static readonly DateOnly SnapshotDate = new(2026, 10, 11);
-
     private sealed record Price(double Input, double Output, double CacheCreation, double CacheRead);
 
     private static readonly Dictionary<string, Price> Table = new(StringComparer.OrdinalIgnoreCase)

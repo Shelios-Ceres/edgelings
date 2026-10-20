@@ -5,8 +5,6 @@ namespace AgentIsland.Usage;
 
 public static class CodexCredentials
 {
-    public static bool CanPromptReauth() => Trigger.CLILocator.Locate("codex") is not null;
-
     public static DateTimeOffset? AuthModificationStamp()
     {
         try
