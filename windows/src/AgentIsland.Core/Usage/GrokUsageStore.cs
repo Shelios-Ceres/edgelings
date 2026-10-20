@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
@@ -18,7 +17,7 @@ public sealed class GrokCachedSnapshot
 /// network recovery, manual refresh) via KickRefresh(), with a small attempt
 /// floor so bursty kick sources never turn into extra polling of a provider
 /// the user may not even be looking at.
-public sealed class GrokUsageStore : INotifyPropertyChanged
+public sealed class GrokUsageStore : GuestUsageStore
 {
     public static GrokUsageStore Shared { get; } = new();
 
@@ -37,10 +36,6 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
     private DateTimeOffset? _lastUpdated;
     private string? _accountEmail;
     private string? _authModeBadge;
-    private bool _loading;
-    private DateTimeOffset? _lastAttempt;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     private GrokUsageStore()
     {
@@ -55,7 +50,7 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
     public GrokBillingSnapshot? Snapshot
     {
         get => _snapshot;
-        private set { _snapshot = value; Raise(nameof(Snapshot)); }
+        private set => Change(ref _snapshot, value, nameof(Snapshot));
     }
 
     /// Non-null while the latest fetch failed. Values in Snapshot are the
@@ -63,19 +58,19 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
     public string? ErrorCaption
     {
         get => _errorCaption;
-        private set { _errorCaption = value; Raise(nameof(ErrorCaption)); }
+        private set => Change(ref _errorCaption, value, nameof(ErrorCaption));
     }
 
     public DateTimeOffset? LastUpdated
     {
         get => _lastUpdated;
-        private set { _lastUpdated = value; Raise(nameof(LastUpdated)); }
+        private set => Change(ref _lastUpdated, value, nameof(LastUpdated));
     }
 
     public string? AccountEmail
     {
         get => _accountEmail;
-        private set { _accountEmail = value; Raise(nameof(AccountEmail)); }
+        private set => Change(ref _accountEmail, value, nameof(AccountEmail));
     }
 
     /// "SUPERGROK" for OIDC logins, else the raw auth_mode uppercased. This is
@@ -83,38 +78,14 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
     public string? AuthModeBadge
     {
         get => _authModeBadge;
-        private set { _authModeBadge = value; Raise(nameof(AuthModeBadge)); }
-    }
-
-    public bool Loading
-    {
-        get => _loading;
-        private set { _loading = value; Raise(nameof(Loading)); }
+        private set => Change(ref _authModeBadge, value, nameof(AuthModeBadge));
     }
 
     public void KickRefresh()
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
-        if (Loading) return;
-        if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
-
-        _lastAttempt = DateTimeOffset.Now;
-        Loading = true;
-        _ = Task.Run(async () =>
-        {
-            GrokUsageFetcher.Outcome outcome;
-            try
-            {
-                outcome = await GrokUsageFetcher.Fetch();
-            }
-            catch (Exception error)
-            {
-                // A faulted fetch must never leave Loading latched — that
-                // would freeze this row until the app relaunches.
-                outcome = new GrokUsageFetcher.Outcome.Failed(error.Message);
-            }
-            await UiThread.InvokeAsync(() => Apply(outcome));
-        });
+        if (!TryStart(MinAttemptGap)) return;
+        RunFetch<GrokUsageFetcher.Outcome>(() => GrokUsageFetcher.Fetch(), message => new GrokUsageFetcher.Outcome.Failed(message), Apply);
     }
 
     private void Apply(GrokUsageFetcher.Outcome outcome)
@@ -159,6 +130,4 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
 
     private static void Persist(GrokBillingSnapshot fresh) => Preferences.Set(
         CacheKey, new GrokCachedSnapshot { Snapshot = fresh, UpdatedAt = DateTimeOffset.Now });
-
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

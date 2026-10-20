@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
@@ -15,7 +14,7 @@ public sealed class KimiCachedSnapshot
 /// Kimi Code's plan quotas and membership level. Timer-free like the other
 /// guests: it rides UsageStore.Refresh()'s cadence via KickRefresh(), behind
 /// an attempt floor.
-public sealed class KimiUsageStore : INotifyPropertyChanged
+public sealed class KimiUsageStore : GuestUsageStore
 {
     public static KimiUsageStore Shared { get; } = new();
 
@@ -30,11 +29,7 @@ public sealed class KimiUsageStore : INotifyPropertyChanged
     private KimiUsageSnapshot? _snapshot;
     private string? _errorCaption;
     private DateTimeOffset? _lastUpdated;
-    private bool _loading;
-    private DateTimeOffset? _lastAttempt;
     private string? _signInStamp;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     private KimiUsageStore()
     {
@@ -47,7 +42,7 @@ public sealed class KimiUsageStore : INotifyPropertyChanged
     public KimiUsageSnapshot? Snapshot
     {
         get => _snapshot;
-        private set { _snapshot = value; Raise(nameof(Snapshot)); }
+        private set => Change(ref _snapshot, value, nameof(Snapshot));
     }
 
     /// Non-null while the latest fetch failed; Snapshot keeps the last good
@@ -55,23 +50,17 @@ public sealed class KimiUsageStore : INotifyPropertyChanged
     public string? ErrorCaption
     {
         get => _errorCaption;
-        private set { _errorCaption = value; Raise(nameof(ErrorCaption)); }
+        private set => Change(ref _errorCaption, value, nameof(ErrorCaption));
     }
 
     public DateTimeOffset? LastUpdated
     {
         get => _lastUpdated;
-        private set { _lastUpdated = value; Raise(nameof(LastUpdated)); }
+        private set => Change(ref _lastUpdated, value, nameof(LastUpdated));
     }
 
     /// Kimi's membership level name ("Max"), uppercased for the badge.
     public string? PlanBadge => _snapshot?.Plan?.ToUpperInvariant();
-
-    public bool Loading
-    {
-        get => _loading;
-        private set { _loading = value; Raise(nameof(Loading)); }
-    }
 
     public void KickRefresh() => Kick(MinAttemptGap);
 
@@ -92,25 +81,8 @@ public sealed class KimiUsageStore : INotifyPropertyChanged
     private void Kick(TimeSpan gap)
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Kimi)) return;
-        if (Loading) return;
-        if (_lastAttempt is { } last && DateTimeOffset.Now - last < gap) return;
-
-        _lastAttempt = DateTimeOffset.Now;
-        Loading = true;
-        _ = Task.Run(async () =>
-        {
-            KimiUsageFetcher.Outcome outcome;
-            try
-            {
-                outcome = await KimiUsageFetcher.Fetch();
-            }
-            catch (Exception error)
-            {
-                // A faulted fetch must never leave Loading latched.
-                outcome = new KimiUsageFetcher.Outcome.Failed(error.Message);
-            }
-            await UiThread.InvokeAsync(() => Apply(outcome));
-        });
+        if (!TryStart(gap)) return;
+        RunFetch<KimiUsageFetcher.Outcome>(() => KimiUsageFetcher.Fetch(), message => new KimiUsageFetcher.Outcome.Failed(message), Apply);
     }
 
     private void Apply(KimiUsageFetcher.Outcome outcome)
@@ -139,6 +111,4 @@ public sealed class KimiUsageStore : INotifyPropertyChanged
                 break;
         }
     }
-
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

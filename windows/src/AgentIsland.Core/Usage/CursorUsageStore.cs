@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
@@ -9,7 +8,7 @@ namespace AgentIsland.Usage;
 /// identity from the editor's own store. Timer-free — it rides
 /// UsageStore.Refresh()'s cadence via KickRefresh() behind the slot
 /// selection, with an attempt floor so kick bursts never add polling.
-public sealed class CursorUsageStore : INotifyPropertyChanged
+public sealed class CursorUsageStore : GuestUsageStore
 {
     private static readonly Lazy<CursorUsageStore> Instance = new(() => new CursorUsageStore());
     public static CursorUsageStore Shared => Instance.Value;
@@ -33,10 +32,6 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     private DateTimeOffset? _lastUpdated;
     private string? _accountEmail;
     private string? _localPlan;
-    private bool _loading;
-    private DateTimeOffset? _lastAttempt;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// Persisted shape of the last good fetch. Public because the JSON
     /// serializer behind Preferences has to reach it.
@@ -93,19 +88,13 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     public DateTimeOffset? LastUpdated
     {
         get => _lastUpdated;
-        private set { _lastUpdated = value; Raise(nameof(LastUpdated)); }
+        private set => Change(ref _lastUpdated, value, nameof(LastUpdated));
     }
 
     public string? AccountEmail
     {
         get => _accountEmail;
-        private set { _accountEmail = value; Raise(nameof(AccountEmail)); }
-    }
-
-    public bool Loading
-    {
-        get => _loading;
-        private set { _loading = value; Raise(nameof(Loading)); }
+        private set => Change(ref _accountEmail, value, nameof(AccountEmail));
     }
 
     /// "FREE" / "PRO" chip text for the Settings row. Reads two cached
@@ -127,10 +116,7 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     public void KickRefresh()
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Cursor)) return;
-        if (Loading) return;
-        if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
-        _lastAttempt = DateTimeOffset.Now;
-        Loading = true;
+        if (!TryStart(MinAttemptGap)) return;
         _ = Task.Run(async () =>
         {
             try
@@ -198,6 +184,4 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
         LastUpdated = null;
         if (hadQuota) _save(null);
     }
-
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

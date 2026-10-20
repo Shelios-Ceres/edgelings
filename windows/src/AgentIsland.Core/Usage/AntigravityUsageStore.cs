@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
@@ -10,7 +9,7 @@ namespace AgentIsland.Usage;
 /// UsageStore.Refresh()'s cadence via KickRefresh() behind a 120s attempt
 /// floor, with a Preferences snapshot cache so relaunch (or Antigravity not
 /// running, the only time its quota is unreadable) doesn't blank the strip.
-public sealed class AntigravityUsageStore : INotifyPropertyChanged
+public sealed class AntigravityUsageStore : GuestUsageStore
 {
     public static AntigravityUsageStore Shared { get; } = new();
 
@@ -25,10 +24,6 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
     private string? _statusCaption;
     private DateTimeOffset? _lastUpdated;
     private string? _accountEmail;
-    private bool _loading;
-    private DateTimeOffset? _lastAttempt;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// Detection is launch-static, same as the other providers.
     public bool Detected { get; }
@@ -56,25 +51,19 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
     public string? StatusCaption
     {
         get => _statusCaption;
-        private set { _statusCaption = value; Raise(nameof(StatusCaption)); }
+        private set => Change(ref _statusCaption, value, nameof(StatusCaption));
     }
 
     public DateTimeOffset? LastUpdated
     {
         get => _lastUpdated;
-        private set { _lastUpdated = value; Raise(nameof(LastUpdated)); }
+        private set => Change(ref _lastUpdated, value, nameof(LastUpdated));
     }
 
     public string? AccountEmail
     {
         get => _accountEmail;
-        private set { _accountEmail = value; Raise(nameof(AccountEmail)); }
-    }
-
-    public bool Loading
-    {
-        get => _loading;
-        private set { _loading = value; Raise(nameof(Loading)); }
+        private set => Change(ref _accountEmail, value, nameof(AccountEmail));
     }
 
     /// Tier chip for the Settings row / strip. Google's tier names are
@@ -87,26 +76,8 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
     {
         if (!Detected) return;
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Antigravity)) return;
-        if (Loading) return;
-        if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
-
-        _lastAttempt = DateTimeOffset.Now;
-        Loading = true;
-        _ = Task.Run(async () =>
-        {
-            AntigravityUsageFetcher.Outcome outcome;
-            try
-            {
-                outcome = await AntigravityUsageFetcher.Fetch();
-            }
-            catch (Exception error)
-            {
-                // A faulted fetch must never leave Loading latched — that
-                // would freeze the strip until the app is relaunched.
-                outcome = new AntigravityUsageFetcher.Outcome.Failed(error.Message);
-            }
-            await UiThread.InvokeAsync(() => Apply(outcome));
-        });
+        if (!TryStart(MinAttemptGap)) return;
+        RunFetch<AntigravityUsageFetcher.Outcome>(() => AntigravityUsageFetcher.Fetch(), message => new AntigravityUsageFetcher.Outcome.Failed(message), Apply);
     }
 
     private void Apply(AntigravityUsageFetcher.Outcome outcome)
@@ -142,8 +113,6 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
 
     private static void Persist(AntigravityQuotaSnapshot fresh, string? email) =>
         Preferences.Set(CacheKey, new CachedSnapshot(fresh, DateTimeOffset.Now, email));
-
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     /// Cache envelope. Public so the JSON serializer binds it the same way
     /// it binds UsageCacheSnapshot.
