@@ -197,22 +197,7 @@ public sealed class DrawerStore : INotifyPropertyChanged
         Raise(nameof(Order));
     }
 
-    /// "shape/color" engine ids, or null to use the provider's default.
-    public (string Shape, string Color)? Look(DisplayProvider provider)
-    {
-        if (Preferences.Get<string?>(LookKeyPrefix + provider.RawValue()) is not { } raw) return null;
-        var parts = raw.Split('/');
-        return parts.Length == 2 ? (parts[0], parts[1]) : null;
-    }
-
-    public void SetLook(DisplayProvider provider, string shape, string color)
-    {
-        Preferences.Set(LookKeyPrefix + provider.RawValue(), $"{shape}/{color}");
-        Raise(nameof(Look));
-    }
-
-    /// Where a character set keeps an agent's picked look. The WPF drawer's
-    /// "shape/color" pick (above) lives under the one-part key.
+    /// Where a character set keeps an agent's picked look.
     public static string LookKey(CharacterTheme theme, DisplayProvider provider) =>
         $"{LookKeyPrefix}{theme.ToString().ToLowerInvariant()}.{provider.Character().RawValue()}";
 

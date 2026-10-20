@@ -6,8 +6,7 @@ public enum SessionLaunchTarget
     ClaudeDesktop,
 }
 
-/// A resumable session discovered on disk, for the trigger picker and the
-/// activity monitor.
+/// A resumable session discovered on disk, for the activity monitor.
 public sealed record ScannedSession(
     TriggerTool Tool,
     string SessionId,

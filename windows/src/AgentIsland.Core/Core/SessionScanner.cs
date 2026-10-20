@@ -35,32 +35,6 @@ public static class SessionScanner
 
     // MARK: - Entry points
 
-    /// Picker scan: desktop-titled Claude threads (archived filtered) UNION
-    /// transcript-only CLI threads the desktop store has never seen, one Codex
-    /// entry per project, plus every Grok and Gemini session.
-    public static List<ScannedSession> Scan(DateTimeOffset now, IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
-    {
-        var output = ScanClaudeFromDesktopStore(now, lastWorking);
-        var known = new HashSet<string>(output.Select(s => s.SessionId), StringComparer.Ordinal);
-        output.AddRange(ScanClaudeTranscripts(now, lastWorking, excludeArchived: true)
-            .Where(s => !known.Contains(s.SessionId)));
-        output.AddRange(ScanCodex(now, lastWorking, limit: 30, dedupeProjects: true));
-        output.AddRange(ScanGrok(now, lastWorking));
-        output.AddRange(ScanAntigravity(now, lastWorking));
-        output.AddRange(ScanCursor(now, lastWorking));
-        output.AddRange(ScanKimi(now, lastWorking));
-        output.AddRange(ScanDeepSeek(now, lastWorking));
-        output.Sort((a, b) => b.Modified.CompareTo(a.Modified));
-        // Dedupe by session: the Claude Desktop store commonly holds the SAME
-        // cliSessionId under two project folders (23 of 41 on the reporting
-        // machine), so a raw file scan lists every such session twice in the
-        // picker. Sorted newest-first, keep the first sighting of each
-        // (tool, sessionId).
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        output.RemoveAll(session => !seen.Add(session.Id));
-        return output;
-    }
-
     /// Monitoring scan: every Claude transcript (desktop-labelled when known),
     /// every recent Codex rollout with no project dedupe, plus every Grok and
     /// Gemini session. Subagent / child threads never participate — machine
@@ -77,36 +51,6 @@ public static class SessionScanner
         output.AddRange(ScanKimi(now, lastWorking));
         output.AddRange(ScanDeepSeek(now, lastWorking));
         output.Sort((a, b) => b.Modified.CompareTo(a.Modified));
-        return output;
-    }
-
-    // MARK: - Claude: desktop session store (titles + archived flag)
-
-    private static List<ScannedSession> ScanClaudeFromDesktopStore(
-        DateTimeOffset now,
-        IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
-    {
-        var output = new List<ScannedSession>();
-        var transcripts = ClaudeTranscriptIndex();
-        foreach (var entry in EnumerateDesktopSessionFiles())
-        {
-            var parsed = DesktopSessionAt(entry);
-            if (parsed is not { } session) continue;
-            if (session.IsArchived) continue;
-            if (string.IsNullOrEmpty(session.CliSessionId)) continue;
-            transcripts.TryGetValue(session.CliSessionId, out var transcript);
-            var state = ClaudeSessionState(transcript, now, lastWorking, session);
-            output.Add(new ScannedSession(
-                TriggerTool.Claude,
-                session.CliSessionId,
-                session.Cwd,
-                string.IsNullOrEmpty(session.Title) ? Fallback(session.Cwd, session.CliSessionId) : session.Title,
-                state.Modified,
-                state.Status,
-                transcript,
-                state.TurnKey,
-                SessionLaunchTarget.ClaudeDesktop));
-        }
         return output;
     }
 
@@ -1110,8 +1054,8 @@ public static class SessionScanner
     private static readonly Dictionary<string, (long Ticks, long Size, SessionTurnStatus Turn, DateTimeOffset Modified)>
         TurnCache = new(StringComparer.Ordinal);
 
-    /// The monitoring scan runs on its own worker while the trigger picker's
-    /// scan runs on another; both land here. An unsynchronized Dictionary
+    /// Scans can overlap on more than one worker, and all of them land here.
+    /// An unsynchronized Dictionary
     /// written from two threads corrupts its bucket chain, and a corrupted
     /// chain makes the NEXT lookup spin forever — a hung scan thread, not an
     /// exception. The parse itself stays outside the lock so one slow tail

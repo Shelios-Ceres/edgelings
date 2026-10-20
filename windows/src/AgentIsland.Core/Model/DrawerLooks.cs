@@ -9,61 +9,6 @@ namespace AgentIsland.Model;
 /// drawer's menu, and the look brings the agent's colour.
 public static class DrawerLooks
 {
-    /// The WPF drawer's look picker (the WinUI drawer has none): each agent's
-    /// default shape and colour, after its brand.
-    public static (string Shape, string Color) Default(DisplayProvider provider) => provider switch
-    {
-        DisplayProvider.Claude => ("sparkle", "orange"),
-        DisplayProvider.Codex => ("cloud", "blue"),
-        DisplayProvider.Antigravity => ("arch", "violet"),
-        DisplayProvider.Grok => ("wedge", "gray"),
-        DisplayProvider.Cursor => ("hex", "black"),
-        DisplayProvider.Kimi => ("blob", "blue"),
-        DisplayProvider.DeepSeek => ("teardrop", "blue"),
-        _ => ("blob", "blue"),
-    };
-
-    public static (string Shape, string Color) For(DisplayProvider provider) =>
-        DrawerStore.Shared.Look(provider) ?? Default(provider);
-
-    // MARK: - Legacy WPF drawer
-    // The WPF app's drawer still runs the local Grok Bot study copy, whose
-    // state names these are. The WinUI drawer uses the engines' map below.
-
-    /// The phase-to-animation mapping the user approved (2026-10-11).
-    public static string Entry(AgentPhase phase) => phase switch
-    {
-        AgentPhase.Thinking => "thinking",
-        AgentPhase.Streaming => "streaming",
-        AgentPhase.Reading => "reading",
-        AgentPhase.Searching => "searching",
-        AgentPhase.WebSearching => "radar",
-        AgentPhase.Writing => "writing",
-        AgentPhase.Running => "running",
-        AgentPhase.Controlling => "controlling",
-        AgentPhase.Spawning => "spawning",
-        AgentPhase.WaitingOnAgents => "orbit",
-        AgentPhase.Sending => "sending",
-        AgentPhase.Asking or AgentPhase.Approving => "alerting",
-        AgentPhase.Compacting => "loading",
-        AgentPhase.Working => "working",
-        AgentPhase.Finished => "finished",
-        AgentPhase.Failed => "failed",
-        AgentPhase.NetworkTrouble => "blocked",
-        AgentPhase.RateLimited => "sleeping",
-        AgentPhase.AuthRequired => "confused",
-        _ => "idle",
-    };
-
-    /// State re-entered when a self-completing entry falls back to idle.
-    /// After "finished" the character listens for your reply: the "waiting"
-    /// morph's dots read as thinking at drawer size and drop the shape that
-    /// identifies the provider.
-    public static string Hold(AgentPhase phase) => phase == AgentPhase.Finished ? "listening" : Entry(phase);
-
-    public static readonly HashSet<string> CalmStates = new() { "idle", "listening", "sleeping", "blocked", "drowsy", "bored" };
-
-    // MARK: - Engines
     // Mirrors the bundled engines (WinUI Drawer/Characters/characters.mjs and
     // classic.mjs); PixelThemeTests and ClassicThemeTests check every state
     // name against those files, LookCatalogTests every look and colour.
@@ -200,27 +145,4 @@ public static class DrawerLooks
         if (away) return L10n.Tr("Sleeping");
         return phase == AgentPhase.RateLimited ? L10n.Tr("Resting") : PhaseLabel(phase);
     }
-
-    /// The WPF drawer's look picker labels.
-    public static string ShapeLabel(string shape) =>
-        L10n.Tr(shape.Length == 0 ? shape : char.ToUpperInvariant(shape[0]) + shape[1..]);
-
-    public static string ColorLabel(string color) =>
-        L10n.Tr(color.Length == 0 ? color : char.ToUpperInvariant(color[0]) + color[1..]);
-
-    /// The WPF drawer's palette (0xRRGGBB), for its look picker's colours.
-    public static uint Swatch(string color) => color switch
-    {
-        "black" => 0x24252C,
-        "brown" => 0x9C6B45,
-        "red" => 0xF04A55,
-        "orange" => 0xFF7A2E,
-        "yellow" => 0xFFB51F,
-        "green" => 0x22BF7A,
-        "cyan" => 0x17B5C7,
-        "violet" => 0x8E63F5,
-        "magenta" => 0xE9529E,
-        "gray" => 0x858A96,
-        _ => 0x2D8CFF,
-    };
 }
