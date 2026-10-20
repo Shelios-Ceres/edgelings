@@ -63,6 +63,8 @@ internal sealed partial class CostPage : IDisposable
         Watch(CostStore.Shared);
         Watch(ProviderVisibilityStore.Shared);
         Watch(TokenCountModeStore.Shared);
+        // A picked look brings its own colour to the agent's chart.
+        Watch(DrawerStore.Shared, nameof(DrawerStore.LookId));
     }
 
     /// The period tabs, the period's dates beside the scan, the totals and
@@ -77,11 +79,12 @@ internal sealed partial class CostPage : IDisposable
         _teardown.Clear();
     }
 
-    private void Watch(INotifyPropertyChanged source)
+    private void Watch(INotifyPropertyChanged source, string? property = null)
     {
         // The scan raises once per provider; one render covers the burst.
-        PropertyChangedEventHandler handler = (_, _) =>
+        PropertyChangedEventHandler handler = (_, e) =>
         {
+            if (property is not null && e.PropertyName != property) return;
             if (_pending) return;
             _pending = true;
             _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>

@@ -40,7 +40,9 @@ internal sealed class PixelEngine : ICharacterEngine
             tick(steps, size) {
                 const dts = steps.split(','), parts = [];
                 for (let i = 0; i < bots.length; i++) {
-                    if (dts[i] === '') { parts.push(''); continue; }
+                    // A bot past a short step list (a picker's previews) stays as it is:
+                    // advancing it by +undefined would turn its clock to NaN for good.
+                    if (!dts[i]) { parts.push(''); continue; }
                     bots[i].advance(+dts[i]);
                     parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
                 }
