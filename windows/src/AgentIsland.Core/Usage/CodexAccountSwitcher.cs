@@ -340,8 +340,7 @@ public static class CodexAccountSwitcher
         data = null;
         try
         {
-            using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var stream = SharedFile.Open(path);
             using var memory = new MemoryStream();
             stream.CopyTo(memory);
             data = memory.ToArray();

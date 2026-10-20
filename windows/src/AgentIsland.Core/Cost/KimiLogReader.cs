@@ -70,7 +70,7 @@ public static class KimiLogReader
     internal static List<TokenEvent> ParseFile(string path)
     {
         var output = new List<TokenEvent>();
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var stream = SharedFile.Open(path);
         using var reader = new StreamReader(stream);
         while (reader.ReadLine() is { } line)
         {

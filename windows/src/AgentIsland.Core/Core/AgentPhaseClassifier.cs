@@ -578,7 +578,7 @@ public static class AgentPhaseClassifier
     /// may be mid-line at the end; JSON parsing skips both.
     private static IReadOnlyList<string> ReadTail(string path)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var stream = SharedFile.Open(path);
         var start = Math.Max(0, stream.Length - TailBytes);
         stream.Seek(start, SeekOrigin.Begin);
         var buffer = new byte[stream.Length - start];

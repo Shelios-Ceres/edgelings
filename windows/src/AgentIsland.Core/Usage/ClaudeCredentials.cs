@@ -184,7 +184,7 @@ public static class ClaudeCredentials
         {
             var path = CredentialsFile;
             if (!File.Exists(path)) return null;
-            using var stream = OpenShared(path);
+            using var stream = SharedFile.Open(path);
             using var doc = JsonDocument.Parse(stream);
             if (Jsonl.GetObject(doc.RootElement, "claudeAiOauth") is not { } oauth) return null;
             var access = Jsonl.GetString(oauth, "accessToken");
@@ -224,7 +224,7 @@ public static class ClaudeCredentials
                 // open, and an exclusive open would throw — dropping us into the
                 // empty-object branch, which rewrites the file WITHOUT scopes,
                 // subscriptionType or anything else the CLI stores there.
-                using var existing = OpenShared(path);
+                using var existing = SharedFile.Open(path);
                 root = JsonNode.Parse(existing) ?? new JsonObject();
             }
             catch
@@ -274,13 +274,6 @@ public static class ClaudeCredentials
             return false;
         }
     }
-
-    /// Read handle that tolerates the writer still holding the file. Claude
-    /// Code and Claude Desktop keep .credentials.json open while they run, and
-    /// the default File.Read* share mode throws a sharing violation against
-    /// them — which this class would otherwise read as "not signed in".
-    private static FileStream OpenShared(string path) => new(
-        path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
     /// Cheap local change signal used by the re-auth poll — file mtime here,
     /// keychain `mdat` on macOS.

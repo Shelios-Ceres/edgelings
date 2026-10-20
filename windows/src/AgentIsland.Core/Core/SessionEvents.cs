@@ -193,7 +193,7 @@ internal static class ScheduledTaskSkips
             {
                 try
                 {
-                    using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var stream = SharedFile.Open(file);
                     using var doc = JsonDocument.Parse(stream);
                     output.AddRange(Parse(doc.RootElement));
                 }

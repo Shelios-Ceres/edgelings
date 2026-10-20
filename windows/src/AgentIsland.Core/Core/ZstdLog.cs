@@ -17,7 +17,7 @@ public static class ZstdLog
         byte[] data;
         try
         {
-            using var stream = Open(path);
+            using var stream = SharedFile.Open(path);
             var start = Math.Max(0, stream.Length - bytes);
             stream.Seek(start, SeekOrigin.Begin);
             data = new byte[stream.Length - start];
@@ -34,7 +34,7 @@ public static class ZstdLog
     /// Every line of the log, for the cost reader.
     public static IEnumerable<string> ReadLines(string path)
     {
-        using var stream = Open(path);
+        using var stream = SharedFile.Open(path);
         var data = new byte[stream.Length];
         stream.ReadExactly(data);
         return Decode(data).Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -72,7 +72,4 @@ public static class ZstdLog
         }
         return Encoding.UTF8.GetString(output.GetBuffer(), 0, (int)output.Length);
     }
-
-    private static FileStream Open(string path) =>
-        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 }

@@ -143,7 +143,7 @@ public static class SessionScanner
         var settled = false;
         try
         {
-            using var stream = OpenShared(path);
+            using var stream = SharedFile.Open(path);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             var read = 0;
             while (read < SdkLinesRead && reader.ReadLine() is { } line)
@@ -235,9 +235,7 @@ public static class SessionScanner
         byte[] firstLine;
         try
         {
-            using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
+            using var stream = SharedFile.Open(path);
             var buffer = new List<byte>(65_536);
             var chunk = new byte[65_536];
             var newline = -1;
@@ -352,7 +350,7 @@ public static class SessionScanner
     {
         try
         {
-            using var stream = OpenShared(summaryPath);
+            using var stream = SharedFile.Open(summaryPath);
             using var doc = System.Text.Json.JsonDocument.Parse(stream);
             return (Jsonl.GetString(doc.RootElement, "session_summary") ?? "").Trim();
         }
@@ -638,8 +636,7 @@ public static class SessionScanner
     {
         try
         {
-            using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var stream = SharedFile.Open(path);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             for (var i = 0; i < 40 && reader.ReadLine() is { } line; i++)
             {
@@ -735,7 +732,7 @@ public static class SessionScanner
     {
         try
         {
-            using var stream = OpenShared(statePath);
+            using var stream = SharedFile.Open(statePath);
             using var doc = System.Text.Json.JsonDocument.Parse(stream);
             return Jsonl.GetString(doc.RootElement, "cwd") ?? "";
         }
@@ -918,7 +915,7 @@ public static class SessionScanner
     {
         try
         {
-            using var stream = OpenShared(path);
+            using var stream = SharedFile.Open(path);
             using var doc = System.Text.Json.JsonDocument.Parse(stream);
             var root = doc.RootElement;
             var cliSessionId = Jsonl.GetString(root, "cliSessionId") ?? "";
@@ -993,7 +990,7 @@ public static class SessionScanner
         string[] lines;
         try
         {
-            using var stream = OpenShared(path);
+            using var stream = SharedFile.Open(path);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             lines = reader.ReadToEnd().Split('\n');
         }
@@ -1268,8 +1265,7 @@ public static class SessionScanner
     {
         try
         {
-            using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var stream = SharedFile.Open(path);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             for (var i = 0; i < 30 && reader.ReadLine() is { } line; i++)
             {
@@ -1320,22 +1316,12 @@ public static class SessionScanner
         return parent.Replace('-', '\\');
     }
 
-    /// Every artifact this scanner reads belongs to a tool that is running
-    /// right now — Claude Desktop's session store, Codex's session index,
-    /// Grok's summary. The default File.ReadAll* share mode throws a sharing
-    /// violation against an open writer, which would silently drop that
-    /// session (or every Codex title) from the scan.
-    private static FileStream OpenShared(string path) => new(
-        path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-
     public static List<string> TailLines(string path, long bytes = 131_072, int keep = 200)
     {
         byte[] data;
         try
         {
-            using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
+            using var stream = SharedFile.Open(path);
             var size = stream.Length;
             if (size > bytes) stream.Seek(size - bytes, SeekOrigin.Begin);
             using var memory = new MemoryStream();

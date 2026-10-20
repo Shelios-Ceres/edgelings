@@ -49,7 +49,7 @@ public static class GrokAuthFile
         {
             var file = path ?? DefaultPath;
             if (!File.Exists(file)) return null;
-            using var stream = OpenShared(file);
+            using var stream = SharedFile.Open(file);
             if (JsonNode.Parse(stream) is not JsonObject root) return null;
             if (SelectEntry(root) is not { } selected) return null;
             return Entry(selected.Scope, selected.Raw);
@@ -81,7 +81,7 @@ public static class GrokAuthFile
             if (NonEmpty(response["access_token"]) is not { } accessToken) return null;
 
             JsonObject root;
-            using (var stream = OpenShared(path))
+            using (var stream = SharedFile.Open(path))
             {
                 if (JsonNode.Parse(stream) is not JsonObject parsed) return null;
                 root = parsed;
@@ -203,13 +203,6 @@ public static class GrokAuthFile
             return false;
         }
     }
-
-    /// The grok CLI keeps auth.json open while it runs; the default
-    /// File.ReadAll* share mode throws against that, and a failed read here
-    /// reads to the caller as "grok was never signed in on this machine",
-    /// which blanks the whole row.
-    private static FileStream OpenShared(string path) => new(
-        path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
     private static void TryDelete(string path)
     {

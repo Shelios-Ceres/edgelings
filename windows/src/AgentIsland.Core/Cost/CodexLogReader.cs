@@ -38,7 +38,7 @@ public static class CodexLogReader
         // last_token_usage would double-bill. Totals that shrink are a
         // compact reset, and those events still count.
         (long Input, long Output)? lastTotals = null;
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var stream = SharedFile.Open(path);
         using var reader = new StreamReader(stream);
         while (reader.ReadLine() is { } line)
         {
