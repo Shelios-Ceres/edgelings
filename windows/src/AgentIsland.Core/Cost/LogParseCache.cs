@@ -134,11 +134,12 @@ public sealed class LogParseCache
         _loaded = true;
         try
         {
-            if (File.Exists(_cachePath))
+            if (File.Exists(_cachePath)
+                && JsonSerializer.Deserialize<Dictionary<string, Entry>>(File.ReadAllText(_cachePath)) is { } saved)
             {
-                var text = File.ReadAllText(_cachePath);
-                _entries = JsonSerializer.Deserialize<Dictionary<string, Entry>>(text)
-                    ?? new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+                // The deserializer's dictionary compares case-sensitively; a
+                // path in other casing would miss its entry and add a twin.
+                foreach (var (path, entry) in saved) _entries[path] = entry;
             }
         }
         catch
