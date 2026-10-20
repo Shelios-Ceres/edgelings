@@ -12,7 +12,7 @@ internal sealed partial class DrawerWindow
     /// topmost now and then, since fullscreen and topmost apps park above it.
     private void Guard()
     {
-        _reducedMotion = ReducedMotion();
+        _reducedMotion = Motion.ReducedMotion;
         UpdateCap();
         var monitor = Win32.MonitorFromWindow(_hwnd, Win32.MonitorDefaultToNearest);
         var foreground = Win32.GetForegroundWindow();

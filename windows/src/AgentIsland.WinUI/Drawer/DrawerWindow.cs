@@ -6,6 +6,7 @@ using AgentIsland.Cost;
 using AgentIsland.Model;
 using AgentIsland.Usage;
 using AgentIsland.WinUI.Platform;
+using AgentIsland.WinUI.Shell;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Dispatching;
@@ -162,7 +163,6 @@ internal sealed partial class DrawerWindow : Window
 
     private readonly List<Action> _teardown = new();
 
-    private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
 
     private readonly DrawerStats? _stats;
 
@@ -231,7 +231,7 @@ internal sealed partial class DrawerWindow : Window
         Title = "Agent Island";
         _hwnd = WindowNative.GetWindowHandle(this);
         _queue = DispatcherQueue;
-        _reducedMotion = ReducedMotion();
+        _reducedMotion = Motion.ReducedMotion;
         UpdateCap();
 
         _theme = _loopTheme = DrawerStore.Shared.Theme;
@@ -325,11 +325,6 @@ internal sealed partial class DrawerWindow : Window
         Poll();
         ApplyVisibility();
     }
-
-    /// Windows' animation effects are off, or AGENTISLAND_DEBUG_REDUCED_MOTION=1
-    /// says to act as if they were.
-    private bool ReducedMotion() =>
-        !_uiSettings.AnimationsEnabled || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REDUCED_MOTION") == "1";
 
     /// Hidden from the tray menu, as opposed to stepping aside for a full-screen app.
     public bool DeliberatelyHidden => _deliberatelyHidden;
