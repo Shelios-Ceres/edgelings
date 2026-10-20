@@ -28,14 +28,11 @@ public static class ClaudeLogReader
     internal static List<TokenEvent> ParseFile(string path)
     {
         var output = new List<TokenEvent>();
-        using var stream = SharedFile.Open(path);
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
+        // A pathological multi-MB line (an embedded payload) can't be a
+        // usage event; it is skipped before parsing so it never balloons
+        // peak memory (the macOS 64 MiB backstop's job, done harder).
+        foreach (var line in LogLines.Read(path, maxLength: 1_000_000))
         {
-            // A pathological multi-MB line (an embedded payload) can't be
-            // a usage event; skip before parsing so it never balloons
-            // peak memory (the macOS 64 MiB backstop's job, done harder).
-            if (line.Length > 1_000_000) continue;
             using var doc = Jsonl.TryParseLine(line);
             if (doc is null) continue;
             var root = doc.RootElement;

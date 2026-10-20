@@ -70,14 +70,11 @@ public static class KimiLogReader
     internal static List<TokenEvent> ParseFile(string path)
     {
         var output = new List<TokenEvent>();
-        using var stream = SharedFile.Open(path);
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
+        // Tool results and appended messages dominate the log; only usage
+        // records matter, and the substring guard skips the rest before any
+        // JSON parse.
+        foreach (var line in LogLines.Read(path, maxLength: 100_000, mustContain: "\"usage.record\""))
         {
-            // Tool results and appended messages dominate the log; only
-            // usage records matter, and the substring guard skips the rest
-            // before any JSON parse.
-            if (line.Length > 100_000 || !line.Contains("\"usage.record\"", StringComparison.Ordinal)) continue;
             if (Parse(line) is { } tokenEvent) output.Add(tokenEvent);
         }
         return Deduplicate(output);

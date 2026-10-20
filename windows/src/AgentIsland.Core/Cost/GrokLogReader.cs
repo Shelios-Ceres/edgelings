@@ -51,15 +51,11 @@ public static class GrokLogReader
     internal static List<(TokenEvent Event, string? DedupKey)> ParseFile(string path)
     {
         var output = new List<(TokenEvent, string?)>();
-        using var stream = SharedFile.Open(path);
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
+        // Tool-call results dominate the stream and can be multi-MB; only
+        // turn_completed lines carry a usage object, and every one contains
+        // the "usage" key. Both are guarded before any parsing.
+        foreach (var line in LogLines.Read(path, maxLength: 1_000_000, mustContain: "\"usage\""))
         {
-            // Tool-call results dominate the stream and can be multi-MB;
-            // only turn_completed lines carry a usage object, and every one
-            // contains the "usage" key. Guard on both before parsing.
-            if (line.Length > 1_000_000) continue;
-            if (!line.Contains("\"usage\"", StringComparison.Ordinal)) continue;
             using var doc = Jsonl.TryParseLine(line);
             if (doc is null) continue;
             var root = doc.RootElement;

@@ -38,13 +38,10 @@ public static class CodexLogReader
         // last_token_usage would double-bill. Totals that shrink are a
         // compact reset, and those events still count.
         (long Input, long Output)? lastTotals = null;
-        using var stream = SharedFile.Open(path);
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
+        // Multi-MB embedded payload lines can't be token_count events; they
+        // are skipped before parsing to keep peak memory flat.
+        foreach (var line in LogLines.Read(path, maxLength: 1_000_000))
         {
-            // Multi-MB embedded payload lines can't be token_count events;
-            // skip before parsing to keep peak memory flat.
-            if (line.Length > 1_000_000) continue;
             using var doc = Jsonl.TryParseLine(line);
             if (doc is null) continue;
             var root = doc.RootElement;
