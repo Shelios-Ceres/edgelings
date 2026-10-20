@@ -12,15 +12,12 @@ namespace AgentIsland.Core;
 public static partial class SessionScanner
 {
     private static readonly TimeSpan NeedsYouCap = TimeSpan.FromMinutes(20);
-
     /// How long a guest transcript must sit unchanged, after visible
     /// activity, before quiet counts as turn-done.
     private const double GuestQuietAfterSeconds = 25;
-
     /// An open turn silent this long is presumed abandoned. Silence alone is
     /// never trouble: thinking and long commands write nothing for minutes.
     private static readonly TimeSpan AttentionWindow = TimeSpan.FromMinutes(30);
-
     /// Claude Desktop writes lastActivityAt 2.3-4.2s after the final assistant
     /// event as turn-completion bookkeeping; external activity inside this
     /// window must not suppress needsYou.

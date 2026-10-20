@@ -214,7 +214,6 @@ public static partial class SessionScanner
     }
 
     private static readonly Dictionary<string, string> TranscriptCwds = new(StringComparer.Ordinal);
-
     private static readonly Dictionary<string, (long Ticks, long Size, DesktopSession Session)> DesktopSessions = new(StringComparer.Ordinal);
 
     /// Transcripts are append-only, so the cwd their first lines name holds.

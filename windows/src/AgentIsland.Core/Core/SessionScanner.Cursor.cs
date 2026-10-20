@@ -66,13 +66,9 @@ public static partial class SessionScanner
     }
 
     private static readonly object CursorGate = new();
-
     private static string _cursorStamp = "";
-
     private static DateTimeOffset _cursorReadAt = DateTimeOffset.MinValue;
-
     private static List<CursorConversation> _cursorCache = new();
-
     private static TimeSpan CursorRereadAfter => TimeSpan.FromSeconds(10);
 
     /// One parsed conversation. Deliberately holds no status: status is a

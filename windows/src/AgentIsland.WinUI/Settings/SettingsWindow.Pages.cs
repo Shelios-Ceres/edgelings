@@ -73,9 +73,7 @@ internal sealed partial class SettingsWindow
     // rearranges it (Rearrange), and a change in which agents are here
     // rebuilds it, keeping its scroll and open cards.
     private StackPanel? _agentList;
-
     private IReadOnlyList<(DisplayProvider Provider, bool Shown)> _lineup = Array.Empty<(DisplayProvider, bool)>();
-
     private string _lineupKey = "";
 
     /// A shown agent's arrow: a step up or down among the shown.

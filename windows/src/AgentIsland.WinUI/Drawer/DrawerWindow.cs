@@ -30,33 +30,20 @@ namespace AgentIsland.WinUI.Drawer;
 internal sealed partial class DrawerWindow : Window
 {
     private const double BotSize = 44;
-
     private const double Gap = 10;
-
     private const double EdgeInset = 6;
-
     private const double InnerInset = 6;
-
     private const double VerticalPadding = 12;
-
     private const double GazeRange = 480;
-
     private const double MinDwellSeconds = 2;
-
     private const double DragThreshold = 4;
-
     // A pointer passing over the drawer opens no card; one that rests does.
     private static readonly TimeSpan HoverIntent = TimeSpan.FromMilliseconds(200);
-
     private const int TopmostEverySeconds = 10;
-
     private const double SpeechGapSeconds = 20;
-
     // Idle characters fidget every 25-75 s, the first one within a minute.
     private const double FidgetGap = 50;
-
     private const double FirstFidgetAfter = 12;
-
     // Sessions found at launch are not news: no lines for the first scans.
     private const double SpeechQuietAtStartSeconds = 8;
 
@@ -113,117 +100,69 @@ internal sealed partial class DrawerWindow : Window
     private sealed record Scene((int Index, float X, float Y)[] Shown, int Left, int Top, double Scale);
 
     private readonly IntPtr _hwnd;
-
     // Built on the UI thread, then owned by the game loop: a theme switch
     // hands the new engine over through _commands.
     private ICharacterEngine? _engine;
-
     private CharacterTheme _theme;
-
     private volatile CharacterTheme _loopTheme;
-
     private readonly SvgCanvas _svg = new();
-
     private readonly List<Bot> _bots = new();
-
     private DrawerActivityFrame _activity = new(Array.Empty<(DisplayProvider, AgentPhase, string?, int)>());
-
     // Which agents' apps are on screen, looked up about once a second.
     private IReadOnlyDictionary<TriggerTool, AgentPresence> _presence = new Dictionary<TriggerTool, AgentPresence>();
-
     private double _presenceAt = double.NegativeInfinity;
-
     private readonly Slot[] _slots;
-
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-
     private readonly CanvasAnimatedControl _canvas;
-
     private readonly HoverCard _card;
-
     private readonly Random _random = new();
-
     private readonly DispatcherQueue _queue;
-
     private readonly DispatcherQueueTimer _poll;
-
     private readonly DispatcherQueueTimer _guard;
-
     private readonly OverlappedPresenter _presenter;
-
     private readonly DispatcherQueueTimer _cardClose;
-
     private readonly DispatcherQueueTimer _cardIntent;
-
     private readonly ConcurrentQueue<Action> _commands = new();
-
     private readonly List<int> _due = new();
-
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     private readonly Subscriptions _subscriptions = new();
 
 
     private readonly DrawerStats? _stats;
-
     private volatile Scene _scene = new(Array.Empty<(int, float, float)>(), 0, 0, 1);
-
     private volatile bool _reducedMotion;
-
     private volatile int _activeCap;
-
     private int _pace = -1;
-
     private Win32.Screen? _screen;
-
     private bool _shown;
-
     private bool _pollInFlight;
-
     private bool _coveredByFullscreen;
-
     private bool _deliberatelyHidden;
-
     private int _topmostCountdown = TopmostEverySeconds;
-
     private Bot? _cardBot;
-
     private bool _cardRefreshPending;
-
     private Bot? _pressed;
-
     private bool _dragging;
-
     // A locked drawer turned this press's drag down: no move, and no click.
     private bool _refused;
-
     // After a click or drag the card stays away until the pointer leaves.
     private bool _cardHeldBack;
-
     private int _pressY;
-
     private int _pressTop;
-
     private bool _closed;
-
     // The drawer moment playing (M1, M2, M6, M18): the loop draws its
     // bots in their poses instead of the scene. Set on the UI thread.
     private volatile DrawerMoment? _moment;
-
     private Action? _afterMoment;
-
     // Ends a moment the loop never saw finish (the loop normally does).
     private readonly DispatcherQueueTimer _momentGuard;
-
     // Classic's locked-drag tug, in DIP, while the pointer pulls.
     private volatile float _tug;
-
     // What the window was last laid out as, to tell what a layout changes.
     private (int[] Shown, RectInt32 Rect, DrawerSide Side, double Scale)? _laidOut;
-
     // A roster or edge moment has yet to put the window where it ends up.
     private bool _layoutPending;
-
     private CanvasDevice? _loopDevice;
 
     public DrawerWindow()

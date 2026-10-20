@@ -23,40 +23,26 @@ namespace AgentIsland.WinUI.Drawer;
 internal sealed partial class HoverCard : IDisposable
 {
     private const double CardWidth = 264;
-
     // English in the pixel face runs wider than the system font.
     private const double PixelCardWidth = 272;
-
     private const double PixelLabelWidth = 52;
-
     private const double PixelValueWidth = 72;
-
     private const double Gap = 10;
-
     private const double LabelWidth = 40;
-
     private const double ValueWidth = 58;
-
     private static readonly Thickness PaperPadding = new(16, 13, 16, 14);
-
     private static readonly Thickness PixelPadding = new(16, 14, 16, 14);
 
     // The paper's tail: how far it reaches past the card's side.
     private const double TailReach = 9;
-
     // Room around the card for its motion and the paper's shadow.
     private const double MotionMargin = 24;
 
     private readonly Popup _popup;
-
     private readonly Canvas _stage = new() { IsHitTestVisible = false };
-
     private readonly Grid _host = new();
-
     private readonly Grid _plate = new() { VerticalAlignment = VerticalAlignment.Top };
-
     private readonly PaperPlate _paper = new();
-
     // Pinned to the card's corner: ghosts are placed from it.
     private readonly PixelPlate _pixelPlate = new()
     {
@@ -64,86 +50,51 @@ internal sealed partial class HoverCard : IDisposable
         HorizontalAlignment = HorizontalAlignment.Left,
         VerticalAlignment = VerticalAlignment.Top,
     };
-
     private readonly Border _card;
-
     private StackPanel _body = new();
-
     private readonly Panel _root;
-
     private readonly Compositor _compositor;
-
     private readonly CompositionPropertySet _size;
-
     private readonly InsetClip _contentClip;
-
     // The moment playing (M3), and the old content fading out in a switch.
     private UiMoment? _motion;
-
     private Border? _outgoing;
-
     // The agents whose phase has needed a line of its own (Pixel) since the
     // card opened: it keeps the line until the card closes, so the card
     // doesn't gain and lose a line as phases come and go.
     private readonly HashSet<DisplayProvider> _phaseBelow = new();
-
     // The texts a Classic refresh is swapping in (M4), with their own margins.
     private readonly List<(FrameworkElement Text, Thickness Margin)> _swapping = new();
 
     // M4: each meter's share as the card last showed it, to count from when
     // the card refreshes in place; the values counting now.
     private Dictionary<string, (double Share, bool Warn)> _shares = new();
-
     private Dictionary<string, (double Share, bool Warn)> _built = new();
-
     private readonly HashSet<UIElement> _counting = new();
-
     private bool _recount;
-
     private int _generation;
-
     private bool _closing;
-
     private bool _animating;
-
     private bool _disposed;
-
     private double _width = CardWidth;
-
     private static bool _dark;
-
     // The card being built is paper (Classic): its inks are Classic's tokens.
     private static bool _paperInk;
-
     private Request? _displayed;
-
     private Request? _refresh;
-
     private string? _contentKey;
-
     private Size _contentSize;
-
     private Rect _bounds;
-
     // The card's aim at its bot's centre, in the drawer's DIPs.
     private double _aim;
-
     private Rect? _stageBounds;
-
     private double _travelTop;
-
     private double _travelBottom;
-
     private int _requests;
-
     private int _builds;
-
     private int _measures;
-
     private int _skips;
-
     private int _transitions;
-
     private double _lastShowMs;
 
     private sealed record Request(
@@ -359,7 +310,6 @@ internal sealed partial class HoverCard : IDisposable
 
     // The paper as last drawn: its height and tail reach, for a switch.
     private double _plateHeight;
-
     private double _reach;
 
     /// One character's card has a tail aimed at it; the all-characters card
