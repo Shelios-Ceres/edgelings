@@ -82,7 +82,7 @@ internal sealed partial class DrawerWindow
                 _commands.Enqueue(() =>
                 {
                     // A character asleep under reduced motion stays still.
-                    if (!HoldsStill(_slots[index].EngineState, _theme, _reducedMotion, _bots[index].Look)) _engine?.Poke(index);
+                    if (!DrawerLooks.HoldsStill(_slots[index].EngineState, _theme, _reducedMotion, _bots[index].Look)) _engine?.Poke(index);
                     _slots[index].NextStep = 0;
                 });
                 // A click opens the character's agent in Settings; the shared

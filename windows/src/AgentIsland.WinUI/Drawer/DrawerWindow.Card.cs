@@ -42,8 +42,6 @@ internal sealed partial class DrawerWindow
         if (_cardBot is null || _cardBot.Provider == provider.Character()) RefreshCard();
     }
 
-    private Bot BotOf(DisplayProvider provider) => _bots.First(b => b.Provider == provider);
-
     /// The sessions of a character's agents that wait on the user, as its style lists them.
     private static StatusWaitingList WaitingFor(Bot bot, CharacterTheme theme)
     {

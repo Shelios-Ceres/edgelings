@@ -68,7 +68,7 @@ internal sealed partial class DrawerWindow
                 slot.Gazing = false;
                 slot.Svg = null;
                 slot.NextStep = 0;
-                engine?.SetState(index, hold, HoldsStill(hold, theme, _reducedMotion, _bots[index].Look) ? 0 : -1);
+                engine?.SetState(index, hold, DrawerLooks.HoldsStill(hold, theme, _reducedMotion, _bots[index].Look) ? 0 : -1);
             }
             old?.Dispose();
         });
@@ -103,7 +103,7 @@ internal sealed partial class DrawerWindow
                 slot.Gazing = false;
                 slot.Svg = null;
                 slot.NextStep = 0;
-                var holdsStill = HoldsStill(slot.Hold, theme, _reducedMotion, look);
+                var holdsStill = DrawerLooks.HoldsStill(slot.Hold, theme, _reducedMotion, look);
                 engine.SetState(index, slot.Hold, holdsStill ? 0 : -1);
                 if (theme == CharacterTheme.Pixel && !holdsStill && !_reducedMotion) engine.Poke(index);
             }

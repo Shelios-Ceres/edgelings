@@ -146,21 +146,13 @@ internal sealed partial class DrawerWindow
             slot.Fidget = null;
             slot.NextFidget = slot.Since + FidgetGap * (0.5 + Random.Shared.NextDouble());
             // Reduced motion rests in the settled pose (the loop's start), held still.
-            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || HoldsStill(entry, theme, _reducedMotion, bot.Look) ? 0 : -1);
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || DrawerLooks.HoldsStill(entry, theme, _reducedMotion, bot.Look) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
     }
 
     private const string Resting = "resting";
-
-    private const string Sleeping = "sleeping";
-
-    /// The two calm sleep looks, and the flickering offline of three Pixel looks, hold still under reduced motion. Pixel's
-    /// `sleeping` (out of quota) is the breathing doze; its `resting` (app
-    /// away) draws z's. Classic's `sleeping` keeps animating.
-    private static bool HoldsStill(string state, CharacterTheme theme, bool reduced, string? look) =>
-        DrawerLooks.HoldsStill(state, theme, reduced, look);
 
     private static readonly bool DebugRest = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REST") == "1";
 

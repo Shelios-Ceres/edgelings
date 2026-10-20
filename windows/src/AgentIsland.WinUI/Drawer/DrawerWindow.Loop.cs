@@ -54,7 +54,7 @@ internal sealed partial class DrawerWindow
             var slot = _slots[index];
             // Under reduced motion a sleeping character holds still, once its
             // blend into the settled pose is done.
-            dts[index] = HoldsStill(slot.EngineState, theme, reduced, _bots[index].Look) && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
+            dts[index] = DrawerLooks.HoldsStill(slot.EngineState, theme, reduced, _bots[index].Look) && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
             slot.LastStep = now;
             var fps = !DrawerLooks.IsCalm(slot.EngineState, theme) ? activeFps : near ? gazeFps : calmFps;
             var interval = 1.0 / fps;

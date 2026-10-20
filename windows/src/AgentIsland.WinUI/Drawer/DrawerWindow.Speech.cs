@@ -186,7 +186,7 @@ internal sealed partial class DrawerWindow
             var index = bot.Index;
             _commands.Enqueue(() =>
             {
-                if (HoldsStill(_slots[index].EngineState, _theme, _reducedMotion, _bots[index].Look)) return;
+                if (DrawerLooks.HoldsStill(_slots[index].EngineState, _theme, _reducedMotion, _bots[index].Look)) return;
                 _engine?.Poke(index);
                 _slots[index].NextStep = 0;
             });
