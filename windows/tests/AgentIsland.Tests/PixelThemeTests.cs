@@ -1,4 +1,3 @@
-using System.IO;
 using System.Text.RegularExpressions;
 using AgentIsland.Core;
 using AgentIsland.Localization;

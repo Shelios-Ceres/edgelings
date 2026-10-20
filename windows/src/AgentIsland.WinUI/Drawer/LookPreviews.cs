@@ -1,4 +1,3 @@
-using AgentIsland.Core;
 using AgentIsland.Model;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;

@@ -1,4 +1,3 @@
-using System.IO;
 namespace AgentIsland.Usage;
 
 /// Where Antigravity keeps itself on disk. Google has renamed the data

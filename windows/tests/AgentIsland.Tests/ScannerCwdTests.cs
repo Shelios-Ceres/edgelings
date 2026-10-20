@@ -1,4 +1,3 @@
-using System.IO;
 using AgentIsland.Core;
 
 namespace AgentIsland.Tests;

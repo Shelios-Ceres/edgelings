@@ -1,4 +1,3 @@
-using AgentIsland.WinUI.Shell;
 using static AgentIsland.WinUI.Shell.Motion;
 
 namespace AgentIsland.WinUI.Drawer;
