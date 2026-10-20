@@ -14,6 +14,11 @@ public static class Program
         {
             return LiveScan();
         }
+        if (args.Length > 0 && args[0] == "costdump")
+        {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            return CostDump.Run();
+        }
         if (args.Length > 0 && args[0] == "locate")
         {
             foreach (var name in new[] { "claude", "codex", "wt" })
