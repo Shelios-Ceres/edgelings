@@ -184,7 +184,6 @@ public static class L10n
         ["Usage tiles and top-bar percentages follow this."] = "用量图和顶栏百分比都跟随这里",
         ["Show remaining instead of used"] = "显示剩余而不是已用",
         ["Percent readouts count down what's left of each window rather than up what's spent."] = "百分比倒着数每个窗口还剩多少，而不是正着数用了多少",
-        ["Out of quota"] = "额度用完了",
         ["5-hour limit"] = "5 小时额度",
         ["Weekly limit"] = "周额度",
         ["{0} banked resets available"] = "{0} 张重置卡可用",
@@ -253,7 +252,6 @@ public static class L10n
         ["Trend"] = "趋势",
         ["Teal"] = "青",
         ["Cobalt"] = "钴蓝",
-        ["Violet"] = "紫",
         ["Silver"] = "银白",
         ["Calm"] = "清爽",
         ["Vivid"] = "流光",
@@ -304,7 +302,6 @@ public static class L10n
         ["the primary display"] = "主显示器",
         ["Pinned to a specific display. Falls back to Auto if unplugged."] = "固定到指定屏幕；断开后回退为自动",
         ["Auto — picks the best available screen."] = "自动 — 选择最合适的屏幕",
-        ["Position"] = "位置",
         ["Island position"] = "灵动岛位置",
         ["A bar at the top of the screen, a floating widget you drag anywhere, or characters along a side edge."] = "贴在屏幕顶部的横条、可拖到任意位置的悬浮小窗，或贴在屏幕侧边的一列角色",
         // ["Top bar"] lives once, above with the display section. These are
