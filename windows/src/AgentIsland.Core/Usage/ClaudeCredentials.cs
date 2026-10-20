@@ -103,29 +103,9 @@ public static class ClaudeCredentials
                 case ProbeOutcome.OtherError error: lastError = error.Message; break;
                 case ProbeOutcome.Unauthorized:
                     // Only a 401 means the access token expired; refresh it.
-                    if (await RefreshClaudeToken(creds.RefreshToken) is { } refreshed)
-                    {
-                        // Anthropic rotates the refresh token, invalidating the
-                        // pair we just used. If we can't persist the rotated
-                        // tokens, the on-disk creds are now dead — force a
-                        // re-login instead of 401-ing forever.
-                        if (!WriteClaudeCreds(refreshed))
-                        {
-                            return new Resolution.ReauthRequired(ReauthRequiredMessage);
-                        }
-                        switch (await probe(refreshed.AccessToken, plan))
-                        {
-                            case ProbeOutcome.Success success: return new Resolution.Usage(success.Usage);
-                            case ProbeOutcome.RateLimited: return new Resolution.Failed("rate limited");
-                            case ProbeOutcome.ScopeInsufficient: return new Resolution.ReauthRequired(ReauthRequiredMessage);
-                            case ProbeOutcome.OtherError error2: lastError = error2.Message; break;
-                            case ProbeOutcome.Unauthorized: break;
-                        }
-                    }
-                    else
-                    {
-                        lastError = TokenRefreshFailedMessage;
-                    }
+                    var (recovered, recoveryError) = await RecoverFromUnauthorized(creds, plan, probe);
+                    if (recovered is not null) return recovered;
+                    if (recoveryError is not null) lastError = recoveryError;
                     break;
             }
         }
@@ -133,7 +113,65 @@ public static class ClaudeCredentials
         return new Resolution.Failed(lastError);
     }
 
+    /// The stored access token 401'd. Claude Code refreshes at about the same
+    /// moment this does, and Anthropic rotates the refresh token on every
+    /// call, so the file may already hold a newer pair than the copy read at
+    /// the start: that pair is tried first, and refreshing the old one would
+    /// only fail and read as a lost sign-in. A refresh that fails is followed
+    /// by one more look at the file, for the same reason. Returns the final
+    /// resolution, or null with the reason to keep when nothing here settled it.
+    private static async Task<(Resolution? Final, string? Error)> RecoverFromUnauthorized(
+        ClaudeCreds creds, string? plan, Func<string, string?, Task<ProbeOutcome>> probe)
+    {
+        var current = creds;
+        if (ReadClaudeCreds() is { } latest && latest != creds)
+        {
+            current = latest;
+            switch (await probe(latest.AccessToken, plan))
+            {
+                case ProbeOutcome.Success success: return (new Resolution.Usage(success.Usage), null);
+                case ProbeOutcome.RateLimited: return (new Resolution.Failed("rate limited"), null);
+                case ProbeOutcome.ScopeInsufficient: return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+                case ProbeOutcome.OtherError error: return (null, error.Message);
+            }
+        }
+        if (await RefreshToken(current.RefreshToken) is not { } refreshed)
+        {
+            // Claude Code may have refreshed between the read above and this
+            // call, which spends our copy: one more look at the file, one probe.
+            if (ReadClaudeCreds() is { } rotated && rotated != current)
+            {
+                switch (await probe(rotated.AccessToken, plan))
+                {
+                    case ProbeOutcome.Success success: return (new Resolution.Usage(success.Usage), null);
+                    case ProbeOutcome.RateLimited: return (new Resolution.Failed("rate limited"), null);
+                    case ProbeOutcome.ScopeInsufficient: return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+                    case ProbeOutcome.OtherError error: return (null, error.Message);
+                }
+            }
+            return (null, TokenRefreshFailedMessage);
+        }
+        // Anthropic rotates the refresh token, invalidating the pair we just
+        // used. If we can't persist the rotated tokens, the on-disk creds are
+        // now dead — force a re-login instead of 401-ing forever.
+        if (!WriteClaudeCreds(refreshed)) return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+        switch (await probe(refreshed.AccessToken, plan))
+        {
+            case ProbeOutcome.Success success: return (new Resolution.Usage(success.Usage), null);
+            case ProbeOutcome.RateLimited: return (new Resolution.Failed("rate limited"), null);
+            case ProbeOutcome.ScopeInsufficient: return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+            case ProbeOutcome.OtherError error: return (null, error.Message);
+            default: return (null, null);
+        }
+    }
+
     // MARK: - Credentials file
+
+    /// Test seams: another credentials file, and the refresh call.
+    internal static string? CredentialsFileOverride;
+    internal static Func<string, Task<RefreshedTokens?>> RefreshToken = RefreshClaudeToken;
+
+    private static string CredentialsFile => CredentialsFileOverride ?? IslandPaths.ClaudeCredentialsFile;
 
     private sealed record ClaudeCreds(
         string AccessToken,
@@ -144,7 +182,7 @@ public static class ClaudeCredentials
     {
         try
         {
-            var path = IslandPaths.ClaudeCredentialsFile;
+            var path = CredentialsFile;
             if (!File.Exists(path)) return null;
             using var stream = OpenShared(path);
             using var doc = JsonDocument.Parse(stream);
@@ -178,7 +216,7 @@ public static class ClaudeCredentials
         var tmp = string.Empty;
         try
         {
-            var path = IslandPaths.ClaudeCredentialsFile;
+            var path = CredentialsFile;
             JsonNode root;
             try
             {
@@ -250,7 +288,7 @@ public static class ClaudeCredentials
     {
         try
         {
-            var path = IslandPaths.ClaudeCredentialsFile;
+            var path = CredentialsFile;
             if (!File.Exists(path)) return null;
             return File.GetLastWriteTimeUtc(path).Ticks.ToString();
         }
@@ -262,7 +300,7 @@ public static class ClaudeCredentials
 
     // MARK: - Refresh
 
-    private sealed record RefreshedTokens(string AccessToken, string RefreshToken, long ExpiresAtMs);
+    internal sealed record RefreshedTokens(string AccessToken, string RefreshToken, long ExpiresAtMs);
 
     private static async Task<RefreshedTokens?> RefreshClaudeToken(string refreshToken)
     {

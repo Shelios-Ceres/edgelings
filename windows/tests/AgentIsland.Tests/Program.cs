@@ -81,6 +81,7 @@ public static class Program
             SessionEventTests.RunAll();
             GrokHooksTests.RunAll();
             LookCatalogTests.RunAll();
+            ClaudeCredentialsTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }
