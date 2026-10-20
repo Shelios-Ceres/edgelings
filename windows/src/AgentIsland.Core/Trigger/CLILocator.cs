@@ -169,11 +169,12 @@ public static class CLILocator
     /// Claude Desktop vendors the CLI per version; pick the newest.
     private static string? ManagedClaudeCli()
     {
-        var root = Path.Combine(IslandPaths.RoamingAppData, "Claude", "claude-code");
-        if (!Directory.Exists(root)) return null;
         try
         {
-            return Directory.EnumerateDirectories(root)
+            return IslandPaths.ClaudeDesktopDataRoots
+                .Select(root => Path.Combine(root, "claude-code"))
+                .Where(Directory.Exists)
+                .SelectMany(root => Directory.EnumerateDirectories(root))
                 .OrderByDescending(dir => Path.GetFileName(dir), VersionAwareComparer.Instance)
                 .Select(dir => Path.Combine(dir, "claude.exe"))
                 .FirstOrDefault(File.Exists);

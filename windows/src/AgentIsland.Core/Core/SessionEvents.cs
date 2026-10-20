@@ -193,9 +193,7 @@ internal static class ScheduledTaskSkips
         var output = new List<SkippedTask>();
         try
         {
-            var root = IslandPaths.ClaudeDesktopSessionsRoot;
-            if (!Directory.Exists(root)) return output;
-            foreach (var file in SessionScanner.SafeEnumerateFiles(root, "scheduled-tasks.json"))
+            foreach (var file in IslandPaths.ClaudeDesktopSessionsRoots.SelectMany(root => SessionScanner.SafeEnumerateFiles(root, "scheduled-tasks.json")))
             {
                 try
                 {

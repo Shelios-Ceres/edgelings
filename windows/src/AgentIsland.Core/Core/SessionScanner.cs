@@ -61,11 +61,14 @@ public static class SessionScanner
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
         bool excludeArchived = false)
     {
-        var desktopSessions = ClaudeDesktopIndex();
+        var (desktopSessions, replaced) = ClaudeDesktopIndex();
         var output = new List<ScannedSession>();
         foreach (var (sid, path) in ClaudeTranscriptIndex())
         {
             desktopSessions.TryGetValue(sid, out var desktop);
+            // A transcript its desktop session has left behind is history:
+            // the session goes on in the newer one, whose turns are its own.
+            if (desktop is null && replaced.Contains(sid)) continue;
             if (excludeArchived && desktop is { IsArchived: true }) continue;
             // A headless SDK run (Claude Desktop's security reviews, say)
             // that no desktop session points at is machine work, not a
@@ -819,14 +822,15 @@ public static class SessionScanner
 
     internal sealed record DesktopSession(
         string CliSessionId, string Title, string Cwd, bool IsArchived, DateTimeOffset? LastActivityAt,
-        DateTimeOffset? UserFrameAt);
-
-    private static IEnumerable<string> EnumerateDesktopSessionFiles()
+        DateTimeOffset? UserFrameAt)
     {
-        var root = IslandPaths.ClaudeDesktopSessionsRoot;
-        if (!Directory.Exists(root)) return Array.Empty<string>();
-        return SafeEnumerateFiles(root, "local_*.json");
+        /// The transcripts the session has left behind: /clear and /compact
+        /// carry it on in a new one.
+        public IReadOnlyList<string> PriorCliSessionIds { get; init; } = Array.Empty<string>();
     }
+
+    private static IEnumerable<string> EnumerateDesktopSessionFiles() =>
+        IslandPaths.ClaudeDesktopSessionsRoots.SelectMany(root => SafeEnumerateFiles(root, "local_*.json"));
 
     /// Recursively lists matching files, surviving a subdirectory that is
     /// inaccessible OR deleted mid-walk (Claude Code rotates project folders).
@@ -910,13 +914,24 @@ public static class SessionScanner
             var cliSessionId = Jsonl.GetString(root, "cliSessionId") ?? "";
             var ms = Jsonl.GetDouble(root, "lastActivityAt") ?? Jsonl.GetDouble(root, "createdAt");
             var frame = Jsonl.GetDouble(root, "latestUserFrameAt");
+            var prior = new List<string>();
+            if (root.TryGetProperty("priorCliSessionIds", out var priors) && priors.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var id in priors.EnumerateArray())
+                {
+                    if (id.ValueKind == System.Text.Json.JsonValueKind.String && id.GetString() is { Length: > 0 } text) prior.Add(text);
+                }
+            }
             return new DesktopSession(
                 cliSessionId,
                 Jsonl.GetString(root, "title") ?? "",
                 Jsonl.GetString(root, "cwd") ?? "",
                 Jsonl.GetBool(root, "isArchived") ?? false,
                 ms is { } m ? DateTimeOffset.FromUnixTimeMilliseconds((long)m) : null,
-                frame is { } f and > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)f) : null);
+                frame is { } f and > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)f) : null)
+            {
+                PriorCliSessionIds = prior,
+            };
         }
         catch
         {
@@ -924,16 +939,25 @@ public static class SessionScanner
         }
     }
 
-    private static Dictionary<string, DesktopSession> ClaudeDesktopIndex()
+    /// Claude Desktop's sessions by the transcript each writes now, and the
+    /// transcripts they have left behind.
+    private static (Dictionary<string, DesktopSession> Current, HashSet<string> Replaced) ClaudeDesktopIndex() =>
+        ClaudeDesktopIndex(EnumerateDesktopSessionFiles().Select(DesktopSessionAt));
+
+    internal static (Dictionary<string, DesktopSession> Current, HashSet<string> Replaced) ClaudeDesktopIndex(
+        IEnumerable<DesktopSession?> sessions)
     {
-        var output = new Dictionary<string, DesktopSession>(StringComparer.Ordinal);
-        foreach (var path in EnumerateDesktopSessionFiles())
+        var current = new Dictionary<string, DesktopSession>(StringComparer.Ordinal);
+        var replaced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var session in sessions)
         {
-            if (DesktopSessionAt(path) is not { } session) continue;
+            if (session is null) continue;
+            // A session just cleared has no transcript yet, but its old ones count.
+            replaced.UnionWith(session.PriorCliSessionIds);
             if (string.IsNullOrEmpty(session.CliSessionId)) continue;
-            output[session.CliSessionId] = session;
+            current[session.CliSessionId] = session;
         }
-        return output;
+        return (current, replaced);
     }
 
     private sealed record TitleIndex(string Stamp, Dictionary<string, string> Titles);

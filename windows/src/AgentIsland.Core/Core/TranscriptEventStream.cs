@@ -23,7 +23,7 @@ public sealed class TranscriptEventStream : IDisposable
         var roots = new List<string>();
         roots.AddRange(IslandPaths.ClaudeProjectRoots);
         roots.Add(IslandPaths.CodexSessionsRoot);
-        roots.Add(IslandPaths.ClaudeDesktopSessionsRoot);
+        roots.AddRange(IslandPaths.ClaudeDesktopSessionsRoots);
         roots.Add(IslandPaths.KimiSessionsRoot);
         roots.Add(IslandPaths.DeepSeekSessionsRoot);
         foreach (var root in roots.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))

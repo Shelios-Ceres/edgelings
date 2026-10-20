@@ -5,7 +5,8 @@ namespace AgentIsland.Core;
 /// Central path resolution. Mirrors the macOS app's data sources, adapted to
 /// Windows conventions:
 ///   ~/.claude/projects                          -> %USERPROFILE%\.claude\projects
-///   ~/Library/Application Support/Claude/...    -> %APPDATA%\Claude\claude-code-sessions
+///   ~/Library/Application Support/Claude/...    -> %APPDATA%\Claude\claude-code-sessions,
+///                                                  since Oct 2026 %LOCALAPPDATA%\Claude-Data\<package>\...
 ///   ~/.codex/sessions                           -> %USERPROFILE%\.codex\sessions
 ///   macOS Keychain "Claude Code-credentials"    -> %USERPROFILE%\.claude\.credentials.json
 ///   ~/Library/Application Support/AgentIsland   -> %APPDATA%\AgentIsland
@@ -25,7 +26,31 @@ public static class IslandPaths
 
     public static string ClaudeCredentialsFile => Path.Combine(ClaudeConfigRoots[0], ".credentials.json");
 
-    public static string ClaudeDesktopSessionsRoot => Path.Combine(RoamingAppData, "Claude", "claude-code-sessions");
+    /// Claude Desktop's own data folders: %APPDATA%\Claude, and the
+    /// %LOCALAPPDATA%\Claude-Data\<package> folders its October 2026 update
+    /// moved that data to, leaving only a ".user-data-left.<package>" marker
+    /// behind. The old folder comes first, so a session found in both is read
+    /// from the new one. Looked up on every call: the move can happen while
+    /// the app runs.
+    public static IReadOnlyList<string> ClaudeDesktopDataRoots => ClaudeDesktopDataRootsUnder(RoamingAppData, LocalAppData);
+
+    internal static IReadOnlyList<string> ClaudeDesktopDataRootsUnder(string roaming, string local)
+    {
+        var roots = new List<string> { Path.Combine(roaming, "Claude") };
+        try
+        {
+            var moved = Path.Combine(local, "Claude-Data");
+            if (Directory.Exists(moved)) roots.AddRange(Directory.EnumerateDirectories(moved).Order(StringComparer.OrdinalIgnoreCase));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+        }
+        return roots;
+    }
+
+    /// Claude Desktop's session stores that exist, one per data folder.
+    public static IReadOnlyList<string> ClaudeDesktopSessionsRoots =>
+        ClaudeDesktopDataRoots.Select(root => Path.Combine(root, "claude-code-sessions")).Where(Directory.Exists).ToList();
 
     public static string CodexHome
     {

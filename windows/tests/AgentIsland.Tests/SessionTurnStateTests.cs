@@ -31,6 +31,9 @@ public static class SessionTurnStateTests
             ("peer message after end_turn starts a working turn", TestPeerMessageStartsTurn),
             ("session file without latestUserFrameAt behaves as before", TestNoFrameDateFallsBack),
             ("desktop archived flag is read", TestArchivedFlagIsRead),
+            ("desktop prior transcript ids are read", TestPriorCliSessionIdsAreRead),
+            ("a transcript its desktop session left behind is replaced", TestLeftBehindTranscriptsAreReplaced),
+            ("claude desktop's moved data folder is found", TestMovedDesktopDataFolderIsFound),
         };
 
         foreach (var (name, test) in tests)
@@ -411,6 +414,66 @@ public static class SessionTurnStateTests
         using var desktop = new DesktopFile(null, Ms("2026-10-19T13:00:00.000Z"), archived: true);
         var session = SessionScanner.ParseDesktopSessionFile(desktop.Path);
         Expect(session is { IsArchived: true }, "the archived flag must be read from the session file");
+    }
+
+    // A session's /clear and /compact carry it on in a new transcript and
+    // list the old ones under priorCliSessionIds.
+    private static void TestPriorCliSessionIdsAreRead()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"agent-island-desktop-{Guid.NewGuid()}.json");
+        File.WriteAllText(path, """{"cliSessionId":"s3","title":"Main","priorCliSessionIds":["s1",7,"","s2"]}""");
+        try
+        {
+            var session = SessionScanner.ParseDesktopSessionFile(path);
+            Expect(session is not null && session.PriorCliSessionIds.SequenceEqual(new[] { "s1", "s2" }),
+                $"prior ids are the non-empty strings in order, got {string.Join(",", session?.PriorCliSessionIds ?? Array.Empty<string>())}");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+        var bare = Path.Combine(Path.GetTempPath(), $"agent-island-desktop-{Guid.NewGuid()}.json");
+        File.WriteAllText(bare, """{"cliSessionId":"s1"}""");
+        try
+        {
+            Expect(SessionScanner.ParseDesktopSessionFile(bare) is { PriorCliSessionIds.Count: 0 }, "a session never cleared has no prior ids");
+        }
+        finally
+        {
+            File.Delete(bare);
+        }
+    }
+
+    private static void TestLeftBehindTranscriptsAreReplaced()
+    {
+        var main = new SessionScanner.DesktopSession("s2", "Main", "D:\\x", false, null, null) { PriorCliSessionIds = new[] { "s1" } };
+        // Just cleared: no transcript of its own yet.
+        var cleared = new SessionScanner.DesktopSession("", "Builder", "D:\\x", false, null, null) { PriorCliSessionIds = new[] { "s0" } };
+        var (current, replaced) = SessionScanner.ClaudeDesktopIndex(new[] { main, cleared, null });
+        Expect(current.Count == 1 && current["s2"].Title == "Main", "only a session's own transcript maps to it");
+        Expect(replaced.SetEquals(new[] { "s0", "s1" }), $"every left-behind transcript is replaced, got {string.Join(",", replaced)}");
+    }
+
+    private static void TestMovedDesktopDataFolderIsFound()
+    {
+        var home = Path.Combine(Path.GetTempPath(), $"agent-island-appdata-{Guid.NewGuid()}");
+        var roaming = Path.Combine(home, "Roaming");
+        var local = Path.Combine(home, "Local");
+        Directory.CreateDirectory(roaming);
+        Directory.CreateDirectory(local);
+        try
+        {
+            var before = IslandPaths.ClaudeDesktopDataRootsUnder(roaming, local);
+            Expect(before.SequenceEqual(new[] { Path.Combine(roaming, "Claude") }), "before the move only the roaming folder is looked at");
+            var moved = Path.Combine(local, "Claude-Data", "claude_pzs8sxrjxfjjc");
+            Directory.CreateDirectory(moved);
+            var after = IslandPaths.ClaudeDesktopDataRootsUnder(roaming, local);
+            Expect(after.SequenceEqual(new[] { Path.Combine(roaming, "Claude"), moved }), $"the moved folder comes after the old one, got {string.Join(" | ", after)}");
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
     }
 
     private static readonly IReadOnlyDictionary<string, DateTimeOffset> EmptyLastWorking =
