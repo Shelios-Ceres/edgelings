@@ -40,20 +40,6 @@ public static class Program
             }
             return 0;
         }
-        if (args.Length > 0 && args[0] == "weblogin-url")
-        {
-            // Live diagnostic: the EXACT authorize URL the in-app re-auth
-            // opens, with a throwaway PKCE pair — paste into a logged-in
-            // browser to see what Anthropic's consent page makes of it.
-            var verifier = Usage.ClaudeWebLogin.RandomUrlSafe(32);
-            var state = Usage.ClaudeWebLogin.RandomUrlSafe(16);
-            var challenge = Usage.ClaudeWebLogin.Base64Url(
-                System.Security.Cryptography.SHA256.HashData(
-                    System.Text.Encoding.ASCII.GetBytes(verifier)));
-            Console.WriteLine(Usage.ClaudeWebLogin.BuildAuthorizeUrl(
-                challenge, state, "http://localhost:54545/callback"));
-            return 0;
-        }
         try
         {
             SessionTurnStateTests.RunAll();

@@ -29,7 +29,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     private bool _loading;
     private bool _claudeReauthInProgress;
     private bool _codexReauthInProgress;
-    private string? _claudeReauthFailureCaption;
     private string? _codexAutoSwitched;
 
     /// Accounts tried since the current exhaustion episode began; cleared the
@@ -87,21 +86,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// re-auth button during this window so users don't double-tap.
     public bool ClaudeReauthInProgress { get => _claudeReauthInProgress; private set { _claudeReauthInProgress = value; Raise(nameof(ClaudeReauthInProgress)); } }
     public bool CodexReauthInProgress { get => _codexReauthInProgress; private set { _codexReauthInProgress = value; Raise(nameof(CodexReauthInProgress)); } }
-
-    /// Why the last browser sign-in round failed, or null. This is the whole
-    /// recovery surface for a failed web login — the Settings row shows it and
-    /// only then offers the paste-code fallback (progressive disclosure, macOS
-    /// claudeReauthFailureCaption).
-    public string? ClaudeReauthFailureCaption
-    {
-        get => _claudeReauthFailureCaption;
-        private set { _claudeReauthFailureCaption = value; Raise(nameof(ClaudeReauthFailureCaption)); }
-    }
-
-    /// Clears the failure caption after the paste-code fallback succeeds —
-    /// the row must drop back to its healthy state, not keep explaining a
-    /// round that has since been recovered.
-    public void ClearClaudeReauthFailure() => ClaudeReauthFailureCaption = null;
 
     /// Label the auto-switcher rotated to most recently, shown on the Codex
     /// card until the next manual action. Real state, not explanation.
@@ -399,50 +383,6 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     // MARK: - Re-auth
 
-    /// The in-app browser login — PKCE + a loopback callback caught by our own
-    /// listener, writing the fresh, fully-scoped token pair straight to the
-    /// credentials file. No terminal, no manual code paste.
-    ///
-    /// A failure ends here with its reason on `ClaudeReauthFailureCaption`.
-    /// There is no terminal fallback: the old path silently spawned
-    /// `claude auth login`, a retired command on the 2.x CLI, which read as a
-    /// mystery "authentication failed" from nowhere (owner repro, 2026-08-08).
-    /// The recovery the caption unlocks is `ClaudeCredentials.BeginPasteLogin`,
-    /// which the Settings row offers only after a failed round.
-    public void ReauthenticateClaude()
-    {
-        if (ClaudeReauthInProgress) return;
-        ClaudeReauthFailureCaption = null;
-        ClaudeReauthInProgress = true;
-        _ = Task.Run(async () =>
-        {
-            // Nothing observes this task, so a throw anywhere below would
-            // leave ClaudeReauthInProgress latched — and the in-progress guard
-            // at the top then refuses every later attempt, killing the
-            // Re-authenticate button until the app restarts.
-            try
-            {
-                var outcome = await ClaudeWebLogin.Shared.Start();
-                if (outcome is ClaudeWebLogin.Outcome.Failed failure)
-                {
-                    await UiThread.InvokeAsync(() =>
-                    {
-                        ClaudeReauthInProgress = false;
-                        ClaudeReauthFailureCaption = failure.Reason;
-                    });
-                    return;
-                }
-                await UiThread.InvokeAsync(() => { ClaudeReauthFailureCaption = null; });
-                await FinishClaudeReauth();
-            }
-            catch
-            {
-                try { await UiThread.InvokeAsync(() => { ClaudeReauthInProgress = false; }); }
-                catch { }
-            }
-        });
-    }
-
     public bool ReauthenticateCodex()
     {
         if (CodexReauthInProgress) return true;
@@ -489,7 +429,6 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (Trigger.CLILocator.PathFor(TriggerTool.Claude) is not { } cli) return false;
         var initialStamp = ClaudeCredentials.CredentialsModificationStamp();
         if (!TerminalLauncher.RunVisible(cli, "/login", "Agent Island — Claude login")) return false;
-        ClaudeReauthFailureCaption = null;
         ClaudeReauthInProgress = true;
         _ = Task.Run(async () =>
         {

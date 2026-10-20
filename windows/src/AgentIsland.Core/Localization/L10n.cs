@@ -459,9 +459,6 @@ public static class L10n
         // an English sentence appeared inside an otherwise Chinese alarm.
         ["Couldn't open the thread — is the claude/codex CLI on your PATH?"] =
             "无法打开会话——claude / codex 命令是否在 PATH 中？",
-        // ClaudeWebLogin failure reasons are internal contract strings like the
-        // provider error sentinels, so they are localized at display time by
-        // ErrorDisplay.Localize rather than looked up here.
 
         // Side drawer: placement, live phases, character menu.
         ["Side drawer"] = "侧边抽屉",

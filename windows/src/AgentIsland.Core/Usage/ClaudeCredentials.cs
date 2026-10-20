@@ -8,10 +8,9 @@ using AgentIsland.Core;
 namespace AgentIsland.Usage;
 
 /// Deep module owning Claude OAuth credential acquisition: the
-/// env -&gt; credentials-file -&gt; refresh -&gt; rotation-writeback flow, plus the
-/// in-app re-auth helpers. On macOS the store is the login Keychain; on
-/// Windows, Claude Code persists the same claudeAiOauth JSON at
-/// %USERPROFILE%\.claude\.credentials.json.
+/// env -&gt; credentials-file -&gt; refresh -&gt; rotation-writeback flow. On
+/// macOS the store is the login Keychain; on Windows, Claude Code persists
+/// the same claudeAiOauth JSON at %USERPROFILE%\.claude\.credentials.json.
 ///
 /// The asymmetry between token sources is load-bearing:
 ///   - An env-token scope-insufficient (403) does NOT short-circuit; we
@@ -40,34 +39,8 @@ public static class ClaudeCredentials
     // CLI 2.1.153 opens, and shared with the macOS ClaudeCredentials.
     public const string OauthClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
-    /// Where the browser goes to sign in.
-    ///
-    /// This MUST be the claude.com/cai (SUBSCRIPTION) authorize base, not the
-    /// Console one. `platform.claude.com` is the DEVELOPER CONSOLE — the
-    /// API-key product with its own separate account system; sending a
-    /// Max/Pro subscriber there lands them on a sign-up form and no
-    /// authorization code is ever issued. The CLI keeps both bases and picks
-    /// this one for a subscription login.
-    public const string AuthorizeUrlBase = "https://claude.com/cai/oauth/authorize";
-
-    /// Token endpoint for both refresh and authorization_code exchange.
+    /// Token endpoint for the refresh grant.
     public const string TokenUrl = "https://platform.claude.com/v1/oauth/token";
-
-    /// Anthropic's own paste-flow redirect. The pairing with
-    /// `AuthorizeUrlBase` is deliberately CROSS-origin — authorize lives on
-    /// claude.com/cai while the code-display page lives on
-    /// platform.claude.com. Both URLs sit verbatim in the claude CLI 2.1.153
-    /// binary, which is the ground truth here.
-    public const string PasteRedirectUri = "https://platform.claude.com/oauth/code/callback";
-
-    /// EXACTLY the six scopes `claude /login` sends, captured verbatim by
-    /// intercepting the authorize URL the running CLI opens (2026-08-08).
-    /// An earlier round cut this to two from `setup-token` — a DIFFERENT
-    /// flow with a smaller scope set — and the subscription /login the app
-    /// mimics then failed as "Invalid request format" AFTER sign-in for
-    /// everyone using the in-app button. This is the exact string, order
-    /// included.
-    public const string LoginScopes = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 
     public abstract record ProbeOutcome
     {
@@ -191,7 +164,7 @@ public static class ClaudeCredentials
     /// Updates the claudeAiOauth block in place, preserving unrelated fields
     /// (scopes, subscriptionType, rateLimitTier) and any other top-level
     /// keys in the file; seeds a minimal structure when the file doesn't
-    /// exist yet (a fresh web login on a machine that never ran the CLI).
+    /// exist yet (the CLI deleted it between the read and the write).
     /// Returns false if the write ultimately fails — Anthropic has already
     /// invalidated the OLD refresh token server-side, so a lost write means
     /// the on-disk credentials are dead and the caller must force a re-login
@@ -230,8 +203,8 @@ public static class ClaudeCredentials
             oauth["refreshToken"] = refreshed.RefreshToken;
             oauth["expiresAt"] = refreshed.ExpiresAtMs;
 
-            // A fresh web login may land on a machine that never ran the CLI,
-            // where ~\.claude doesn't exist yet.
+            // The CLI may have removed the folder meanwhile,
+            // so make sure it exists.
             if (Path.GetDirectoryName(path) is { Length: > 0 } dir) Directory.CreateDirectory(dir);
             // Per-write temp name, not a fixed ".tmp": Windows denies a second
             // opener while the first holds the handle, so two Agent Island
@@ -319,108 +292,4 @@ public static class ClaudeCredentials
             return null;
         }
     }
-
-    // MARK: - Web login (PKCE loopback)
-
-    /// Second half of the loopback login: exchange the authorization code for
-    /// a fresh token pair and persist it to the credentials file. Called by
-    /// `ClaudeWebLogin` after it catches the OAuth redirect. Returns true only
-    /// if both the exchange and the file write succeed.
-    public static async Task<bool> CompleteWebLogin(
-        string code, string codeVerifier, string redirectUri, string state)
-    {
-        if (await ExchangeAuthorizationCode(code, codeVerifier, redirectUri, state) is not { } tokens)
-        {
-            return false;
-        }
-        return WriteClaudeCreds(tokens);
-    }
-
-    /// Mirrors `RefreshClaudeToken` but with grant_type=authorization_code,
-    /// for the very first token pair from a fresh browser sign-in.
-    private static async Task<RefreshedTokens?> ExchangeAuthorizationCode(
-        string code, string codeVerifier, string redirectUri, string state)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, TokenUrl);
-            var body = JsonSerializer.Serialize(new Dictionary<string, string>
-            {
-                ["grant_type"] = "authorization_code",
-                ["code"] = code,
-                ["code_verifier"] = codeVerifier,
-                ["client_id"] = OauthClientId,
-                ["redirect_uri"] = redirectUri,
-                ["state"] = state,
-            });
-            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
-            using var response = await Http.Client.SendAsync(request);
-            if ((int)response.StatusCode != 200) return null;
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
-            var access = Jsonl.GetString(doc.RootElement, "access_token");
-            var refresh = Jsonl.GetString(doc.RootElement, "refresh_token");
-            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh)) return null;
-            // expires_in is seconds; Claude Code stores absolute ms.
-            var expiresIn = Jsonl.GetDouble(doc.RootElement, "expires_in") ?? 28_800;
-            var expiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresIn).ToUnixTimeMilliseconds();
-            return new RefreshedTokens(access!, refresh!, expiresAt);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    // MARK: - Paste-code login
-
-    /// What a paste sign-in needs: the page to open, plus the PKCE verifier
-    /// and state to hand back to `CompletePasteLogin`.
-    public sealed record PasteLoginTicket(string Url, string Verifier, string State);
-
-    /// Builds the paste-flow authorize URL and its PKCE pair. The caller
-    /// opens the URL, the user approves and copies the code Anthropic's page
-    /// shows, then the caller passes that code to `CompletePasteLogin`. No
-    /// loopback listener and no browser-profile guessing — this is the escape
-    /// hatch for the machines where the round-trip cannot finish.
-    public static PasteLoginTicket BeginPasteLogin()
-    {
-        var verifier = ClaudeWebLogin.RandomUrlSafe(32);
-        var state = ClaudeWebLogin.RandomUrlSafe(16);
-        var challenge = ClaudeWebLogin.PkceChallenge(verifier);
-        return new PasteLoginTicket(
-            ClaudeWebLogin.BuildAuthorizeUrl(challenge, state, PasteRedirectUri),
-            verifier,
-            state);
-    }
-
-    /// Exchanges a hand-pasted authorization code and persists the pair it
-    /// returns. Anthropic's success page renders the code as
-    /// `&lt;code&gt;#&lt;state&gt;`; both that form and a bare code are
-    /// accepted.
-    public static async Task<bool> CompletePasteLogin(string pasted, string verifier, string state)
-    {
-        var trimmed = pasted.Trim();
-        if (trimmed.Length == 0) return false;
-        var separator = trimmed.IndexOf('#');
-        var code = separator < 0 ? trimmed : trimmed[..separator];
-        if (code.Length == 0) return false;
-        // A bare code carries no state back, so echo the one we sent.
-        var returnedState = separator < 0 || separator == trimmed.Length - 1
-            ? state
-            : trimmed[(separator + 1)..];
-        if (await ExchangeAuthorizationCode(code, verifier, PasteRedirectUri, returnedState) is not { } tokens)
-        {
-            return false;
-        }
-        return WriteClaudeCreds(tokens);
-    }
-
-    // MARK: - In-app re-auth
-    //
-    // There is deliberately no terminal fallback here. `claude auth login` is
-    // a retired command on the 2.x CLI, so spawning it after a failed browser
-    // round produced an "authentication failed" from nowhere that read as a
-    // system dialog (owner repro, 2026-08-08). macOS deleted that path; the
-    // recovery is `ClaudeWebLogin.Outcome.Failed.Reason` on the Claude row
-    // plus `BeginPasteLogin`, both of which need no CLI at all.
 }

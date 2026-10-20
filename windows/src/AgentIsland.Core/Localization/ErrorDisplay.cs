@@ -22,16 +22,6 @@ public static class ErrorDisplay
             "rate limited" => "已限流",
             "parse error" => "解析失败",
             "bad response" => "响应异常",
-            // ClaudeWebLogin failure reasons. They reach the UI verbatim now
-            // that a failed browser round surfaces its reason instead of
-            // silently spawning a retired `claude auth login`.
-            "login timed out" => "登录超时",
-            "could not open the browser" => "无法打开浏览器",
-            "token exchange failed" => "换取令牌失败",
-            "state mismatch" => "登录校验失败，请重试",
-            "login already in progress" => "已有登录流程在进行中",
-            _ when error.StartsWith("could not open local callback server", StringComparison.Ordinal) =>
-                "无法启动本地回调服务" + error["could not open local callback server".Length..],
             _ when error.StartsWith("http ", StringComparison.OrdinalIgnoreCase) => "HTTP 错误 " + error[5..],
             _ => error,
         };

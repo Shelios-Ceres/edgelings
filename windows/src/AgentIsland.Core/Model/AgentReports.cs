@@ -138,7 +138,7 @@ public static class AgentReports
         {
             DisplayProvider.Claude => UsageStore.Shared.ClaudeReauthInProgress
                 ? null
-                : UsageStore.Shared.ClaudeReauthFailureCaption ?? WindowError(UsageStore.Shared.Claude),
+                : WindowError(UsageStore.Shared.Claude),
             DisplayProvider.Codex => WindowError(UsageStore.Shared.Codex),
             DisplayProvider.Antigravity => AntigravityUsageStore.Shared.StatusCaption,
             DisplayProvider.Grok => GrokUsageStore.Shared.ErrorCaption,
@@ -171,7 +171,6 @@ public static class AgentReports
                 var claude = store.Claude;
                 return ClaudeCredentials.IsAuthRecoverableError(claude.FiveHour.Error)
                     || ClaudeCredentials.IsAuthRecoverableError(claude.Weekly.Error)
-                    || store.ClaudeReauthFailureCaption is not null
                     || !ProviderVisibilityStore.Shared.ClaudeDetected
                     ? SignInOffer.Available
                     : SignInOffer.None;
