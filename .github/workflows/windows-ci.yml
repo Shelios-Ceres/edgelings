@@ -1,6 +1,5 @@
-# WPF can't compile anywhere but Windows (the Linux/macOS SDKs ship without
-# Microsoft.NET.Sdk.WindowsDesktop), so this is the only pre-tag compile
-# check the Windows port gets.
+# Windows-only: the WinUI app and its tests don't build on Linux or macOS,
+# so this is the only pre-tag compile check the Windows port gets.
 name: Windows CI
 
 on:
@@ -14,17 +13,24 @@ on:
       - ".github/workflows/windows-ci.yml"
 
 jobs:
-  winui:
+  build:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - name: Build WinUI
+
+      - name: Build
         run: dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -p:Platform=x64
+
+      - name: Test
+        working-directory: windows
+        run: dotnet run --project tests/AgentIsland.Tests -c Release
+
       - name: Audit WinUI dependencies
         shell: pwsh
         run: |
@@ -36,29 +42,11 @@ jobs:
           $unsafe = $packages | Where-Object { $_.vulnerabilities | Where-Object severity -in @('High', 'Critical') }
           if ($unsafe) { $unsafe | ConvertTo-Json -Depth 8; throw 'High or critical dependency vulnerability' }
 
-  build:
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Build
-        working-directory: windows
-        run: dotnet build src/AgentIsland/AgentIsland.csproj -c Release
-
-      - name: Test
-        working-directory: windows
-        run: dotnet run --project tests/AgentIsland.Tests -c Release
-
       # A downloadable test build for every push — lets a maintainer try the
       # branch without cutting a release/tag (which would ship to all users
       # via auto-update). Grab it from the run's Artifacts section.
       - name: Package test build
+        shell: pwsh
         working-directory: windows
         run: .\build.ps1
 
@@ -85,4 +73,4 @@ jobs:
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "Windows test build (unstable)" \
-            --notes "Latest Windows test build from the windows-ui-layout-audit branch. Prerelease only — NOT shipped via auto-update. Download the zip, unzip, run AgentIsland.exe."
+            --notes "Latest Windows test build from the windows-ui-layout-audit branch. Prerelease only — NOT shipped via auto-update. Download the zip, unzip, run AgentIsland.WinUI.exe."

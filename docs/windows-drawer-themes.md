@@ -172,9 +172,9 @@ family so a chart still reads by agent.
   character. `swatchOf('cursor', look)` returns what the theme draws (Pixel:
   Grok's colour; Classic: Cursor's own).
 - The host keeps the pick per theme and agent in
-  `AgentIsland.drawer.look.<theme>.<agent>` (`DrawerStore.LookKey`; the WPF
-  app's `AgentIsland.drawer.look.<agent>` shape/colour is a different
-  setting). Cursor wears Grok's pick. The bot is swapped in place: a new bot
+  `AgentIsland.drawer.look.<theme>.<agent>` (`DrawerStore.LookKey`; the retired
+  WPF app's `AgentIsland.drawer.look.<agent>` shape/colour key is no longer
+  read). Cursor wears Grok's pick. The bot is swapped in place: a new bot
   with the same seed and tempo enters the old one's state, so a pick shows at
   once; Pixel's bot then hops (not under reduced motion).
 - `LookCatalog` mirrors every id, name and colour; `LookCatalog.Data.cs` is

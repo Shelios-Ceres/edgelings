@@ -56,7 +56,7 @@ See what every run is doing. Step away, and Agent Island calls you back when it 
 
 **macOS** — drag into Applications. On first launch, right-click the app and choose **Open** ([why?](#faq)).
 
-**Windows** — unzip and run `AgentIsland.exe`.
+**Windows** — unzip and run `AgentIsland.WinUI.exe`.
 
 <details>
 <summary>Package managers and source builds</summary>
@@ -170,9 +170,9 @@ A settings panel rebuilt in 2.1.2: white-on-black chrome that leaves colour to t
 Agent Island is a native desktop app on both supported platforms, with English and Simplified Chinese interfaces.
 
 - **macOS 13+**: SwiftUI universal app for Apple silicon and Intel, with wide and compact top-bar layouts.
-- **Windows 10/11 x64**: native WPF app with a top bar, draggable floating widget, and tray presence.
+- **Windows 10/11 x64**: native WinUI 3 app with a character drawer at the screen edge and a tray icon.
 
-As of 2.1.2 both platforms ship from one tag with the same five providers, live session state, alarms, cost ledger, and report cards. The deliberate difference: Windows adds a **floating-bar position** setting, because no Windows display has a notch to dock to.
+As of 2.1.2 both platforms ship from one tag with the same five providers, live session state, alarms, cost ledger, and report cards. The deliberate difference: Windows shows a character drawer at the screen edge instead of a notch bar, because no Windows display has a notch to dock to.
 
 <table>
   <tr>

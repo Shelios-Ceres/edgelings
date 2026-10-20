@@ -5,7 +5,7 @@ Agent Island does one job first: keep your agents' status visible, then bring yo
 ## Shipping now (2.1.2)
 
 - Five providers on one island: Claude Code, Claude Desktop, Codex, Antigravity, Grok, and Cursor — live session state for every one of them.
-- One app, native on both platforms: SwiftUI on macOS, WPF on Windows ([windows/](../windows/)), released from the same tag.
+- One app, native on both platforms: SwiftUI on macOS, WinUI 3 on Windows ([windows/](../windows/)), released from the same tag.
 - Turn alarms when a background run finishes, plus an out-of-quota alarm with the reset time.
 - Live provider mark states: working, idle, your turn, needs attention.
 - Usage, reset windows, and a local cost ledger; Codex reset cards when you have any banked.

@@ -127,14 +127,17 @@ title and intent. Create it in `notes/` from the start.
 
 ## Windows port (windows/)
 
-The WPF port lives in `windows/` (monorepo since v1.4.1-era; history subtree-merged
-from the retired agent-island-windows repo). Rules:
+The WinUI 3 port lives in `windows/` (monorepo since v1.4.1-era; history subtree-merged
+from the retired agent-island-windows repo; the original WPF app was retired in Phase 5).
+Rules:
 - One tag releases BOTH platforms: `.github/workflows/windows-release.yml` waits for
   the macOS job's release (which carries the Sparkle appcast) before attaching
   `AgentIsland-<version>-win-x64.zip`. Never create a Windows-only non-prerelease
   release — it would occupy `releases/latest` without appcast.xml and break every
   Mac user's auto-update.
 - Windows binary version comes from the shared `VERSION` file at release time
-  (`build.ps1 -Version`); the csproj version is only a dev fallback.
+  (`build.ps1 -Version`); the csproj version is only a dev fallback. The app is
+  `windows/src/AgentIsland.WinUI` (exe `AgentIsland.WinUI.exe`); `AgentIsland.Core` holds
+  everything below the UI, and CI builds and tests on the .NET 10 SDK.
 - macOS release flow (build.sh / release.sh / VERSION / Sparkle keys) is unchanged
   and remains the source of truth for `releases/latest`.

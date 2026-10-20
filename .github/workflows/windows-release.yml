@@ -1,11 +1,7 @@
 name: Windows Release
 
-# The tag trigger was parked for 2.1.1 (macOS-first: the WPF tree had not
-# absorbed that feature set, so a tag-built zip would have shipped old
-# features under a new number). 2.1.2 closes the gap — same five providers,
-# same live session state, same reports — so ONE tag ships both platforms
-# again. The attach step still waits for the macOS job's release, which is
-# what carries the Sparkle appcast.
+# ONE tag ships both platforms. The attach step waits for the macOS job's
+# release, which is what carries the Sparkle appcast.
 on:
   push:
     tags:
@@ -28,7 +24,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Build (version = VERSION file)
         shell: pwsh

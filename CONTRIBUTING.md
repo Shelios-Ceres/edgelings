@@ -28,14 +28,16 @@ No Xcode project, no SwiftPM. Just `swiftc Sources/**/*.swift`.
 
 ### Windows
 
-Install [Git](https://git-scm.com/download/win) and the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), then run these commands from the repository root in PowerShell:
+Install [Git](https://git-scm.com/download/win) and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run these commands from the repository root in PowerShell:
 
 ```powershell
-dotnet build windows/src/AgentIsland/AgentIsland.csproj -c Release
+dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -p:Platform=x64
 dotnet run --project windows/tests/AgentIsland.Tests -c Release
 ```
 
-The built app is at `windows\src\AgentIsland\bin\Release\net8.0-windows\AgentIsland.exe`.
+The built app is at `windows\src\AgentIsland.WinUI\bin\x64\Release\net10.0-windows10.0.22621.0\win-x64\AgentIsland.WinUI.exe`.
+
+To produce the zip that a release ships, run `windows\build.ps1`. It writes `windows\dist\AgentIsland-<version>-win-x64.zip`.
 
 ## Code style
 

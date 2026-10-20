@@ -47,4 +47,14 @@
     <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1" />
   </ItemGroup>
 
+  <!-- An unpackaged publish leaves out the app's own resource index and its
+       compiled XAML pages; without them every window fails to load its XAML.
+       Add them from the build output. -->
+  <Target Name="IncludeXamlInPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_XamlOutput Include="$(OutDir)AgentIsland.WinUI.pri;$(OutDir)**\*.xbf" />
+      <ResolvedFileToPublish Include="@(_XamlOutput)" RelativePath="$([MSBuild]::MakeRelative('$(OutDir)', '%(_XamlOutput.FullPath)'))" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
 </Project>

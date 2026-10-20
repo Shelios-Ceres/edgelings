@@ -1,5 +1,10 @@
 # Windows port — parity audit vs macOS
 
+> Historical record. The WPF app described below (`windows/src/AgentIsland`, the
+> `UI/` paths and the island bar) was retired in Phase 5; the Windows app is now the
+> WinUI 3 character drawer in `windows/src/AgentIsland.WinUI`. File names here point at
+> the old tree and are kept only for the history.
+
 ## Status: parity reached at 2.1.2 (2026-08-09)
 
 Windows and macOS ship from the **same tag** with the same five providers,
