@@ -45,7 +45,7 @@ internal sealed partial class SettingsWindow : Window
     private List<IconElement> _pageIcons = new();
     private ScrollViewer _scroll = null!;
     private readonly Dictionary<DisplayProvider, AgentSection> _agents = new();
-    private readonly List<Action> _teardown = new();
+    private readonly Shell.Subscriptions _subscriptions = new();
     private readonly DispatcherQueueTimer _tick;
     private Page _page;
     private bool _dirty = true;
@@ -260,12 +260,10 @@ internal sealed partial class SettingsWindow : Window
             // A picked look changes an agent's face and colour on its card.
             if (e.PropertyName == nameof(DrawerStore.LookId)) _dirty = true;
         };
-        DrawerStore.Shared.PropertyChanged += look;
-        _teardown.Add(() => DrawerStore.Shared.PropertyChanged -= look);
+        _subscriptions.Watch(DrawerStore.Shared, look);
         // Hiding, showing or reordering an agent rearranges the Agents page.
         PropertyChangedEventHandler regroup = (_, _) => DispatcherQueue.TryEnqueue(Rearrange);
-        ProviderVisibilityStore.Shared.PropertyChanged += regroup;
-        _teardown.Add(() => ProviderVisibilityStore.Shared.PropertyChanged -= regroup);
+        _subscriptions.Watch(ProviderVisibilityStore.Shared, regroup);
 
         Watch(UsageStore.Shared);
         Watch(AntigravityUsageStore.Shared);
@@ -295,12 +293,12 @@ internal sealed partial class SettingsWindow : Window
             _scroll.Content = null;
             Drawer.LookPreviews.Release();
         });
-        _teardown.Add(() => FollowDrawerStore(null));
-        _teardown.Add(EndCostPage);
+        _subscriptions.Add(() => FollowDrawerStore(null));
+        _subscriptions.Add(EndCostPage);
         Closed += (_, _) =>
         {
             _tick.Stop();
-            foreach (var teardown in _teardown) teardown();
+            _subscriptions.Dispose();
             _shared = null;
         };
     }
@@ -397,12 +395,7 @@ internal sealed partial class SettingsWindow : Window
         DrawerStore.Shared.PropertyChanged += _drawerPage;
     }
 
-    private void Watch(INotifyPropertyChanged source)
-    {
-        PropertyChangedEventHandler handler = (_, _) => _dirty = true;
-        source.PropertyChanged += handler;
-        _teardown.Add(() => source.PropertyChanged -= handler);
-    }
+    private void Watch(INotifyPropertyChanged source) => _subscriptions.Watch(source, (_, _) => _dirty = true);
 
     private void Tick()
     {

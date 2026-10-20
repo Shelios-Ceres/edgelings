@@ -161,7 +161,7 @@ internal sealed partial class DrawerWindow : Window
 
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
-    private readonly List<Action> _teardown = new();
+    private readonly Subscriptions _subscriptions = new();
 
 
     private readonly DrawerStats? _stats;
@@ -306,7 +306,7 @@ internal sealed partial class DrawerWindow : Window
         });
         Watch(IslandTargetDisplayStore.Shared, Layout);
         ActivityMonitor.Shared.SessionEventsRaised += OnSessionEvents;
-        _teardown.Add(() => ActivityMonitor.Shared.SessionEventsRaised -= OnSessionEvents);
+        _subscriptions.Add(() => ActivityMonitor.Shared.SessionEventsRaised -= OnSessionEvents);
         Watch(UsageStore.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
         Watch(GrokUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Grok));
@@ -317,7 +317,7 @@ internal sealed partial class DrawerWindow : Window
         Watch(CostStore.Shared, RefreshCard);
         EventHandler onDisplay = (_, _) => _queue.TryEnqueue(Layout);
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += onDisplay;
-        _teardown.Add(() => Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= onDisplay);
+        _subscriptions.Add(() => Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= onDisplay);
 
         Layout();
         _poll.Start();
@@ -387,7 +387,7 @@ internal sealed partial class DrawerWindow : Window
         _momentGuard.Stop();
         _card.Dispose();
         Hush();
-        foreach (var teardown in _teardown) teardown();
+        _subscriptions.Dispose();
         _canvas.Paused = true;
         _canvas.RemoveFromVisualTree();
         Close();
@@ -443,13 +443,9 @@ internal sealed partial class DrawerWindow : Window
         return timer;
     }
 
-    private void Watch(INotifyPropertyChanged source, Action handler)
-    {
-        PropertyChangedEventHandler h = (_, _) => _queue.TryEnqueue(() =>
+    private void Watch(INotifyPropertyChanged source, Action handler) =>
+        _subscriptions.Watch(source, (_, _) => _queue.TryEnqueue(() =>
         {
             if (!_closed) handler();
-        });
-        source.PropertyChanged += h;
-        _teardown.Add(() => source.PropertyChanged -= h);
-    }
+        }));
 }

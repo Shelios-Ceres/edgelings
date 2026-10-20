@@ -44,7 +44,7 @@ internal sealed partial class CostPage : IDisposable
     private readonly Border _periodRange = new();
     private readonly Border _calendarNote = new();
     private readonly bool _pixel = Looks.Pixel;
-    private readonly List<Action> _teardown = new();
+    private readonly Subscriptions _subscriptions = new();
     private readonly DispatcherQueue _queue;
     private readonly Func<bool> _visible;
     private readonly Action _showAgents;
@@ -75,8 +75,7 @@ internal sealed partial class CostPage : IDisposable
     {
         _count?.Stop();
         _glide?.Stop();
-        foreach (var teardown in _teardown) teardown();
-        _teardown.Clear();
+        _subscriptions.Dispose();
     }
 
     private void Watch(INotifyPropertyChanged source, string? property = null)
@@ -93,8 +92,7 @@ internal sealed partial class CostPage : IDisposable
                 if (_visible()) Recount();
             });
         };
-        source.PropertyChanged += handler;
-        _teardown.Add(() => source.PropertyChanged -= handler);
+        _subscriptions.Watch(source, handler);
     }
 
     /// One agent's numbers for the chosen period.
