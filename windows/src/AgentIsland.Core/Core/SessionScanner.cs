@@ -90,7 +90,7 @@ public static class SessionScanner
         var transcripts = ClaudeTranscriptIndex();
         foreach (var entry in EnumerateDesktopSessionFiles())
         {
-            var parsed = ParseDesktopSessionFile(entry);
+            var parsed = DesktopSessionAt(entry);
             if (parsed is not { } session) continue;
             if (session.IsArchived) continue;
             if (string.IsNullOrEmpty(session.CliSessionId)) continue;
@@ -127,7 +127,7 @@ public static class SessionScanner
             // that no desktop session points at is machine work, not a
             // conversation: nobody is ever "up" in it.
             if (desktop is null && IsSdkTranscript(path)) continue;
-            var cwd = desktop?.Cwd is { Length: > 0 } dc ? dc : CwdFromClaudeTranscript(path);
+            var cwd = desktop?.Cwd is { Length: > 0 } dc ? dc : TranscriptCwd(path);
             var title = desktop?.Title ?? "";
             var state = ClaudeSessionState(path, now, lastWorking, desktop);
             // An archived session is one the user put away: it may still run,
@@ -239,7 +239,7 @@ public static class SessionScanner
         var seenProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in files)
         {
-            if (CodexMeta(path) is not { } meta || string.IsNullOrEmpty(meta.Sid)) continue;
+            if (CachedCodexMeta(path) is not { } meta || string.IsNullOrEmpty(meta.Sid)) continue;
             var (sid, cwd, kind) = meta;
             // Neither machine tier ever surfaces: automation runs have no
             // human in them at all, and subagent fan-out finishes constantly
@@ -759,7 +759,7 @@ public static class SessionScanner
             foreach (var sessionDir in SafeEnumerateDirectories(workdir))
             {
                 var wire = Path.Combine(sessionDir, "agents", "main", "wire.jsonl");
-                if (!File.Exists(wire) || now - Mtime(wire) > RecentWindow) continue;
+                if (!IsRecent(wire, now)) continue;
                 var name = Path.GetFileName(sessionDir);
                 var sid = name.StartsWith("session_", StringComparison.Ordinal) ? name["session_".Length..] : name;
                 var cwd = KimiCwd(Path.Combine(sessionDir, "state.json"));
@@ -804,7 +804,7 @@ public static class SessionScanner
             foreach (var sessionDir in SafeEnumerateDirectories(workspace))
             {
                 var log = Path.Combine(sessionDir, "session.v4.jsonl.zstd");
-                if (!File.Exists(log) || now - Mtime(log) > RecentWindow) continue;
+                if (!IsRecent(log, now)) continue;
                 var name = Path.GetFileName(sessionDir);
                 var sid = name.StartsWith("session-", StringComparison.Ordinal) ? name["session-".Length..] : name;
                 var state = SessionState(log, now, lastWorking, null, SessionTurnState.DeepSeek,
@@ -832,6 +832,20 @@ public static class SessionScanner
     /// Guest trees keep every session ever run; anything this old cannot be
     /// working or waiting on the user, so it is not even opened.
     private static readonly TimeSpan RecentWindow = TimeSpan.FromDays(1);
+
+    /// One stat answers both whether the log exists and how old it is.
+    private static bool IsRecent(string path, DateTimeOffset now)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists && now - new DateTimeOffset(info.LastWriteTimeUtc) <= RecentWindow;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     // MARK: - Indexes
 
@@ -971,14 +985,29 @@ public static class SessionScanner
         var output = new Dictionary<string, DesktopSession>(StringComparer.Ordinal);
         foreach (var path in EnumerateDesktopSessionFiles())
         {
-            if (ParseDesktopSessionFile(path) is not { } session) continue;
+            if (DesktopSessionAt(path) is not { } session) continue;
             if (string.IsNullOrEmpty(session.CliSessionId)) continue;
             output[session.CliSessionId] = session;
         }
         return output;
     }
 
+    private sealed record TitleIndex(string Stamp, Dictionary<string, string> Titles);
+
+    private static TitleIndex _codexTitles = new("", new());
+
+    /// Codex rewrites its title index only when a thread is named.
     private static Dictionary<string, string> CodexTitleIndex()
+    {
+        var stamp = FileStamp(IslandPaths.CodexSessionIndexFile);
+        var cached = _codexTitles;
+        if (stamp.Length > 0 && stamp == cached.Stamp) return cached.Titles;
+        var titles = ReadCodexTitleIndex();
+        _codexTitles = new TitleIndex(stamp, titles);
+        return titles;
+    }
+
+    private static Dictionary<string, string> ReadCodexTitleIndex()
     {
         var output = new Dictionary<string, string>(StringComparer.Ordinal);
         var path = IslandPaths.CodexSessionIndexFile;
@@ -1151,11 +1180,92 @@ public static class SessionScanner
         }
     }
 
-    /// Test seam: drop the fingerprint cache so a suite that rewrites content
+    /// Test seam: drop the fingerprint caches so a suite that rewrites content
     /// behind a reused path never reads a stale parse.
     internal static void ClearTurnCache()
     {
         lock (TurnCacheGate) TurnCache.Clear();
+        lock (ScanCacheGate)
+        {
+            CodexMetas.Clear();
+            TranscriptCwds.Clear();
+            DesktopSessions.Clear();
+        }
+        _codexTitles = new("", new());
+    }
+
+    // MARK: - Scan caches
+
+    // Every scan used to re-read each Codex rollout's first line and parse
+    // every Claude Desktop session file: most of a scan's cost, for data that
+    // rarely changes.
+    private static readonly object ScanCacheGate = new();
+    private static readonly Dictionary<string, (string Sid, string Cwd, CodexRolloutKind Kind)> CodexMetas = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, string> TranscriptCwds = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, (long Ticks, long Size, DesktopSession Session)> DesktopSessions = new(StringComparer.Ordinal);
+
+    /// A rollout's session_meta is its first line, written once, so each
+    /// file's is read once. A line still being written parses as nothing and
+    /// is read again next time.
+    private static (string Sid, string Cwd, CodexRolloutKind Kind)? CachedCodexMeta(string path)
+    {
+        lock (ScanCacheGate)
+        {
+            if (CodexMetas.TryGetValue(path, out var known)) return known;
+        }
+        if (CodexMeta(path) is not { } meta) return null;
+        lock (ScanCacheGate)
+        {
+            if (CodexMetas.Count > 5000) CodexMetas.Clear();
+            CodexMetas[path] = meta;
+        }
+        return meta;
+    }
+
+    /// Transcripts are append-only, so the cwd their first lines name holds.
+    /// One that names none yet is read again next time.
+    private static string TranscriptCwd(string path)
+    {
+        lock (ScanCacheGate)
+        {
+            if (TranscriptCwds.TryGetValue(path, out var known)) return known;
+        }
+        if (CwdInClaudeTranscript(path) is not { } cwd) return ProjectFromClaudeTranscript(path);
+        lock (ScanCacheGate)
+        {
+            if (TranscriptCwds.Count > 5000) TranscriptCwds.Clear();
+            TranscriptCwds[path] = cwd;
+        }
+        return cwd;
+    }
+
+    /// Claude Desktop rewrites a session's file whenever the session changes,
+    /// so a parse holds while the file's write time and length do.
+    private static DesktopSession? DesktopSessionAt(string path)
+    {
+        long ticks, size;
+        try
+        {
+            var info = new FileInfo(path);
+            ticks = info.LastWriteTimeUtc.Ticks;
+            size = info.Length;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        lock (ScanCacheGate)
+        {
+            if (DesktopSessions.TryGetValue(path, out var cached) && cached.Ticks == ticks && cached.Size == size)
+                return cached.Session;
+        }
+        if (ParseDesktopSessionFile(path) is not { } session) return null;
+        lock (ScanCacheGate)
+        {
+            if (DesktopSessions.Count > 5000) DesktopSessions.Clear();
+            DesktopSessions[path] = (ticks, size, session);
+        }
+        return session;
     }
 
     // MARK: - Helpers
@@ -1173,7 +1283,10 @@ public static class SessionScanner
     /// every entry ("cwd") — authoritative, unlike the lossy encoded folder
     /// name, whose dashes un-munge real hyphenated paths into the wrong
     /// directory and then break `claude --resume` launched from it.
-    internal static string CwdFromClaudeTranscript(string path)
+    internal static string CwdFromClaudeTranscript(string path) =>
+        CwdInClaudeTranscript(path) ?? ProjectFromClaudeTranscript(path);
+
+    private static string? CwdInClaudeTranscript(string path)
     {
         try
         {
@@ -1201,7 +1314,7 @@ public static class SessionScanner
         catch
         {
         }
-        return ProjectFromClaudeTranscript(path);
+        return null;
     }
 
     /// Display-only fallback when the transcript carries no cwd: reverse
