@@ -1059,6 +1059,14 @@ public static class SessionScanner
         return (ActivityState.Working, turn.Key, effectiveModified);
     }
 
+    /// Whether Grok's latest turn is still open (its transcript has no
+    /// turn_completed after the last conversation update).
+    internal static bool HasOpenGrokTurn(string path)
+    {
+        var (turn, _) = ReadTurn(path, SessionTurnState.Grok, p => TailLines(p));
+        return turn.Key is not null && !turn.IsDone && !turn.Idle;
+    }
+
     internal static bool HasOpenClaudeTurn(string path)
     {
         // Widened like the scan's own read: both share the turn cache.

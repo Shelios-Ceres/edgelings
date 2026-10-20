@@ -93,6 +93,7 @@ public static class Program
             ScannerCwdTests.RunAll();
             AgentPresenceTests.RunAll();
             SessionEventTests.RunAll();
+            GrokHooksTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }

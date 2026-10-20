@@ -154,6 +154,7 @@ internal sealed class AgentSection
         }
         Expander.Items.Add(_signIn);
         if (provider == DisplayProvider.Claude) Expander.Items.Add(PromptHookCard(root));
+        if (provider == DisplayProvider.Grok) Expander.Items.Add(GrokHookCard(root));
     }
 
     public SettingsExpander Expander { get; }
@@ -465,6 +466,45 @@ internal sealed class AgentSection
             Description = new TextBlock
             {
                 Text = L10n.Tr("Shows when Claude Code waits for you to approve a tool. Adds a small hook to ~/.claude/settings.json that records only the session and the prompt type; sessions started afterwards pick it up."),
+                TextWrapping = TextWrapping.Wrap,
+            },
+            HeaderIcon = Icon("\uE8D7"),
+            Content = toggle,
+        };
+    }
+
+    /// Opt-in, like Claude's: Grok's Notification hook, one file of ours in
+    /// ~/.grok/hooks, so the drawer can show an open permission prompt. A file
+    /// of that name that isn't ours is left alone and the switch says so.
+    private static SettingsCard GrokHookCard(Func<XamlRoot?> root)
+    {
+        var conflict = GrokHooks.Conflicts();
+        var toggle = new ToggleSwitch { IsOn = GrokHooks.IsInstalled(), IsEnabled = !conflict, OnContent = L10n.Tr("On"), OffContent = L10n.Tr("Off") };
+        UseKit(toggle);
+        AutomationProperties.SetName(toggle, $"Grok · {L10n.Tr("Permission prompts")}");
+        AutomationProperties.SetAutomationId(toggle, "Agent.grok.PermissionPrompts");
+        var settling = false;
+        toggle.Toggled += async (_, _) =>
+        {
+            if (settling) return;
+            using var english = Looks.English();
+            var wanted = toggle.IsOn;
+            var error = await Task.Run(() => GrokHooks.SetInstalled(wanted));
+            DebugTrace.Write($"grok hook switch: wanted {wanted}, error {error ?? "none"}, installed {GrokHooks.IsInstalled()}");
+            if (error is null) return;
+            settling = true;
+            toggle.IsOn = !wanted;
+            settling = false;
+            if (root() is { } xamlRoot) await Alert(xamlRoot, L10n.Tr("Couldn't change Grok's hooks"), error);
+        };
+        return new SettingsCard
+        {
+            Header = L10n.Tr("Permission prompts"),
+            Description = new TextBlock
+            {
+                Text = conflict
+                    ? L10n.Tr("A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Agent Island's, so this stays off.")
+                    : L10n.Tr("Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up."),
                 TextWrapping = TextWrapping.Wrap,
             },
             HeaderIcon = Icon("\uE8D7"),

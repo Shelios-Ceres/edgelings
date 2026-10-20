@@ -236,8 +236,26 @@ card but never speaks. A finished turn is news for two minutes.
 | A turn ended and waits on the user (a scheduled task's run too) | The transcript's turn state |
 | A turn ended on an error | The same, with the transcript's last line |
 | A question (AskUserQuestion, ExitPlanMode, an MCP elicitation) | The transcript's open tool call |
-| A permission prompt | The `ClaudeHooks` markers (the opt-in Notification hook); Kimi Code's desktop server |
+| A permission prompt | Claude's `ClaudeHooks` markers and Grok's `GrokHooks` markers (each an opt-in Notification hook, a switch on that agent's Settings card, see below); Kimi Code's desktop server |
 | A scheduled task that could not run | `scheduled-tasks.json`'s `recordedSkips`, when its key or value changes |
+
+**The two permission-prompt hooks** are opt-in, one switch on the agent's card
+in Settings → Agents. Claude's adds a Notification group to
+`~/.claude/settings.json`. Grok's adds one file of ours,
+`~/.grok/hooks/agentisland-notify.json` (Grok's global hooks are always
+trusted; nothing else in `~/.grok` is touched), whose command runs a script of
+ours, `%APPDATA%\AgentIsland\grok-hook.ps1`, through `powershell.exe` by name so
+it means the same under pwsh, Windows PowerShell and Git Bash. On a
+`permission_prompt` Notification the script writes
+`%APPDATA%\AgentIsland\grok-hooks\<session id>.json` (the session id, the type
+and the time; never the prompt's text), read from Grok's stdin envelope
+(`sessionId`, `notificationType`). The marker is the session's open prompt
+while it is newer than the session's `updates.jsonl` (answering writes the
+transcript, which retires it) and under two hours old, and only while the turn
+is open. Grok reads only `type`, `command`, `url`, `timeout` and `env` from a
+handler (`async` and `shell` are load errors), and sessions started after the
+switch pick it up. A file of that name that isn't ours is left alone and the
+row says so. Cursor rides on Grok's character but has no hook.
 
 Rate limits, sign-in and network trouble stay phase-based: they hit every
 session of an agent at once, so they speak once per agent, as before, gated by

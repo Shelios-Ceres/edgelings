@@ -242,8 +242,20 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         var prompts = ClaudeHooks.PendingFor(current
             .Where(s => s.Tool == TriggerTool.Claude && s.TranscriptPath is not null)
             .Select(s => s.TranscriptPath!), now);
+        // Grok's opt-in hook marks a session by its id, the name of its folder.
+        var grokPrompts = GrokHooks.PendingFor(current
+            .Where(s => s.Tool == TriggerTool.Grok && s.TranscriptPath is not null)
+            .Select(s => (s.SessionId, s.TranscriptPath!)), now);
         return current.ConvertAll(session =>
         {
+            if (session.Tool == TriggerTool.Grok
+                && session.TranscriptPath is { } grokPath
+                && session.Status is not (ActivityState.NeedsYou or ActivityState.RateLimited or ActivityState.AuthRequired)
+                && grokPrompts.TryGetValue(session.SessionId, out var grokPrompt)
+                && SessionScanner.HasOpenGrokTurn(grokPath))
+            {
+                return session with { Status = ActivityState.Working, PendingPrompt = new(AgentPhase.Approving, null, grokPrompt.At) };
+            }
             // Other agents' scanners report their own prompts (Kimi Code's desktop app).
             if (session.Tool != TriggerTool.Claude) return session;
             if (session.TranscriptPath is not { } path
