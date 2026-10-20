@@ -16,13 +16,12 @@ internal sealed partial class DrawerWindow
     {
         _cardClose.Stop();
         _cardClose.Interval = TimeSpan.FromMilliseconds(250);
-        var retarget = _card.IsOpen && _cardBot != only;
         _cardBot = only;
         // What the queue held is on the card's list.
         foreach (var bot in _bots.Where(b => only is null || b == only)) bot.Speech.Clear();
         if (only is null) Hush();
         else only.Bubble?.Hide(animated: false);
-        ShowCard(retarget);
+        ShowCard();
     }
 
     private void RefreshCard()
@@ -76,7 +75,7 @@ internal sealed partial class DrawerWindow
             },
         };
 
-    private void ShowCard(bool retarget = false)
+    private void ShowCard()
     {
         if (!_shown) return;
         var dark = Brand.IsDark();
@@ -91,7 +90,7 @@ internal sealed partial class DrawerWindow
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
         var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, height / 2 - BotSize / 2, BotSize, BotSize);
         _card.Show(sections, pixel, DrawerStore.Shared.Side == DrawerSide.Right, anchor,
-            CardArea(), _reducedMotion, retarget);
+            CardArea(), _reducedMotion);
     }
 
     /// Where the card may go: the screen's work area, or with

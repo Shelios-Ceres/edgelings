@@ -308,7 +308,7 @@ internal sealed partial class HoverCard
         }
         if (card.Waiting.Rows.Count > 0)
         {
-            panel.Children.Add(WaitingList(card.Waiting, indent, top, pixel, swatch));
+            panel.Children.Add(WaitingList(card.Waiting, indent, top, pixel));
             top = 4;
         }
         var meters = new Grid { Margin = new Thickness(indent, top, 0, 0), RowSpacing = 6, ColumnSpacing = 8 };
@@ -400,7 +400,7 @@ internal sealed partial class HoverCard
     /// The sessions that wait on the user: a title and what it waits for on
     /// each row. A title is the user's own text, so it trims after two lines
     /// rather than flows.
-    private static StackPanel WaitingList(StatusWaitingList waiting, double indent, double top, bool pixel, uint swatch)
+    private static StackPanel WaitingList(StatusWaitingList waiting, double indent, double top, bool pixel)
     {
         var list = new StackPanel { Margin = new Thickness(indent, top, 0, 0), Spacing = 2 };
         foreach (var row in waiting.Rows)

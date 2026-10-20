@@ -243,11 +243,10 @@ internal sealed class HoverCardPreview : Window
     private void ShowTarget(int target)
     {
         if (_closed) return;
-        var retarget = _card.IsOpen && _hasTarget && _target != target;
         _target = target;
         _hasTarget = true;
         _card.Show(new[] { (Card(target), Swatches[target]) }, _pixel, characterRight: true,
-            Anchor(target), Area, reducedMotion: _reduced.IsChecked == true || Motion.ReducedMotion, retarget: retarget);
+            Anchor(target), Area, reducedMotion: _reduced.IsChecked == true || Motion.ReducedMotion);
     }
 
     private void Hide()

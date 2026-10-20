@@ -218,7 +218,7 @@ internal sealed partial class HoverCard : IDisposable
     /// draws the pixel panel instead of the paper.
     /// The transparent popup is a staging area; plate and content move as
     /// one element within it, without moving a native window on every frame.
-    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion, bool retarget = false)
+    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
     {
         var started = Stopwatch.GetTimestamp();
         _requests++;
