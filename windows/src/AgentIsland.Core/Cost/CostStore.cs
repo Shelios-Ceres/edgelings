@@ -71,7 +71,7 @@ public sealed class CostStore : INotifyPropertyChanged
 
     /// One provider's rollup, keyed by DisplayProvider. Empty until its first
     /// scan commits, so a caller never sees null and a provider with no local
-    /// ledger (Gemini today) reads as honest zeros rather than a fabricated $0.
+    /// ledger (Antigravity today) reads as honest zeros rather than a fabricated $0.
     public ProviderCostSummary Summary(DisplayProvider provider) =>
         _summaries.TryGetValue(provider, out var summary) ? summary : ProviderCostSummary.Empty;
 

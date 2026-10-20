@@ -94,7 +94,7 @@ public static partial class SessionScanner
     /// review / compact threads, {"internal": …} for probes. Subagent
     /// threads share the interactive codex originator, so the source field
     /// is the only thing separating a fan-out worker from the user's own
-    /// thread — without it every finished subagent raises a turn alarm.
+    /// thread — without it every finished subagent reads as the user's turn.
     internal static (string Sid, string Cwd, CodexRolloutKind Kind)? ParseCodexMeta(string firstLine)
     {
         using var doc = Jsonl.TryParseLine(firstLine);
@@ -119,7 +119,7 @@ public static partial class SessionScanner
 
         // Automation rollouts (orchestrator-driven runs, probes, and
         // `codex exec`) finish constantly; a human is never "up" in them,
-        // so they must not raise turn alarms or drive the logo. Interactive
+        // so they must not read as the user's turn or drive the character. Interactive
         // sessions carry a codex-family originator; missing originator =
         // old CLI, treat as interactive. The prefix check is
         // case-insensitive: the Windows desktop app stamps "Codex Desktop".

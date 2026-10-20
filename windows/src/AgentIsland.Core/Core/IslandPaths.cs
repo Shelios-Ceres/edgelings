@@ -1,4 +1,3 @@
-
 namespace AgentIsland.Core;
 
 /// Central path resolution. Mirrors the macOS app's data sources, adapted to

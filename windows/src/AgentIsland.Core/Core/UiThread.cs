@@ -1,9 +1,9 @@
 namespace AgentIsland.Core;
 
 /// The app's UI thread, captured once at startup. Stores raise their change
-/// notifications on it, so either UI framework (WPF or WinUI, both of which
-/// install a SynchronizationContext on their UI thread) can bind them
-/// directly. Uncaptured — the console test runner — work runs inline.
+/// notifications on it, so the UI (WinUI installs a SynchronizationContext on
+/// its UI thread) can bind them directly. Uncaptured — the console test
+/// runner — work runs inline.
 public static class UiThread
 {
     private static SynchronizationContext? _context;
@@ -52,9 +52,9 @@ public static class UiThread
 }
 
 /// A periodic timer that ticks on the UI thread — the framework-neutral
-/// stand-in for WPF's DispatcherTimer, with the same shape (Interval, Tick,
+/// stand-in for a dispatcher timer, with the same shape (Interval, Tick,
 /// Start, Stop). Ticks never pile up: while one is queued on a busy UI
-/// thread, later ones are dropped, as DispatcherTimer does.
+/// thread, later ones are dropped, as a dispatcher timer does.
 public sealed class UiTimer : IDisposable
 {
     private Timer? _timer;

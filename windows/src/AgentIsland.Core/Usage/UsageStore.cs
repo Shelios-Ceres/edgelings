@@ -81,7 +81,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     public string? RefreshWarning { get => _refreshWarning; private set { _refreshWarning = value; Raise(nameof(RefreshWarning)); } }
     public bool Loading { get => _loading; private set { _loading = value; Raise(nameof(Loading)); } }
 
-    /// Set while a `claude auth login` flow is in progress; the UI hides the
+    /// Set while `claude /login` runs in a terminal; the UI hides the
     /// re-auth button during this window so users don't double-tap.
     public bool ClaudeReauthInProgress { get => _claudeReauthInProgress; private set { _claudeReauthInProgress = value; Raise(nameof(ClaudeReauthInProgress)); } }
     public bool CodexReauthInProgress { get => _codexReauthInProgress; private set { _codexReauthInProgress = value; Raise(nameof(CodexReauthInProgress)); } }
@@ -117,7 +117,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         Loading = true;
         _refreshStartedAt = DateTimeOffset.Now;
         LastAttemptedAt = _refreshStartedAt;
-        // Grok, Gemini and Cursor ride this exact cadence (poll / wake /
+        // Grok, Kimi Code, Antigravity and Cursor ride this exact cadence (poll / wake /
         // unlock / network / manual) instead of owning timers; their stores
         // no-op when the provider is undetected or when kicked again inside
         // their own attempt floors.

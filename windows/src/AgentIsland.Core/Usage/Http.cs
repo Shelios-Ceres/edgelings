@@ -1,4 +1,3 @@
-
 namespace AgentIsland.Usage;
 
 /// One shared HttpClient for provider calls; per-request headers are set on

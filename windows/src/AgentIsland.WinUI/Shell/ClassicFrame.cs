@@ -3,8 +3,6 @@ using AgentIsland.WinUI.Platform;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using Windows.Graphics;
 using WinRT.Interop;
 

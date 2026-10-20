@@ -29,8 +29,8 @@ public static class Program
     }
 
     /// Two live copies sharing %APPDATA%\AgentIsland corrupt each other's
-    /// preferences, so a second launch bows out. Same mutex as the WPF build:
-    /// the two never run together.
+    /// preferences, so a second launch bows out. The WPF app used the
+    /// same mutex, so the two never ran together.
     private static bool ClaimSingleInstance()
     {
         // The isolated motion check creates no stores or background readers.

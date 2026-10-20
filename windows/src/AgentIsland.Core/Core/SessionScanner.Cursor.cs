@@ -1,4 +1,3 @@
-using System.Text;
 
 namespace AgentIsland.Core;
 
@@ -34,7 +33,7 @@ public static partial class SessionScanner
             // finished turn becomes "your turn" purely by the clock moving
             // past the quiet gap, and the db stops changing the moment the
             // assistant stops writing, so a cached status would freeze at
-            // "working" and the alarm would never fire.
+            // "working" and "your turn" would never arrive.
             return cached.ConvertAll(c => CursorSession(c, now));
         }
 

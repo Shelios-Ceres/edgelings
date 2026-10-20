@@ -30,8 +30,8 @@ public static class ActivityStateExtensions
     /// Live activity — a session is running, or something needs you. The
     /// rotating comet sweep spins on these and rests otherwise: Idle and
     /// NeedsYou (finished, waiting for your reply) are steady states where a
-    /// spinning comet reads as a stuck loader and needlessly drives the WPF
-    /// render thread.
+    /// spinning comet reads as a stuck loader and needlessly keeps the
+    /// render loop busy.
     public static bool IsActiveState(this ActivityState state) => state is
         ActivityState.Working
         or ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired;

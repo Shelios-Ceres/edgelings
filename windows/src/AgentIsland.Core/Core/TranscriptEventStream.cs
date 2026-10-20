@@ -1,4 +1,3 @@
-
 namespace AgentIsland.Core;
 
 /// File-event watcher over the transcript roots — the Windows counterpart of

@@ -62,7 +62,7 @@ public static partial class SessionScanner
     /// inaccessible OR deleted mid-walk (Claude Code rotates project folders).
     /// A plain EnumerateFiles(AllDirectories) throws DURING iteration — outside
     /// any try around the call — which used to fault the whole scan and, with
-    /// it, every turn alarm. Skips reparse points to avoid symlink loops.
+    /// it, every agent's state. Skips reparse points to avoid symlink loops.
     internal static List<string> SafeEnumerateFiles(string root, string pattern)
     {
         var result = new List<string>();
@@ -191,10 +191,9 @@ public static partial class SessionScanner
         TurnCache = new(StringComparer.Ordinal);
 
     /// Scans can overlap on more than one worker, and all of them land here.
-    /// An unsynchronized Dictionary
-    /// written from two threads corrupts its bucket chain, and a corrupted
-    /// chain makes the NEXT lookup spin forever — a hung scan thread, not an
-    /// exception. The parse itself stays outside the lock so one slow tail
+    /// An unsynchronized Dictionary written from two threads corrupts its
+    /// bucket chain, and a corrupted chain makes the NEXT lookup spin forever —
+    /// a hung scan thread, not an exception. The parse itself stays outside the lock so one slow tail
     /// read never blocks the other scan.
     private static readonly object TurnCacheGate = new();
 

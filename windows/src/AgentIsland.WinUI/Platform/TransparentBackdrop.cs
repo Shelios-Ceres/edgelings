@@ -1,4 +1,3 @@
-
 namespace AgentIsland.WinUI.Platform;
 
 /// A fully transparent system backdrop: the window shows only what its
