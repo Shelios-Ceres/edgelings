@@ -51,9 +51,9 @@ public static class PixelThemeTests
         foreach (var provider in DisplayProviders.All)
         {
             var kind = DrawerLooks.Kind(provider);
-            Expect(DrawerLooks.PixelSwatch(provider) == swatches[kind], $"{provider}'s colour matches the engine's {kind}");
+            Expect(LookCatalog.For(CharacterTheme.Pixel, provider)[0].Swatch == swatches[kind], $"{provider}'s default colour matches the engine's {kind}");
         }
-        Expect(DrawerLooks.Swatch(DisplayProvider.Claude, CharacterTheme.Pixel) == 0xD77757, "the pixel theme uses the bot's own colour");
+        Expect(LookCatalog.For(CharacterTheme.Pixel, DisplayProvider.Claude)[0].Swatch == 0xD77757, "the pixel theme's default is the bot's own colour");
         Console.WriteLine("PASS each provider's pixel bot and colour match the engine");
 
         // The pixel panels read in English inside L10n.English(), and only there.
@@ -91,8 +91,8 @@ public static class PixelThemeTests
         Expect(DrawerLooks.CardPhase(AgentPhase.Thinking, true, CharacterTheme.Classic) == L10n.Tr("Resting")
             && DrawerLooks.CardPhase(AgentPhase.RateLimited, false, CharacterTheme.Classic) == DrawerLooks.PhaseLabel(AgentPhase.RateLimited),
             "classic cards keep their words");
-        Expect(DrawerLooks.PixelSwatch(DisplayProvider.Cursor) == DrawerLooks.PixelSwatch(DisplayProvider.Grok),
-            "Cursor wears Grok's colour in Pixel");
+        Expect(LookCatalog.For(CharacterTheme.Pixel, DisplayProvider.Cursor).Select(l => l.Swatch).SequenceEqual(LookCatalog.For(CharacterTheme.Pixel, DisplayProvider.Grok).Select(l => l.Swatch)),
+            "Cursor wears Grok's colours in Pixel");
         Console.WriteLine("PASS pixel card words follow the looks; Cursor looks like Grok");
         Console.WriteLine("PixelThemeTests GREEN");
     }

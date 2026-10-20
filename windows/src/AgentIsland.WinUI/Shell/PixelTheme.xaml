@@ -1713,4 +1713,62 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- A look's tile on an agent's Look row: a 48-DIP plate for the look's face.
+         The picked one has an accent outline 2 DIP outside the plate, on the accent tint. -->
+    <Style x:Key="PixelLookTileStyle" TargetType="RadioButton">
+        <Setter Property="Width" Value="48" />
+        <Setter Property="Height" Value="48" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="{ThemeResource PixelField}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource PixelLineControl}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualMargin" Value="-4" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource PixelAccent}" />
+        <Setter Property="FocusVisualPrimaryThickness" Value="2" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource PixelPaper}" />
+        <Setter Property="FocusVisualSecondaryThickness" Value="2" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Grid Width="48" Height="48">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Frame.Fill" Value="{ThemeResource PixelFieldHover}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Frame.Fill" Value="{ThemeResource PixelFieldPressed}" />
+                                        <Setter Target="Frame.Ledge" Value="{x:Null}" />
+                                        <Setter Target="Lift.Y" Value="2" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="CheckStates">
+                                <VisualState x:Name="Unchecked" />
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter Target="Frame.Fill" Value="{ThemeResource PixelAccentTint}" />
+                                        <Setter Target="Ring.Visibility" Value="Visible" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <shell:PixelSurface x:Name="Ring" Margin="-2" Shape="Control" OutlineOnly="True" Outline="{ThemeResource PixelAccent}" Visibility="Collapsed" />
+                        <shell:PixelSurface x:Name="Frame" Shape="Control" Fill="{TemplateBinding Background}" Outline="{TemplateBinding BorderBrush}" Ledge="{ThemeResource PixelFieldPressed}" />
+                        <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.RenderTransform>
+                                <TranslateTransform x:Name="Lift" />
+                            </ContentPresenter.RenderTransform>
+                        </ContentPresenter>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

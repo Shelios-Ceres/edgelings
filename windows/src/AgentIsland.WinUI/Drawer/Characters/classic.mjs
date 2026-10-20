@@ -214,8 +214,8 @@ function mixPoses(a, b, w) {
 
 // MARK: - Bots
 
-export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
-  const def = KIND[kind] ?? KIND.claude;
+export function createBot(kind, { seed = 1, tempo = 1, rim = true, look } = {}) {
+  const def = lookOf(kind, look);
   const obj = OBJ[def.object];
   const random = rng(seed);
   const k = { kind, seed, obj, r: Array.from({ length: 24 }, random) };
@@ -337,9 +337,9 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true } = {}) {
   return bot;
 }
 
-export const fidgetsOf = kind => (KIND[kind] ?? KIND.claude).fidgets;
+export const fidgetsOf = (kind, look) => lookOf(kind, look).fidgets;
 export const settleOf = state => (SETTLE[state] ? SETTLE[state][0] : null);
-export const swatchOf = kind => parseInt((KIND[kind] ?? KIND.claude).swatch.slice(1), 16);
+export const swatchOf = (kind, look) => parseInt(lookOf(kind, look).swatch.slice(1), 16);
 export const cycleOf = state => CYCLE[state] ?? 4;
 
 // MARK: - Eyes and badges
@@ -1032,6 +1032,657 @@ Object.assign(OBJ, {
   },
 });
 
+// MARK: - Concept looks: keycap, cloud cushion, moon rabbit, moonshot rocket
+//
+// Animated in the 2026-10-19 concept round, when the user picked the desk
+// computer and the astronaut helmet; finished as looks for Codex and
+// Kimi Code.
+
+Object.assign(OBJ, {
+  // A chunky blue keycap whose legend is >_. The whole cap presses down
+  // onto its switch on every command and springs back, pops up to send,
+  // the face lights with output and marks type after the legend; a second
+  // little key pops out while spawning, it sits crooked and cracked when it
+  // breaks, and a strip of tape holds it down when it's locked.
+  keycap: {
+    pivot: [22, 36.4], tilt: 5, hop: 1.4, hopFloat: 0,
+    emote: { at: emoteAt([32, 8.6]), color: '#2D8CFF' },
+    mech: [-0.9, -0.7], outDir: [0, -1],
+    eyes: { x: 22, y: 23.6, gap: 6.8, w: 2.8, h: 5, travel: 1 },
+    draw(o, id, rim) {
+      const C = { skirt: '#1F6FD6', face: '#2D8CFF', lit: '#5CABFF', plate: '#14498F', tape: '#F2D27A' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const d = clamp(1.6 * clamp(o.press) + 0.8 * o.beat + 1.6 * close + 0.6 * o.slack + 1.8 * o.play + 0.8 * o.bend - 1.1 * o.float - 2.4 * o.send, -2.4, 2.2);
+      const tx = 1.0 * aim + 0.9 * o.bend;
+      const parts = [
+        { d: rrect(9.6, 31.4, 24.8, 5, 2.4), fill: C.plate },
+        { d: rrect(8 + 0.3 * tx, 12 + d, 28, 22.2, 6), fill: C.skirt },
+        { d: rrect(11 + tx, 13 + d, 22, 17.4, 4.6), fill: qMix(C.face, C.lit, clamp(0.6 * clamp(o.out) + 0.4 * o.beat)), bare: true },
+      ];
+      if (sp > 0.08) parts.push(
+        { d: rrect(12 - 2.8 * sp, 11 - 2.5 * sp, 5.6 * sp, 5 * sp, 1.4 * sp), fill: C.skirt },
+        { d: rrect(12 - 2.1 * sp, 11 - 2.3 * sp, 4.2 * sp, 3.6 * sp, 1 * sp), fill: C.face, bare: true },
+      );
+      if (close > 0.02) parts.push({ d: poly([[6.6, 18.2], [15.4, 9.4], [18, 12], [9.2, 20.8]]), fill: C.tape, a: close });
+      let over = promptMarks(14 + tx, 16.6 + d, 0.72, qMix('#FFFFFF', '#7FB1F0', 0.7 * o.slack), 1.1, o.marks);
+      if (o.bend > 0.05) over += P(zig([[30.6 + tx, 13.6 + d], [28.4 + tx, 16.8 + d], [30.4 + tx, 18.6 + d], [29 + tx, 21.2 + d]]), S('#CFE3FF', 0.8 * clamp(2 * o.bend), 'round', true));
+      return { defs: '', body: body(parts, rim) + over + eyePair(o, { ...this.eyes, x: 22 + tx, y: 23.6 + d }, '#FFFFFF') };
+    },
+  },
+
+  // Codex's cloud as a soft blue plush with a >_ patch sewn on. It puffs on
+  // the beat, stretches up while thinking and squishes toward each search;
+  // marks are typed on the patch, a puff drifts off to send and a little
+  // cloud buds while spawning. It deflates and tears a seam when it breaks,
+  // a ribbon ties it when it's locked, and it sags flat when paused.
+  cushion: {
+    pivot: [22, 34.6], tilt: 5, hop: 1.6, hopFloat: 0,
+    emote: { at: emoteAt([33, 9.5]), color: '#2D8CFF' },
+    mech: [-0.9, -0.8], outDir: [0.8, -0.7],
+    eyes: { x: 19.6, y: 23, gap: 6.2, w: 2.8, h: 4.8, travel: 1 },
+    draw(o, id, rim) {
+      const C = { body: '#2D8CFF', patch: '#B9DAFF', ink: '#1F4E99', stitch: '#1F6FD6', ribbon: '#FFB51F' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const puff = 0.5 * o.beat + 0.7 * o.play + 0.3 * clamp(o.out) - 0.6 * o.slack - 0.4 * clamp(-o.spread);
+      const lift = 0.9 * o.float - 0.8 * o.slack + 0.6 * o.play, sx = 0.9 * aim + 0.03 * o.turn;
+      const lobes = [[12.6, 25, 6.4, 0.4], [18.6, 18.6, 7.4, 1], [27, 18.4, 7.6, 1], [32.6, 24.8, 5.8, 0.4]].map(([x, y, r, k], i) => [
+        x + sx * k, y - lift * k + (i === 2 ? 1.6 * o.bend : 0), Math.max(1, r + puff * k - (i === 2 ? 2.6 * o.bend : 0))]);
+      const parts = [...lobes.map(([x, y, r]) => ({ c: [x, y, r], fill: C.body })), { d: rrect(7, 24, 30.4, 10.4, 5.2), fill: C.body }];
+      if (sp > 0.08) parts.push({ c: [8.6, 11.6, 1.9 * sp], fill: C.body }, { c: [10.8, 10.2, 2.5 * sp], fill: C.body }, { c: [12.8, 11.8, 1.8 * sp], fill: C.body });
+      if (o.send > 0.04) {
+        const k = clamp(3 * o.send), px = 31 + 3 * o.send, py = 13 - 3 * o.send;
+        parts.push({ c: [px - 1.2 * k, py + 0.4 * k, 1.5 * k], fill: C.body }, { c: [px + 0.6 * k, py - 0.3 * k, 1.9 * k], fill: C.body });
+      }
+      parts.push({ d: rrect(24.6, 26, 9.4, 5.6, 2), fill: C.patch, bare: true });
+      if (close > 0.02) parts.push({ d: rrect(7, 29.8, 30.4, 2.4, 1.2), fill: C.ribbon, bare: true, a: close },
+        { d: poly([[30.6, 31], [27.8, 29], [27.8, 33]]) + poly([[30.6, 31], [33.4, 29], [33.4, 33]]), fill: C.ribbon, a: close });
+      let over = promptMarks(26.4, 28.8, 0.6, C.ink, 1, o.marks) + P('M25.6 25.2V26.4M33 25.2V26.4', S(C.stitch, 0.8));
+      if (o.bend > 0.05) over += P(zig([[9.6, 27.6], [11, 26.4], [12.2, 28], [13.6, 26.8], [14.8, 28.2]]), S('#FFFFFF', 0.8 * clamp(2 * o.bend), 'round', true));
+      return { defs: '', body: body(parts, rim) + over + eyePair(o, { ...this.eyes, x: 19.6 + 0.5 * sx, y: 23 - 0.3 * lift }, '#FFFFFF') };
+    },
+  },
+
+  // The rabbit from the moon, pale with Kimi-blue ears and a navy >_
+  // collar. Its ears perk toward each search, stand up while it thinks and
+  // wiggle when it plays; it thumps a foot on the beat, types marks on its
+  // collar and a baby bunny peeks out while spawning. Paused, the ears
+  // flop; broken, one ear folds; locked, the ears are tied with a ribbon.
+  rabbit: {
+    pivot: [22, 37.2], tilt: 5, hop: 1.2, hopFloat: 0,
+    emote: { at: emoteAt([33.4, 12.6]), color: '#1D4E9E' },
+    mech: [-0.9, 0.6], outDir: [0, -1],
+    eyes: { x: 22, y: 21.8, gap: 6.4, w: 2.6, h: 4.4, travel: 1 },
+    draw(o, id, rim) {
+      const C = { fur: '#DCE6F7', inner: '#2E8FF7', foot: '#C3D2EC', collar: '#1D4E9E', bow: '#2E8FF7' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const base = 10 * aim + 10 * o.alt - 4 * o.float + 2 * o.send;
+      const L = -4 + base - 40 * o.slack - 14 * o.play + 12 * close - 6 * o.float;
+      const R = 4 + base + 40 * o.slack + 14 * o.play - 12 * close + 6 * o.float + 70 * o.bend + 0.4 * o.turn;
+      const ear = x => body([{ d: pill(x, 11, 5.4, 13.2), fill: C.fur }, { d: pill(x, 11.2, 2.4, 9), fill: C.inner, bare: true }], rim);
+      const thump = 1.4 * clamp(o.beat + 0.6 * o.press);
+      const parts = [];
+      if (sp > 0.08) parts.push({ d: pill(7.6, 25.6 - 2 * sp, 1.6 * sp, 4 * sp) + pill(10, 25.6 - 2 * sp, 1.6 * sp, 4 * sp), fill: C.fur }, { c: [8.8, 28.4, 2.6 * sp], fill: C.fur });
+      parts.push(
+        { d: ell(22, 32, 8.6, 5), fill: C.fur },
+        { c: [22, 21.6, 9], fill: C.fur },
+        { d: pill(17.6, 36, 4.6, 2.4), fill: C.foot }, { d: pill(26.4, 36 - thump, 4.6, 2.4), fill: C.foot },
+        { d: rrect(16.4, 29.4, 11.2, 4.6, 2.3), fill: C.collar, bare: true },
+      );
+      let tie = '';
+      if (close > 0.3) {
+        const [ax, ay] = turnPt(17.4, 4.6, 17.4, 16, L), [bx, by] = turnPt(26.6, 4.6, 26.6, 16, R), mx = (ax + bx) / 2, my = (ay + by) / 2 + 1;
+        tie = body([{ d: poly([[mx, my], [mx - 2.4, my - 1.6], [mx - 2.4, my + 1.6]]) + poly([[mx, my], [mx + 2.4, my - 1.6], [mx + 2.4, my + 1.6]]), fill: C.bow }], rim);
+      }
+      return {
+        defs: '',
+        body: turnG(L, 17.4, 16, 0, 0, ear(17.4)) + turnG(R, 26.6, 16, 0, 0, ear(26.6)) + body(parts, rim) + tie
+          + promptMarks(18.4, 31.7, 0.5, '#FFFFFF', 0.9, o.marks, 2.4) + eyePair(o, this.eyes, '#10325C'),
+      };
+    },
+  },
+
+  // A cream rocket with a Kimi-blue nose and fins and its face in a navy
+  // porthole: a moonshot. It rumbles and lifts with the work, its flame
+  // growing with output; it blasts up to send and a little booster pops
+  // out while spawning. Paused, the flame goes out; broken, a fin snaps
+  // and it smokes; locked, a gantry arm holds it to the pad.
+  rocket: {
+    pivot: [22, 38], tilt: 5, hop: 1.2, hopFloat: 0,
+    emote: { at: emoteAt([33.4, 9.6]), color: '#1D4E9E' },
+    mech: [-0.9, -0.8], outDir: [0, -1],
+    eyes: { x: 22, y: 20, gap: 4.4, w: 2, h: 3.6, travel: 0.6 },
+    draw(o, id, rim) {
+      const C = { body: '#FFF4DA', blue: '#2E8FF7', navy: '#1D4E9E', flame: '#FFB51F', core: '#FFE27A', smoke: '#C9CDD6', gantry: '#9AA3B8' };
+      const close = smooth(seg(o.hold, 0.7, 1)), sp = clamp(o.spread, 0, 1.2);
+      const lift = clamp(1.3 * o.float + 2.5 * o.send + 1.2 * o.play - 0.5 * o.slack, -0.6, 2.5) * (1 - close);
+      const f = clamp(0.45 + 0.5 * clamp(o.out) + 0.35 * o.beat + 0.3 * o.float + 0.6 * o.send + 0.5 * o.play) * (1 - o.slack) * (1 - close) * (1 - o.bend);
+      const flame = (w, len) => `M${n(22 - w)} 31.4C${n(22 - w)} ${n(31.4 + 0.5 * len)} ${n(22 - 0.45 * w)} ${n(31.4 + 0.8 * len)} 22 ${n(31.4 + len)}C${n(22 + 0.45 * w)} ${n(31.4 + 0.8 * len)} ${n(22 + w)} ${n(31.4 + 0.5 * len)} ${n(22 + w)} 31.4Z`;
+      const fin = pts => poly(pts.map(([x, y]) => turnPt(x, y, 28.8, 26, 28 * o.bend)));
+      const parts = [];
+      if (f > 0.05) parts.push({ d: flame(3.4, 6.8 * f), fill: C.flame });
+      parts.push(
+        { d: poly([[15.2, 22.4], [10.2, 28.6], [10.6, 33], [15.2, 30]]), fill: C.blue, edge: 1 },
+        { d: fin([[28.8, 22.4], [33.8, 28.6], [33.4, 33], [28.8, 30]]), fill: C.blue, edge: 1 },
+        { d: 'M22 5C27.6 9 29 15 29 22V29C29 30.6 28 31.6 26.4 31.6H17.6C16 31.6 15 30.6 15 29V22C15 15 16.4 9 22 5Z', fill: C.body },
+        { d: 'M22 5C25.6 7.6 27.3 10.6 28.1 13H15.9C16.7 10.6 18.4 7.6 22 5Z', fill: C.blue, bare: true },
+        { c: [22, 20, 4.8], fill: C.navy, bare: true },
+      );
+      if (f > 0.05) parts.push({ d: flame(1.6, 4 * f), fill: C.core, bare: true });
+      if (o.bend > 0.05) parts.push({ c: [19.6, 34.2, 1.7 * o.bend], fill: C.smoke }, { c: [23.4, 35.4, 2.1 * o.bend], fill: C.smoke });
+      const ship = body(parts, rim) + P(circ(22, 20, 4.8), S(C.blue, 1)) + promptMarks(19.2, 27.6, 0.5, C.navy, 0.9, o.marks, 2.4) + eyePair(o, this.eyes, '#FFFFFF');
+      const out = [];
+      if (sp > 0.08) out.push({ d: pill(10.6, 11.6, 3 * sp, 7 * sp), fill: C.body }, { d: `M${n(10.6 - 1.5 * sp)} ${n(11.6 - 2 * sp)}C${n(10.6 - 1.4 * sp)} ${n(11.6 - 3 * sp)} ${n(10.6 - 0.6 * sp)} ${n(11.6 - 3.6 * sp)} 10.6 ${n(11.6 - 4.2 * sp)}C${n(10.6 + 0.6 * sp)} ${n(11.6 - 3.6 * sp)} ${n(10.6 + 1.4 * sp)} ${n(11.6 - 3 * sp)} ${n(10.6 + 1.5 * sp)} ${n(11.6 - 2 * sp)}Z`, fill: C.blue });
+      let arm = '';
+      if (close > 0.02) {
+        out.push({ d: rrect(32.4, 13.4, 2.4, 23, 1.2), fill: C.gantry, a: close });
+        arm = body([{ d: rrect(32.6 - 4.6 * close, 16.6, 4.8 * close + 0.2, 2, 1), fill: C.gantry }], rim);
+      }
+      return { defs: '', body: body(out, rim) + turnG(0, 0, 0, 0, -lift, ship) + arm };
+    },
+  },
+});
+
+// MARK: - First-cast looks: mug, paper plane, moon lamp, whale stapler
+//
+// The first desk companions (shipped 2026-10-17, replaced 2026-10-19),
+// finished as looks with the glyph-sticker emote and the cues.
+
+// Maps every point of a path written with M, L, C and Z only.
+const mapD = (d, f) => d.replace(/(-?[\d.]+) (-?[\d.]+)/g, (_, x, y) => xy(f(+x, +y)));
+
+// A star of k points (outer R, inner r) round (cx, cy), turned rot degrees.
+const starD = (cx, cy, k, R, r, rot = 0) => poly(Array.from({ length: 2 * k }, (_, i) => {
+  const a = rad(rot - 90 + i * 180 / k), q = i % 2 ? r : R;
+  return [cx + q * Math.cos(a), cy + q * Math.sin(a)];
+}));
+
+const disc = (x, y, r, col, extra = '') => `<circle cx="${n(x)}" cy="${n(y)}" r="${n(r)}"${F(col)}${extra}/>`;
+
+Object.assign(OBJ, {
+  // A blue mug of coffee whose steam gathers into a little cloud that reads
+  // >_. The steam rises and puffs as it works, the cloud types its output
+  // after the prompt and sends it off as a puff, buds a second cloud while
+  // spawning, and goes thin and low when paused or broken (the mug chipped);
+  // a lid holds the steam in while it's locked.
+  mug: {
+    pivot: [20.6, 37.2], tilt: 5, hop: 1.1, hopFloat: 0.4,
+    emote: { at: emoteAt([35.2, 16.4]), color: '#2D8CFF' },
+    mech: [-0.6, -0.9], outDir: [0.7, -0.8],
+    eyes: { x: 20.6, y: 29.6, gap: 6.6, w: 2.8, h: 5, travel: 1.1 },
+    draw(o, id, rim) {
+      const C = { mug: '#2D8CFF', lip: '#5AA5FF', coffee: '#6B4A36', lid: '#1F6FD6', cloud: '#FFFFFF', line: '#9AA0AA', ink: '#3C4048', eye: '#FFFFFF' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1), sp = clamp(o.spread, 0, 1.2);
+      const lift = clamp(0.9 * o.float + 1.2 * o.play - 0.5 * o.slack - 1.4 * o.bend - 0.6 * clamp(o.press), -1.8, 1.2);
+      const puff = 0.4 * o.beat + 0.5 * o.play + 0.3 * clamp(o.out) - 0.5 * clamp(-o.spread) - 0.7 * o.bend - 0.5 * o.slack;
+      const gx = 20.6 + 1.2 * aim + 0.8 * o.alt + 1.6 * sp, gy = 10.8 - lift;
+      const fill = mixHex(C.cloud, '#D9DCE2', o.bend);
+      const lobes = [[-6.2, 1.4, 3.1], [-2.4, -1.4, 4.1], [3, -0.8, 3.7], [6.4, 1.6, 2.9], [0, 2, 3.8]].map(([x, y, r]) => [gx + x, gy + y, Math.max(0.6, r + puff)]);
+      if (sp > 0.05) lobes.push([10.4, 13.4, 2.2 * sp], [12.8, 12.6, 2.6 * sp]);
+      if (o.send > 0.04) lobes.push([gx + 7.6 + 2.6 * o.send, gy - 1.2 - 2.2 * o.send, (1.8 - 0.4 * o.send) * clamp(3 * o.send)]);
+      // One path per layer: the white rim, the grey outline, the white puffs.
+      const puffs = dr => lobes.map(([x, y, r]) => circ(x, y, r + dr)).join('');
+      const steam = [...(rim ? [{ d: puffs(0.65 + RIM / 2), fill: PAPER, bare: true }] : []), { d: puffs(0.65), fill: C.line, bare: true }, { d: puffs(0), fill, bare: true }];
+      let marks = '';
+      for (let i = 0; i < 3; i++) {
+        const a = clamp(o.marks - i);
+        if (a > 0.02) marks += `M${n(gx - 1.8 + 2.3 * i)} ${n(gy + 2.6)}H${n(gx - 1.8 + 2.3 * i + 1.3 * a)}`;
+      }
+      const caret = gx - 1.8 + 2.3 * clamp(o.marks, 0, 3);
+      const prompt = P(`M${n(gx - 5.2)} ${n(gy - 0.6)}L${n(gx - 3.2)} ${n(gy + 1)}L${n(gx - 5.2)} ${n(gy + 2.6)}`, S(C.ink, 1.2, 'round', true))
+        + (marks ? P(marks, S(C.ink, 1.2)) : '') + P(`M${n(caret)} ${n(gy + 2.6)}H${n(caret + 2.6)}`, S(C.ink, 1.2));
+      const ca = 1 - close;
+      const cloud = ca < 0.02 ? '' : `<g${O(ca)}>${body(steam, rim)}${prompt}</g>`;
+      const mug = [
+        { d: 'M30.4 24.2C36.6 24 36.8 33.2 30.4 32.8', line: [C.mug, 3] },
+        { d: 'M11.8 20.6H29.4A1.4 1.4 0 0 1 30.8 22V32.8A4.4 4.4 0 0 1 26.4 37.2H14.8A4.4 4.4 0 0 1 10.4 32.8V22A1.4 1.4 0 0 1 11.8 20.6Z', fill: C.mug },
+        { d: ell(20.6, 20.6, 10.2, 1.9), fill: C.lip },
+        { d: ell(20.6, 20.9, 8.8, 1.3 - 0.3 * o.beat), fill: C.coffee, bare: true },
+        { d: 'M12.4 19.2L14.8 19L13.4 21.2Z', fill: PAPER, bare: true, a: o.bend },
+      ];
+      let lid = '';
+      if (close > 0.02) {
+        const r = rad(-2.2 * o.turn), c = Math.cos(r), s = Math.sin(r);
+        lid = `<g${matrix(c, s, -s, c, 10 - (c * 10 - s * 21), 21 - (s * 10 + c * 21))}${O(close)}>`
+          + body([{ d: rrect(9.6, 18, 22, 3.2, 1.6), fill: C.lid }, { d: rrect(18.4, 16.4, 4.4, 2.4, 1.1), fill: C.lid }], rim) + '</g>';
+      }
+      return { defs: '', body: cloud + body(mug, rim) + eyePair(o, this.eyes, C.eye) + lid };
+    },
+  },
+
+  // A blue paper plane folded like an A, its tips dipped in Google's colours,
+  // hovering over its own shadow. It climbs with the work, banks toward each
+  // bearing, flaps on the beat, has its output written on a wing, zooms off
+  // to send, folds a second plane while spawning, and crumples a tip when it
+  // breaks; a pin holds it down while it's locked.
+  plane: {
+    pivot: [22, 35.4], tilt: 6, hop: 0.6, hopFloat: 1.4,
+    emote: { at: emoteAt([32.6, 10.6]), color: '#8E63F5' },
+    mech: [-0.8, -0.6], outDir: [0.1, -0.95],
+    eyes: { x: 22, y: 19.8, gap: 6.4, w: 2.8, h: 5, travel: 1 },
+    draw(o, id, rim) {
+      const C = { lo: '#8E63F5', li: '#7A4FE6', ri: '#9B76F7', ro: '#B49AFA', keel: '#6440D0', red: '#EA4335', yellow: '#FBBC05', green: '#34A853', shadow: '#77739A', ink: '#3A2A86', eye: '#FFFFFF', pin: '#EA4335', shine: '#FFB3AA' };
+      const close = smooth(seg(o.hold, 0.7, 1)), aim = clamp(o.aim, -1, 1);
+      const up = clamp((1.1 * o.float + 1.6 * o.play + 0.9 * clamp(o.out) + 2.6 * o.send - 0.9 * clamp(o.press) - 0.8 * o.slack - 0.6 * o.bend) * (1 - 0.9 * close), -1.2, 3);
+      const bank = 8 * aim + 6 * o.alt - 8 * o.play + 6 * o.bend;
+      const yaw = clamp(0.08 * o.turn, -1.6, 1.6), k = 1 - 0.12 * o.send;
+      const fold = 3.4 * clamp(-o.spread) - clamp(o.spread), flap = 1.4 * o.beat + 1.2 * o.play - 0.6 * o.slack - 0.6 * clamp(o.press);
+      const cb = Math.cos(rad(bank)) * k, sb = Math.sin(rad(bank)) * k;
+      const T = (x, y) => [22 + (x - 22) * cb - (y - 20) * sb, 20 - up + (x - 22) * sb + (y - 20) * cb];
+      const N = T(22 + 1.4 * yaw + 2 * o.bend, 5.4 + 1.6 * o.bend), I = T(22 + 2.2 * yaw, 28.4);
+      const Lt = T(7.2 + fold + 2.8 * o.bend, 31.6 - flap + 2.6 * o.bend), Rt = T(36.8 - fold, 31.6 - flap);
+      // Each wing folds once: a steep inner panel by the keel, a flat outer one.
+      const Cl = mid(I, Lt, 0.6), Cr = mid(I, Rt, 0.6);
+      const parts = [
+        { d: pill(22, 38.6, 10.4 * (1 - 0.08 * up), 1.5), fill: C.shadow, bare: true },
+        { d: poly([T(20.8 + 2.4 * yaw, 27.6), T(23.2 + 2.4 * yaw, 27.6), T(22 + 2.6 * yaw, 32.6)]), fill: C.keel },
+        { d: poly([N, Lt, Cl]), fill: C.lo },
+        { d: poly([N, Cl, I]), fill: C.li },
+        { d: poly([N, I, Cr]), fill: C.ri },
+        { d: poly([N, Cr, Rt]), fill: C.ro },
+        { d: poly([Lt, mid(Lt, N, 0.2), mid(Lt, Cl, 0.4)]), fill: C.red, bare: true },
+        { d: poly([Rt, mid(Rt, N, 0.2), mid(Rt, Cr, 0.4)]), fill: C.green, bare: true },
+        { d: poly([N, mid(N, Lt, 0.17), mid(N, Cl, 0.18), mid(N, I, 0.19), mid(N, Cr, 0.18), mid(N, Rt, 0.17)]), fill: C.yellow, bare: true },
+        { d: poly([Lt, mid(Lt, N, 0.26), mid(Lt, Cl, 0.55)]), fill: C.keel, bare: true, a: o.bend },
+      ];
+      if (o.bend > 0.02) {
+        const [a1, a2, a3] = [mid(mid(Lt, N, 0.5), Cl, 0.1), mid(mid(Lt, N, 0.42), Cl, 0.45), mid(mid(Lt, N, 0.5), Cl, 0.8)];
+        parts.push({ d: `M${xy(a1)}L${xy(a2)}L${xy(a3)}`, line: [C.keel, 0.8], join: true, bare: true, a: o.bend });
+      }
+      const s = clamp(o.spread, 0, 1.2);
+      if (s > 0.02) {
+        const c = Math.cos(rad(-28)) * s, si = Math.sin(rad(-28)) * s, m = (x, y) => [10.8 + x * c - y * si, 13 + x * si + y * c];
+        parts.push({ d: poly([m(0, -4), m(-2.9, 3), m(0, 1.8)]), fill: C.lo }, { d: poly([m(0, -4), m(0, 1.8), m(2.9, 3)]), fill: C.ro });
+      }
+      if (close > 0.02) parts.push({ c: [...T(22 + 2.2 * yaw, 24.6), 2.4], fill: C.pin, a: close });
+      let lines = '';
+      for (let i = 0; i < 3; i++) {
+        const len = [4.4, 3.8, 2.4][i] * clamp(o.marks - i), x0 = 25.4 + 2 * yaw, y0 = 23.4 + 1.8 * i;
+        if (len > 0.1) lines += `M${xy(T(x0, y0))}L${xy(T(x0 + len, y0 + 0.227 * len))}`;
+      }
+      const [ex, ey] = T(22 + 1.4 * yaw, this.eyes.y);
+      return {
+        defs: '',
+        body: body(parts, rim) + (lines ? P(lines, S(C.ink, 1.1)) : '')
+          + (close > 0.02 ? disc(...T(21.3, 23.9), 0.75, C.shine, O(close)) : '')
+          + eyePair(o, { ...this.eyes, x: ex, y: ey }, C.eye),
+      };
+    },
+  },
+
+  // A moon lamp: the moon, lit warm on one side and Kimi blue on its dark
+  // side, over a navy base that reads >_. Its phase follows the work (fuller
+  // with output, waning when compacting or paused), it turns, levitates
+  // while it thinks, types after the prompt, glows to send and twinkles up
+  // stars while spawning; it cracks when it breaks, and the base's arms
+  // close round it while it's locked.
+  lamp: {
+    pivot: [22, 36.2], tilt: 5, hop: 0.8, hopFloat: 1.2,
+    emote: { at: emoteAt([31.6, 11.2]), color: '#1D4E9E' },
+    mech: [-0.8, -0.6], outDir: [0.6, -0.8],
+    eyes: { x: 19.6, y: 18.8, gap: 6, w: 2.7, h: 4.8, travel: 1.1 },
+    draw(o, id, rim) {
+      const C = { lit: '#FFF3D6', crater: '#F3E1B5', dark: '#2E8FF7', pit: '#247DE3', edge: '#E6C988', base: '#1D4E9E', ink: '#FFFFFF', caret: '#6CB4FF', eye: '#10325C', star: '#FFD45C', halo: '#FFD98A' };
+      const close = smooth(seg(o.hold, 0.6, 1)), aim = clamp(o.aim, -1, 1);
+      const lift = clamp(1.4 * o.float + 1.8 * o.play - 0.4 * o.slack - 0.8 * clamp(o.press), -0.8, 2.4) * (1 - close);
+      const cx = 22, cy = 18.6 - lift, r = 10.2;
+      const ph = clamp(0.24 - 0.1 * clamp(o.out) + 0.2 * clamp(-o.spread) + 0.16 * o.slack + 0.1 * o.bend + 0.07 * (1 - o.orb[0]), 0.04, 0.62);
+      const k = r * (1 - 2 * ph), psi = -22 + 0.9 * o.turn + 14 * aim;
+      const [tx, ty] = turnPt(cx, cy - r, cx, cy, psi), [bx, by] = turnPt(cx, cy + r, cx, cy, psi);
+      const shade = `M${n(tx)} ${n(ty)}A${n(r)} ${n(r)} 0 0 1 ${n(bx)} ${n(by)}A${n(Math.abs(k))} ${n(r)} ${n(psi)} 0 ${k > 0 ? 0 : 1} ${n(tx)} ${n(ty)}Z`;
+      const lit = mixHex(mixHex(C.lit, '#FFFFFF', 0.6 * o.beat), '#CDD5E2', 0.5 * o.slack);
+      const cr = 1.4 * o.turn + 18 * aim + 150 * o.play;
+      // Craters turn with the moon; those on its dark side are darker.
+      const craters = [[-5.8, -4.4, 1.7], [-7.4, 4.6, 1.2], [0.6, -7.2, 1.1], [4.4, 5.8, 1.3], [6.6, -2.6, 1]].map(([x, y, q]) => {
+        const [px, py] = turnPt(cx + x, cy + y, cx, cy, cr), [u, v] = turnPt(px, py, cx, cy, -psi);
+        const dark = u - cx > k * Math.sqrt(Math.max(0, 1 - ((v - cy) / r) ** 2));
+        return { c: [px, py, q], fill: dark ? C.pit : mixHex(C.crater, lit, 0.5 * o.slack), bare: true };
+      });
+      const parts = [
+        { c: [cx, cy, r], fill: lit },
+        { d: shade, fill: C.dark, bare: true },
+        ...craters,
+        { d: rrect(12.2, 28.6, 19.6, 7.6, 2.6), fill: C.base },
+      ];
+      if (close > 0.02) parts.push({ d: arcD(cx, cy, r + 1, 128, 128 + 106 * close) + arcD(cx, cy, r + 1, 52 - 106 * close, 52), line: [C.base, 2.4], a: close });
+      const sp = clamp(o.spread, 0, 1.2);
+      if (sp > 0.02) parts.push({ d: starD(10.4, 10.8, 4, 2.6 * sp, 0.9 * sp) + starD(7.4, 18.4, 4, 1.8 * sp, 0.65 * sp), fill: C.star });
+      let marks = '';
+      for (let i = 0; i < 3; i++) {
+        const a = clamp(o.marks - i);
+        if (a > 0.02) marks += `M${n(18.8 + 2.3 * i)} 33.8H${n(18.8 + 2.3 * i + 1.3 * a)}`;
+      }
+      const caret = 18.8 + 2.3 * clamp(o.marks, 0, 3);
+      return {
+        defs: '',
+        body: (o.send > 0.02 ? disc(cx, cy, r + 2.2 + 2.2 * o.send, 'none', ` stroke="${C.halo}" stroke-width="${n(1.4 * clamp(4 * o.send) * (1 - 0.7 * o.send))}"`) : '')
+          + body(parts, rim) + P(arcD(cx, cy, r - 0.35, 90.2 + psi, 269.8 + psi), S(mixHex(C.edge, '#B9C1CE', 0.5 * o.slack), 0.7))
+          + (o.bend > 0.02 ? P(`M${n(cx - 3.2)} ${n(cy - r + 0.6)}L${n(cx - 1.6)} ${n(cy - 7.2)}L${n(cx - 3.4)} ${n(cy - 5.4)}L${n(cx - 2.2)} ${n(cy - 3.8)}`, S(C.base, 0.9, 'round', true) + O(o.bend)) : '')
+          + P('M15.2 30.6L17.2 32.2L15.2 33.8', S(C.ink, 1.2, 'round', true)) + (marks ? P(marks, S(C.ink, 1.2)) : '')
+          + P(`M${n(caret)} 33.8H${n(caret + 2.6)}`, S(mixHex(C.caret, C.base, 0.6 * o.slack), 1.2))
+          + eyePair(o, { ...this.eyes, y: this.eyes.y - lift }, C.eye),
+      };
+    },
+  },
+
+  // A whale stapler: its back is the top arm, hinged under the tail, over a
+  // pale belly plate. The jaw chomps on the beat and opens with output, the
+  // blowhole spouts a drop per mark and a fountain to send, the tail wags
+  // and lifts, a calf swims out while spawning; a bent staple jams the jaw
+  // when it breaks, and a rubber band holds it shut while it's locked.
+  stapler: {
+    pivot: [21.4, 36], tilt: 4, hop: 1.2, hopFloat: 0, offset: [-0.9, 0],
+    emote: { at: emoteAt([12.2, 10.4]), color: '#4D6BFE' },
+    mech: [-0.9, 0.3], outDir: [0.3, -0.9],
+    eyes: { x: 13.6, y: 24.6, gap: 5.2, w: 2.6, h: 4.6, travel: 1.1 },
+    draw(o, id, rim) {
+      const C = { back: '#4D6BFE', belly: '#B7C4FF', pleat: '#8C9EF2', fin: '#3F55CD', mouth: '#1E2A6B', water: '#BFD0FF', staple: '#8E97AD', band: '#F2A93B', eye: '#FFFFFF' };
+      const close = smooth(seg(o.hold, 0.6, 1)), aim = clamp(o.aim, -1, 1);
+      const jaw = clamp(7 * o.beat + 5 * clamp(o.out) + 12 * clamp(o.spread) + 6 * o.play + 3 * o.slack + 8 * o.bend, 0, 15) * (1 - 0.9 * close) + 1.2 * Math.max(0, o.turn) * close;
+      // The head and back are the stapler's arm, hinged at the back of the
+      // mouth; the belly plate runs on into the tail.
+      const J = (x, y) => turnPt(x, y, 32.4, 30.4, jaw);
+      const wag = 0.3 * o.turn + 3 * aim + 5 * o.alt - 8 * o.float - 14 * o.play + 10 * o.slack + 6 * o.bend;
+      const W = (x, y) => turnPt(x, y, 32.6, 26, wag);
+      const parts = [
+        { d: mapD('M29.4 33.2C31.6 30.6 33.4 26.2 34.2 21.4L36.2 21.8C35.8 26.8 34 31.4 31.2 34.4Z', W), fill: C.back },
+        { d: mapD('M35.2 21.4C33.5 20.6 32 18.9 31.5 16.6C33.3 16.8 34.6 17.7 35.3 18.9C36.1 17.5 37.6 16.4 39.4 16C38.8 18.5 37.2 20.6 35.2 21.4Z', W), fill: C.back },
+        { d: 'M6.8 30.4C12 31.4 24 31.4 32.4 30.4L33.4 31.4C32.4 34.6 29.4 36 25 36H14.4C10 36 7.4 34 6.8 30.4Z', fill: C.belly },
+        { d: 'M10.6 32.8H18.4M12.2 34.4H19.6', line: [C.pleat, 0.7], bare: true },
+        { d: 'M19.6 32.4C22.4 32.6 24.6 34.2 25.4 36.8C22.6 36.8 20.4 35 19.6 32.4Z', fill: C.fin },
+      ];
+      if (jaw > 0.2) parts.push({ d: `M32.4 30.4C24 31.4 12 31.4 6.8 30.4L${xy(J(6.8, 30.4))}C${xy(J(12, 31.4))} ${xy(J(24, 31.4))} 32.4 30.4Z`, fill: C.mouth });
+      const s = clamp(o.spread, 0, 1.2);
+      if (s > 0.02) {
+        const m = (x, y) => [6.8 + (x - 6.8) * s, 26.6 + (y - 26.6) * s];
+        parts.push({ d: ell(6.8, 26.6, 2.4 * s, 1.7 * s) + poly([m(8.6, 26.2), m(10.2, 24.6), m(10, 27.2)]), fill: C.back });
+      }
+      if (o.bend > 0.02) parts.push({ d: 'M9.6 28.8L7.8 28.1L7 29.4L6 28.7', line: [C.staple, 0.9], join: true, a: o.bend });
+      parts.push({ d: mapD('M6.8 30.4C6.2 22.4 10.6 16.2 17.4 15.6C24.6 15 29.6 19.6 31.4 26L32.4 30.4C24 31.4 12 31.4 6.8 30.4Z', J), fill: C.back });
+      // The blowhole: a fountain to send or play, a drop on each mark.
+      const f = clamp(Math.max(1.1 * o.send, o.play, 0.5 * clamp(o.marks) + 0.2 * clamp(o.out)));
+      if (f > 0.02) {
+        const sp = (x, y) => J(19 + (x - 19) * f, 15.4 + (y - 15.4) * f);
+        parts.push({ d: mapD('M19 15.2C18.6 13.2 17.2 11.8 15.8 11M19 15.2C19.4 13.2 20.8 11.8 22.2 11', sp), line: [C.water, 1.4] });
+      }
+      [[15.4, 9.8], [19, 8.8], [22.6, 9.8]].forEach(([x, y], i) => {
+        const a = clamp(o.marks - i);
+        if (a > 0.02) parts.push({ c: [...J(x, y), 1.05 * a], fill: C.water });
+      });
+      if (close > 0.02) parts.push({ d: 'M11.4 17.6C10.8 24 10.8 30 11.4 36.2', line: [C.band, 1.5], a: close });
+      const [ex, ey] = J(this.eyes.x, this.eyes.y);
+      return { defs: '', body: body(parts, rim) + eyePair(o, { ...this.eyes, x: ex, y: ey }, C.eye) };
+    },
+  },
+});
+
+// MARK: - Desk-object looks: clay timer, cloud terminal, crowned arch,
+// orbit puck, note clip, tape whale
+//
+// The desk objects drawn close to each agent's own mark (2026-10-17),
+// finished as looks with the glyph-sticker emote and the cues.
+
+// The dial's eight rays, round-tipped and a little irregular.
+const DIAL = [7.9, 7.2, 8.1, 7.0, 7.8, 7.3, 8.0, 7.1];
+// The cloud's six lobes: [x, y, r].
+const LOBES = [[22, 10.6, 6.0], [30.2, 13.2, 5.5], [32.8, 20.2, 5.1], [11.2, 20.2, 5.1], [13.8, 13.2, 5.5], [22, 21.2, 9.0]];
+
+// An arc of the timer's activity arc, split by a gap of g degrees.
+const splitArc = (cx, cy, r, a0, len, g) => (g < 0.5 ? arcD(cx, cy, r, a0, a0 + len)
+  : arcD(cx, cy, r, a0, a0 + len / 2 - g / 2) + arcD(cx, cy, r, a0 + len / 2 + g / 2, a0 + len));
+// A short mark drawn as a round-capped dash.
+const dash = (x, y, w) => `M${n(x)} ${n(y)}H${n(x + w)}`;
+
+Object.assign(OBJ, {
+  // A squat clay timer with a cream face, a starburst winding dial at its
+  // upper left, a side button and short feet. The dial turns with the work,
+  // the button presses, and an activity arc on its shoulder grows with
+  // output.
+  timer: {
+    pivot: [24, 35.6], tilt: 6, hop: 1.6, hopFloat: 0,
+    emote: { at: emoteAt([32.8, 10.2]), color: '#D97757' },
+    mech: [-0.8, -0.7], outDir: [0.8, -0.6],
+    eyes: { x: 26.6, y: 25.2, gap: 6, w: 2.7, h: 5, travel: 1.2 },
+    draw(o, id, rim) {
+      const C = { case: '#D97856', dial: '#E8915F', face: '#FFF3E1', eye: '#32353C', foot: '#B95F42', arc: '#FFFFFF' };
+      const ang = o.turn * (1 - 0.8 * o.hold) + 40 * o.play + 22 * o.bend;
+      const cx = 13.6, cy = 16.4, star = [];
+      for (let i = 0; i < 16; i++) {
+        const a = rad(-90 + ang + i * 22.5), r = i % 2 ? 4.6 : DIAL[i / 2];
+        star.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      const btn = 0.6 * clamp(Math.max(o.press, o.hold, 0.6 * o.bend));
+      const len = 24 + 46 * clamp(o.out) + 12 * o.send - 12 * clamp(-o.out);
+      const gap = Math.max(12 * clamp(o.spread), 10 * o.slack);
+      const parts = [
+        { d: 'M15.8 34.6H17.4M30.8 34.6H32.4', line: [C.foot, 2.8] },
+        { d: `M${n(38.1 - btn)} 22.5V24.9`, line: [C.foot, 3] },
+        { d: rrect(10, 15, 28, 19.6, 6.2), fill: C.case },
+        { use: id + 'd', fill: C.dial, edge: 2.2 },
+        { d: rrect(18.6, 18.8, 16, 12.8, 4.2), fill: C.face, bare: true },
+      ];
+      return {
+        defs: `<path id="${id}d" d="${poly(star)}"/>`,
+        body: body(parts, rim)
+          + P(splitArc(26.6, 25.2, 10.6, -70 + 6 * o.send, len, gap), S(qMix(C.arc, C.case, 0.5 * o.slack), 1.2))
+          + `<circle cx="${n(cx)}" cy="${n(cy)}" r="1.4" fill="${C.case}"/>`
+          + eyePair(o, this.eyes, C.eye),
+      };
+    },
+  },
+
+  // A white six-lobed cloud on a sky-blue terminal base that reads >_. The
+  // base carries the activity: output marks after the prompt, command beats,
+  // a caret that moves; the cloud lifts and puffs a little.
+  terminal: {
+    pivot: [22, 34], tilt: 4, hop: 1.3, hopFloat: 0,
+    emote: { at: emoteAt([33.2, 9.8]), color: '#2D8CFF' },
+    mech: [-0.5, 0.9], outDir: [0.8, 0.8],
+    eyes: { x: 22, y: 18.6, gap: 6.6, w: 2.8, h: 5, travel: 1.1 },
+    draw(o, id, rim) {
+      const C = { base: '#2D8CFF', shell: '#FFFFFF', line: '#80858F', eye: '#3C4048', mark: '#FFFFFF' };
+      const lift = clamp(0.4 * o.float + 0.7 * o.play, -0.3, 0.9);
+      const puff = 0.45 * o.play + 0.15 * o.beat - 0.3 * clamp(-o.spread);
+      const L = LOBES.map(([x, y, r], i) => [x, y - lift + (i === 1 ? 1.1 * o.bend : 0), r + puff - (i === 1 ? 0.5 * o.bend : 0)]);
+      const press = 0.3 * clamp(o.press);
+      const top = 25.4 + press, my = 31.4 + press / 2;
+      const sp = clamp(o.spread), shift = 2.4 * sp + clamp(o.aim, -1, 1);
+      const parts = [
+        ...L.map(([x, y, r]) => ({ c: [x, y, r + 0.65], fill: C.line })),
+        ...L.map(([x, y, r]) => ({ c: [x, y, r], fill: C.shell, bare: true })),
+        { d: rrect(11.6, top, 20.8, 34 - top, 3.4), fill: C.base },
+      ];
+      const chev = x => `M${n(x)} ${n(my - 3.7)}L${n(x + 2.4)} ${n(my - 1.8)}L${n(x)} ${n(my + 0.1)}`, CS = (a = 1) => S(qMix(C.mark, C.base, 1 - a), 1.25, 'round', true);
+      let marks = '';
+      for (let i = 0; i < 3; i++) {
+        const a = clamp(o.marks - i) * (1 - 0.65 * Math.max(0, i ? -o.alt : o.alt));
+        if (a > 0.02) marks += P(dash(24.6 + 2.4 * i + 2.4 * sp, my, 1.4), S(qMix(C.mark, C.base, 1 - a), 1.25));
+      }
+      if (o.send > 0.02) marks += P(dash(24.6 + 1.5 * o.send, my, 1.4), S(qMix(C.mark, C.base, 1 - o.send), 1.25));
+      return {
+        defs: '',
+        body: body(parts, rim) + eyePair(o, { ...this.eyes, y: this.eyes.y - lift }, C.eye)
+          + P(chev(15), CS()) + (sp > 0.02 ? P(chev(15 + 2.4 * sp), CS(sp)) : '')
+          + P(dash(19.2 + shift, my, 3.4), S(qMix(C.mark, C.base, 0.55 * o.slack), 1.25)) + marks,
+      };
+    },
+  },
+
+  // A blue A frame with a red, yellow and green crown, a low base with a flat
+  // light pool, and a warm orb floating in the opening. The frame stays put;
+  // the orb carries the motion, the pool widens with output, and the crown
+  // lights up while it spawns or waits.
+  arch: {
+    pivot: [22, 35], tilt: 1.5, hop: 0.5, hopFloat: 1.2,
+    emote: { at: emoteAt([33.4, 11.4]), color: '#8E63F5' },
+    mech: [0, -0.95], outDir: [0.8, 0.9],
+    eyes: { x: 0, y: 0, gap: 5.2, w: 2.5, h: 4.6, travel: 0.9 },
+    draw(o, id, rim) {
+      const C = { frame: '#8E63F5', red: '#EA4335', yellow: '#FBBC05', green: '#34A853', orb: '#FFF0C9', eye: '#35312C', pool: '#FFFFFF' };
+      const up = clamp(o.float + 1.4 * o.play + Math.max(0, -o.y - 0.5) * 0.8 - 0.6 * o.bend, -0.7, 2);
+      const ox = 22 + 1.2 * clamp(o.aim, -1, 1) + 0.4 * o.look[0] - 0.5 * o.bend, oy = 23.4 - up;
+      const leg = pen(11.2, 33.6).C(12.4, 24, 15.2, 10.4, 22, 10.4).C(28.8, 10.4, 31.6, 24, 32.8, 33.6).d;
+      const parts = [
+        { d: leg, line: [C.frame, 4.6] },
+        { d: rrect(10, 32.4, 24, 4.2, 2.1), fill: C.frame },
+      ];
+      const sp = clamp(o.spread);
+      const lit = [sp + Math.max(0, -o.alt), sp, sp + Math.max(0, o.alt)].map(v => clamp(v + 0.6 * o.play));
+      const crown = [
+        [`M14.7 16.6C15.6 13.2 17.1 11.2 19.4 10.6`, C.red],
+        [`M19.4 10.6C21 10.25 23 10.25 24.6 10.6`, C.yellow],
+        [`M24.6 10.6C26.9 11.2 28.4 13.2 29.3 16.6`, C.green],
+      ].map(([d, col], i) => P(d, S(mixHex(mixHex(col, C.frame, 0.5 * o.slack), PAPER, 0.45 * lit[i]), 4.6, 'butt'))).join('');
+      const pw = 12.4 * (1 + 0.15 * o.beat - 0.25 * clamp(o.press) - 0.3 * o.bend - 0.35 * o.slack + 0.15 * o.play);
+      let marks = '';
+      for (let i = 0; i < 3; i++) {
+        const a = clamp(o.marks - i) * (1 - 0.65 * Math.max(0, i ? -o.alt : o.alt));
+        if (a > 0.02) marks += P(dash(18 + 3.4 * i, 33.4, 1.2), S(qMix(C.frame, C.pool, 1 - a), 0.7));
+      }
+      if (o.send > 0.02) marks += P(dash(21.4 + 3 * o.send, 33.4, 1.2), S(qMix(C.frame, C.pool, 1 - o.send), 0.7));
+      return {
+        defs: '',
+        body: body(parts, rim) + crown + P(pill(22, 33.4, pw, 1.5), F(qMix(C.pool, '#C9CDD6', 0.55 * o.slack))) + marks
+          + `<circle cx="${n(ox)}" cy="${n(oy)}" r="7.4"${F(C.orb)} stroke="${PAPER}" stroke-width="1.3"/>`
+          + eyePair(o, { ...this.eyes, x: ox, y: oy - 0.2 }, C.eye),
+      };
+    },
+  },
+
+  // A grey face puck inside a broken dark orbit ring, a bold diagonal axle
+  // behind both, on a small base. The ring turns to bearings, opens its
+  // gaps while spawning, parks low when quiet; the axle aims and sits off
+  // true when broken.
+  puck: {
+    pivot: [22, 36.4], tilt: 3, hop: 1.2, hopFloat: 0,
+    emote: { at: emoteAt([29.8, 7]), color: '#3B3F4A' },
+    mech: [0.85, -0.3], outDir: [0.75, -0.7],
+    eyes: { x: 22, y: 21.2, gap: 5.8, w: 2.8, h: 5.1, travel: 1.2 },
+    draw(o, id, rim) {
+      const C = { puck: '#6E7480', orbit: '#24252C', eye: '#FFFFFF', base: '#3A3C44' };
+      const cx = 22, cy = 21.2;
+      const ra = o.turn * (1 - 0.8 * o.hold) + 45 * o.play + 12 * clamp(o.out) + 28 * o.slack + 16 * o.bend;
+      const rr = 12.4 * (1 - 0.04 * clamp(-o.spread)), e = 10 * clamp(o.spread);
+      const ax = 6 * o.bend + 6 * clamp(o.aim, -1, 1) * (1 - o.hold) - 4 * o.play;
+      const fwd = 0.8 * o.send, u = [Math.SQRT1_2 * fwd, -Math.SQRT1_2 * fwd];
+      const [x0, y0] = turnPt(11.6 + u[0], 31.6 + u[1], cx, cy, ax), [x1, y1] = turnPt(32.4 + u[0], 10.8 + u[1], cx, cy, ax);
+      const parts = [
+        { d: rrect(17, 33.2, 10, 3.4, 1.7), fill: C.base },
+        { d: `M${n(x0)} ${n(y0)}L${n(x1)} ${n(y1)}`, line: [C.orbit, 3.6] },
+        { d: arcD(cx, cy, rr, -28 + ra + e, 118 + ra - e), line: [C.orbit, 2.8] },
+        { d: arcD(cx, cy, rr, 152 + ra + e, 298 + ra - e), line: [C.orbit, 2.8] },
+        { c: [cx, cy, 8.2], fill: C.puck },
+      ];
+      return { defs: '', body: body(parts, rim) + eyePair(o, this.eyes, C.eye) };
+    },
+  },
+
+  // A bright blue round head over a navy clip that reads >_, and two pale
+  // notes behind. The notes shift, fan and
+  // tidy; the clip presses; lines are written on the front note and marks
+  // after the prompt.
+  clip: {
+    pivot: [22, 35], tilt: 6, hop: 1.4, hopFloat: 0,
+    emote: { at: emoteAt([32.6, 10.6]), color: '#1D4E9E' },
+    mech: [-0.55, -0.85], outDir: [0.6, -0.8],
+    eyes: { x: 22, y: 19.4, gap: 6.4, w: 3, h: 5.4, travel: 1.2 },
+    draw(o, id, rim) {
+      const C = { head: '#2F64C8', clip: '#0E2A57', note: '#DCEAFF', note2: '#C7DBF8', ruled: '#9DB8E2', mark: '#FFFFFF', cursor: '#6FA3F0' };
+      const lift = clamp(0.8 * o.float + 1.2 * o.play, -0.6, 1.5);
+      const fan = clamp(o.spread, -1, 1) + 0.6 * o.play;
+      const aim = clamp(o.aim, -1, 1), alt = 0.9 * o.alt;
+      const sheet = (x, y, a) => poly([[0, 0], [15, 0], [15, 18], [0, 18]].map(([dx, dy]) => turnPt(x + dx, y + dy, x, y, a)));
+      const bx = 11.4 - 0.8 * aim - alt, by = 9.6 - lift, ba = lerp(-9 - 5 * fan, -6, o.hold);
+      const fx = 13.2 + 0.8 * aim + alt + o.send, fy = 8.2 - lift + 1.2 * o.bend - 0.4 * o.send;
+      const fa = lerp(-4 + 5 * fan + 12 * o.bend, -6, o.hold);
+      const line = (dx, dy, len) => { const [a1, b1] = turnPt(fx + dx, fy + dy, fx, fy, fa), [a2, b2] = turnPt(fx + dx + len, fy + dy, fx, fy, fa); return `M${n(a1)} ${n(b1)}L${n(a2)} ${n(b2)}`; };
+      const press = clamp(o.press), hy = 21.4 + 0.6 * press, cy = -0.3 * press;
+      const cb = 2.5 * o.bend;
+      const clip = pt => turnPt(pt[0], pt[1] + cy, 22, 30.7, cb);
+      const cl = poly([[9.8, 26.6], [34.2, 26.6], [34.2, 34.8], [9.8, 34.8]].map(clip));
+      const parts = [
+        { d: sheet(bx, by, ba), fill: C.note2 },
+        { d: sheet(fx, fy, fa), fill: C.note },
+        { c: [22, hy, 10.4], fill: C.head },
+        { d: rrect(9.8, 26.6 + cy, 24.4, 8.2, 2.4), fill: C.clip, a: cb > 0.05 ? 0 : 1 },
+        { d: cl, fill: C.clip, edge: 2.4, a: cb > 0.05 ? 1 : 0 },
+      ];
+      const pt = (x, y) => clip([x, y]);
+      const seg2 = (a, b) => `M${n(pt(...a)[0])} ${n(pt(...a)[1])}L${n(pt(...b)[0])} ${n(pt(...b)[1])}`;
+      let marks = '';
+      for (let i = 0; i < 3; i++) {
+        const a = clamp(o.marks - i) * (1 - 0.65 * Math.max(0, i ? -o.alt : o.alt));
+        if (a > 0.02) marks += P(seg2([23.2 + 2.4 * i, 32.4], [24.6 + 2.4 * i, 32.4]), S(qMix(C.mark, C.clip, 1 - a), 1.25));
+      }
+      return {
+        defs: '',
+        body: body(parts, rim)
+          + P(line(2.4, 4, 6.8) + line(2.2, 6.6, 3 + 2.4 * clamp(o.out)), S(C.ruled, 0.9))
+          + eyePair(o, { ...this.eyes, y: this.eyes.y + 0.6 * press }, C.mark)
+          + P(seg2([13.4, 28.9], [15.9, 30.7]) + `L${n(pt(13.4, 32.5)[0])} ${n(pt(13.4, 32.5)[1])}`, S(C.mark, 1.25, 'round', true))
+          + P(seg2([17.8, 32.4], [21.2, 32.4]), S(qMix(C.cursor, C.clip, 0.55 * o.slack), 1.25)) + marks,
+      };
+    },
+  },
+
+  // An indigo whale, head left, with a short forked tail up at the right, a
+  // small fin, and an ivory tape roll set into its back. The roll turns, the
+  // tape feeds past the cutter, sags when paused and kinks when broken; the
+  // tail lifts and drops.
+  tape: {
+    pivot: [21.5, 34], tilt: 3, hop: 1.2, hopFloat: 0, offset: [-0.8, 0],
+    emote: { at: emoteAt([12.6, 8.6]), color: '#4D6BFE' },
+    mech: [0.85, -0.75], outDir: [0.9, -0.2],
+    eyes: { x: 14.8, y: 24.8, gap: 5.6, w: 2.8, h: 5, travel: 1.2 },
+    draw(o, id, rim) {
+      const C = { body: '#4D6BFE', dark: '#3F55CD', tape: '#FFF5E5', strip: '#EFD9AE', side: '#E9D7B8', seam: '#C9AE80', mark: '#FFFFFF' };
+      const lift = clamp(2.6 * o.float + 5 * o.play - 2 * o.slack - 1.5 * o.bend, -4, 5);
+      const T = (x, y) => turnPt(x, y, 34.2, 26.6, -lift);
+      const tp = [[34.2, 26.6], [34.4, 22.8], [33, 19.8], [31.6, 17.4], [33.6, 17.4], [35.2, 18.6], [36.4, 20.2], [36.8, 17.8], [38.2, 15.8], [40, 15.2], [40, 19.6], [38.8, 23.6], [35.6, 26.6]].map(([x, y]) => T(x, y));
+      const f = v => `${n(v[0])} ${n(v[1])}`;
+      const tail = `M${f(tp[0])}C${f(tp[1])} ${f(tp[2])} ${f(tp[3])}C${f(tp[4])} ${f(tp[5])} ${f(tp[6])}C${f(tp[7])} ${f(tp[8])} ${f(tp[9])}C${f(tp[10])} ${f(tp[11])} ${f(tp[12])}Z`;
+      const whale = 'M7.8 24.4C7.8 16.8 13.2 12.6 20.2 12.8C26.8 13 30.6 17.4 32 21.6C32.8 24 33.8 25.6 35.6 26.2C34.6 30.8 30.6 33.8 23.6 33.8L15.6 33.8C10.8 33.8 7.8 30.2 7.8 24.4Z';
+      const fa = 4 * clamp(o.press) + 2 * o.slack;
+      const FN = (x, y) => turnPt(x, y, 17.6, 31.2, -fa);
+      const fp = [[17.6, 31.2], [19.8, 30.8], [22.6, 31.4], [24, 33.6], [21.8, 35.4], [18.4, 34.6], [17.6, 31.2]].map(([x, y]) => FN(x, y));
+      const fin = `M${f(fp[0])}C${f(fp[1])} ${f(fp[2])} ${f(fp[3])}C${f(fp[4])} ${f(fp[5])} ${f(fp[6])}Z`;
+      // The tape: from the roll to the cutter and a little past it.
+      const ext = 1.8 * clamp(o.out) + 1.5 * o.send - 1.2 * clamp(-o.out);
+      const s0 = [28.4, 21.5], e1 = [33.3 + ext, 22 + 0.1 * ext];
+      const mx = (s0[0] + e1[0]) / 2, my = (s0[1] + e1[1]) / 2;
+      const sag = 0.8 * o.slack + 0.5 * Math.max(0, o.alt), kink = 1.1 * o.bend;
+      const strip = kink > 0.05 ? `M${f(s0)}L${n(mx)} ${n(my + kink)}L${f(e1)}`
+        : `M${f(s0)}C${n(s0[0] + 1.6)} ${n(s0[1] + sag)} ${n(e1[0] - 1.6)} ${n(e1[1] + sag)} ${f(e1)}`;
+      // A seam on the roll shows it turning; it fades out when the roll is
+      // nearly still, so it never reads as a third eye.
+      const roll = o.turn * (1 - 0.8 * o.hold), ra = rad(-90 + 3 * roll + 90 * o.play);
+      const seamA = clamp((Math.abs(roll) - 4) / 10 + o.play) * 0.9;
+      const seam = `M${n(23.2 + 1.5 * Math.cos(ra))} ${n(16.6 + 2.4 * Math.sin(ra))}L${n(23.2 + 3.3 * Math.cos(ra))} ${n(16.6 + 5.3 * Math.sin(ra))}`;
+      const sp = clamp(o.spread);
+      const parts = [
+        { d: tail, fill: C.dark },
+        { d: whale, fill: C.body },
+        { d: fin, fill: C.dark },
+        { d: 'M22.2 10.8L26.4 11.4C29.8 12 30.6 19.8 27.4 22.4L23.2 22.4Z', fill: C.side },
+        { d: ell(23.2, 16.6, 3.6, 5.8), fill: C.tape, bare: true },
+        { d: strip, line: [C.strip, 1.5], cap: 'butt', join: kink > 0.05 },
+      ];
+      let ticks = '';
+      for (let i = 0; i < 2; i++) {
+        const a = clamp(o.marks - i) * 0.8;
+        if (a > 0.02) ticks += P(`M${n(29.8 + 1.6 * i)} ${n(21.1)}V${n(22.4)}`, S(qMix(C.dark, C.tape, 1 - a), 0.6));
+      }
+      return {
+        defs: '',
+        body: body(parts, rim)
+          + (sp > 0.02 ? P(`M28.6 21.4C29.4 19.4 31.2 19.6 30.9 21.2`, S(C.strip, 1.3 * clamp(sp))) : '')
+          + P('M33.3 21.1L33.1 23.1', S(C.dark, 0.9)) + ticks
+          + P(ell(23.2, 16.6, 1.2, 2.1), F(C.dark)) + (seamA > 0.02 ? P(seam, S(qMix(C.seam, C.tape, 1 - seamA), 0.6)) : '')
+          + eyePair(o, this.eyes, C.mark),
+      };
+    },
+  },
+});
+
 // MARK: - Kinds
 //
 // Each agent's companion, its colour for the app's chips, pucks and charts,
@@ -1046,6 +1697,60 @@ const KIND = {
   kimi: { object: 'helmet', swatch: '#1D4E9E', fidgets: ['fiddle', 'sway'] },
   deepseek: { object: 'submarine', swatch: '#4D6BFE', fidgets: ['fiddle', 'peek'] },
 };
+
+// MARK: - Looks
+//
+// Every companion an agent can wear, its default (KIND's) first. Ids are
+// saved in the user's settings: once shipped, an id keeps its meaning and is
+// never reused. Each look has its own object, colour and idle habits; the
+// colour stays in the agent's family, so colour still means an agent.
+// Cursor wears Grok's looks in its own colour.
+const entry = (id, name, object, swatch, fidgets) => ({ id, name, object, swatch, fidgets });
+const LOOK = {
+  claude: [
+    { id: 'succulent', name: 'Succulent', ...KIND.claude },
+    entry('clay-timer', 'Clay timer', 'timer', '#D97757', ['fiddle', 'peek']),
+  ],
+  codex: [
+    { id: 'desk-computer', name: 'Desk computer', ...KIND.codex },
+    entry('coffee-mug', 'Coffee mug', 'mug', '#2D8CFF', ['fiddle', 'hop']),
+    entry('keycap', 'Keycap', 'keycap', '#2D8CFF', ['fiddle', 'hop']),
+    entry('cloud-cushion', 'Cloud cushion', 'cushion', '#2D8CFF', ['fiddle', 'sway']),
+    entry('cloud-terminal', 'Cloud terminal', 'terminal', '#2D8CFF', ['fiddle', 'hop']),
+  ],
+  antigravity: [
+    { id: 'flying-saucer', name: 'Flying saucer', ...KIND.antigravity },
+    entry('paper-plane', 'Paper plane', 'plane', '#8E63F5', ['fiddle', 'sway']),
+    entry('crowned-arch', 'Crowned arch', 'arch', '#8E63F5', ['fiddle', 'peek']),
+  ],
+  grok: [
+    { id: 'ringed-planet', name: 'Ringed planet', ...KIND.grok },
+    entry('orbit-ring', 'Orbit ring', 'puck', '#6E7480', ['fiddle', 'sway']),
+  ],
+  kimi: [
+    { id: 'astronaut-helmet', name: 'Astronaut helmet', ...KIND.kimi },
+    entry('moon-lamp', 'Moon lamp', 'lamp', '#1D4E9E', ['fiddle', 'hop']),
+    entry('moon-rabbit', 'Moon rabbit', 'rabbit', '#1D4E9E', ['fiddle', 'hop']),
+    entry('moonshot-rocket', 'Moonshot rocket', 'rocket', '#1D4E9E', ['fiddle', 'peek']),
+    entry('note-clip', 'Note clip', 'clip', '#1D4E9E', ['fiddle', 'hop']),
+  ],
+  deepseek: [
+    { id: 'submarine', name: 'Submarine', ...KIND.deepseek },
+    entry('whale-stapler', 'Whale stapler', 'stapler', '#4D6BFE', ['fiddle', 'sway']),
+    entry('tape-whale', 'Tape whale', 'tape', '#4D6BFE', ['fiddle', 'sway']),
+  ],
+};
+LOOK.cursor = LOOK.grok.map(l => ({ ...l, swatch: KIND.cursor.swatch }));
+
+// A kind's look by id; a missing or unknown id gets the default, and an
+// unknown kind gets Claude's.
+const lookOf = (kind, id) => {
+  const list = LOOK[kind] ?? LOOK.claude;
+  return list.find(l => l.id === id) ?? list[0];
+};
+
+// Every kind's looks, default first, as { id, name }.
+export const LOOKS = Object.fromEntries(KINDS.map(k => [k, LOOK[k].map(({ id, name }) => ({ id, name }))]));
 
 // MARK: - Drawing
 //

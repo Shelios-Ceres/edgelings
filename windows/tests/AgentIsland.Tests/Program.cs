@@ -94,6 +94,7 @@ public static class Program
             AgentPresenceTests.RunAll();
             SessionEventTests.RunAll();
             GrokHooksTests.RunAll();
+            LookCatalogTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }

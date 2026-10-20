@@ -83,15 +83,22 @@ internal static class PixelTokens
     }
 
     /// An agent's colour, made readable on paper, for bars, chips and charts.
-    public static Color Agent(DisplayProvider provider, bool dark) => Brand.Rgb(provider.Character() switch
+    /// Each default look has its hand-tuned pair; another look's colour is
+    /// pulled to the same lightness band (LookCatalog.OnPaper).
+    public static Color Agent(DisplayProvider provider, bool dark)
     {
-        DisplayProvider.Claude => dark ? 0xE8916Eu : 0xC2603F,
-        DisplayProvider.Codex => dark ? 0xB9BCC6u : 0x6E717C,
-        DisplayProvider.Antigravity => dark ? 0x7FA6FFu : 0x2F6BE0,
-        DisplayProvider.Grok => dark ? 0xD9D9E0u : 0x2B2B33,
-        DisplayProvider.Kimi => dark ? 0x6FB2FFu : 0x1F72E0,
-        _ => dark ? 0x8EA0FFu : 0x4058E8,
-    });
+        var look = LookCatalog.Of(CharacterTheme.Pixel, provider);
+        if (look != LookCatalog.For(CharacterTheme.Pixel, provider)[0]) return Brand.Rgb(LookCatalog.OnPaper(look.Swatch, dark));
+        return Brand.Rgb(provider.Character() switch
+        {
+            DisplayProvider.Claude => dark ? 0xE8916Eu : 0xC2603F,
+            DisplayProvider.Codex => dark ? 0xB9BCC6u : 0x6E717C,
+            DisplayProvider.Antigravity => dark ? 0x7FA6FFu : 0x2F6BE0,
+            DisplayProvider.Grok => dark ? 0xD9D9E0u : 0x2B2B33,
+            DisplayProvider.Kimi => dark ? 0x6FB2FFu : 0x1F72E0,
+            _ => dark ? 0x8EA0FFu : 0x4058E8,
+        });
+    }
 
     /// A tint of `color` over paper: 18 % in light, 25 % in dark.
     public static Color Tint(Color color, bool dark) => OverPaper(color, dark ? 0.25 : 0.18, dark);

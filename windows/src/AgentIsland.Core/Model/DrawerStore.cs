@@ -211,5 +211,25 @@ public sealed class DrawerStore : INotifyPropertyChanged
         Raise(nameof(Look));
     }
 
+    /// Where a character set keeps an agent's picked look. The WPF drawer's
+    /// "shape/color" pick (above) lives under the one-part key.
+    public static string LookKey(CharacterTheme theme, DisplayProvider provider) =>
+        $"{LookKeyPrefix}{theme.ToString().ToLowerInvariant()}.{provider.Character().RawValue()}";
+
+    /// The look id picked for an agent in a set, or null for its default.
+    /// Cursor draws Grok's character, so it wears Grok's pick. An id the
+    /// engine no longer knows reads as the default (LookCatalog.Resolve).
+    public string? LookId(CharacterTheme theme, DisplayProvider provider) =>
+        Preferences.Get<string?>(LookKey(theme, provider));
+
+    /// Saves a pick; null (or the default's id) clears it.
+    public void SetLookId(CharacterTheme theme, DisplayProvider provider, string? id)
+    {
+        var key = LookKey(theme, provider);
+        if (id is null || LookCatalog.For(theme, provider)[0].Id == id) Preferences.Remove(key);
+        else Preferences.Set(key, id);
+        Raise(nameof(LookId));
+    }
+
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

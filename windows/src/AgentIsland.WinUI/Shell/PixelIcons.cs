@@ -48,7 +48,16 @@ internal static partial class PixelIcons
     public static string Markup(string name) => string.Concat(Runs(Grids[name].Rows, '#')
         .Select(run => $"M{run.X * C},{run.Y * C}h{run.Length * C}v{C}h-{run.Length * C}z"));
 
-    public static ImageSource Face(DisplayProvider provider) => Svg(FaceGrids[provider.Character()]);
+    /// The face of the look the agent wears in the pixel set.
+    public static ImageSource Face(DisplayProvider provider) =>
+        Face(provider, LookCatalog.Of(CharacterTheme.Pixel, provider).Id);
+
+    /// A look's face; an id with no face of its own (the default) gets the agent's.
+    public static ImageSource Face(DisplayProvider provider, string lookId)
+    {
+        var character = provider.Character();
+        return Svg(LookFaceGrids.TryGetValue((character, lookId), out var art) ? art : FaceGrids[character]);
+    }
 
     public static ImageSource Logo() => Svg(LogoGrid);
 

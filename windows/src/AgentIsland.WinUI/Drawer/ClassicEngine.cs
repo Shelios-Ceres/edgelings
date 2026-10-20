@@ -7,9 +7,9 @@ using Microsoft.ClearScript.V8;
 namespace AgentIsland.WinUI.Drawer;
 
 /// The Classic bots in embedded V8: Characters/classic.mjs is the desk
-/// companions engine from windows/notes/classic-grok-20261015/companions2
-/// (sha256 f98b869f…), our own code, shipped with the app. One companion
-/// per agent, in its own colour; frames are vector SVG, drawn antialiased.
+/// companions engine with looks from windows/notes/classic-grok-20261015/looks
+/// (sha256 a63f3495…), our own code, shipped with the app. Each agent wears
+/// one of its looks, in its colour; frames are vector SVG, drawn antialiased.
 internal sealed class ClassicEngine : ICharacterEngine
 {
     public const string EngineFile = "classic.mjs";
@@ -18,13 +18,20 @@ internal sealed class ClassicEngine : ICharacterEngine
     // so the host/script boundary is crossed once per frame, not per bot.
     private const string HostModule = """
         import * as lib from './classic.mjs';
-        const bots = [];
+        const bots = [], makes = [];
         globalThis.agentIslandClassic = {
             phases: () => lib.PHASES.join(','),
-            fidgets: kind => lib.fidgetsOf(kind).join(','),
-            add(kind, seed, tempo) {
-                bots.push(lib.createBot(kind, { seed, tempo, rim: true }));
+            fidgets: (kind, look) => lib.fidgetsOf(kind, look || undefined).join(','),
+            add(kind, seed, tempo, look) {
+                const make = { kind, seed, tempo };
+                makes.push(make);
+                bots.push(lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined }));
                 return bots.length - 1;
+            },
+            setLook(i, look) {
+                const { kind, seed, tempo } = makes[i], old = bots[i];
+                bots[i] = lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined });
+                bots[i].setState(old.state, -1);
             },
             setState(i, state, phase) { bots[i].setState(state, phase); },
             setGaze(i, dx, dy) { bots[i].setGaze(dx, dy); },
@@ -45,7 +52,7 @@ internal sealed class ClassicEngine : ICharacterEngine
 
     private readonly V8ScriptEngine _engine;
     private readonly ScriptObject _host;
-    private readonly Dictionary<DisplayProvider, string[]> _fidgets = new();
+    private readonly Dictionary<(DisplayProvider, string?), string[]> _fidgets = new();
     private readonly HashSet<string> _phases;
 
     public ClassicEngine(string engineDirectory)
@@ -58,11 +65,6 @@ internal sealed class ClassicEngine : ICharacterEngine
             _engine.Execute(new DocumentInfo(hostUri) { Category = ModuleCategory.Standard }, HostModule);
             _host = (ScriptObject)_engine.Script.agentIslandClassic;
             _phases = ((string)_host.InvokeMethod("phases")).Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
-            foreach (var provider in DisplayProviders.All)
-            {
-                var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.Kind(provider));
-                _fidgets[provider] = list.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            }
         }
         catch
         {
@@ -73,8 +75,10 @@ internal sealed class ClassicEngine : ICharacterEngine
 
     public CharacterTheme Theme => CharacterTheme.Classic;
 
-    public int AddBot(DisplayProvider provider, double tempo, int seed) =>
-        Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), seed, tempo));
+    public int AddBot(DisplayProvider provider, double tempo, int seed, string? look) =>
+        Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), seed, tempo, look ?? ""));
+
+    public void SetLook(int bot, string? look) => _host.InvokeMethod("setLook", bot, look ?? "");
 
     public void SetState(int bot, string state, double phase) => _host.InvokeMethod("setState", bot, state, phase);
 
@@ -90,8 +94,12 @@ internal sealed class ClassicEngine : ICharacterEngine
     /// the engine ignores a kind it lacks.
     public void Cue(int bot, string kind) => _host.InvokeMethod("cue", bot, kind);
 
-    public string[] Fidgets(DisplayProvider provider) =>
-        _fidgets.TryGetValue(provider, out var fidgets) ? fidgets : Array.Empty<string>();
+    public string[] Fidgets(DisplayProvider provider, string? look)
+    {
+        if (_fidgets.TryGetValue((provider, look), out var fidgets)) return fidgets;
+        var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.Kind(provider), look ?? "");
+        return _fidgets[(provider, look)] = list.Split(',', StringSplitOptions.RemoveEmptyEntries);
+    }
 
     public bool Draws(string state) => _phases.Contains(state);
 

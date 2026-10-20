@@ -192,7 +192,27 @@ internal sealed partial class DrawerWindow
                 ? Still(column.Window, 1, all, away, ms)
                 : Still(left.Window, -1, left.Bots, back, ms - turn)));
 
-            foreach (var (name, ms, shot) in films)
+            // M20: a look change turns the first bot with several looks over like a coin
+            // (a fade under reduced motion); the new look's frame stands in from edge-on.
+            var flipped = order.Where(i => LookCatalog.For(CharacterTheme.Classic, _bots[i].Provider).Count > 1).Cast<int?>().FirstOrDefault();
+            if (!pixel && flipped is { } flip && LookPreviews.Still(CharacterTheme.Classic, _bots[flip].Provider,
+                LookCatalog.For(CharacterTheme.Classic, _bots[flip].Provider)[1].Id, BotSize) is { } after)
+            {
+                const int swapped = 1000;
+                svgs[swapped + flip] = after;
+                var swapAt = 120;
+                var next = all.Select(b => b.Index == flip ? (b.Index + swapped, b.X, b.Y) : b).ToArray();
+                foreach (var reduced in new[] { false, true })
+                {
+                    var moment = New(all, 1, dark);
+                    DrawerMoves.Flip(moment, flip, () => { }, reduced);
+                    DrawerMoves.Flip(moment, flip + swapped, () => { }, reduced);
+                    films.Add((reduced ? "m20-fade" : "m20-flip", moment.DurationMs + 100,
+                        ms => Still(column.Window, 1, ms < swapAt ? all : next, moment, ms)));
+                }
+            }
+
+            foreach (var (name, ms, shot) in films.Where(f => Wanted(f.Name)))
             {
                 Strip(device, Path.Combine(directory, $"{name}-{style}-{(dark ? "dark" : "light")}.png"),
                     $"{name} · {style} · {(dark ? "dark" : "light")} · 150 %", pixel, dark, ms, shot, svgs);
@@ -201,6 +221,12 @@ internal sealed partial class DrawerWindow
         Sheet(device, engine, directory, style, pixel, order);
         DebugTrace.Write($"drawer film saved in {directory}");
     }
+
+    /// AGENTISLAND_DEBUG_FILM_ONLY=<names> limits the drawer film to the moments and
+    /// sheets of those names (m20-flip, idle, writing, ...); unset, it makes them all.
+    private static bool Wanted(string name) =>
+        Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FILM_ONLY")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is not { Length: > 0 } only
+        || only.Contains(name);
 
     /// Every bot's current frame, hidden ones too, without moving time on.
     private Dictionary<int, string> Frames(ICharacterEngine engine)
@@ -337,7 +363,7 @@ internal sealed partial class DrawerWindow
         for (var k = 0; k < 3; k++)
         {
             var nth = k;
-            string? Fidget(int index) => engine.Fidgets(_bots.First(b => b.Index == index).Provider).ElementAtOrDefault(nth);
+            string? Fidget(int index) => engine.Fidgets(_bots.First(b => b.Index == index).Provider, _bots.First(b => b.Index == index).Look).ElementAtOrDefault(nth);
             if (order.Any(index => Fidget(index) is not null))
                 takes.Add(($"fidget-{k + 1}", index => Fidget(index) ?? "idle", new[] { 0.5, 0.9, 1.3 }, double.NaN, null));
         }
@@ -356,7 +382,7 @@ internal sealed partial class DrawerWindow
             foreach (var cue in new[] { "done", "note", "ask", "alert", "error" })
                 takes.Add(($"cue-{cue}", _ => "working", cue is "ask" or "alert" or "error" ? new[] { 0.5, 1.2, 2.0 } : new[] { 0.45, 0.65, 1.0 }, 0.4, cue));
         }
-        foreach (var (name, stateOf, times, pokeAt, cue) in takes)
+        foreach (var (name, stateOf, times, pokeAt, cue) in takes.Where(t => Wanted(t.Name)))
         {
             foreach (var index in order) engine.SetState(index, stateOf(index), 0);
             var shots = new List<Dictionary<int, string>>();

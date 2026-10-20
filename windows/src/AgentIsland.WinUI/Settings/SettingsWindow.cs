@@ -259,6 +259,8 @@ internal sealed partial class SettingsWindow : Window
         PropertyChangedEventHandler look = (_, e) =>
         {
             if (e.PropertyName == nameof(DrawerStore.Theme) && Shell.Looks.Pixel != _pixel) DispatcherQueue.TryEnqueue(Relocalize);
+            // A picked look changes an agent's face and colour on its card.
+            if (e.PropertyName == nameof(DrawerStore.LookId)) _dirty = true;
         };
         DrawerStore.Shared.PropertyChanged += look;
         _teardown.Add(() => DrawerStore.Shared.PropertyChanged -= look);
@@ -293,6 +295,7 @@ internal sealed partial class SettingsWindow : Window
             _agents.Clear();
             EndCostPage();
             _scroll.Content = null;
+            Drawer.LookPreviews.Release();
         });
         _teardown.Add(() => FollowDrawerStore(null));
         _teardown.Add(EndCostPage);

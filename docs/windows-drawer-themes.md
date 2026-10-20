@@ -7,10 +7,11 @@ chosen in **Settings → Drawer → Character style** and switched live:
 
 | | Pixel (default) | Classic |
 |---|---|---|
-| Characters | Seven pixel bots, one per agent, from a bundled engine | Six desk companions from a bundled engine (Cursor shares Grok's planet, in its own colour); flat vector, no look picker |
+| Characters | Seven pixel bots, one per agent, from a bundled engine | Six desk companions from a bundled engine (Cursor shares Grok's planet, in its own colour); flat vector |
 | Panels | Opaque pixel panels, English, in the Ark Pixel font | Paper with a soft tail and shadow, in the app language |
 | Settings and menus | The pixel kit (`Shell/PixelTheme.xaml`) | The Classic kit (`Shell/ClassicTheme.xaml`): rounder Fluent with the Sky accent |
 | Agent colour | Each bot's own colour | Each companion's own colour |
+| Looks | Each agent has its default look and more to pick from | The same |
 
 This document is the contract for adding a theme: what it **must** provide,
 what it **may** change, what it **must not** touch, how to wire it in and how
@@ -105,7 +106,7 @@ How states behave:
 - **Calm states** (the engine's `CALM` list) must look right at 30 fps: when
   every visible bot is calm, the drawer drops to that rate. Both themes' calm
   states are `idle`, `listening`, `broken`, `offline`, `sleeping` and `locked`.
-- **Fidgets**: `fidgetsOf(kind)` lists one to three short, idle-only states
+- **Fidgets**: `fidgetsOf(kind, look)` lists one to three short, idle-only states
   per bot (Pixel Claude: `wave`, `hop`, `stroll`). They must loop; the drawer
   starts one every 25 to 75 s, ends it after 2.5 to 4.5 s, and never fidgets
   under reduced motion or while the bot rests. A fidget is idle play: no work
@@ -139,9 +140,10 @@ It must export:
 | `KINDS` | The seven kind names (§3.1) |
 | `PHASES` | Every state name it draws, fidgets aside |
 | `CALM` | The calm states |
-| `createBot(kind, { seed, tempo, rim })` | A new bot. `tempo` scales its clock (the drawer gives each agent 0.90 to 1.12); `rim` draws an outline that keeps it visible on any wallpaper |
-| `fidgetsOf(kind)` | The bot's fidget states |
-| `swatchOf(kind)` | The bot's colour, as `0xRRGGBB` |
+| `LOOKS` | `{ [kind]: [{ id, name }] }`: every look of every kind, the default first (see *Looks* below) |
+| `createBot(kind, { seed, tempo, rim, look })` | A new bot. `tempo` scales its clock (the drawer gives each agent 0.90 to 1.12); `rim` draws an outline that keeps it visible on any wallpaper; `look` is an id from `LOOKS[kind]`, and a missing or unknown one gets the default |
+| `fidgetsOf(kind, look)` | The look's fidget states; an unknown id gets the default's |
+| `swatchOf(kind, look)` | The look's colour, as `0xRRGGBB`; an unknown id gets the default's |
 | `settleOf(state)` | A one-shot state's resting state, else `null` |
 
 And a bot must offer:
@@ -156,6 +158,48 @@ And a bot must offer:
 | `advance(dt)` | Move time on by `dt` seconds |
 | `svg(size, id)` | The current frame (§3.4) |
 | `state` | The state it is in now, after any settling |
+
+**Looks.** A kind can have several looks; every look draws every state in
+`PHASES` and shares `KINDS`, `PHASES`, `CALM` and `settleOf`, and brings
+its own one to three fidgets and its own colour, kept in the agent's colour
+family so a chart still reads by agent.
+- Ids are lowercase `[a-z0-9-]`, unique within a kind, and saved in the
+  user's settings: once shipped, an id never changes meaning and is never
+  reused. An id the engine no longer knows reads as the default.
+- The default look is first, and is the look the theme shipped with, frame
+  for frame: nobody sees a change until they pick one.
+- `LOOKS.cursor` carries Grok's ids, since both themes draw Cursor as Grok's
+  character. `swatchOf('cursor', look)` returns what the theme draws (Pixel:
+  Grok's colour; Classic: Cursor's own).
+- The host keeps the pick per theme and agent in
+  `AgentIsland.drawer.look.<theme>.<agent>` (`DrawerStore.LookKey`; the WPF
+  app's `AgentIsland.drawer.look.<agent>` shape/colour is a different
+  setting). Cursor wears Grok's pick. The bot is swapped in place: a new bot
+  with the same seed and tempo enters the old one's state, so a pick shows at
+  once; Pixel's bot then hops (not under reduced motion).
+- `LookCatalog` mirrors every id, name and colour; `LookCatalog.Data.cs` is
+  generated from the engines, and `LookCatalogTests` runs each shipped engine
+  in V8 and checks the rows, that every look draws, and that every non-default
+  Pixel look has a face (`PixelIconData.Looks.cs`).
+- A look is picked in two places, both applied at once. Settings > Agents has
+  a **Look** card first in the expanded agent (`Settings/LookRow.cs`): a tile
+  per look, the worn one marked. Pixel's are 48-DIP plates with the look's
+  face and a tooltip; Classic's are 80-DIP tiles with the look over its name,
+  under the header. A tile plays its idle animation while hovered (Classic's
+  worn one plays too), and the tiles are one radio group. The drawer's
+  right-click menu has a **Look** submenu right under the title (radio items,
+  the look's face or idle frame for the icon). Only agents with more than one
+  look show them, and Cursor's is Grok's. The previews run in an engine of
+  their own (`Drawer/LookPreviews.cs`) that lives while Settings or the menu
+  is open.
+- The change itself: Pixel's bot hops once (and the picked tile with it), a
+  Classic bot turns over like a coin (M20: edge-on in 120 ms, swapped there,
+  back in 200 ms with a 3-DIP hop; a 120 ms fade out and in under reduced
+  motion). Neither plays for a hidden drawer or under a held-still state.
+- Everything that wears an agent's colour follows its look: the card and
+  bubbles, Settings' meters and badges, the Usage charts. Under Pixel the
+  paper-readable shade of a non-default look is `LookCatalog.OnPaper`; the
+  default looks keep their hand-tuned pairs (`PixelTokens.Agent`).
 
 The engine must blend state changes itself (Pixel blends poses over
 0.32 s); the drawer never animates transitions. A frame should stay under
@@ -187,8 +231,9 @@ Anything else is ignored or drawn black: gradients, filters, `text`, images,
 
 ### 3.5 Identity colours
 
-- One swatch per agent, from `swatchOf`, mirrored in
-  `DrawerLooks` and checked against the engine by a test.
+- One swatch per look, from `swatchOf`, mirrored in
+  `LookCatalog` and checked against the engine by a test; the agent's colour
+  is its picked look's (`DrawerLooks.Swatch`).
 - Swatches must read on both light and dark panels. On dark surfaces, a
   swatch with luma under 48 (near-black, like Pixel Grok's `#0B0B0C`) is
   lifted to `#D6D6D6` automatically (`Brand.Readable`); check how yours fare.
@@ -406,6 +451,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
   | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and a sheet of every bot in each state a phase plays (resting too, where its set draws it), in each of its fidgets, and poked while it rests |
+  | `AGENTISLAND_DEBUG_FILM_ONLY=<names>` | With the drawer film: only the moments and sheets of those names (`m20-flip`, `idle`, `writing`, ...) |
   | `AGENTISLAND_DEBUG_POPUP_FILM=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, steps the card's and the bubbles' moments by hand and saves each as a strip of its frames, printed from the test window so the paper's shadow shows; every agent's card among them, in two columns there |
   | `AGENTISLAND_DEBUG_MENU_FILM=<dir>` | The same for the drawer menu: its open, a submenu's and, in Classic, its close |
   | `AGENTISLAND_DEBUG_CONTROL_FILM=<dir>` | The same for a tooltip, a drop-down and a dialog in Settings; with `AGENTISLAND_DEBUG_TRACE`, it logs how many tooltip popups are still open after the tooltip closes, which must be 0 (a template's `Closed` state that never completes leaves them on screen) |
@@ -418,6 +464,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_FRAME_FILM=<dir>` | Classic's frame drawn inside an ordinary window over stripes of two known greys: restored (active, inactive), snapped and maximized, the corners at 4x and the caption cells at rest, hover and pressed; light or dark follows `AGENTISLAND_DEBUG_THEME` |
   | `AGENTISLAND_DEBUG_FRAME_CYCLE=1` | Opens Settings, flips the look 8 times and hides and reopens it 40 times, logging the GDI and USER object counts, which must stay flat |
   | `AGENTISLAND_DEBUG_REST=1` | Rests every idle bot, as if its agent's app were minimized |
+  | `AGENTISLAND_DEBUG_PICK_LOOKS=codex=cloud,kimi=rocket` | Picks those looks in the current style once the drawer is up (the drawer film then waits for them); it saves them, so restore the settings |
 
   The live drawer is drawn by Win2D and cannot be snapshotted; the film
   draws the same bots with the same painter. To see the live drawer,
@@ -429,11 +476,21 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 9. Reference: the Pixel theme
 
-- **Engine**: `Drawer/Characters/characters.mjs`, approved v5.1, SHA-256
-  `b95350269ba74e61ab8c69e543ed8a75267e036c4cb9ebe546d34796217e567f`; a
+- **Engine**: `Drawer/Characters/characters.mjs`, approved v5.2, SHA-256
+  `0d1541750a0c8ad6c11842158cdbde4554d8672f0a4ba730d899bcfc11f884a6`; a
   22 × 22 grid of 2-DIP cells, a one-cell white rim, 0.32 s pose blends;
   every frame within 22 DIP of the box centre, so nothing meets the
-  drawer's circle.
+  drawer's circle. Each agent can wear one of several looks (`LOOKS`),
+  picked in Settings > Agents or from the bot's menu; the default is v5.1's
+  bot, frame for frame. Codex has the notebook (default), a puff cloud, a
+  cloud, a folio and a scroll; Antigravity the balloon (default), a rainbow A,
+  Aeri, blocks and a kite; Grok (and Cursor) the slashed ring (default), a ring
+  bot, an event horizon, a black cat, an astronaut and a Martian; Kimi Code the
+  blob and terminal (default), a moon rabbit, a terminal pal, a moonlet and a
+  rocket. Claude (Clawd) and DeepSeek (the whale) have one look each, so no
+  picker. Each look brings its own colour (`LookCatalog`); the table below
+  is the defaults'. Under reduced motion Terminal pal's and Astronaut's
+  offline static and Puff cloud's thinning line hold still.
 - **Swatches**:
 
   | Claude | Codex | Antigravity | Grok | Cursor | Kimi Code | DeepSeek |
@@ -463,17 +520,26 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
 
 ## 10. Reference: the Classic theme
 
-- **Engine**: `Drawer/Characters/classic.mjs`, the second cast of desk
-  companions approved 2026-10-19, SHA-256
-  `f98b869fdc4a66cefa6632895977bdcb350dd51834ccf7a6cca458fec54d1d31`; vector
+- **Engine**: `Drawer/Characters/classic.mjs`, the desk companions and their
+  looks approved 2026-10-20, SHA-256
+  `a63f34953a3a1fde1200f4de8ea7ea163dbb8add35601190e6f787213fbcbc83`; vector
   frames in a 44-DIP box with a 1.3-DIP white rim, 0.32 s pose blends and
-  frames up to 2.7 KB. Each agent is a companion with a face: a succulent
+  frames up to 2.9 KB. Each agent is a companion with a face: a succulent
   (Claude), a desk computer (Codex), a flying saucer (Antigravity), a ringed
   planet (Grok, and Cursor in its own colour), an astronaut helmet (Kimi
   Code) and a submarine (DeepSeek). Each works its own mechanism through the
   work states; the only emotes are asking's "?" and approving's "!", which
   pop up from the head as glyph stickers in the companion's colour. Every
-  frame stays within the circle (22 DIP of the centre).
+  frame stays within the circle (22 DIP of the centre). Each agent can wear
+  one of several looks (`LOOKS`), picked in Settings > Agents or from the
+  bot's menu. The default is the companion above. The others are a clay timer
+  (Claude); a coffee mug, a keycap, a cloud cushion and a cloud terminal
+  (Codex); a paper plane and a crowned arch (Antigravity); an orbit ring (Grok,
+  and Cursor in its own colour); a moon lamp, a moon rabbit, a moonshot rocket
+  and a note clip (Kimi Code); and a whale stapler and a tape whale
+  (DeepSeek). Each look keeps its agent's colour. A look change plays a coin
+  flip (the bot turns edge-on, is swapped, and turns back; a fade under
+  reduced motion).
 - **Swatches**: each companion's own colour (`DrawerLooks.ClassicSwatch`,
   the engine's `swatchOf`); on dark surfaces a near-black one is lifted to
   `#D6D6D6`.

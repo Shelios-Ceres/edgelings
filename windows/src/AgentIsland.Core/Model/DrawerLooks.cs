@@ -5,7 +5,8 @@ namespace AgentIsland.Model;
 /// How a provider's character looks and which state each phase plays. The
 /// drawer's two character sets, the pixel bots and the Classic desk
 /// companions, are bundled engines that share one set of state names; each
-/// agent has one look in each, in its own colour.
+/// agent wears one look in each (LookCatalog), picked in Settings or from the
+/// drawer's menu, and the look brings the agent's colour.
 public static class DrawerLooks
 {
     /// The WPF drawer's look picker (the WinUI drawer has none): each agent's
@@ -64,8 +65,8 @@ public static class DrawerLooks
 
     // MARK: - Engines
     // Mirrors the bundled engines (WinUI Drawer/Characters/characters.mjs and
-    // classic.mjs); PixelThemeTests and ClassicThemeTests check every name and
-    // colour against those files.
+    // classic.mjs); PixelThemeTests and ClassicThemeTests check every state
+    // name against those files, LookCatalogTests every look and colour.
 
     /// Each provider's bot, under the same kind name in both engines.
     public static string Kind(DisplayProvider provider) => provider switch
@@ -79,35 +80,19 @@ public static class DrawerLooks
         _ => "claude",
     };
 
-    /// Each pixel bot's own colour (the engine's swatchOf).
-    public static uint PixelSwatch(DisplayProvider provider) => provider switch
-    {
-        DisplayProvider.Codex => 0x9EA1AB,
-        DisplayProvider.Antigravity => 0x3D7BF5,
-        DisplayProvider.Grok => 0x0B0B0C,
-        DisplayProvider.Cursor => 0x0B0B0C,
-        DisplayProvider.Kimi => 0x2B8BFF,
-        DisplayProvider.DeepSeek => 0x4D6BFE,
-        _ => 0xD77757,
-    };
-
-    /// Each desk companion's own colour (the Classic engine's swatchOf); no
-    /// two agents share one. Cursor's black is lifted on dark surfaces by
-    /// Brand.Readable.
-    public static uint ClassicSwatch(DisplayProvider provider) => provider switch
-    {
-        DisplayProvider.Codex => 0x2D8CFF,
-        DisplayProvider.Antigravity => 0x8E63F5,
-        DisplayProvider.Grok => 0x6E7480,
-        DisplayProvider.Cursor => 0x24252C,
-        DisplayProvider.Kimi => 0x1D4E9E,
-        DisplayProvider.DeepSeek => 0x4D6BFE,
-        _ => 0xD97757,
-    };
-
-    /// A provider's colour in a theme: its pixel bot's or its desk companion's.
+    /// The colour of the look an agent wears now in a set (the engine's
+    /// swatchOf for the picked look): the card, bubbles, charts and meters
+    /// all follow it. Cursor wears Grok's pick; Pixel draws it in Grok's
+    /// colours and Classic in its own.
     public static uint Swatch(DisplayProvider provider, CharacterTheme theme) =>
-        theme == CharacterTheme.Pixel ? PixelSwatch(provider) : ClassicSwatch(provider);
+        LookCatalog.Of(theme, provider).Swatch;
+
+    /// A provider's pixel bot's colour in its picked look.
+    public static uint PixelSwatch(DisplayProvider provider) => Swatch(provider, CharacterTheme.Pixel);
+
+    /// A provider's desk companion's colour in its picked look; Cursor's
+    /// black is lifted on dark surfaces by Brand.Readable.
+    public static uint ClassicSwatch(DisplayProvider provider) => Swatch(provider, CharacterTheme.Classic);
 
     /// The state a phase enters, one per phase. Both themes' engines draw
     /// these names; a theme with names of its own would map them here.
@@ -152,6 +137,14 @@ public static class DrawerLooks
     {
         "idle", "listening", "broken", "offline", "sleeping", "locked", "resting",
     };
+
+    /// States that hold still under reduced motion, in their settled pose:
+    /// `resting`, Pixel's `sleeping` (the breathing doze), and `offline` in the
+    /// three Pixel looks where it flickers (the puff cloud's thinning line, the
+    /// terminal pal's and the astronaut's static). Classic's `sleeping` keeps animating.
+    public static bool HoldsStill(string state, CharacterTheme theme, bool reduced, string? look) =>
+        reduced && (state == "resting"
+            || theme == CharacterTheme.Pixel && (state == "sleeping" || state == "offline" && look is "puff" or "terminal" or "astronaut"));
 
     public static bool IsCalm(string state, CharacterTheme theme) => EngineCalmStates.Contains(state);
 

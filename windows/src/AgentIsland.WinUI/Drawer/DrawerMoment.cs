@@ -26,14 +26,16 @@ internal readonly record struct BotPose(float X, float Y, float Lean, float Scal
     public static readonly BotPose Rest = new(0, 0, 0, 1, 1, 1, 0, 0);
 }
 
-/// A drawer moment (M1, M2, M6, M18) as the game loop plays it: which bots
-/// it draws and where they rest, in window DIPs, and the tracks that move
-/// them from its start. The UI thread starts it and cleans up after; the
-/// loop only reads it.
+/// A drawer moment (M1, M2, M6, M18, M20) as the game loop plays it: which
+/// bots it draws and where they rest, in window DIPs, and the tracks that
+/// move them from its start. The UI thread starts it and cleans up after;
+/// the loop only reads it, and runs its actions.
 internal sealed class DrawerMoment
 {
     private readonly Dictionary<(int Index, BotProp Prop), ITrack> _tracks = new();
     private readonly HashSet<int> _moved = new();
+    private readonly List<(double Ms, Action Action)> _actions = new();
+    private int _ran;
 
     public required (int Index, float X, float Y)[] Bots { get; init; }
 
@@ -67,7 +69,29 @@ internal sealed class DrawerMoment
         return this;
     }
 
+    /// Something for the loop to do once the moment reaches ms (M20 swaps
+    /// the look edge-on).
+    public DrawerMoment At(double ms, Action action)
+    {
+        _actions.Add((ms, action));
+        _actions.Sort((a, b) => a.Ms.CompareTo(b.Ms));
+        DurationMs = Math.Max(DurationMs, ms);
+        return this;
+    }
+
     public bool Moving(double ms) => ms < DurationMs;
+
+    /// Runs the loop actions now due; on the game loop's thread.
+    public void RunDue(double ms)
+    {
+        while (_ran < _actions.Count && _actions[_ran].Ms <= ms) _actions[_ran++].Action();
+    }
+
+    /// Actions the moment never reached, for a moment replaced early.
+    public void RunRest()
+    {
+        while (_ran < _actions.Count) _actions[_ran++].Action();
+    }
 
     public BotPose Pose(int index, double ms)
     {
@@ -248,6 +272,21 @@ internal static class DrawerMoves
     {
         foreach (var index in bots) moment.Set(index, BotProp.Y, new Tween(pulled, 0, 0, 333, Pop));
         return moment;
+    }
+
+    /// M20, Classic's look change: the bot turns edge-on like a coin in 120 ms,
+    /// its new look swaps in there, and it turns back with a 3-DIP hop in 200
+    /// ms. Reduced motion fades it out and in over 120 ms each instead.
+    public static DrawerMoment Flip(DrawerMoment moment, int index, Action swap, bool reduced)
+    {
+        if (reduced)
+        {
+            moment.Set(index, BotProp.Opacity, new Keys(new Tween(1, 0, 0, 120, Linear), new Tween(0, 1, 120, 120, Linear)));
+            return moment.At(120, swap);
+        }
+        moment.Set(index, BotProp.ScaleX, new Keys(new Tween(1, 0, 0, 120, In), new Tween(0, 1.06, 120, 120, Out), new Tween(1.06, 1, 240, 80, Out)));
+        moment.Set(index, BotProp.Y, new Keys(new Tween(0, -3, 120, 100, Out), new Tween(-3, 0, 220, 100, In)));
+        return moment.At(120, swap);
     }
 
     /// Classic's rubber band: a fifth of the pull past the threshold, at most 8 DIP.

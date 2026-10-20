@@ -19,7 +19,8 @@ internal static class DrawerMenu
         DisplayProvider provider,
         IReadOnlyList<(DisplayProvider Provider, bool Requested)> requestedVisibility,
         bool keepOpen = false,
-        Windows.Graphics.PointInt32? at = null)
+        Windows.Graphics.PointInt32? at = null,
+        double scale = 1)
     {
         var pixel = Looks.Pixel;
         var dark = Brand.IsDark();
@@ -41,6 +42,7 @@ internal static class DrawerMenu
         }
         menu.Items.Add(title);
         menu.Items.Add(new MenuFlyoutSeparator());
+        if (LookMenu(provider, pixel, scale) is { } looks) menu.Items.Add(looks);
 
         // Hiding one takes it out of the menus and Usage & cost as well.
         var shownMenu = new MenuFlyoutSubItem { Text = L10n.Tr("Shown agents"), Icon = MenuHost.Glyph("\uE890") };
@@ -68,6 +70,34 @@ internal static class DrawerMenu
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(MenuHost.Item(L10n.Tr("Usage & cost…"), "\uE8C7", () => SettingsWindow.OpenUsage()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
+        // The previews were drawn for the menu's icons: nothing keeps their engines.
+        menu.Closed += (_, _) => LookPreviews.Release();
         MenuHost.Show(menu, keepOpen, at, kit: true);
+    }
+
+    /// "Look": one radio item per look the agent can wear, its face (Pixel) or idle
+    /// frame (Classic) for an icon, the worn one checked; a pick applies at once.
+    /// Only for agents with more than one look; Cursor's is Grok's.
+    private static MenuFlyoutSubItem? LookMenu(DisplayProvider provider, bool pixel, double scale)
+    {
+        var theme = pixel ? CharacterTheme.Pixel : CharacterTheme.Classic;
+        var looks = LookCatalog.For(theme, provider);
+        if (!provider.HasCharacter() || looks.Count < 2) return null;
+        var worn = LookCatalog.Of(theme, provider).Id;
+        var sub = new MenuFlyoutSubItem { Text = L10n.Tr("Look"), Icon = MenuHost.Glyph("\uE771") };
+        AutomationProperties.SetAutomationId(sub, "Drawer.Look");
+        foreach (var look in looks)
+        {
+            // Pixel marks the worn look with the kit's check, as Shown agents does; Classic with its radio dot.
+            MenuFlyoutItem item = pixel
+                ? new ToggleMenuFlyoutItem { Text = L10n.Tr(look.Name), IsChecked = look.Id == worn }
+                : new RadioMenuFlyoutItem { Text = L10n.Tr(look.Name), GroupName = "look", IsChecked = look.Id == worn };
+            if (pixel) item.Icon = new ImageIcon { Source = PixelIcons.Face(provider, look.Id) };
+            else if (LookPreviews.Image(theme, provider, look.Id, 20, scale) is { } frame) item.Icon = new ImageIcon { Source = frame, Width = 20, Height = 20 };
+            AutomationProperties.SetAutomationId(item, $"Drawer.Look.{look.Id}");
+            item.Click += (_, _) => DrawerStore.Shared.SetLookId(theme, provider, look.Id);
+            sub.Items.Add(item);
+        }
+        return sub;
     }
 }

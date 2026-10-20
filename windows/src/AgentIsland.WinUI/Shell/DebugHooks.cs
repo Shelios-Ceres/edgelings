@@ -8,6 +8,7 @@ namespace AgentIsland.WinUI.Shell;
 internal static class DebugHooks
 {
     private static Microsoft.UI.Dispatching.DispatcherQueueTimer? _timer;
+    private static Microsoft.UI.Dispatching.DispatcherQueueTimer? _filmTimer;
 
     /// Runs once the drawer's content has loaded.
     public static void Schedule(DrawerWindow drawer, TrayIcon tray)
@@ -21,6 +22,19 @@ internal static class DebugHooks
 
     private static void Run(DrawerWindow drawer, TrayIcon tray)
     {
+        // AGENTISLAND_DEBUG_PICK_LOOKS=codex=cloud,kimi=rocket: picks those looks
+        // in the current character style once the drawer is up, so the film
+        // that follows shows bots swapped live. It saves the picks: restore
+        // the settings afterwards.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_PICK_LOOKS") is { Length: > 0 } picks)
+        {
+            foreach (var pick in picks.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = pick.Split('=');
+                if (parts.Length == 2 && Enum.GetValues<DisplayProvider>().FirstOrDefault(p => p.RawValue() == parts[0]) is var provider)
+                    DrawerStore.Shared.SetLookId(DrawerStore.Shared.Theme, provider, parts[1]);
+            }
+        }
         // AGENTISLAND_DEBUG_DRAWER_HIDDEN=1: measure without the drawer; the
         // tray menu then offers to show it.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_HIDDEN") == "1") drawer.ToggleDeliberately();
@@ -73,7 +87,19 @@ internal static class DebugHooks
         if (say == "Locked") drawer.DebugSayLocked();
         else if (Enum.TryParse<AgentIsland.Core.AgentPhase>(say, out var phase)) drawer.DebugSay(phase);
         // AGENTISLAND_DEBUG_DRAWER_FILM=<dir>: the drawer moments frame by frame.
-        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_FILM") is { Length: > 0 } film) drawer.DebugFilm(film);
+        // Picked looks reach the loop a moment later, so the film waits for them.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_FILM") is { Length: > 0 } film)
+        {
+            if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_PICK_LOOKS") is not { Length: > 0 }) drawer.DebugFilm(film);
+            else
+            {
+                _filmTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+                _filmTimer.Interval = TimeSpan.FromSeconds(1.5);
+                _filmTimer.IsRepeating = false;
+                _filmTimer.Tick += (_, _) => drawer.DebugFilm(film);
+                _filmTimer.Start();
+            }
+        }
         // AGENTISLAND_DEBUG_CONTROL_FILM=<dir>: a tooltip's, a drop-down's and a dialog's motion.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_CONTROL_FILM") is { Length: > 0 } controlFilm) _ = SettingsWindow.FilmControlsAsync(controlFilm);
         // AGENTISLAND_DEBUG_COST_FILM=<dir>: the usage numbers' period switches and a scan's count.

@@ -42,6 +42,7 @@ internal sealed class AgentSection
     private readonly StackPanel _header;
     private readonly SettingsCard? _cursor;
     private readonly TextBlock _cursorPlan = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly LookRow? _look;
     private bool _updating;
 
     /// move takes a step up (-1) or down (1) the drawer's order.
@@ -113,6 +114,13 @@ internal sealed class AgentSection
         _ = LoadMarkAsync();
         Expander.Loaded += (_, _) => FollowHeader();
 
+        // The look it wears comes first: it is about this agent's character. Cursor has
+        // none of its own, since it works under Grok's.
+        if (provider.HasCharacter() && LookCatalog.For(_pixel ? CharacterTheme.Pixel : CharacterTheme.Classic, provider).Count > 1)
+        {
+            _look = new LookRow(provider, () => Expander.IsExpanded);
+            Expander.Items.Add(_look.Element);
+        }
         _activity = new SettingsCard { Header = L10n.Tr("Right now"), Description = _activityText, HeaderIcon = Icon("\uE9D9") };
         Name(_activity, "Activity", L10n.Tr("Right now"));
         Expander.Items.Add(_activity);
@@ -233,6 +241,8 @@ internal sealed class AgentSection
         if (_pixelStatus is not null) SetStatus(_pixelStatus, report.Status, report.Warning);
         else SetStatus(_status, report.Status, report.Warning);
         _shown.IsOn = ProviderVisibilityStore.Shared.IsShown(_provider);
+        if (_markLook != PickedLook()) _ = LoadMarkAsync();
+        _look?.Sync();
 
         while (_meters.Count < report.Meters.Count)
         {
@@ -423,6 +433,12 @@ internal sealed class AgentSection
         AutomationProperties.SetAutomationId(control, $"Agent.{_provider.RawValue()}.{id}");
     }
 
+    // The look the header's face and tint were made for.
+    private string? _markLook;
+
+    private string PickedLook() =>
+        LookCatalog.Of(Looks.Pixel ? CharacterTheme.Pixel : CharacterTheme.Classic, _provider).Id;
+
     /// Bars wear the agent's character colour, as in the drawer.
     private Windows.UI.Color Accent()
     {
@@ -516,6 +532,7 @@ internal sealed class AgentSection
     /// pixel bot face.
     private async Task LoadMarkAsync()
     {
+        _markLook = PickedLook();
         if (Looks.Pixel)
         {
             Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider), Opacity = _header.Opacity };

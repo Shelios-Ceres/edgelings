@@ -57,6 +57,8 @@ internal sealed partial class DrawerWindow : Window
         public required DisplayProvider Provider { get; init; }
         public required TriggerTool Tool { get; init; }
         public required int Index { get; init; }
+        // The look its engine bot wears now (a LookCatalog id); null without an engine.
+        public string? Look { get; set; }
         public Rect Bounds { get; set; }
         public bool Visible { get; set; }
         public AgentPhase Phase { get; set; }
@@ -190,7 +192,7 @@ internal sealed partial class DrawerWindow : Window
         _slots = _bots.Select(b => new Slot
         {
             Swatch = SwatchOf(b),
-            Fidgets = _engine?.Fidgets(b.Provider) ?? Array.Empty<string>(),
+            Fidgets = _engine?.Fidgets(b.Provider, b.Look) ?? Array.Empty<string>(),
             NextFidget = FirstFidgetAfter + Random.Shared.NextDouble() * FidgetGap,
         }).ToArray();
 
@@ -239,6 +241,7 @@ internal sealed partial class DrawerWindow : Window
         Watch(DrawerStore.Shared, () =>
         {
             ApplyTheme();
+            ApplyLooks();
             ApplyLock();
             UpdateCap();
             Layout();
@@ -419,8 +422,13 @@ internal sealed partial class DrawerWindow : Window
 
     private static void AddBot(ICharacterEngine? engine, Bot bot)
     {
-        if (engine is null) return;
-        var index = engine.AddBot(bot.Provider, DrawerLooks.TempoOf(bot.Provider), Random.Shared.Next(1, 1_000_000));
+        if (engine is null)
+        {
+            bot.Look = null;
+            return;
+        }
+        bot.Look = LookCatalog.Of(engine.Theme, bot.Provider).Id;
+        var index = engine.AddBot(bot.Provider, DrawerLooks.TempoOf(bot.Provider), Random.Shared.Next(1, 1_000_000), bot.Look);
         if (index != bot.Index) throw new InvalidOperationException($"engine index {index} for drawer bot {bot.Index}");
     }
 
@@ -439,7 +447,7 @@ internal sealed partial class DrawerWindow : Window
             var resting = bot.Rest is not null;
             var hold = resting && engine?.Draws(Resting) == true ? Resting
                 : bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme);
-            rest.Add((bot.Index, hold, resting, SwatchOf(bot), engine?.Fidgets(bot.Provider) ?? Array.Empty<string>()));
+            rest.Add((bot.Index, hold, resting, SwatchOf(bot), engine?.Fidgets(bot.Provider, bot.Look) ?? Array.Empty<string>()));
         }
         _commands.Enqueue(() =>
         {
@@ -458,11 +466,51 @@ internal sealed partial class DrawerWindow : Window
                 slot.Gazing = false;
                 slot.Svg = null;
                 slot.NextStep = 0;
-                engine?.SetState(index, hold, HoldsStill(hold, theme, _reducedMotion) ? 0 : -1);
+                engine?.SetState(index, hold, HoldsStill(hold, theme, _reducedMotion, _bots[index].Look) ? 0 : -1);
             }
             old?.Dispose();
         });
         Hush();
+        RefreshCard();
+    }
+
+    /// Dresses each character in the look its agent now wears. The engine
+    /// swaps the bot in place, so it keeps its seed, tempo and state. Pixel's
+    /// bot then hops once (not under reduced motion), as for a poke; Classic's
+    /// turns over like a coin (M20).
+    private void ApplyLooks()
+    {
+        if (_engine is null) return;
+        var theme = _theme;
+        foreach (var bot in _bots)
+        {
+            var look = LookCatalog.Of(theme, bot.Provider).Id;
+            if (look == bot.Look) continue;
+            bot.Look = look;
+            var index = bot.Index;
+            var provider = bot.Provider;
+            var swatch = SwatchOf(bot);
+            void Swap()
+            {
+                if (_loopTheme != theme || _engine is not { } engine) return;
+                var slot = _slots[index];
+                engine.SetLook(index, look);
+                slot.Swatch = swatch;
+                slot.Fidgets = engine.Fidgets(provider, look);
+                slot.Fidget = null;
+                slot.Gazing = false;
+                slot.Svg = null;
+                slot.NextStep = 0;
+                var holdsStill = HoldsStill(slot.Hold, theme, _reducedMotion, look);
+                engine.SetState(index, slot.Hold, holdsStill ? 0 : -1);
+                if (theme == CharacterTheme.Pixel && !holdsStill && !_reducedMotion) engine.Poke(index);
+            }
+            // M20: Classic's bot turns like a coin, or fades under reduced motion, and its
+            // new look swaps in at the middle. Only a visible bot, and one moment at a time.
+            if (theme == CharacterTheme.Classic && _shown && bot.Visible && _moment is null)
+                Play(DrawerMoves.Flip(NewMoment(_scene.Shown, DrawerStore.Shared.Side), index, Swap, _reducedMotion));
+            else _commands.Enqueue(Swap);
+        }
         RefreshCard();
     }
 
@@ -797,6 +845,7 @@ internal sealed partial class DrawerWindow : Window
     /// circles return and `after` runs, on the UI thread.
     private void Play(DrawerMoment moment, Action? after = null)
     {
+        if (_moment is { } old) _commands.Enqueue(old.RunRest);
         _afterMoment = after;
         _moment = moment;
         Win32.SetWindowRgn(_hwnd, IntPtr.Zero, true);
@@ -824,6 +873,7 @@ internal sealed partial class DrawerWindow : Window
     private void ClearMoment()
     {
         _momentGuard.Stop();
+        if (_moment is { } old) _commands.Enqueue(old.RunRest);
         _moment = null;
         _afterMoment = null;
         ApplyRegion();
@@ -969,7 +1019,7 @@ internal sealed partial class DrawerWindow : Window
             slot.Fidget = null;
             slot.NextFidget = slot.Since + FidgetGap * (0.5 + Random.Shared.NextDouble());
             // Reduced motion rests in the settled pose (the loop's start), held still.
-            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || HoldsStill(entry, theme, _reducedMotion) ? 0 : -1);
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || HoldsStill(entry, theme, _reducedMotion, bot.Look) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         });
@@ -978,11 +1028,11 @@ internal sealed partial class DrawerWindow : Window
     private const string Resting = "resting";
     private const string Sleeping = "sleeping";
 
-    /// The two calm sleep looks hold still under reduced motion. Pixel's
+    /// The two calm sleep looks, and the flickering offline of three Pixel looks, hold still under reduced motion. Pixel's
     /// `sleeping` (out of quota) is the breathing doze; its `resting` (app
     /// away) draws z's. Classic's `sleeping` keeps animating.
-    private static bool HoldsStill(string state, CharacterTheme theme, bool reduced) =>
-        reduced && (state == Resting || state == Sleeping && theme == CharacterTheme.Pixel);
+    private static bool HoldsStill(string state, CharacterTheme theme, bool reduced, string? look) =>
+        DrawerLooks.HoldsStill(state, theme, reduced, look);
     private static readonly bool DebugRest = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_REST") == "1";
 
     /// Why an idle character rests: every app of its agent (Grok's with
@@ -1184,7 +1234,7 @@ internal sealed partial class DrawerWindow : Window
             var index = bot.Index;
             _commands.Enqueue(() =>
             {
-                if (HoldsStill(_slots[index].EngineState, _theme, _reducedMotion)) return;
+                if (HoldsStill(_slots[index].EngineState, _theme, _reducedMotion, _bots[index].Look)) return;
                 _engine?.Poke(index);
                 _slots[index].NextStep = 0;
             });
@@ -1222,6 +1272,7 @@ internal sealed partial class DrawerWindow : Window
         var now = _clock.Elapsed.TotalSeconds;
         var moment = _moment;
         var momentMs = moment is null ? 0 : (now - moment.Start) * 1000;
+        moment?.RunDue(momentMs);
         _due.Clear();
         foreach (var (index, _, _) in scene.Shown)
         {
@@ -1252,7 +1303,7 @@ internal sealed partial class DrawerWindow : Window
             var slot = _slots[index];
             // Under reduced motion a sleeping character holds still, once its
             // blend into the settled pose is done.
-            dts[index] = HoldsStill(slot.EngineState, theme, reduced) && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
+            dts[index] = HoldsStill(slot.EngineState, theme, reduced, _bots[index].Look) && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
             slot.LastStep = now;
             var fps = !DrawerLooks.IsCalm(slot.EngineState, theme) ? activeFps : near ? gazeFps : calmFps;
             var interval = 1.0 / fps;
@@ -1618,7 +1669,7 @@ internal sealed partial class DrawerWindow : Window
                 _commands.Enqueue(() =>
                 {
                     // A character asleep under reduced motion stays still.
-                    if (!HoldsStill(_slots[index].EngineState, _theme, _reducedMotion)) _engine?.Poke(index);
+                    if (!HoldsStill(_slots[index].EngineState, _theme, _reducedMotion, _bots[index].Look)) _engine?.Poke(index);
                     _slots[index].NextStep = 0;
                 });
                 // A click opens the character's agent in Settings; the shared
@@ -1659,7 +1710,7 @@ internal sealed partial class DrawerWindow : Window
             : null;
         _ = DrawerMenu.ShowAsync(bot.Provider,
             _bots.Select(b => (b.Provider, ProviderVisibilityStore.Shared.IsShown(b.Provider))).ToList(),
-            keepOpen, at);
+            keepOpen, at, scene.Scale);
     }
 
     private void Drag()

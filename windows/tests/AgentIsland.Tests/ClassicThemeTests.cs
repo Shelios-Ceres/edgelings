@@ -53,9 +53,9 @@ public static class ClassicThemeTests
         {
             var kind = DrawerLooks.Kind(provider);
             Expect(kinds.TryGetValue(kind, out var companion), $"the engine has a {kind} companion");
-            Expect(DrawerLooks.ClassicSwatch(provider) == companion.Swatch,
-                $"{provider}'s Classic colour is the engine's #{companion.Swatch:X6}, got #{DrawerLooks.ClassicSwatch(provider):X6}");
-            Expect(DrawerLooks.Swatch(provider, CharacterTheme.Classic) == companion.Swatch, $"{provider}'s Classic theme colour is its companion's");
+            var swatch = LookCatalog.For(CharacterTheme.Classic, provider)[0].Swatch;
+            Expect(swatch == companion.Swatch,
+                $"{provider}'s default Classic colour is the engine's #{companion.Swatch:X6}, got #{swatch:X6}");
             Expect(companion.Fidgets.Count > 0, $"{provider} has something to do when idle");
             foreach (var fidget in companion.Fidgets)
             {
