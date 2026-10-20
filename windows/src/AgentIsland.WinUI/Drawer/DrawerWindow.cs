@@ -407,9 +407,7 @@ internal sealed partial class DrawerWindow : Window
         ICharacterEngine? engine = null;
         try
         {
-            engine = theme == CharacterTheme.Pixel
-                ? new PixelEngine(PixelEngine.Directory)
-                : new ClassicEngine(PixelEngine.Directory);
+            engine = V8CharacterEngine.Create(theme, V8CharacterEngine.Directory);
         }
         catch (Exception error)
         {

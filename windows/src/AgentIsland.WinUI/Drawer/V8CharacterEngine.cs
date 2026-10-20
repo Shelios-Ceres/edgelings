@@ -1,3 +1,4 @@
+using System.IO;
 using AgentIsland.Model;
 using Microsoft.ClearScript;
 using Microsoft.ClearScript.JavaScript;
@@ -5,20 +6,20 @@ using Microsoft.ClearScript.V8;
 
 namespace AgentIsland.WinUI.Drawer;
 
-/// The pixel bots in embedded V8: Characters/characters.mjs is the approved
-/// v5.2 engine from windows/notes/characters-v5.2-20261020 (sha256 0d154175…),
-/// our own code, shipped with the app. Frames are SVG rectangles on a grid of
-/// 2-DIP cells, so they stay crisp at 100, 150 and 200 % scaling.
-internal sealed class PixelEngine : ICharacterEngine
+/// A character set's bots in embedded V8. Both sets ship as a JavaScript
+/// engine (Characters/characters.mjs for Pixel, Characters/classic.mjs for
+/// Classic), our own code, run through one small host module that is the same
+/// for both. Each agent wears one of its looks, in its colour; the frames
+/// come back as SVG.
+internal sealed class V8CharacterEngine : ICharacterEngine
 {
-    public const string EngineFile = "characters.mjs";
-
     // One call per frame advances every due bot and returns all SVGs at once,
     // so the host/script boundary is crossed once per frame, not per bot.
-    private const string HostModule = """
-        import * as lib from './characters.mjs';
+    // The engine file, the global the host defines and the cue line are filled in per set.
+    private const string HostTemplate = """
+        import * as lib from '@ENGINE@';
         const bots = [], makes = [];
-        globalThis.agentIslandPixels = {
+        globalThis.@GLOBAL@ = {
             phases: () => lib.PHASES.join(','),
             fidgets: (kind, look) => lib.fidgetsOf(kind, look || undefined).join(','),
             add(kind, seed, tempo, look) {
@@ -36,6 +37,7 @@ internal sealed class PixelEngine : ICharacterEngine
             setGaze(i, dx, dy) { bots[i].setGaze(dx, dy); },
             clearGaze(i) { bots[i].clearGaze(); },
             poke(i) { bots[i].poke(); },
+            /*CUE*/
             tick(steps, size) {
                 const dts = steps.split(','), parts = [];
                 for (let i = 0; i < bots.length; i++) {
@@ -50,23 +52,43 @@ internal sealed class PixelEngine : ICharacterEngine
         };
         """;
 
+    private const string CueLine = "            cue(i, kind) { bots[i].cue?.(kind); },\n";
+
     private readonly V8ScriptEngine _engine;
     private readonly ScriptObject _host;
+    private readonly bool _ownCues;
     private readonly Dictionary<(DisplayProvider, string?), string[]> _fidgets = new();
     private readonly HashSet<string> _phases;
 
-    /// Where the build copies the engine.
+    /// Where the build copies the engines.
     public static string Directory => Path.Combine(AppContext.BaseDirectory, "Drawer", "Characters");
 
-    public PixelEngine(string engineDirectory)
+    /// The pixel bots come from the approved v5.2 engine
+    /// (windows/notes/characters-v5.2-20261020, sha256 0d154175…): frames are
+    /// SVG rectangles on a grid of 2-DIP cells, so they stay crisp at 100,
+    /// 150 and 200 % scaling. The Classic bots come from the desk companions
+    /// engine with looks from windows/notes/classic-grok-20261015/looks
+    /// (sha256 a63f3495…): vector SVG, drawn antialiased.
+    public static V8CharacterEngine Create(CharacterTheme theme, string engineDirectory) => theme == CharacterTheme.Pixel
+        ? new(theme, engineDirectory, "characters.mjs", "agentIslandPixels", "agent-island-pixels.mjs", ownCues: false)
+        : new(theme, engineDirectory, "classic.mjs", "agentIslandClassic", "agent-island-classic.mjs", ownCues: true);
+
+    private V8CharacterEngine(
+        CharacterTheme theme, string engineDirectory, string engineFile, string global, string hostFile, bool ownCues)
     {
+        Theme = theme;
+        _ownCues = ownCues;
+        var host = HostTemplate
+            .Replace("@ENGINE@", "./" + engineFile)
+            .Replace("@GLOBAL@", global)
+            .Replace("            /*CUE*/\n", ownCues ? CueLine : "");
         _engine = new V8ScriptEngine();
         try
         {
             _engine.DocumentSettings.AccessFlags = DocumentAccessFlags.EnableFileLoading;
-            var hostUri = new Uri(Path.Combine(engineDirectory, "agent-island-pixels.mjs"));
-            _engine.Execute(new DocumentInfo(hostUri) { Category = ModuleCategory.Standard }, HostModule);
-            _host = (ScriptObject)_engine.Script.agentIslandPixels;
+            var hostUri = new Uri(Path.Combine(engineDirectory, hostFile));
+            _engine.Execute(new DocumentInfo(hostUri) { Category = ModuleCategory.Standard }, host);
+            _host = (ScriptObject)_engine.Script[global];
             _phases = ((string)_host.InvokeMethod("phases")).Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
         }
         catch
@@ -76,7 +98,7 @@ internal sealed class PixelEngine : ICharacterEngine
         }
     }
 
-    public CharacterTheme Theme => CharacterTheme.Pixel;
+    public CharacterTheme Theme { get; }
 
     public int AddBot(DisplayProvider provider, double tempo, int seed, string? look) =>
         Convert.ToInt32(_host.InvokeMethod("add", DrawerLooks.Kind(provider), seed, tempo, look ?? ""));
@@ -85,7 +107,7 @@ internal sealed class PixelEngine : ICharacterEngine
 
     public void SetState(int bot, string state, double phase) => _host.InvokeMethod("setState", bot, state, phase);
 
-    /// The pixel bots look along the pointer's offset from their centre.
+    /// The bots look along the pointer's offset from their centre.
     public void SetGaze(int bot, double left, double top, double width, double height, double x, double y) =>
         _host.InvokeMethod("setGaze", bot, x - (left + width / 2), y - (top + height / 2));
 
@@ -93,8 +115,15 @@ internal sealed class PixelEngine : ICharacterEngine
 
     public void Poke(int bot) => _host.InvokeMethod("poke", bot);
 
-    /// Pixel's answer to every event is its poke hop; the host decides when.
-    public void Cue(int bot, string kind) => Poke(bot);
+    /// A one-shot cue (done, note, ask, alert, error) over the bot's current
+    /// pose, where the set has its own (Classic; the engine ignores a kind it
+    /// lacks). Pixel's answer to every event is its poke hop; the host
+    /// decides when.
+    public void Cue(int bot, string kind)
+    {
+        if (_ownCues) _host.InvokeMethod("cue", bot, kind);
+        else Poke(bot);
+    }
 
     public string[] Fidgets(DisplayProvider provider, string? look)
     {
