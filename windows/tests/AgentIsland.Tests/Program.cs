@@ -83,6 +83,7 @@ public static class Program
             LookCatalogTests.RunAll();
             ClaudeCredentialsTests.RunAll();
             ActivityMonitorScanTests.RunAll();
+            LogParseCacheTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }

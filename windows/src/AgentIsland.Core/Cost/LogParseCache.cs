@@ -22,6 +22,7 @@ public sealed class LogParseCache
     private Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private bool _dirty;
     private bool _loaded;
+    private readonly object _gate = new();
 
     public LogParseCache(TriggerTool provider, string cacheFileName)
         : this(provider, cacheFileName, IslandPaths.CacheDir)
@@ -34,7 +35,19 @@ public sealed class LogParseCache
         _cachePath = Path.Combine(cacheDirectory, cacheFileName);
     }
 
+    /// Scans can overlap (a new one may start while a slow one still runs),
+    /// and the entries are a plain Dictionary: written from two threads it
+    /// corrupts its bucket chain, which hangs a thread instead of throwing.
+    /// A walk holds the cache for its whole length.
     public List<TokenEvent> Walk(
+        IEnumerable<string> files,
+        DateTimeOffset cutoff,
+        Func<string, List<TokenEvent>> parseFile)
+    {
+        lock (_gate) return WalkLocked(files, cutoff, parseFile);
+    }
+
+    private List<TokenEvent> WalkLocked(
         IEnumerable<string> files,
         DateTimeOffset cutoff,
         Func<string, List<TokenEvent>> parseFile)
@@ -151,16 +164,20 @@ public sealed class LogParseCache
     {
         if (!_dirty) return;
         _dirty = false;
+        // Per-write temp name, not a fixed ".tmp": two copies of the app
+        // writing the same cache would otherwise fail on each other's handle.
+        var tmp = string.Empty;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
-            var tmp = _cachePath + ".tmp";
+            tmp = _cachePath + ".tmp-" + Guid.NewGuid().ToString("N");
             File.WriteAllText(tmp, JsonSerializer.Serialize(_entries));
             File.Move(tmp, _cachePath, overwrite: true);
         }
         catch
         {
             _dirty = true;
+            try { if (tmp.Length > 0) File.Delete(tmp); } catch { }
         }
     }
 }
