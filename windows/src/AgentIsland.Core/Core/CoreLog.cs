@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace AgentIsland.Core;
 
 /// Where Core reports an error it had to swallow so the app could carry on.
@@ -19,7 +21,7 @@ public static class CoreLog
         lock (Gate)
         {
             if (Seen.Count >= MostKept) Seen.Clear();
-            if (!Seen.Add((context, error.GetType().FullName ?? "", error.Message))) return;
+            if (!Seen.Add((context, error.GetType().FullName ?? "", SameFailure(error.Message)))) return;
         }
         try
         {
@@ -30,6 +32,12 @@ public static class CoreLog
             // Logging must never be the thing that fails.
         }
     }
+
+    /// A message with the ids that change on every attempt (a per-write temp
+    /// file's name) taken out, so a failure that repeats reads as one.
+    private static string SameFailure(string message) => TempId.Replace(message, "#");
+
+    private static readonly Regex TempId = new("[0-9a-fA-F]{32}", RegexOptions.Compiled);
 
     /// Test seam: forget what was already written.
     internal static void Reset()

@@ -22,6 +22,13 @@ public static class ActivityMonitorScanTests
             Expect(logged.Count == 4, $"each (context, type, message) is written once, got {logged.Count}");
             Console.WriteLine("PASS core log: a failure that repeats is written once");
 
+            logged.Clear();
+            CoreLog.Reset();
+            CoreLog.Error(new IOException("cannot write 'settings.json.tmp-0123456789abcdef0123456789abcdef'"), "save");
+            CoreLog.Error(new IOException("cannot write 'settings.json.tmp-fedcba9876543210fedcba9876543210'"), "save");
+            Expect(logged.Count == 1, $"messages that differ only by a temp file's id read as one failure, got {logged.Count}");
+            Console.WriteLine("PASS core log: a per-write temp name does not make a failure new");
+
             CoreLog.Sink = (_, _) => throw new IOException("the log itself failed");
             CoreLog.Error(new InvalidOperationException("three"), "scan");
             CoreLog.Sink = null;

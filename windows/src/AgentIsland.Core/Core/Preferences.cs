@@ -17,6 +17,15 @@ public static class Preferences
     private static readonly object Gate = new();
     private static Dictionary<string, JsonElement>? _values;
 
+    /// Test seam: another settings file, and a way to forget what was read.
+    internal static string? FileOverride;
+    internal static void Forget()
+    {
+        lock (Gate) _values = null;
+    }
+
+    private static string SettingsPath => FileOverride ?? IslandPaths.SettingsFile;
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = true,
@@ -107,7 +116,7 @@ public static class Preferences
     /// right now.
     private static Dictionary<string, JsonElement>? LoadFromDisk()
     {
-        var path = IslandPaths.SettingsFile;
+        var path = SettingsPath;
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -142,16 +151,18 @@ public static class Preferences
         var tmp = string.Empty;
         try
         {
-            Directory.CreateDirectory(IslandPaths.AppSupportDir);
-            var path = IslandPaths.SettingsFile;
+            var path = SettingsPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             tmp = path + ".tmp-" + Guid.NewGuid().ToString("N");
             File.WriteAllText(tmp, JsonSerializer.Serialize(_values, SerializerOptions));
             File.Move(tmp, path, overwrite: true);
         }
-        catch
+        catch (Exception error)
         {
             // A failed save costs one preference write, not the app — but the
             // temp copy must not be left behind, since nothing else sweeps it.
+            // The write is not retried; the value stays in memory for this run.
+            CoreLog.Error(error, "Settings save");
             try { if (tmp.Length > 0) File.Delete(tmp); } catch { }
         }
     }
