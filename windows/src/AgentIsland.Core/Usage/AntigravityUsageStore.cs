@@ -35,27 +35,6 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
 
     private AntigravityUsageStore()
     {
-        if (AppEnvironment.IsDemo)
-        {
-            if (!DemoGuestFixturesEnabled)
-            {
-                Detected = false;
-                return;
-            }
-            var now = DateTimeOffset.Now;
-            Detected = true;
-            _snapshot = new AntigravityQuotaSnapshot(
-                new[]
-                {
-                    new AntigravityQuotaBucket(
-                        "gemini-weekly", "Gemini Models", "weekly", 0.37, now.AddDays(4.2)),
-                },
-                "free-tier",
-                "Antigravity Starter Quota");
-            _lastUpdated = now;
-            return;
-        }
-
         Detected = AntigravityCredentials.Detected;
         if (!Detected) return;
         if (Preferences.Get<CachedSnapshot?>(CacheKey) is not { } cached) return;
@@ -106,7 +85,6 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
 
     public void KickRefresh()
     {
-        if (AppEnvironment.IsDemo) return;
         if (!Detected) return;
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Antigravity)) return;
         if (Loading) return;
@@ -164,11 +142,6 @@ public sealed class AntigravityUsageStore : INotifyPropertyChanged
 
     private static void Persist(AntigravityQuotaSnapshot fresh, string? email) =>
         Preferences.Set(CacheKey, new CachedSnapshot(fresh, DateTimeOffset.Now, email));
-
-    /// The guest fixtures only exist for the recording rig; a plain demo run
-    /// still shows the classic Claude/Codex island.
-    private static bool DemoGuestFixturesEnabled =>
-        AppEnvironment.IsDemo && Environment.GetEnvironmentVariable("AGENTISLAND_DEMO_GUESTS") == "1";
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

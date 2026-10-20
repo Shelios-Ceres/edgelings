@@ -20,8 +20,7 @@ public sealed record TokenTotals(DateTimeOffset AsOf, long Today, long TodayBill
 }
 
 /// Publishes per-provider cost rollups from the local logs. Scans run in
-/// parallel off the UI thread on the shared poll cadence; demo mode injects
-/// the same screenshot-friendly April numbers as macOS.
+/// parallel off the UI thread on the shared poll cadence.
 public sealed class CostStore : INotifyPropertyChanged
 {
     public static CostStore Shared { get; } = new();
@@ -111,11 +110,6 @@ public sealed class CostStore : INotifyPropertyChanged
 
     public void Refresh()
     {
-        if (AppEnvironment.IsDemo)
-        {
-            InjectDemoData();
-            return;
-        }
         // The in-flight latch gets a 10-minute wedge escape (macOS 28c9b4c):
         // one scan that never completes must not freeze cost data for the
         // process lifetime — panel numbers were observed stuck six hours
@@ -153,80 +147,6 @@ public sealed class CostStore : INotifyPropertyChanged
                 _scanning = false;
             });
         });
-    }
-
-    /// Same hand-tuned April dataset the macOS demo ships: cache-heavy
-    /// Claude (10% billable ratio), higher-billable Codex (20%).
-    private void InjectDemoData()
-    {
-        var now = DateTimeOffset.Now;
-        SetSummary(DisplayProvider.Claude,
-            DemoSummary(now, 146.61, 211_240_000, 21_120_000, 1_510.80, 2_170_000_000, 217_100_000, seed: 7));
-        SetSummary(DisplayProvider.Codex,
-            DemoSummary(now, 136.50, 164_120_000, 32_820_000, 1_342.60, 1_610_000_000, 322_860_000, seed: 21));
-        LastUpdated = now;
-    }
-
-    private static ProviderCostSummary DemoSummary(
-        DateTimeOffset now,
-        double todayDollars, long todayTokens, long todayBillable,
-        double monthDollars, long monthTokens, long monthBillable,
-        int seed = 7)
-    {
-        var hourly = new double[24];
-        var progress = Math.Max(1, now.Hour);
-        for (var h = 0; h <= now.Hour && h < 24; h++)
-        {
-            var t = (double)h / progress;
-            hourly[h] = todayDollars * (0.15 + 0.85 * t * t);
-        }
-        for (var h = now.Hour + 1; h < 24; h++) hourly[h] = todayDollars;
-        var dayCount = now.Day;
-        var dailySeries = new double[dayCount];
-        for (var d = 0; d < dayCount; d++)
-        {
-            dailySeries[d] = monthDollars * (d + 1) / dayCount;
-        }
-        // Sparse, believable year: quiet start, dense spring/summer — the
-        // shape the real product screenshots show. Per-provider seeds keep
-        // the two histories from overlapping every day (which would render
-        // the whole grid as split cells).
-        var history = new List<DailyTokenBucket>();
-        var random = new Random(seed);
-        for (var day = new DateTimeOffset(now.Year, 1, 1, 0, 0, 0, now.Offset); day <= now; day = day.AddDays(1))
-        {
-            var density = day.Month switch
-            {
-                <= 2 => 0.05,
-                3 => 0.3,
-                >= 4 => 0.75,
-            };
-            if (random.NextDouble() > density) continue;
-            var tokens = (long)(monthTokens / 30.0 * (0.2 + random.NextDouble()));
-            history.Add(new DailyTokenBucket(day, tokens, tokens / 10, tokens / 1_500_000.0));
-        }
-        var weekStart = CostSummarizer.LastSevenDaysStart(now);
-        var week = Enumerable.Range(0, 7).Select(i =>
-        {
-            var day = weekStart.AddDays(i);
-            return history.FirstOrDefault(bucket => bucket.DayStart.Date == day.Date) ?? new DailyTokenBucket(day, 0, 0, 0);
-        }).ToList();
-        return new ProviderCostSummary(
-            todayDollars, todayTokens, todayBillable,
-            monthDollars, monthTokens, monthBillable,
-            hourly, dailySeries,
-            new[] { new ModelSpend("claude-fable-5", todayTokens / 3, todayBillable / 3, todayDollars / 3) },
-            new[] { new ModelSpend("claude-fable-5", todayTokens, todayBillable, todayDollars) },
-            new[] { new ModelSpend("claude-fable-5", monthTokens, monthBillable, monthDollars) },
-            history,
-            Array.Empty<string>())
-        {
-            AsOf = now,
-            LastSevenDays = new ReportSlice(week, week.Sum(d => d.Dollars), new[]
-            {
-                new ModelSpend("claude-fable-5", week.Sum(d => d.Tokens), week.Sum(d => d.BillableTokens), week.Sum(d => d.Dollars)),
-            }),
-        };
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

@@ -44,28 +44,6 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
 
     private GrokUsageStore()
     {
-        if (AppEnvironment.IsDemo)
-        {
-            // The recording rig pins its own island via AGENTISLAND_DEMO_PROVIDERS;
-            // only dress the Grok row when Grok is one of the pinned slots.
-            if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
-            var now = DateTimeOffset.Now;
-            _snapshot = new GrokBillingSnapshot(
-                0.37,
-                now.AddSeconds(3 * 86400 + 9 * 3600),
-                123,
-                4000,
-                now.AddSeconds(26 * 86400),
-                new[]
-                {
-                    new GrokProductUsage("grok-code", 0.29),
-                    new GrokProductUsage("grok-web", 0.08),
-                });
-            _authModeBadge = "SUPERGROK";
-            _lastUpdated = now;
-            return;
-        }
-
         LoadIdentity();
         if (Preferences.Get<GrokCachedSnapshot?>(CacheKey) is not { } cached) return;
         if (cached.Snapshot is not { } restored) return;
@@ -116,7 +94,6 @@ public sealed class GrokUsageStore : INotifyPropertyChanged
 
     public void KickRefresh()
     {
-        if (AppEnvironment.IsDemo) return;
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
         if (Loading) return;
         if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;

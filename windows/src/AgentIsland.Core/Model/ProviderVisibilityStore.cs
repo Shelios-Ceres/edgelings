@@ -22,17 +22,9 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
 
     private ProviderVisibilityStore()
     {
-        // The recording rig has no footprint to find: AGENTISLAND_DEMO_PROVIDERS
-        // (default Claude + Codex) stands in for detection.
-        HashSet<DisplayProvider>? demo = null;
-        if (AppEnvironment.IsDemo)
-        {
-            demo = DemoProviders().Select(DisplayProviders.Parse).OfType<DisplayProvider>().ToHashSet();
-            if (demo.Count == 0) demo = new HashSet<DisplayProvider> { DisplayProvider.Claude, DisplayProvider.Codex };
-        }
         foreach (var provider in DisplayProviders.All)
         {
-            _detected[provider] = demo?.Contains(provider) ?? Probe(provider);
+            _detected[provider] = Probe(provider);
         }
         DrawerStore.Shared.PropertyChanged += (_, _) => Raise();
     }
@@ -66,7 +58,6 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
     /// Re-probe the zero-intrusion guests (macOS redetectGuests).
     public void RedetectGuests()
     {
-        if (AppEnvironment.IsDemo) return;
         var changed = false;
         foreach (var provider in DisplayProviders.Guests)
         {
@@ -102,14 +93,6 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
     }
 
     private static bool HasDir(params string[] parts) => Directory.Exists(Path.Combine(parts));
-
-    private static IEnumerable<string> DemoProviders()
-    {
-        var raw = Environment.GetEnvironmentVariable("AGENTISLAND_DEMO_PROVIDERS");
-        return string.IsNullOrWhiteSpace(raw)
-            ? Array.Empty<string>()
-            : raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    }
 
     /// Everything here derives from detection plus DrawerStore, so one
     /// "all properties" notification covers every reader.

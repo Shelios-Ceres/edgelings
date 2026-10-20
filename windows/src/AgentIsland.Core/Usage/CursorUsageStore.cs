@@ -48,23 +48,13 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     }
 
     private CursorUsageStore() : this(
-        AppEnvironment.IsDemo ? null : Preferences.Get<Cached?>(CacheKey),
+        Preferences.Get<Cached?>(CacheKey),
         cached =>
         {
             if (cached is null) Preferences.Remove(CacheKey);
             else Preferences.Set(CacheKey, cached);
         })
     {
-        if (AppEnvironment.IsDemo)
-        {
-            if (DemoGuestFixtures)
-            {
-                var now = DateTimeOffset.Now;
-                _snapshot = new CursorUsageSnapshot(0.21, now.AddDays(12), "pro");
-                _lastUpdated = now;
-            }
-            return;
-        }
     }
 
     internal CursorUsageStore(Cached? stored, Action<Cached?> save)
@@ -136,7 +126,6 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
     /// flight, or when the last attempt is younger than the floor.
     public void KickRefresh()
     {
-        if (AppEnvironment.IsDemo) return;
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Cursor)) return;
         if (Loading) return;
         if (_lastAttempt is { } last && DateTimeOffset.Now - last < MinAttemptGap) return;
@@ -209,11 +198,6 @@ public sealed class CursorUsageStore : INotifyPropertyChanged
         LastUpdated = null;
         if (hadQuota) _save(null);
     }
-
-    /// The recording rig's guest fixtures. AppEnvironment carries no flag for
-    /// them yet, so the macOS variable is read directly here.
-    private static bool DemoGuestFixtures =>
-        AppEnvironment.IsDemo && Environment.GetEnvironmentVariable("AGENTISLAND_DEMO_GUESTS") == "1";
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

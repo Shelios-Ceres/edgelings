@@ -62,7 +62,6 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     private UsageStore()
     {
-        if (AppEnvironment.IsDemo) return;
         if (LoadCachedSnapshot() is { } snapshot)
         {
             _claude = snapshot.Claude;
@@ -97,7 +96,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// any faster than the background schedule already would.
     public void RefreshIfStale()
     {
-        if (AppEnvironment.IsDemo) return;
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
         if ((LastAttemptedAt ?? LastUpdated) is { } last && DateTimeOffset.Now - last < interval) return;
         Refresh();
@@ -115,51 +113,6 @@ public sealed class UsageStore : INotifyPropertyChanged
         // signing into agy/grok/Cursor while the app runs claims the slot
         // without a relaunch.
         Model.ProviderVisibilityStore.Shared.RedetectGuests();
-
-        // Demo mode for screen recordings: skip the network entirely and
-        // inject hand-tuned values. Reset times are recomputed each refresh
-        // so the countdowns tick down naturally on camera.
-        if (AppEnvironment.IsDemo)
-        {
-            var now = DateTimeOffset.Now;
-            Claude = new AppUsage(
-                new WindowUsage(
-                    DemoDouble("AGENTISLAND_DEMO_CLAUDE_5H", 0.73),
-                    now.AddMinutes(DemoMinutes("AGENTISLAND_DEMO_CLAUDE_RESET_MINUTES", 107)),
-                    null),
-                new WindowUsage(0.0 + DemoDouble("AGENTISLAND_DEMO_CLAUDE_WEEKLY", 0.81), now.AddSeconds(4 * 86400 + 11 * 3600), null),
-                "max");
-            // AGENTISLAND_DEMO_CODEX_SINGLE=1 shows Codex's July 2026 shape:
-            // one weekly window, secondary gone, plus banked reset cards.
-            var codexSingle = Environment.GetEnvironmentVariable("AGENTISLAND_DEMO_CODEX_SINGLE") == "1";
-            Codex = codexSingle
-                ? new AppUsage(
-                    new WindowUsage(
-                        DemoDouble("AGENTISLAND_DEMO_CODEX_5H", 0.67),
-                        now.AddSeconds(5 * 86400 + 4 * 3600),
-                        null,
-                        PeriodSeconds: 604800),
-                    WindowUsage.Unknown,
-                    "pro",
-                    ResetCards: 2,
-                    ResetCardDetails: new[]
-                    {
-                        new ResetCard("demo-1", "Full reset", now.AddDays(9)),
-                        new ResetCard("demo-2", "Full reset", now.AddDays(23)),
-                    })
-                : new AppUsage(
-                    new WindowUsage(
-                        DemoDouble("AGENTISLAND_DEMO_CODEX_5H", 0.67),
-                        now.AddMinutes(DemoMinutes("AGENTISLAND_DEMO_CODEX_RESET_MINUTES", 143)),
-                        null),
-                    new WindowUsage(DemoDouble("AGENTISLAND_DEMO_CODEX_WEEKLY", 0.76), now.AddSeconds(4 * 86400 + 18 * 3600), null),
-                    "pro");
-            LastAttemptedAt = now;
-            RecordSuccessfulUpdate(claude: true, Claude, now);
-            RecordSuccessfulUpdate(claude: false, Codex, now);
-            RefreshWarning = null;
-            return;
-        }
 
         Loading = true;
         _refreshStartedAt = DateTimeOffset.Now;
@@ -264,20 +217,6 @@ public sealed class UsageStore : INotifyPropertyChanged
         _codexAutoSwitchTried.Add(next.Label);
         CodexAutoSwitched = next.Label;
         Refresh();
-    }
-
-    private static double DemoDouble(string key, double fallback)
-    {
-        var raw = Environment.GetEnvironmentVariable(key);
-        if (raw is null || !double.TryParse(raw, out var value)) return fallback;
-        return Math.Min(1, Math.Max(0, value));
-    }
-
-    private static int DemoMinutes(string key, int fallback)
-    {
-        var raw = Environment.GetEnvironmentVariable(key);
-        if (raw is null || !int.TryParse(raw, out var value)) return fallback;
-        return Math.Max(1, value);
     }
 
     /// True when both windows have errors and zero values — nothing useful
