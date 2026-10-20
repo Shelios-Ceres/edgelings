@@ -56,7 +56,7 @@ public static class TokenDisplayTextTests
         Expect(summary.TodayBillableTokens, 150L);
         // Opening the same snapshot after midnight must not relabel its
         // October 12 counts as October 13 counts.
-        Expect(TokenDisplayText.PeriodRange(UsageDisplayPeriod.Today, summary.AsOf.Value, NewYork), "2026-10-12");
+        Expect(TokenDisplayText.PeriodRange(UsageDisplayPeriod.Today, summary.AsOf!.Value, NewYork), "2026-10-12");
     }
 
     private static void PeriodRanges()

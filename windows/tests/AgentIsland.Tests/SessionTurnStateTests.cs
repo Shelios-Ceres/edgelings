@@ -24,6 +24,7 @@ public static class SessionTurnStateTests
             ("claude streaming assistant is working", TestClaudeStreamingAssistantIsWorking),
             ("sdk run ending on a structured output is idle", TestSdkStructuredOutputIsIdle),
             ("sdk transcript is recognised by its entrypoint", TestSdkTranscriptDetected),
+            ("a transcript is not remembered as ordinary before it names its entrypoint", TestSdkTranscriptNamedLater),
             ("huge attachment line after the last assistant line keeps the turn known", TestHugeLineKeepsTurnKnown),
             ("unknown turn works only while the desktop's turn start is recent", TestUnknownTurnWithoutDesktopDateIsIdle),
             ("desktop lastActivityAt after the turn does not make it work", TestLateLastActivityDoesNotWork),
@@ -336,6 +337,31 @@ public static class SessionTurnStateTests
             File.Delete(sdk);
             File.Delete(desktopRun);
             File.Delete(noEntrypoint);
+        }
+    }
+
+    private static void TestSdkTranscriptNamedLater()
+    {
+        var at = Date("2026-10-19T13:00:00.000Z");
+        // Seen while only a bookkeeping record had been written.
+        var path = WriteTranscript(new[] { """{"type":"queue-operation","sessionId":"s"}""" }, at);
+        // A long ordinary transcript whose first lines never name an entrypoint.
+        var legacy = WriteTranscript(
+            Enumerable.Range(0, 45).Select(i => $$"""{"type":"user","uuid":"u{{i}}"}""").ToArray(), at);
+        try
+        {
+            Expect(!SessionScanner.IsSdkTranscript(path), "no record names an entrypoint yet");
+            File.AppendAllText(path, "\n" + """{"type":"user","entrypoint":"sdk-py","uuid":"u1","message":{"role":"user","content":"x"}}""");
+            Expect(SessionScanner.IsSdkTranscript(path), "once its entrypoint is written it is a machine run");
+
+            Expect(!SessionScanner.IsSdkTranscript(legacy), "no entrypoint in the first lines is a conversation");
+            File.AppendAllText(legacy, "\n" + """{"type":"user","entrypoint":"sdk-py","uuid":"late"}""");
+            Expect(!SessionScanner.IsSdkTranscript(legacy), "records past the lines that decide it do not change the answer");
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(legacy);
         }
     }
 

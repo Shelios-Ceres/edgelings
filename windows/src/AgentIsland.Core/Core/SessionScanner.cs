@@ -130,6 +130,9 @@ public static class SessionScanner
 
     /// True when a transcript was written by a headless SDK run, which names
     /// its entrypoint "sdk-py", "sdk-ts" and the like in its first records.
+    /// An answer is remembered once it can no longer change: an entrypoint
+    /// was read, or the lines that could carry one were all read. A file seen
+    /// before any record names its entrypoint is looked at again next scan.
     internal static bool IsSdkTranscript(string path)
     {
         lock (SdkTranscripts)
@@ -137,23 +140,29 @@ public static class SessionScanner
             if (SdkTranscripts.TryGetValue(path, out var known)) return known;
         }
         var sdk = false;
+        var settled = false;
         try
         {
             using var stream = OpenShared(path);
             using var reader = new StreamReader(stream, Encoding.UTF8);
-            for (var i = 0; i < 40 && reader.ReadLine() is { } line; i++)
+            var read = 0;
+            while (read < SdkLinesRead && reader.ReadLine() is { } line)
             {
+                read++;
                 using var doc = Jsonl.TryParseLine(line);
                 if (doc is null || doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
                 if (Jsonl.GetString(doc.RootElement, "entrypoint") is not { } entrypoint) continue;
                 sdk = entrypoint.StartsWith("sdk-", StringComparison.Ordinal);
+                settled = true;
                 break;
             }
+            settled |= read >= SdkLinesRead;
         }
         catch
         {
             return false;
         }
+        if (!settled) return sdk;
         lock (SdkTranscripts)
         {
             if (SdkTranscripts.Count > 5000) SdkTranscripts.Clear();
@@ -161,6 +170,8 @@ public static class SessionScanner
         }
         return sdk;
     }
+
+    private const int SdkLinesRead = 40;
 
     // MARK: - Codex: %USERPROFILE%\.codex\sessions (CODEX_HOME overrides)
 
