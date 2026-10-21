@@ -196,11 +196,12 @@ internal sealed class LookRow
         }
         _syncing = false;
         var label = L10n.Tr(worn.Name);
-        var who = _provider == DisplayProvider.Grok && ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor)
-            ? L10n.Tr("Grok and Cursor")
-            : ProviderIdentity.DisplayName(_provider);
+        var shared = _provider == DisplayProvider.Grok && ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor);
+        var who = shared ? L10n.Tr("Grok and Cursor") : ProviderIdentity.DisplayName(_provider);
         SetDescription(Element, _theme == CharacterTheme.Pixel
-            ? L10n.TrFormat("{0}. What {1} wears in the drawer, on its card and in menus", label, who)
+            ? L10n.TrFormat(shared
+                ? "{0}. What {1} wear in the drawer, on its card and in menus"
+                : "{0}. What {1} wears in the drawer, on its card and in menus", label, who)
             : label);
         Wake();
     }

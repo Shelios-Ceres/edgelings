@@ -16,6 +16,19 @@ public static class GrokBot
     /// A process seen running counts as installed wherever it lives.
     internal static void NoteRunning() => _seen = true;
 
+    /// A line's words, as a card sets them: split at spaces, except that
+    /// "Grok Bot" is one word, so a line that must break never splits its name.
+    public static IReadOnlyList<string> Words(string text)
+    {
+        var words = new List<string>();
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (word == "Bot" && words.Count > 0 && words[^1].EndsWith("Grok", StringComparison.Ordinal)) words[^1] += " Bot";
+            else words.Add(word);
+        }
+        return words;
+    }
+
     internal static bool IsInstalled(bool seenRunning, Func<string, bool> exists) =>
         seenRunning || Executables().Any(exists);
 

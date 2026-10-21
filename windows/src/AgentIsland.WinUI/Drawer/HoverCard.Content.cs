@@ -506,7 +506,7 @@ internal sealed partial class HoverCard
     /// where a line holds it, else breaking only at its spaces, carrying on
     /// a step in; a word longer than a line breaks inside.
     private static PhraseFlow Phrase(string text, string brush, double carry, double size = 12, IReadOnlyList<string>? numbers = null) =>
-        PhraseFlow.Words(text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(word =>
+        PhraseFlow.Words(GrokBot.Words(text).Select(word =>
         {
             var block = new TextBlock { FontSize = size, Foreground = Res<Brush>(brush), TextWrapping = TextWrapping.Wrap };
             Append(block, word, numbers?.Where(word.Contains).ToList() ?? new List<string>());

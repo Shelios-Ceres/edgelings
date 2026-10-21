@@ -70,6 +70,14 @@ public static class AgentPresenceTests
                 if (ClosedLine(DisplayProvider.Grok, true) != "Grok, Grok Bot and Cursor closed") throw new Exception("with Grok Bot");
                 if (ClosedLine(DisplayProvider.Claude, true) != "App closed") throw new Exception("another character");
             }),
+            ("a card keeps Grok Bot's name on one line", () =>
+            {
+                var english = GrokBot.Words("Grok, Grok Bot and Cursor closed");
+                if (!english.SequenceEqual(new[] { "Grok,", "Grok Bot", "and", "Cursor", "closed" })) throw new Exception(string.Join("|", english));
+                var chinese = GrokBot.Words("Grok、Grok Bot 和 Cursor 都已关闭");
+                if (!chinese.SequenceEqual(new[] { "Grok、Grok Bot", "和", "Cursor", "都已关闭" })) throw new Exception(string.Join("|", chinese));
+                if (!GrokBot.Words("Bot closed").SequenceEqual(new[] { "Bot", "closed" })) throw new Exception("a lone Bot");
+            }),
             ("Grok Bot counts as installed by its exe or a running process", () =>
             {
                 if (GrokBot.IsInstalled(false, _ => false)) throw new Exception("nothing there");
