@@ -14,7 +14,8 @@ internal sealed class V8CharacterEngine : ICharacterEngine
 {
     // One call per frame advances every due bot and returns all SVGs at once,
     // so the host/script boundary is crossed once per frame, not per bot.
-    // The engine file, the global the host defines and the cue line are filled in per set.
+    // The engine file and the global the host defines are filled in per set.
+    // Both sets get `cue`; only a set with cues of its own is ever sent one.
     private const string HostTemplate = """
         import * as lib from '@ENGINE@';
         const bots = [], makes = [];
@@ -36,7 +37,7 @@ internal sealed class V8CharacterEngine : ICharacterEngine
             setGaze(i, dx, dy) { bots[i].setGaze(dx, dy); },
             clearGaze(i) { bots[i].clearGaze(); },
             poke(i) { bots[i].poke(); },
-            /*CUE*/
+            cue(i, kind) { bots[i].cue?.(kind); },
             tick(steps, size) {
                 const dts = steps.split(','), parts = [];
                 for (let i = 0; i < bots.length; i++) {
@@ -50,8 +51,6 @@ internal sealed class V8CharacterEngine : ICharacterEngine
             },
         };
         """;
-
-    private const string CueLine = "            cue(i, kind) { bots[i].cue?.(kind); },\n";
 
     private readonly V8ScriptEngine _engine;
     private readonly ScriptObject _host;
@@ -79,8 +78,7 @@ internal sealed class V8CharacterEngine : ICharacterEngine
         _ownCues = ownCues;
         var host = HostTemplate
             .Replace("@ENGINE@", "./" + engineFile)
-            .Replace("@GLOBAL@", global)
-            .Replace("            /*CUE*/\n", ownCues ? CueLine : "");
+            .Replace("@GLOBAL@", global);
         _engine = new V8ScriptEngine();
         try
         {

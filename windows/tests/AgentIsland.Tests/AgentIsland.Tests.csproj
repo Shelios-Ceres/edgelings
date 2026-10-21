@@ -11,6 +11,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentIsland.Core\AgentIsland.Core.csproj" />
     <Compile Include="..\..\src\AgentIsland.WinUI\Drawer\HoverCardContentKey.cs" Link="Presentation\HoverCardContentKey.cs" />
+    <Compile Include="..\..\src\AgentIsland.WinUI\Drawer\ICharacterEngine.cs" Link="Presentation\ICharacterEngine.cs" />
+    <Compile Include="..\..\src\AgentIsland.WinUI\Drawer\V8CharacterEngine.cs" Link="Presentation\V8CharacterEngine.cs" />
   </ItemGroup>
 
   <!-- The look and theme tests run the shipped engines in V8, as the drawer does. -->

@@ -86,6 +86,7 @@ public static class Program
             SessionEventTests.RunAll();
             GrokHooksTests.RunAll();
             LookCatalogTests.RunAll();
+            CharacterHostTests.RunAll();
             ClaudeCredentialsTests.RunAll();
             ActivityMonitorScanTests.RunAll();
             LogParseCacheTests.RunAll();
