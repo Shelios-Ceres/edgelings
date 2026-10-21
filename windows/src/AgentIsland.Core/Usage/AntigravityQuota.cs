@@ -92,7 +92,7 @@ public sealed class AntigravityQuotaSnapshot
                 ?? groups[0];
             var shortWindow = main.FirstOrDefault(AntigravityGeminiPools.IsFiveHour);
             var longWindow = main.FirstOrDefault(b => !AntigravityGeminiPools.IsFiveHour(b));
-            // One meter per other Gemini group, on its longest window.
+            // One meter per other Gemini group, on its first window past five hours.
             var extras = groups
                 .Where(g => g != main)
                 .Select(g => g.FirstOrDefault(b => !AntigravityGeminiPools.IsFiveHour(b)) ?? g.First())

@@ -1,4 +1,5 @@
 using AgentIsland.Core;
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using static AgentIsland.Core.AgentPresences;
 
@@ -67,16 +68,23 @@ public static class AgentPresenceTests
             ("Grok's closed line names Grok Bot only where it is installed", () =>
             {
                 if (ClosedLine(DisplayProvider.Grok, false) != "Grok and Cursor closed") throw new Exception("no Grok Bot");
-                if (ClosedLine(DisplayProvider.Grok, true) != "Grok, Grok Bot and Cursor closed") throw new Exception("with Grok Bot");
+                if (ClosedLine(DisplayProvider.Grok, true) != "Grok, Grok\u00A0Bot and Cursor closed") throw new Exception("with Grok Bot");
                 if (ClosedLine(DisplayProvider.Claude, true) != "App closed") throw new Exception("another character");
             }),
-            ("a card keeps Grok Bot's name on one line", () =>
+            ("a card keeps Grok Bot's name on one line, in both languages", () =>
             {
-                var english = GrokBot.Words("Grok, Grok Bot and Cursor closed");
-                if (!english.SequenceEqual(new[] { "Grok,", "Grok Bot", "and", "Cursor", "closed" })) throw new Exception(string.Join("|", english));
-                var chinese = GrokBot.Words("Grok、Grok Bot 和 Cursor 都已关闭");
-                if (!chinese.SequenceEqual(new[] { "Grok、Grok Bot", "和", "Cursor", "都已关闭" })) throw new Exception(string.Join("|", chinese));
-                if (!GrokBot.Words("Bot closed").SequenceEqual(new[] { "Bot", "closed" })) throw new Exception("a lone Bot");
+                var previous = L10n.Current;
+                try
+                {
+                    foreach (var (language, line) in new[] { (L10n.Language.English, "Grok, Grok\u00A0Bot and Cursor closed"), (L10n.Language.SimplifiedChinese, "Grok、Grok\u00A0Bot 和 Cursor 都已关闭") })
+                    {
+                        L10n.Current = language;
+                        var shown = L10n.Tr(ClosedLine(DisplayProvider.Grok, true));
+                        if (shown != line) throw new Exception(shown);
+                        if (!shown.Split(' ').Any(word => word.EndsWith("Grok\u00A0Bot", StringComparison.Ordinal))) throw new Exception("split: " + shown);
+                    }
+                }
+                finally { L10n.Current = previous; }
             }),
             ("Grok Bot counts as installed by its exe or a running process", () =>
             {

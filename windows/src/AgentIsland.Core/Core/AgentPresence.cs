@@ -43,7 +43,9 @@ public static class AgentPresences
     {
         try
         {
-            return Of(Processes(), Windows());
+            var processes = Processes();
+            if (processes.Any(p => string.Equals(p.Name, GrokBot.ProcessName, StringComparison.OrdinalIgnoreCase))) GrokBot.NoteRunning();
+            return Of(processes, Windows());
         }
         catch
         {
@@ -74,7 +76,6 @@ public static class AgentPresences
             }
             return most;
         }
-        if (processes.Any(p => string.Equals(p.Name, GrokBot.ProcessName, StringComparison.OrdinalIgnoreCase))) GrokBot.NoteRunning();
         var presence = new Dictionary<TriggerTool, AgentPresence>();
         foreach (var tool in AgentProcesses.Known.Select(k => k.Tool).Distinct())
         {
@@ -88,10 +89,11 @@ public static class AgentPresences
     }
 
     /// The line for a character whose every app is closed. Grok's shared
-    /// character names its apps, Grok Bot only where it is installed.
+    /// character names its apps, Grok Bot only where it is installed. A
+    /// no-break space keeps Grok Bot's name whole where the line wraps.
     public static string ClosedLine(DisplayProvider character, bool grokBotInstalled) => character switch
     {
-        DisplayProvider.Grok when grokBotInstalled => "Grok, Grok Bot and Cursor closed",
+        DisplayProvider.Grok when grokBotInstalled => "Grok, Grok\u00A0Bot and Cursor closed",
         DisplayProvider.Grok => "Grok and Cursor closed",
         _ => "App closed",
     };
