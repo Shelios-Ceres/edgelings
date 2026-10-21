@@ -431,15 +431,22 @@ public static class SessionTurnState
     }
 
     /// Kimi Code names its boundaries in wire.jsonl: agent.turn.ended,
-    /// turn.ended and prompt.completed close a turn (reason completed or
-    /// cancelled). Bookkeeping lands after the close — token counts, config
-    /// and file-history checkpoints, the final messages being appended — so
-    /// it is walked past; a user message or anything else reopens the turn.
-    /// An open turn ending on turn.step.retrying (behind the request that
-    /// retries it) is Kimi backing off a failing API. `time` is unix
-    /// milliseconds.
+    /// turn.ended, prompt.completed and prompt.aborted close a turn (completed
+    /// or cancelled). Only a prompt (the user's message, prompt.accepted,
+    /// agent.turn.started, turn.prompt, a steer) or the model at work (a
+    /// request, the agent loop's events, a retry) opens one; everything else
+    /// is walked past. Kimi writes plenty that is neither, and adds more with
+    /// its updates: token counts, config and file history, the final messages
+    /// after the close, and the session's own upkeep, such as a reopened
+    /// session rediscovering its MCP tools or context injected when skills
+    /// change. A finished compaction's requests summed the conversation up
+    /// rather than ran a turn, so they are walked past too; a compaction still
+    /// running is the model at work. An open turn ending on
+    /// turn.step.retrying (behind the request that retries it) is Kimi backing
+    /// off a failing API. `time` is unix milliseconds.
     public static SessionTurnStatus Kimi(IReadOnlyList<string> lines)
     {
+        var compacted = false;
         for (var i = lines.Count - 1; i >= 0; i--)
         {
             using var doc = Jsonl.TryParseLine(lines[i]);
@@ -452,12 +459,18 @@ public static class SessionTurnState
             {
                 case "agent.turn.ended" or "turn.ended" or "prompt.completed" or "prompt.aborted":
                     return new SessionTurnStatus(true, key, stamp);
-                case "agent.message.appended" when !IsKimiUserMessage(root):
-                case "token_counting.turn_recorded" or "token_counting.measured" or "usage.record" or "config.update"
-                    or "file_history.tracked" or "file_history.checkpoint" or "task.terminated" or "task.waitDelivered":
+                case "full_compaction.complete" or "full_compaction.begin":
+                    // Walking back, complete is met before begin; between them the requests are the compaction's.
+                    compacted = type == "full_compaction.complete";
                     continue;
-                default:
+                case "llm.request" or "turn.step.retrying" when compacted:
+                    continue;
+                case "agent.message.appended" when IsKimiUserMessage(root):
+                case "prompt.accepted" or "agent.turn.started" or "turn.prompt" or "turn.steer"
+                    or "llm.request" or "context.append_loop_event" or "turn.step.retrying":
                     return new SessionTurnStatus(false, key, stamp, RetryingUntil: KimiRetryingUntil(lines, i));
+                default:
+                    continue;
             }
         }
         return new SessionTurnStatus(false, null, null);

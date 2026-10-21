@@ -27,6 +27,21 @@ public static class KimiDeepSeekTests
                 Kimi("turn.ended", 8, new { reason = "completed" }), Kimi("config.update", 6), Message("user", 5))),
             ("kimi turn: a running loop is open", () => KimiDone(false,
                 Kimi("agent.turn.started", 4), Loop("step.begin", 3))),
+            ("kimi turn: reopening an old session leaves its close", KimiReopened),
+            ("kimi turn: injected context, undo, fork and mode switches leave it closed", () => KimiDone(true,
+                Kimi("prompt.aborted", 20), Kimi("context.undo", 19), Kimi("token_counting.truncated", 19),
+                Kimi("forked", 18), Kimi("plan_mode.enter", 17), Kimi("plan_mode.cancel", 16),
+                Kimi("changeNotifier.snapshot", 5), Kimi("context.append_message", 5, new
+                {
+                    message = new { role = "user", origin = new { kind = "injection", variant = "skills_change" } },
+                }))),
+            ("kimi turn: a mode switch inside a turn keeps it open", () => KimiDone(false,
+                Kimi("turn.prompt", 9), Kimi("llm.request", 8), Kimi("plan_mode.enter", 7))),
+            ("kimi turn: a compaction finished between turns leaves it closed", () => KimiDone(true,
+                Kimi("prompt.completed", 300, new { reason = "completed" }), Kimi("full_compaction.begin", 200),
+                Kimi("llm.request", 200), Kimi("usage.record", 110), Kimi("context.apply_compaction", 110),
+                Kimi("token_counting.rebased", 110), Kimi("full_compaction.complete", 110))),
+            ("kimi turn: a compaction still running, inside a turn or under a queued prompt is open", KimiCompactingOpen),
             ("kimi turn: a third lost connection is network trouble", KimiRetryTrouble),
             ("kimi turn: early retries, rate limits and recovered retries are not", KimiRetryQuiet),
             ("kimi phase: a retry reads as reconnecting", () => KimiPhase(AgentPhase.NetworkTrouble,
@@ -169,6 +184,32 @@ public static class KimiDeepSeekTests
         Expect(status.RetryingUntil, Now.AddSeconds(-20) + TimeSpan.FromMilliseconds(4000) + TimeSpan.FromSeconds(60));
         var timeout = SessionTurnState.Kimi(new[] { Kimi("turn.step.retrying", 5, Retry(4, "APITimeoutError", "Request timed out.", 0)) });
         Expect(timeout.RetryingUntil, Now.AddSeconds(-5) + TimeSpan.FromSeconds(60));
+    }
+
+    /// Opening a session in Kimi Code's desktop app logs its binding and MCP
+    /// tools again, a day after its last turn: the turn stays closed, dated
+    /// by its close, so the attention window has long passed.
+    private static void KimiReopened()
+    {
+        var status = SessionTurnState.Kimi(new[]
+        {
+            Kimi("turn.ended", 86_400, new { reason = "completed" }), Kimi("token_counting.turn_recorded", 86_400),
+            Kimi("prompt.completed", 86_400, new { reason = "completed" }),
+            Kimi("metadata", 5), Kimi("runtime.set_binding", 5), Kimi("mcp.tools_discovered", 5),
+            Kimi("permission.set_mode", 5), Kimi("profile.bind", 5), Kimi("mcp.tools_discovered", 4),
+        });
+        Expect(status.IsDone, true);
+        Expect(status.ActivityDate, Now.AddSeconds(-86_400));
+    }
+
+    private static void KimiCompactingOpen()
+    {
+        KimiDone(false, Kimi("prompt.completed", 300), Kimi("full_compaction.begin", 20), Kimi("llm.request", 20));
+        KimiDone(false, Kimi("turn.prompt", 300), Loop("step.end", 200), Kimi("full_compaction.begin", 200),
+            Kimi("llm.request", 200), Kimi("context.apply_compaction", 110), Kimi("full_compaction.complete", 110));
+        KimiDone(false, Kimi("prompt.completed", 300), Kimi("full_compaction.begin", 200), Kimi("llm.request", 200),
+            Kimi("config.update", 150), Kimi("prompt.accepted", 150), Kimi("context.apply_compaction", 110),
+            Kimi("full_compaction.complete", 110));
     }
 
     private static void KimiRetryQuiet()
