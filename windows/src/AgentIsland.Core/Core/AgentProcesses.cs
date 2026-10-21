@@ -26,6 +26,14 @@ internal static class AgentProcesses
         (TriggerTool.DeepSeek, "DeepSeek Harness", null),
     };
 
+    /// Apps that only count toward whether an agent is on screen. Grok Bot runs
+    /// none of the grok CLI's sessions, so it stays out of Gone(): a CLI turn
+    /// whose process died is still idled at once while Grok Bot is open.
+    internal static readonly (TriggerTool Tool, string Name)[] PresenceOnly =
+    {
+        (TriggerTool.Grok, GrokBot.ProcessName),
+    };
+
     public static IReadOnlySet<TriggerTool> Gone()
     {
         try

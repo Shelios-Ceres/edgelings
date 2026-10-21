@@ -124,6 +124,12 @@ How states behave:
   start (phase 0) is the settled pose, which reduced motion holds still
   (Pixel's `sleeping` too). A set that doesn't draw it yet shows `idle`
   without fidgets instead.
+  Grok's bot looks at three apps together: the grok CLI, Cursor and Grok Bot
+  (SpaceXAI's desktop app; presence only, matched by its process name, kept
+  out of the check that idles a dead CLI turn). If any has an open window it
+  stays awake; its closed line, "Grok and Cursor closed", names Grok Bot too
+  where its exe is installed or its process has been seen. The app's data
+  folders are never read.
 
 ### 3.3 Engine module
 

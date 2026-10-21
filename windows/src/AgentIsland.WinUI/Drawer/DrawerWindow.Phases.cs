@@ -165,8 +165,7 @@ internal sealed partial class DrawerWindow
     /// Why a character rests, in words; Grok's shared character names both apps.
     public static string RestDetail(AgentPresence rest, DisplayProvider character) => L10n.Tr(rest switch
     {
-        AgentPresence.Closed when character == DisplayProvider.Grok => "Grok and Cursor closed",
-        AgentPresence.Closed => "App closed",
+        AgentPresence.Closed => AgentPresences.ClosedLine(character, GrokBot.Installed),
         AgentPresence.Minimized => "Minimized",
         _ => "In the tray",
     });

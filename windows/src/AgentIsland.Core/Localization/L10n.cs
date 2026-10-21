@@ -246,6 +246,7 @@ public static class L10n
         ["Sleeping"] = "睡觉中",
         ["App closed"] = "应用已关闭",
         ["Grok and Cursor closed"] = "Grok 和 Cursor 都已关闭",
+        ["Grok, Grok Bot and Cursor closed"] = "Grok、Grok Bot 和 Cursor 都已关闭",
         ["Minimized"] = "已最小化",
         ["In the tray"] = "在托盘中",
         ["Shape"] = "形状",

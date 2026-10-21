@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using AgentIsland.Model;
 
 namespace AgentIsland.Core;
 
@@ -73,16 +74,27 @@ public static class AgentPresences
             }
             return most;
         }
+        if (processes.Any(p => string.Equals(p.Name, GrokBot.ProcessName, StringComparison.OrdinalIgnoreCase))) GrokBot.NoteRunning();
         var presence = new Dictionary<TriggerTool, AgentPresence>();
         foreach (var tool in AgentProcesses.Known.Select(k => k.Tool).Distinct())
         {
             var mine = processes.Where(p => AgentProcesses.Known.Any(k => k.Tool == tool
                 && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase)
-                && (k.PathHint is null || p.Path is null || p.Path.Contains(k.PathHint, StringComparison.OrdinalIgnoreCase)))).ToList();
+                && (k.PathHint is null || p.Path is null || p.Path.Contains(k.PathHint, StringComparison.OrdinalIgnoreCase)))
+                || AgentProcesses.PresenceOnly.Any(k => k.Tool == tool && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase))).ToList();
             presence[tool] = mine.Count == 0 ? AgentPresence.Closed : mine.Select(Shows).Min();
         }
         return presence;
     }
+
+    /// The line for a character whose every app is closed. Grok's shared
+    /// character names its apps, Grok Bot only where it is installed.
+    public static string ClosedLine(DisplayProvider character, bool grokBotInstalled) => character switch
+    {
+        DisplayProvider.Grok when grokBotInstalled => "Grok, Grok Bot and Cursor closed",
+        DisplayProvider.Grok => "Grok and Cursor closed",
+        _ => "App closed",
+    };
 
     // MARK: - The system's view
 

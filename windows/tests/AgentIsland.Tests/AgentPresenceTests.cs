@@ -1,4 +1,5 @@
 using AgentIsland.Core;
+using AgentIsland.Model;
 using static AgentIsland.Core.AgentPresences;
 
 namespace AgentIsland.Tests;
@@ -41,6 +42,40 @@ public static class AgentPresenceTests
                 new[] { Explorer, new Running(70, 1, "Kimi", @"C:\Program Files\Kimi\Kimi.exe") }, new[] { new AppWindow(70, false) })),
             ("Kimi Code's CLI is told apart by its path", () => Expect(TriggerTool.Kimi, AgentPresence.Open,
                 new[] { Explorer, new Running(70, 1, "kimi", @"C:\Users\me\.kimi-code\bin\kimi.exe") }, new[] { new AppWindow(70, false) })),
+            ("Grok Bot's open window keeps Grok open", () => Expect(TriggerTool.Grok, AgentPresence.Open,
+                GrokBotTree(), new[] { new AppWindow(80, false) })),
+            ("Grok Bot's window minimized: Grok minimized", () => Expect(TriggerTool.Grok, AgentPresence.Minimized,
+                GrokBotTree(), new[] { new AppWindow(80, true) })),
+            ("Grok Bot in the tray: Grok in the tray", () => Expect(TriggerTool.Grok, AgentPresence.Hidden,
+                GrokBotTree(), new AppWindow[0])),
+            ("Grok Bot's helper processes show through the main one", () => Expect(TriggerTool.Grok, AgentPresence.Open,
+                new[] { Explorer, new Running(81, 80, "Grok Bot"), new Running(80, 1, "Grok Bot") }, new[] { new AppWindow(80, false) })),
+            ("with no Grok Bot, Grok is as before", () => Expect(TriggerTool.Grok, AgentPresence.Closed,
+                new[] { Explorer }, new[] { new AppWindow(80, false) })),
+            ("the grok CLI in a minimized terminal still counts beside Grok Bot in the tray", () => Expect(TriggerTool.Grok, AgentPresence.Minimized,
+                Terminal("grok").Concat(new[] { new Running(80, 1, "Grok Bot") }).ToList(), new[] { new AppWindow(18, true) })),
+            ("Grok Bot isn't Cursor's or Claude's", () =>
+            {
+                var of = Of(GrokBotTree(), new[] { new AppWindow(80, false) });
+                if (of[TriggerTool.Cursor] != AgentPresence.Closed || of[TriggerTool.Claude] != AgentPresence.Closed) throw new Exception("Grok Bot leaked into another agent");
+            }),
+            ("only Grok Bot running still leaves the grok CLI gone", () =>
+            {
+                var gone = AgentProcesses.Gone(new[] { ("Grok Bot", (string?)null) });
+                if (!gone.Contains(TriggerTool.Grok)) throw new Exception("Grok Bot kept a dead CLI turn alive");
+            }),
+            ("Grok's closed line names Grok Bot only where it is installed", () =>
+            {
+                if (ClosedLine(DisplayProvider.Grok, false) != "Grok and Cursor closed") throw new Exception("no Grok Bot");
+                if (ClosedLine(DisplayProvider.Grok, true) != "Grok, Grok Bot and Cursor closed") throw new Exception("with Grok Bot");
+                if (ClosedLine(DisplayProvider.Claude, true) != "App closed") throw new Exception("another character");
+            }),
+            ("Grok Bot counts as installed by its exe or a running process", () =>
+            {
+                if (GrokBot.IsInstalled(false, _ => false)) throw new Exception("nothing there");
+                if (!GrokBot.IsInstalled(true, _ => false)) throw new Exception("running");
+                if (!GrokBot.IsInstalled(false, path => path.EndsWith(@"Grok Bot\Grok Bot.exe", StringComparison.OrdinalIgnoreCase))) throw new Exception("exe");
+            }),
         };
         foreach (var (name, test) in tests)
         {
@@ -49,6 +84,10 @@ public static class AgentPresenceTests
         }
         System.Console.WriteLine("AgentPresenceTests GREEN");
     }
+
+    /// Grok Bot's main process and an Electron helper, under the shell.
+    private static Running[] GrokBotTree() =>
+        new[] { Explorer, new Running(80, 1, "Grok Bot"), new Running(81, 80, "Grok Bot") };
 
     /// A CLI in Windows Terminal: the shell is the terminal's child.
     private static Running[] Terminal(string cli) =>
