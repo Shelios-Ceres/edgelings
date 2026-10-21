@@ -88,13 +88,8 @@ internal sealed partial class DrawerWindow
 
     /// The activity monitor only overlays usage for some providers, so the
     /// drawer checks every character's quota itself.
-    private static bool QuotaExhausted(DisplayProvider provider)
-    {
-        var usage = ProviderUsage.For(provider);
-        var now = DateTimeOffset.Now;
-        return (!usage.FiveHour.HasError && usage.FiveHour.At(now).UsedPercent >= 1)
-            || (!usage.Weekly.HasError && usage.Weekly.At(now).UsedPercent >= 1);
-    }
+    private static bool QuotaExhausted(DisplayProvider provider) =>
+        ProviderUsage.For(provider).IsExhausted(DateTimeOffset.Now);
 
     /// A shown phase stays at least MinDwellSeconds so quick tool bursts do
     /// not flicker, unless the new phase outranks it (asking, errors).

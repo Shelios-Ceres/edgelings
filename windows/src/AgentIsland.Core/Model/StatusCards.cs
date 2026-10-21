@@ -9,7 +9,12 @@ namespace AgentIsland.Model;
 /// One quota window. Shown is the 0-1 share a bar fills (used or remaining,
 /// per the user's mode) and Used drives the warning tint; both null when the
 /// window failed to load. Resets is when the window refills, if known.
-public sealed record StatusMeter(string Label, string Value, double? Shown, double? Used, string? Resets = null);
+public sealed record StatusMeter(string Label, string Value, double? Shown, double? Used, string? Resets = null)
+{
+    /// The label on the hover card, whose label column is as wide as "Tokens"
+    /// and never trims: Settings keeps Label's full name.
+    public string CardLabel { get; init; } = Label;
+}
 
 /// Local token counts; each Number is the part of its phrase to emphasise.
 public sealed record StatusTokens(string Label, string Today, string TodayNumber, string Month, string MonthNumber);
@@ -158,6 +163,7 @@ public static class StatusCards
             DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
             DisplayProvider.Codex when usage.SecondaryMissing => new[] { Meter(usage.FiveHour, "Week") },
             DisplayProvider.Codex => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
+            DisplayProvider.Antigravity => AntigravityMeters(usage, AntigravityUsageStore.Shared.Snapshot, AntigravityUsageStore.Shared.StatusCaption, Meter),
             DisplayProvider.Cursor => new[] { Meter(usage.FiveHour, "30d") },
             DisplayProvider.Grok => GrokMeters(Meter),
             DisplayProvider.Kimi => KimiMeters(Meter),
@@ -201,6 +207,38 @@ public static class StatusCards
             meters.Add(meter(ProviderUsage.For(DisplayProvider.Cursor).FiveHour, ProviderIdentity.DisplayName(DisplayProvider.Cursor)));
         }
         return meters;
+    }
+
+    /// Gemini's 5-hour and weekly windows, then one meter per further Gemini
+    /// group under Google's own name for it (Gemini 4 Argon). Claude and GPT's
+    /// pool stays out. A single-window snapshot keeps today's one meter,
+    /// labelled by its window.
+    internal static IReadOnlyList<StatusMeter> AntigravityMeters(
+        AppUsage usage, AntigravityQuotaSnapshot? snapshot, string? caption, Func<WindowUsage, string, StatusMeter> meter)
+    {
+        var meters = new List<StatusMeter>();
+        if (snapshot is null || usage.SecondaryMissing)
+        {
+            meters.Add(meter(usage.FiveHour, usage.FiveHour.PeriodSeconds == 5 * 3600 ? "5h" : "Week"));
+        }
+        else
+        {
+            meters.Add(meter(usage.FiveHour, "5h"));
+            meters.Add(meter(usage.Weekly, "Week"));
+        }
+        foreach (var extra in snapshot?.GeminiPools.Extras ?? Array.Empty<AntigravityQuotaBucket>())
+        {
+            meters.Add(meter(ProviderUsage.AntigravityWindow(extra, caption), extra.GroupLabel) with { CardLabel = CardLabelOf(extra.GroupLabel) });
+        }
+        return meters;
+    }
+
+    /// A group's name for the hover card: its last word ("Gemini 4 Argon" is
+    /// "Argon"), cut to the width of "Tokens" without an ellipsis.
+    internal static string CardLabelOf(string group)
+    {
+        var word = group.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? group;
+        return word.Length > 6 ? word[..6] : word;
     }
 
     /// Every window Kimi Code's plan reports: 5 hours, the week, the month.

@@ -30,7 +30,7 @@ internal static class HoverCardContentKey
             Add(card.Meters.Count);
             foreach (var meter in card.Meters)
             {
-                Add(meter.Label); Add(meter.Value); Add(meter.Shown); Add(meter.Used >= 0.9);
+                Add(meter.Label); Add(meter.CardLabel); Add(meter.Value); Add(meter.Shown); Add(meter.Used >= 0.9);
             }
             Add(card.Tokens is not null);
             if (card.Tokens is { } tokens)

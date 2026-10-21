@@ -68,18 +68,59 @@ public sealed class AntigravityQuotaSnapshot
         Note = note;
     }
 
-    /// The one pool this app surfaces: Gemini's. Antigravity also meters a
+    /// The pools this app surfaces: Gemini's. Antigravity also meters a
     /// Claude/GPT pool, and it is real data — but Claude and GPT are other
     /// providers' tiles in this app, so showing their pool under Antigravity
     /// read as cross-wiring (owner call, 2026-08-09: 只搞 Gemini). The raw
     /// buckets stay in the snapshot; only display narrows. An account with
-    /// no Gemini-named pool falls back to whatever exists rather than
+    /// no Gemini-named pool falls back to its first bucket rather than
     /// showing nothing.
     [JsonIgnore]
-    public AntigravityQuotaBucket? Primary =>
-        Buckets.FirstOrDefault(b => b.BucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase))
-        ?? Buckets.FirstOrDefault(b => b.GroupLabel.Contains("gemini", StringComparison.OrdinalIgnoreCase))
-        ?? Buckets.FirstOrDefault();
+    public AntigravityGeminiPools GeminiPools
+    {
+        get
+        {
+            var gemini = Buckets.Where(AntigravityGeminiPools.IsGemini).ToList();
+            if (gemini.Count == 0)
+            {
+                return new AntigravityGeminiPools(null, Buckets.FirstOrDefault(), Array.Empty<AntigravityQuotaBucket>());
+            }
+            // The main group is the one with the plain Gemini models'
+            // buckets, else the first Gemini group.
+            var groups = gemini.GroupBy(b => b.GroupLabel).ToList();
+            var main = groups.FirstOrDefault(g => g.Any(b => AntigravityGeminiPools.IsMainBucket(b.BucketId)))
+                ?? groups[0];
+            var shortWindow = main.FirstOrDefault(AntigravityGeminiPools.IsFiveHour);
+            var longWindow = main.FirstOrDefault(b => !AntigravityGeminiPools.IsFiveHour(b));
+            // One meter per other Gemini group, on its longest window.
+            var extras = groups
+                .Where(g => g != main)
+                .Select(g => g.FirstOrDefault(b => !AntigravityGeminiPools.IsFiveHour(b)) ?? g.First())
+                .ToList();
+            return new AntigravityGeminiPools(shortWindow, longWindow, extras);
+        }
+    }
+}
+
+/// Gemini's quota as the island shows it: the main group's 5-hour and longer
+/// window, then one pool per further Gemini group (Gemini 4 Argon).
+public sealed record AntigravityGeminiPools(
+    AntigravityQuotaBucket? ShortWindow,
+    AntigravityQuotaBucket? LongWindow,
+    IReadOnlyList<AntigravityQuotaBucket> Extras)
+{
+    public static bool IsGemini(AntigravityQuotaBucket b) =>
+        b.BucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase)
+        || b.GroupLabel.Contains("gemini", StringComparison.OrdinalIgnoreCase);
+
+    /// The plain Gemini models' buckets; Argon's id starts with "gemini" too.
+    public static bool IsMainBucket(string bucketId) =>
+        bucketId.Equals("gemini-weekly", StringComparison.OrdinalIgnoreCase)
+        || bucketId.Equals("gemini-5h", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsFiveHour(AntigravityQuotaBucket b) =>
+        b.PeriodSeconds == 5 * 60 * 60
+        || b.BucketId.EndsWith("5h", StringComparison.OrdinalIgnoreCase);
 }
 
 /// Decoders for the local language server's JSON replies. Absence is data

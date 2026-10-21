@@ -19,23 +19,38 @@ public static class ProviderUsage
         _ => AppUsage.Empty,
     };
 
-    /// Antigravity surfaces ONE pool — Gemini's weekly bucket. The shared
-    /// Claude/GPT pool is real data but belongs to other providers' tiles
-    /// (owner call, 2026-08-09: 只搞 Gemini). The secondary slot stays the
-    /// "no data" sentinel, which is what marks a provider single-window.
     private static AppUsage Antigravity()
     {
         var store = AntigravityUsageStore.Shared;
-        var pool = store.Snapshot?.Primary;
-        return new AppUsage(
-            new WindowUsage(pool?.UsedPercent ?? 0, pool?.ResetAt, store.StatusCaption ?? (pool is null ? "no data" : null), pool?.PeriodSeconds)
-            {
-                Kept = pool is not null && store.StatusCaption is not null,
-                Observed = pool is not null,
-            },
-            WindowUsage.Unknown,
-            store.TierBadge?.ToLowerInvariant());
+        return AntigravityFrom(store.Snapshot, store.StatusCaption, store.TierBadge);
     }
+
+    /// Antigravity's Gemini pools: the main group's 5-hour window first, then
+    /// its longer one. The shared Claude/GPT pool is real data but belongs to
+    /// other providers' tiles (owner call, 2026-08-09: 只搞 Gemini). A
+    /// snapshot with only one window (older caches, other tiers) fills the
+    /// first slot and leaves the second the "no data" sentinel, which is what
+    /// marks a provider single-window.
+    internal static AppUsage AntigravityFrom(AntigravityQuotaSnapshot? snapshot, string? caption, string? tierBadge)
+    {
+        var pools = snapshot?.GeminiPools;
+        var (first, second) = pools?.ShortWindow is { } shortWindow
+            ? (shortWindow, pools.LongWindow)
+            : (pools?.LongWindow, null);
+        return new AppUsage(
+            AntigravityWindow(first, caption),
+            second is null ? WindowUsage.Unknown : AntigravityWindow(second, caption),
+            tierBadge?.ToLowerInvariant());
+    }
+
+    /// One bucket as a window; a failed refresh keeps the last numbers under
+    /// its caption.
+    internal static WindowUsage AntigravityWindow(AntigravityQuotaBucket? pool, string? caption) =>
+        new(pool?.UsedPercent ?? 0, pool?.ResetAt, caption ?? (pool is null ? "no data" : null), pool?.PeriodSeconds)
+        {
+            Kept = pool is not null && caption is not null,
+            Observed = pool is not null,
+        };
 
     /// Grok meters one weekly credit pool; the monthly dollar budget is a
     /// caption elsewhere, not a second quota window.

@@ -320,7 +320,7 @@ internal sealed partial class HoverCard
         {
             meters.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var warn = meter.Used >= 0.9;
-            Place(meters, Caption(meter.Label, "TextFillColorSecondaryBrush"), row, 0);
+            Place(meters, Caption(meter.CardLabel, "TextFillColorSecondaryBrush"), row, 0);
             FrameworkElement bar = pixel
                 ? new PixelBar { VerticalAlignment = VerticalAlignment.Center }
                 : new QuotaBar(6) { VerticalAlignment = VerticalAlignment.Center };

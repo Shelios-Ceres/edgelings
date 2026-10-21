@@ -70,4 +70,11 @@ public sealed record AppUsage(
     /// Cold start (both unknown) and fetch failures don't qualify, because
     /// the primary slot carries an error too, unless it holds kept numbers.
     public bool SecondaryMissing => Weekly.Error == "no data" && (FiveHour.Error is null || FiveHour.Kept);
+
+    /// Either quota window is used up, which puts the bot to sleep. Only these
+    /// two slots count: a provider's further pools (Antigravity's Gemini 4
+    /// Argon) show a meter but leave its other models working.
+    public bool IsExhausted(DateTimeOffset now) =>
+        (!FiveHour.HasError && FiveHour.At(now).UsedPercent >= 1)
+        || (!Weekly.HasError && Weekly.At(now).UsedPercent >= 1);
 }
