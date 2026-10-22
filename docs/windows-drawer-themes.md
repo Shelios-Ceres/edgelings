@@ -72,7 +72,7 @@ should too: the mapping, tests and pacing then apply unchanged.
 |---|---|---|
 | `Idle` | Idle | `idle` |
 | `Thinking` | Thinking | `thinking` |
-| `Streaming` | Replying | `streaming` |
+| `Streaming` | Writing | `streaming` |
 | `Reading` | Reading files | `reading` |
 | `Searching` | Searching code | `searching` |
 | `WebSearching` | Searching the web | `web` |

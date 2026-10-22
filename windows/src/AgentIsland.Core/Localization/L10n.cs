@@ -222,7 +222,7 @@ public static class L10n
         ["{0} reset cards"] = "重置卡 {0} 张",
         ["{0} reset card"] = "重置卡 {0} 张",
         ["Thinking"] = "思考中",
-        ["Replying"] = "回复中",
+        ["Writing"] = "输出中",
         ["Reading files"] = "读文件",
         ["Searching code"] = "搜代码",
         ["Searching the web"] = "上网查资料",

@@ -111,7 +111,7 @@ public static class DrawerLooks
     public static string PhaseLabel(AgentPhase phase) => L10n.Tr(phase switch
     {
         AgentPhase.Thinking => "Thinking",
-        AgentPhase.Streaming => "Replying",
+        AgentPhase.Streaming => "Writing",
         AgentPhase.Reading => "Reading files",
         AgentPhase.Searching => "Searching code",
         AgentPhase.WebSearching => "Searching the web",
