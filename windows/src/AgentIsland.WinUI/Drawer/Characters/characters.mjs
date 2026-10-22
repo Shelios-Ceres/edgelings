@@ -3067,7 +3067,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
 (() => {
   const NAVY = '#0B2C55', WHITE = '#FFFFFF', BLUE = '#2B8BFF', SHINE = '#7DB8FF', GLOW = '#BFE0FF', NOSE = '#FF7FA8', BLUSH = '#FFC2D6';
   const DIM_WHITE = '#D9DEE6', DIM_BLUE = '#8DA3BF', STEEL = '#8D94A6', STEEL_D = '#5E616C';
-  const WOOD = '#B07A45', WOOD_D = '#7E5530', MOCHI = '#FFF8EE', MOCHI_D = '#E8DCCB';
+  const WOOD = '#B07A45', WOOD_D = '#7E5530', MOCHI = '#FFF8EE', MOCHI_D = '#E8DCCB', MOCHI_EDGE = '#D6C4A6';
   const HEAD = [
     '......OWWOOOOWWO......',
     '.....OWWWWWWWWWWO.....',
@@ -3139,8 +3139,19 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       const v = q.propU, k = Math.floor(v / 0.24), w = frac(v / 0.24);
       const size = k < 3 ? k + (w >= 0.6 ? 1 : 0) : 3;
       const shape = [['M'], ['MM'], ['.MM.', 'MMMS'], ['.MM.', 'MMMM', 'MMMS']][size];
-      art(cv, shape, shape[0].length > 2 ? 15 : 16, 14 - shape.length, { M: MOCHI, S: MOCHI_D });
+      const mx = shape[0].length > 2 ? 15 : 16, my = 14 - shape.length;
+      art(cv, shape, mx, my, { M: MOCHI, S: MOCHI_D });
       art(cv, ['DDDD', 'WWWW', '.WW.'], 15, 14, { D: WOOD_D, W: WOOD });
+      // A faint edge round the mochi where nothing else touches it, so the
+      // cream stays clear of the white rim on a light desktop (the user,
+      // 2026-10-22). The mallet paints over it.
+      shape.forEach((row, j) => [...row].forEach((ch, i) => {
+        if (ch === '.') return;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, -1]]) {
+          const x = mx + i + dx, y = my + j + dy;
+          if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, MOCHI_EDGE);
+        }
+      }));
       if (k < 3) {
         const H = { H: WOOD_D };
         if (w < 0.5) { art(cv, ['HH', 'HH', 'HH'], 16, 5, H); for (const [x, y] of [[15, 8], [14, 9], [13, 10]]) cv.put(x, y, WOOD); }
