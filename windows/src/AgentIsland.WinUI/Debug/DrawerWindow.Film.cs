@@ -373,6 +373,16 @@ internal sealed partial class DrawerWindow
         // Classic's `sleeping` keeps moving under reduced motion, so only Pixel's gets a take.
         if (engine.Draws(Resting)) takes.Add(("resting-reduced", _ => Resting, new[] { 0.8, 1.5, 3.5 }, 0.5, null));
         if (pixel && engine.Draws("sleeping")) takes.Add(("sleeping-reduced", _ => "sleeping", new[] { 0.8, 1.5, 3.5 }, 0.5, null));
+        // A long motion's whole loop, 0.2 s apart in sheets of ten frames, and each of the two
+        // states held still under reduced motion.
+        foreach (var (name, state, first) in new[] { ("loop-working-1", "working", 0.2), ("loop-working-2", "working", 2.2), ("loop-thinking", "thinking", 0.2) })
+        {
+            if (engine.Draws(state)) takes.Add((name, _ => state, Enumerable.Range(0, 10).Select(k => first + k * 0.2).ToArray(), double.NaN, null));
+        }
+        foreach (var state in new[] { "working", "thinking" })
+        {
+            if (engine.Draws(state)) takes.Add(($"{state}-reduced", _ => state, new[] { 0.8, 1.5, 3.5 }, double.NaN, null));
+        }
         // A session's event while the agent keeps working: Pixel hops as a click makes it;
         // Classic plays each cue over the working pose (and the emotes over idle).
         if (pixel) takes.Add(("work-hop", _ => "working", new[] { 0.45, 0.65, 1.0 }, 0.4, null));
