@@ -749,7 +749,8 @@ function pxProp(cv, back, p, a, pal, c) {
 // ▘▘ ▝▝): a terracotta block with two slit eyes, arm nubs and four legs —
 // the template the whole pixel family follows. It thinks under the CLI's
 // sparkle spinner (· ✢ ✳ ✶ ✻), reads a page, types on a tiny keyboard,
-// hammers away, walks about with a magnifier and sleeps sitting down.
+// juggles its tools while it works, walks about with a magnifier and sleeps
+// sitting down.
 
 (() => {
   const ORANGE = '#D77757';
@@ -767,6 +768,11 @@ function pxProp(cv, back, p, a, pal, c) {
     ['..#..', '#.#.#', '.###.', '#.#.#', '..#..'],
   ];
   const MINI = ['.######.', '.#.##.#.', '########', '.######.', '..#..#..'];
+  const JUGGLED = [
+    [['.#.', '#w#', '.#.'], '#8D8C94', { w: '#5E616C' }],
+    [['##', 'gg'], '#FFF8F2', { g: '#8D8C94' }],
+    [['#.#', '###', '.#.'], '#5E616C', {}],
+  ];
   const pal = {
     main: ORANGE, body: ORANGE, dark: DARK, light: LIGHT, accent: ORANGE,
     mini: (cv, x, y) => { cv.glyph(MINI, x, y, ORANGE); cv.put(x + 2, y + 1, DARK); cv.put(x + 5, y + 1, DARK); },
@@ -808,6 +814,12 @@ function pxProp(cv, back, p, a, pal, c) {
       switch (s) {
         // Offline: its spinner's sparkle stalls, grey, a dot blinking on.
         case 'offline': return { ...b, prop: 'stall' };
+        // Working: three tools in the air over its head, hands taking turns
+        // (v5.3, the user's pick 2026-10-22, in place of the hammer).
+        case 'working': {
+          const beat = Math.floor(t * 4) % 2;
+          return { ...b, dx: 0, armL: beat ? 'up' : 'out', armR: beat ? 'out' : 'up', eyes: 'open', look: [Math.sin(t * TAU / 1.5) > 0 ? 1 : -1, -1], prop: 'juggle' };
+        }
         // Locked: a padlock hangs on its front; it tugs with both arms.
         case 'locked': return { ...b, armL: b.armR, prop: 'padlock' };
         default: return b;
@@ -824,6 +836,15 @@ function pxProp(cv, back, p, a, pal, c) {
         g.glyph(SPINNER[3], a.mid - 2, a.top - 7, '#A79A94');
         if (Math.floor(q.propT * 2) % 2) g.put(a.mid + 4, a.top - 3, '#A79A94');
       });
+      else if (q.prop === 'juggle') {
+        // A cog, a page and a wrench round a loop over its head, once every 1.5 s.
+        const turn = steps(q.propT, 8) / 1.5;
+        JUGGLED.forEach(([rows, color, map], i) => {
+          const ang = (turn + i / 3) * TAU;
+          const x = rnd(a.mid - 1 + Math.cos(ang) * 5), y = rnd(a.top - 5 - Math.sin(ang) * 1.6);
+          fitDraw(cv, g => g.glyph(rows, x, y, color, map));
+        });
+      }
       else if (q.prop === 'padlock') {
         const up = Math.floor(q.propT * 2) % 3 === 0 ? 1 : 0;
         fitDraw(cv, g => g.glyph(PIX.lock, a.mid - 2, a.top + 3 - up, '#C9A23A', { w: DARK }), null);
@@ -840,8 +861,8 @@ function pxProp(cv, back, p, a, pal, c) {
 // bookmark, a gold dog-ear and bracket hands) rather than traced from it:
 // Folio's bookmark becomes the elastic band down the cover, its dog-ear the
 // gold ribbon out of the bottom, its hands two little ink arms. A title label
-// sits under the rings and a pencil is tucked into the band. Its rings
-// rattle while it thinks, it writes along its cover, a red scribble crosses
+// sits under the rings and a pencil is tucked into the band. Its pages
+// riffle up over its rings while it thinks, it writes along its cover, a red scribble crosses
 // it out when something fails, and it sits down to rest. (The user's pick,
 // 2026-10-17, over round 4's puff cloud, which is kept in retired/.)
 
@@ -925,8 +946,14 @@ function pxProp(cv, back, p, a, pal, c) {
     pose(s, t, T) {
       const b = basePose(s, t, T);
       switch (s) {
-        // Thinking: its rings rattle, dots counting beside it.
-        case 'thinking': return { ...b, rattle: 1, prop: 'dots' };
+        // Thinking: its pages riffle up over the rings, one flip every 1.4 s,
+        // its eyes following the page up (v5.3, the user's pick 2026-10-22,
+        // in place of the rattling rings and counting dots).
+        case 'thinking': {
+          const v = frac(t / 1.4);
+          const k = v < 0.6 ? -1 : Math.floor((v - 0.6) / 0.08);
+          return { ...b, rattle: k === 3 ? 1 : 0, prop: 'flip', propU: v, eyes: k < 0 ? 'focus' : 'open', look: [0, k < 0 ? 1 : k < 2 ? 0 : -1], gazeW: 0 };
+        }
         // Writing: words write themselves along the cover as its arms tap.
         case 'writing': return { ...b, armL: Math.floor(t * 8) % 2 ? 'tap' : 'down', armR: Math.floor(t * 8) % 2 ? 'down' : 'tap', dy: 0, prop: 'words', look: [0, 1] };
         case 'failed': return { ...b, prop: 'cross' };
@@ -944,6 +971,17 @@ function pxProp(cv, back, p, a, pal, c) {
         case 'dots': {
           const n = 1 + Math.floor(t * 2) % 3;
           fitDraw(cv, g => { for (let i = 0; i < n; i++) g.put(a.right + 2 + i, a.top + 1 - i, BAND); });
+          break;
+        }
+        case 'flip': {
+          // A page sweeps up the cover in three bands of rows, then shows
+          // over the rings: a blue rule on top, a grey edge below.
+          const v = q.propU;
+          const rows = v < 0.6 ? null : [[6, 7, 8], [3, 4, 5], [0, 1, 2], [-3, -2]][Math.floor((v - 0.6) / 0.08)];
+          if (rows) for (const r of rows) for (let i = 0; i < 9; i++) {
+            const x = a.x0 + i, y = a.y0 + r;
+            if (safe(x, y)) cv.put(x, y, r === rows[rows.length - 1] ? FERRULE : r === rows[0] && i > 0 && i < 8 ? '#BFD6F5' : '#FFFFFF');
+          }
           break;
         }
         case 'words': {
@@ -1433,8 +1471,8 @@ CHARACTERS.cursor = CHARACTERS.grok;
 // DeepSeek's whale as a pixel sprite in profile: a blue body with a pale
 // belly, the logo's raised flukes and one slit eye. Calm and deep: it
 // thinks in rising bubbles, hums notes to stream, pings sonar to search,
-// surfs a pixel wave for the web, spouts its questions and leaps out of
-// the water when it is done.
+// surfs a pixel wave for the web, spouts its questions, works by blowing
+// bubbles that set into bricks, and leaps out of the water when it is done.
 
 (() => {
   const BLUE = '#4D6BFE';
@@ -1502,6 +1540,10 @@ CHARACTERS.cursor = CHARACTERS.grok;
         case 'writing': return { ...b, dy: -1, wag, prop: 'ink' };
         case 'running': return { ...b, dy: Math.floor(t * 6) % 2 ? 0 : -1, wag: Math.floor(t * 12) % 2, prop: 'speed' };
         case 'sending': return { ...b, wag, prop: 'spout', propU: frac(t / 2.2) };
+        // Working: bubbles from its blowhole set into bricks and stack into a
+        // little wall, then pop, every 4 s (v5.3, the user's pick 2026-10-22,
+        // in place of the family hammer).
+        case 'working': return { ...b, wag: Math.floor(t * 2) % 2, eyes: 'open', look: [-1, -1], gazeW: 0, prop: 'bricks', propU: frac(t / 4) };
         case 'asking': return { ...b, wag, dy: 0, prop: 'qspout' };
         case 'failed': return { ...b, dy: t < 0.6 ? 0 : 2, wag: 0, prop: 'sink' };
         case 'broken': return { ...b, wag: 0, prop: 'sink' };
@@ -1603,6 +1645,27 @@ CHARACTERS.cursor = CHARACTERS.grok;
           for (let i = 0; i < 2; i++) {
             const u = frac(t / 1.8 + i / 2);
             dot(hx + i * 2 - 1, a.top - 3 - rnd(u * 3), WATER);
+          }
+          break;
+        }
+        case 'bricks': {
+          const u = q.propU * 4;
+          const SPOTS = [[4, 6], [6, 6], [5, 4]];
+          const brick = ([x, y], light) => { cv.rect(x, y, 2, 2, WATER); cv.put(x, y, light ? '#FFFFFF' : '#C9D6FF'); };
+          if (u >= 3.4) {
+            // Popped: a few drops where the bricks were.
+            if (u < 3.7) for (const [x, y] of SPOTS) for (const [dx, dy] of [[-1, 0], [2, 1], [0, -1]]) dot(x + dx, y + dy, '#C9D6FF');
+            break;
+          }
+          const k = Math.floor(u), w = frac(u);
+          for (let i = 0; i < Math.min(k, 3); i++) brick(SPOTS[i], u >= 3 && Math.floor(t * 6) % 2);
+          if (k < 3) {
+            // A bubble rises from the blowhole to its spot, then sets.
+            if (w < 0.6) {
+              const m = w / 0.6;
+              const x = rnd(lerp(hx - 1, SPOTS[k][0], m)), y = rnd(lerp(hy - 3, SPOTS[k][1], m));
+              for (const [dx, dy] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) dot(x + dx, y + dy, WATER);
+            } else brick(SPOTS[k], false);
           }
           break;
         }
@@ -2995,13 +3058,16 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
 // blue inside its ears, hugging Kimi's blue dot like a little moon. Its
 // ears do the talking: they twitch now and then, take turns dipping while
 // it thinks and lie low while it sleeps. It works like the moon rabbit of
-// the story, pounding mochi in a mortar beside it. Offline its dot goes
+// the story, pounding mochi in a mortar beside it: three thumps, the mochi
+// growing and steaming with each, then it beams at it (v5.3, the user's pick
+// 2026-10-22: a bigger mortar and mallet at a third of v5.2's pace, so it
+// reads at drawer size). Offline its dot goes
 // dark and blinks; locked, the dot it hugs turns into a padlock.
 // (v5.2, 2026-10-20.)
 (() => {
   const NAVY = '#0B2C55', WHITE = '#FFFFFF', BLUE = '#2B8BFF', SHINE = '#7DB8FF', GLOW = '#BFE0FF', NOSE = '#FF7FA8', BLUSH = '#FFC2D6';
   const DIM_WHITE = '#D9DEE6', DIM_BLUE = '#8DA3BF', STEEL = '#8D94A6', STEEL_D = '#5E616C';
-  const WOOD = '#B07A45', WOOD_D = '#7E5530', MOCHI = '#FFF8EE';
+  const WOOD = '#B07A45', WOOD_D = '#7E5530', MOCHI = '#FFF8EE', MOCHI_D = '#E8DCCB';
   const HEAD = [
     '......OWWOOOOWWO......',
     '.....OWWWWWWWWWWO.....',
@@ -3048,7 +3114,11 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
           const k = Math.floor(t / 0.45) % 4;
           return { ...b, prop: '', earL: k === 1 ? 'low' : 'tall', earR: k === 3 ? 'low' : 'tall', glow: Math.floor(t / 0.9) % 2, look: [k < 2 ? -1 : 1, -1], gazeW: 0 };
         }
-        case 'working': return { ...b, dx: -1, prop: 'mochi', earL: 'low', earR: 'low', look: [1, 1] };
+        case 'working': {
+          const v = frac(t / 3.4), k = Math.floor(v / 0.24), w = frac(v / 0.24);
+          const hit = k < 3 && w >= 0.6 && w < 0.85;
+          return { ...b, dx: -1, earL: hit ? 'low' : 'tall', earR: hit || k === 3 ? 'low' : 'tall', eyes: hit ? 'focus' : 'open', happy: k === 3 ? 1 : 0, look: [1, 1], gazeW: 0, prop: 'mochi', propU: v };
+        }
         case 'failed': return { ...b, earL: t > 0.3 ? 'low' : 'tall', earR: 'low' };
         case 'broken': return { ...b, earL: 'low', earR: 'low' };
         case 'offline': return { ...b, prop: '', dotOff: 1, earL: 'low' };
@@ -3063,18 +3133,26 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     props(cv, back, q, a, c) {
       if (q.prop !== 'mochi') return false;
-      // A mortar right of it, the mallet up, then down on the mochi.
-      const up = q.propU;
-      const mx = 16, my = 14;
-      art(cv, ['.M.', 'DDD', 'WWW', '.W.'], mx, my - 1, { M: MOCHI, D: WOOD_D, W: WOOD });
-      if (up) {
-        art(cv, ['H', 'H', 'H'], mx + 1, my - 8, { H: WOOD_D });
-        for (const [dx, dy] of [[0, -6], [-1, -5], [-2, -4]]) cv.put(mx + dx, my + dy, WOOD);
-      } else {
-        art(cv, ['HHH', 'HHH'], mx, my - 4, { H: WOOD_D });
-        for (const [dx, dy] of [[-1, -4], [-2, -4]]) cv.put(mx + dx, my + dy, WOOD);
-        if (Math.floor(q.propT * 8) % 2) { cv.put(mx - 1, my - 2, '#FFD36B'); cv.put(mx + 3, my - 2, '#FFD36B'); }
+      // A mortar right of it; three thumps of the mallet (raised over its
+      // ear, halfway, down), the mochi a size bigger after each, then the
+      // finished mochi sparkles. Steam rises all the while.
+      const v = q.propU, k = Math.floor(v / 0.24), w = frac(v / 0.24);
+      const size = k < 3 ? k + (w >= 0.6 ? 1 : 0) : 3;
+      const shape = [['M'], ['MM'], ['.MM.', 'MMMS'], ['.MM.', 'MMMM', 'MMMS']][size];
+      art(cv, shape, shape[0].length > 2 ? 15 : 16, 14 - shape.length, { M: MOCHI, S: MOCHI_D });
+      art(cv, ['DDDD', 'WWWW', '.WW.'], 15, 14, { D: WOOD_D, W: WOOD });
+      if (k < 3) {
+        const H = { H: WOOD_D };
+        if (w < 0.5) { art(cv, ['HH', 'HH', 'HH'], 16, 5, H); for (const [x, y] of [[15, 8], [14, 9], [13, 10]]) cv.put(x, y, WOOD); }
+        else if (w < 0.6) { art(cv, ['HHH', 'HHH'], 17, 8, H); for (const [x, y] of [[16, 10], [15, 11]]) cv.put(x, y, WOOD); }
+        else { art(cv, ['HHH', 'HHH'], 16, 10, H); for (const [x, y] of [[15, 11], [14, 11]]) cv.put(x, y, WOOD); }
       }
+      for (let i = 0; i < 2; i++) {
+        const u = frac(q.propT / 1.4 + i / 2);
+        const x = 17 + i, y = 13 - shape.length - rnd(u * 4);
+        if (u < 0.8 && safe(x, y) && !cv.has(x, y)) cv.put(x, y, '#DCE6F2');
+      }
+      if (k === 3 && Math.floor(q.propT * 6) % 2) for (const [x, y] of [[19, 10], [14, 11]]) if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, '#FFD36B');
       return true;
     },
   });
