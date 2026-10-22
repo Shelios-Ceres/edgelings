@@ -347,7 +347,9 @@ internal sealed partial class CostPage : IDisposable
         var today = (summary.AsOf ?? DateTimeOffset.Now).ToLocalTime().Date;
         double DayTokens(DailyTokenBucket day) => billableMode ? day.BillableTokens : day.Tokens;
         double DayValue(DailyTokenBucket day) => dollars ? day.Dollars : DayTokens(day);
-        string Label(DateTime day) => day.ToString(L10n.IsChinese ? "M月d日" : "MMM d");
+        // In the app's language, not Windows' region: an English page on a
+        // Chinese Windows still reads "Oct 21", not "10月 21".
+        string Label(DateTime day) => day.ToString(L10n.IsChinese ? "M月d日" : "MMM d", System.Globalization.CultureInfo.InvariantCulture);
         var history = summary.DailyHistory.ToLookup(d => d.DayStart.Date);
         // Every day of the period gets a bar, idle days included.
         IReadOnlyList<(string, double)> Days(DateTime from, Func<DailyTokenBucket, double> value)
