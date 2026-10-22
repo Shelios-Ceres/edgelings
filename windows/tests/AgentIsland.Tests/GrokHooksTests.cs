@@ -27,6 +27,7 @@ public static class GrokHooksTests
             ("the installed script turns Grok's event into a marker without its text", ScriptWritesMarker),
             ("the scan reads a pending marker as the session's approval", ScanReadsApproval),
             ("a completed turn is not reopened by a late marker", ClosedTurnStaysClosed),
+            ("a marker wakes the file watcher, another folder's json does not", MarkerWakesWatcher),
         };
         foreach (var (name, test) in tests)
         {
@@ -201,6 +202,16 @@ public static class GrokHooksTests
         var state = SessionScanner.SessionState(transcript, now, new Dictionary<string, DateTimeOffset>(), null, SessionTurnState.Grok);
         return new(TriggerTool.Grok, session, "", session, state.Modified, state.Status, transcript, state.TurnKey, SessionLaunchTarget.Cli);
     }
+
+    /// A marker kicks a scan the moment it lands, as a transcript line does,
+    /// so an approval shows without waiting for the poll.
+    private static void MarkerWakesWatcher() => With((root, _, signals) =>
+    {
+        Expect(TranscriptEventStream.IsRelevant(Path.Combine(signals, "s1.json")), "a marker wakes the scan");
+        Expect(!TranscriptEventStream.IsRelevant(Path.Combine(root, "state.json")), "another folder's json does not");
+        Expect(TranscriptEventStream.IsRelevant(Path.Combine(root, "local_1234.json")), "a Claude Desktop session still does");
+        Expect(TranscriptEventStream.IsRelevant(Path.Combine(root, "updates.jsonl")), "a transcript still does");
+    });
 
     private static void ScanReadsApproval() => With((root, _, signals) =>
     {

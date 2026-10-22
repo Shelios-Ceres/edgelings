@@ -68,6 +68,10 @@ public static class IslandPaths
     public static string CodexSessionIndexFile => Path.Combine(CodexHome, "session_index.jsonl");
     public static string CodexAuthFile => Path.Combine(CodexHome, "auth.json");
 
+    /// Grok CLI: one folder per percent-encoded working directory, one per
+    /// session, the live event stream at updates.jsonl.
+    public static string GrokSessionsRoot => Path.Combine(Home, ".grok", "sessions");
+
     /// Kimi Code (CLI and desktop app share it): one folder per working
     /// directory, one per session, the live event log at agents/main/wire.jsonl.
     public static string KimiSessionsRoot => Path.Combine(Home, ".kimi-code", "sessions");

@@ -22,8 +22,11 @@ public sealed class TranscriptEventStream : IDisposable
         roots.AddRange(IslandPaths.ClaudeProjectRoots);
         roots.Add(IslandPaths.CodexSessionsRoot);
         roots.AddRange(IslandPaths.ClaudeDesktopSessionsRoots);
+        roots.Add(IslandPaths.GrokSessionsRoot);
         roots.Add(IslandPaths.KimiSessionsRoot);
         roots.Add(IslandPaths.DeepSeekSessionsRoot);
+        roots.Add(ClaudeHooks.SignalDirectory);
+        roots.Add(GrokHooks.Signals);
         foreach (var root in roots.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
@@ -55,12 +58,18 @@ public sealed class TranscriptEventStream : IDisposable
         if (IsRelevant(e.FullPath)) _onChange();
     }
 
-    private static bool IsRelevant(string path)
+    internal static bool IsRelevant(string path)
     {
         if (path.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) return true;
         if (path.EndsWith(".jsonl.zstd", StringComparison.OrdinalIgnoreCase)) return true;
         var name = Path.GetFileName(path);
-        return name.StartsWith("local_", StringComparison.Ordinal);
+        if (name.StartsWith("local_", StringComparison.Ordinal)) return true;
+        // A hook's marker: the agent stopped to ask, and its transcript may
+        // say nothing more until the user answers.
+        var folder = Path.GetDirectoryName(path);
+        return path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(folder, ClaudeHooks.SignalDirectory, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(folder, GrokHooks.Signals, StringComparison.OrdinalIgnoreCase));
     }
 
     public void Dispose()

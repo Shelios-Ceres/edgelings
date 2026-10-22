@@ -38,7 +38,7 @@ public static class GrokHooks
 
     private static string Hooks => HooksDirectory.Length > 0 ? HooksDirectory : Path.Combine(GrokHome, "hooks");
     private static string Scripts => ScriptDirectory.Length > 0 ? ScriptDirectory : IslandPaths.AppSupportDir;
-    private static string Signals => SignalDirectory.Length > 0 ? SignalDirectory : Path.Combine(IslandPaths.AppSupportDir, "grok-hooks");
+    internal static string Signals => SignalDirectory.Length > 0 ? SignalDirectory : Path.Combine(IslandPaths.AppSupportDir, "grok-hooks");
 
     public static string HookPath => Path.Combine(Hooks, HookFileName);
     private static string ScriptPath => Path.Combine(Scripts, ScriptFileName);

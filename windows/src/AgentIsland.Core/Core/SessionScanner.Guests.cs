@@ -4,8 +4,6 @@ namespace AgentIsland.Core;
 // Grok, Kimi Code and DeepSeek Harness: each keeps one folder per working directory and one per session.
 public static partial class SessionScanner
 {
-    private static string GrokSessionsRoot => Path.Combine(IslandPaths.Home, ".grok", "sessions");
-
     /// Grok mirrors Claude's layout almost exactly — one directory per
     /// percent-encoded cwd, one directory per session inside it.
     /// `summary.json` carries identity + title; `updates.jsonl` is the live
@@ -16,7 +14,7 @@ public static partial class SessionScanner
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var output = new List<ScannedSession>();
-        foreach (var projectDir in SafeEnumerateDirectories(GrokSessionsRoot))
+        foreach (var projectDir in SafeEnumerateDirectories(IslandPaths.GrokSessionsRoot))
         {
             var cwd = DecodePathSegment(Path.GetFileName(projectDir));
             foreach (var sessionDir in SafeEnumerateDirectories(projectDir))
