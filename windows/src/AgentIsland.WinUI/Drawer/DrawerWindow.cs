@@ -136,6 +136,8 @@ internal sealed partial class DrawerWindow : Window
     private int _pace = -1;
     private Win32.Screen? _screen;
     private bool _shown;
+    private bool _away;
+    private readonly DisplayPower _displays = new();
     private bool _pollInFlight;
     private bool _coveredByFullscreen;
     private bool _deliberatelyHidden;
@@ -257,6 +259,7 @@ internal sealed partial class DrawerWindow : Window
         EventHandler onDisplay = (_, _) => _queue.TryEnqueue(Layout);
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += onDisplay;
         _subscriptions.Add(() => Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= onDisplay);
+        _subscriptions.Add(_displays.Dispose);
 
         Layout();
         _poll.Start();

@@ -308,6 +308,24 @@ internal static class Win32
     /// Running on battery right now (unknown counts as plugged in).
     public static bool OnBattery() => GetSystemPowerStatus(out var status) && status.ACLineStatus == 0;
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+
+    [DllImport("user32.dll")]
+    private static extern bool CloseDesktop(IntPtr desktop);
+
+    private const uint DesktopSwitchDesktop = 0x0100;
+
+    /// The session's own desktop isn't the one taking input: it's locked,
+    /// or the screen saver or a UAC prompt has the screen.
+    public static bool InputDesktopElsewhere()
+    {
+        var desktop = OpenInputDesktop(0, false, DesktopSwitchDesktop);
+        if (desktop == IntPtr.Zero) return true;
+        CloseDesktop(desktop);
+        return false;
+    }
+
     public sealed record Screen(string Device, RECT Bounds, RECT Work, double Scale, bool Primary);
 
     /// Every monitor with its work area (physical pixels) and scale factor.

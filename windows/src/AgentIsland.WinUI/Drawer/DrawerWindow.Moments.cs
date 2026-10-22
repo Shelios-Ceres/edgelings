@@ -14,6 +14,7 @@ internal sealed partial class DrawerWindow
     {
         _reducedMotion = Motion.ReducedMotion;
         UpdateCap();
+        ApplyAway(!_displays.On || Win32.InputDesktopElsewhere());
         var monitor = Win32.MonitorFromWindow(_hwnd, Win32.MonitorDefaultToNearest);
         var foreground = Win32.GetForegroundWindow();
         var fullscreen = foreground != _hwnd && Win32.IsFullscreen(foreground, monitor);
@@ -71,7 +72,7 @@ internal sealed partial class DrawerWindow
             else if (_moment is not null) ClearMoment();
             AppWindow.Show(false);
             KeepOnTop();
-            _canvas.Paused = false;
+            _canvas.Paused = _away;
         }
         else
         {
@@ -81,6 +82,17 @@ internal sealed partial class DrawerWindow
             if (moving) Play(DrawerMoves.Hide(NewMoment(shown, DrawerStore.Shared.Side, holds: true), TopDown(shown), from: OnScreenNow()), HideWindow);
             else HideWindow();
         }
+    }
+
+    /// Nobody sees the bots while the session is locked or the displays are
+    /// off, so the game loop rests until someone could; the phases keep
+    /// polling, and the bots wake in their current state.
+    private void ApplyAway(bool away)
+    {
+        if (away == _away) return;
+        _away = away;
+        DebugTrace.Write($"drawer {(away ? "away: the game loop rests" : "back: the game loop runs")}");
+        if (_shown) _canvas.Paused = away;
     }
 
     private void HideWindow()
