@@ -17,8 +17,10 @@ public static class AgentPhaseClassifier
 {
     private const int TailBytes = 64 * 1024;
     private static readonly TimeSpan FinishedFor = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan ToolFor = TimeSpan.FromMinutes(30);
-    private static readonly TimeSpan ThinkingFor = TimeSpan.FromMinutes(5);
+    // A call, a thought or a reply holds as long as the scan's own attention
+    // window: long thinking is still thinking, and the scan says when a
+    // session has stopped working.
+    private static readonly TimeSpan WorkFor = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan FailedFor = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan SpawnShownFor = TimeSpan.FromSeconds(3);
 
@@ -88,7 +90,10 @@ public static class AgentPhaseClassifier
                     if (Jsonl.GetBool(root, "isApiErrorMessage") == true) return Aged(new(AgentPhase.Failed, "API", at), now);
                     var stop = message is { } mm ? Jsonl.GetString(mm, "stop_reason") : null;
                     if (stop is "end_turn" or "stop_sequence" or "stop") return Aged(new(AgentPhase.Finished, null, at), now);
-                    return Aged(new(blockType == "thinking" ? AgentPhase.Thinking : AgentPhase.Streaming, null, at), now);
+                    // Claude Code logs a thinking block once it is done, so the
+                    // model is already writing what follows: a reply, or a
+                    // call's input such as a whole file.
+                    return Aged(new(AgentPhase.Streaming, null, at), now);
                 }
                 case "user":
                     if (IsInterrupt(root)) return new(AgentPhase.Idle, null, at);
@@ -163,6 +168,8 @@ public static class AgentPhaseClassifier
                             inCalls = true;
                             continue;
                         case "reasoning":
+                            // Unlike Claude's thinking block, a reasoning item doesn't
+                            // end the thought: long reasoning logs several in a row.
                             return Aged(new(AgentPhase.Thinking, null, outputAt ?? at), now);
                         case "agent_message":
                             return Aged(new(stepDone ? AgentPhase.Thinking : AgentPhase.Streaming, null, outputAt ?? at), now);
@@ -488,8 +495,7 @@ public static class AgentPhaseClassifier
         {
             AgentPhase.Finished => FinishedFor,
             AgentPhase.Failed => FailedFor,
-            AgentPhase.Thinking or AgentPhase.Streaming or AgentPhase.Compacting => ThinkingFor,
-            _ => ToolFor,
+            _ => WorkFor,
         };
         return now - at > limit ? new(AgentPhase.Idle, null, at) : reading;
     }
