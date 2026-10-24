@@ -2312,6 +2312,128 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   });
 })();
 
+// MARK: - Codex · the owl
+//
+// The night owl who reads and writes code: blue, with cream face discs, a
+// gold beak and feet, ear tufts, and the CLI's ">_" in its chest feathers.
+// Its wings do what the other bots' arms do. It thinks with its cursor
+// blinking while it turns its head this way and that, as owls do; it works
+// with lines of output scrolling down its chest; its tufts droop when it is
+// sad or asleep. Offline its prompt greys out; locked, a padlock takes the
+// prompt's place. (v5.4, the user's pick 2026-10-24.)
+(() => {
+  const INK = '#263349', BLUE = '#4D96EB', BLUE_D = '#3166A4', CREAM = '#FFF2D8', GOLD = '#F2BB55', LIGHT = '#9DBFEA';
+  const DIM_BLUE = '#8C9DB5', DIM_BLUE_D = '#748499', DIM_CREAM = '#D9D2C4', DIM_GOLD = '#BDB4A1', GREY = '#A9ADB8';
+  // Rows 4 to 17; its feet go on row 18.
+  const ART = [
+    '.....OO........OO.....',
+    '.....OBO......OBO.....',
+    '.....OBBOOOOOOBBO.....',
+    '....OBBBBBBBBBBBBO....',
+    '....OBCCCBBBBCCCBO....',
+    '....OCCCCCBBCCCCCO....',
+    '....OCCCCCGGCCCCCO....',
+    '....OBCCCBGGBCCCBO....',
+    '....ODBBBBBBBBBBDO....',
+    '....ODBBBBBBBBBBDO....',
+    '....ODBBBBBBBBBBDO....',
+    '.....ODBBBBBBBBDO.....',
+    '.....ODDBBBBBBDDO.....',
+    '......OOOOOOOOOO......',
+  ];
+  // Drooping tufts, for sad and sleepy moments.
+  const DROOP = ['......................', '....OOBO......OBOO....'];
+  // A wing raised beside the body, left side; the right mirrors it.
+  const WING = { up: [[3, 11], [3, 12], [3, 13]], high: [[3, 9], [3, 10], [3, 11], [3, 12]] };
+  const MINI = ['b..b', 'bbbb', 'bccb', 'bbbb'];
+
+  function body(cv, p, c) {
+    const x = rnd(p.dx), y = 4 + rnd(p.dy) - rnd(p.lift ?? 0);
+    const dim = p.dim > 0.5;
+    const MAP = { O: INK, B: dim ? DIM_BLUE : BLUE, D: dim ? DIM_BLUE_D : BLUE_D, C: dim ? DIM_CREAM : CREAM, G: dim ? DIM_GOLD : GOLD };
+    // Turning its head: the face discs and beak slide a cell inside the head.
+    const turn = rnd(p.swivel ?? 0);
+    const rows = ART.map((row, j) => {
+      if (j < 2 && p.tufts === 'down') return DROOP[j];
+      if (!turn || j < 4 || j > 7) return row;
+      const inner = row.slice(5, 17);
+      return row.slice(0, 5) + (turn > 0 ? 'B' + inner.slice(0, -1) : inner.slice(1) + 'B') + row.slice(17);
+    });
+    art(cv, rows, x, y, MAP);
+    // The prompt in its chest feathers: ">" and a cursor.
+    const chest = p.chest ?? 'prompt';
+    const ink = dim ? GREY : LIGHT;
+    const prompt = color => { for (const [dx, dy] of [[8, 9], [9, 10], [8, 11]]) cv.put(x + dx, y + dy, color); };
+    const cursor = color => cv.rect(x + 11, y + 11, 3, 1, color);
+    if (chest === 'prompt') { prompt(ink); cursor(ink); }
+    else if (chest === 'blink') { prompt(ink); if (frac(c.T * 1.6) < 0.55) cursor(ink); }
+    else if (chest === 'type') {
+      // Output scrolling up its chest, a line at a time.
+      const k = Math.floor(p.propT * 6);
+      for (let j = 0; j < 3; j++) {
+        const len = [5, 3, 6, 2, 4, 6, 3][(k + j) % 7];
+        cv.rect(x + 7, y + 9 + j, len, 1, ink);
+      }
+    }
+    else if (chest === 'off') { prompt(GREY); if (Math.floor(c.T * 1.2) % 2) cursor('#D9534F'); }
+    else if (chest === 'lock') art(cv, ['.###.', '#...#', '#####', '##k##', '#####'], x + 8, y + 8, { '#': dim ? DIM_GOLD : GOLD, k: INK });
+    // Wings: raised ones leave the body, folded ones stay drawn in the art.
+    const raised = [];
+    for (const [side, mode] of [[-1, p.armL], [1, p.armR]]) {
+      const cells = mode === 'up' ? WING.up : mode === 'high' || mode === 'wave' ? WING.high : null;
+      if (!cells) continue;
+      for (const [wx, wy] of cells) {
+        const cx = side < 0 ? x + wx : x + 21 - wx, cy = y - 4 + wy;
+        cv.put(cx, cy, MAP.D);
+        raised.push([cx, cy]);
+      }
+    }
+    if (raised.length) cv.outline(raised, INK);
+    // Feet; a step lifts one, a jump or a tuck hides both.
+    const feet = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [0, 0], tuck: [0, 0], sit: [0, 0] }[p.legs] ?? [1, 1];
+    if (feet[0]) cv.rect(x + 7, y + 14, 2, 1, MAP.G);
+    if (feet[1]) cv.rect(x + 13, y + 14, 2, 1, MAP.G);
+    const eyes = [[x + 7 + turn, y + 5], [x + 14 + turn, y + 5]];
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    return { mid: x + 10, top: y, left: x + 4, right: x + 17, ground: y + 14, midY: y + 6, front: y + 8, eyes, hands: false };
+  }
+  const pal = { main: BLUE, body: BLUE, dark: INK, light: LIGHT, accent: GOLD, paper: '#FFFFFF', mini: (g, x, y) => g.glyph(MINI, x, y, BLUE, { c: CREAM }) };
+
+  lookBot('codex', 'owl', 'Owl', 0x4D96EB, body, pal, {
+    fidgets: ['ruffle', 'hop', 'wink'],
+    rest: { chest: 'prompt', tufts: 'up', swivel: 0 },
+    poses(s, t, T, b) {
+      switch (s) {
+        // Thinking: the cursor blinks while it turns its head left, back,
+        // right, back, its gaze up; the turn does the looking, so the eyes stay
+        // centred in the discs.
+        case 'thinking': {
+          const k = Math.floor(t / 0.8) % 4;
+          return { ...b, prop: '', armR: 'out', chest: 'blink', swivel: [-1, 0, 1, 0][k], look: [0, -1], gazeW: 0 };
+        }
+        // Working: output scrolls down its chest; its wings beat in turn.
+        case 'working': {
+          const beat = Math.floor(t * 4) % 4;
+          return { ...b, dx: 0, prop: '', chest: 'type', armL: beat === 1 ? 'up' : 'out', armR: beat === 3 ? 'up' : 'out', eyes: 'focus', look: [0, 1], gazeW: 0 };
+        }
+        case 'failed': return { ...b, tufts: t > 0.4 ? 'down' : 'up', chest: 'none' };
+        case 'broken': return { ...b, tufts: 'down', chest: 'none' };
+        case 'offline': return { ...b, prop: '', chest: 'off', tufts: 'down' };
+        case 'locked': return { ...b, prop: '', chest: 'lock', armL: 'out', armR: 'out', look: [0, 1] };
+        case 'resting': return { ...b, dy: 1, tufts: 'down', chest: 'none' };
+        case 'sleeping': return { ...b, tufts: 'down', legs: 'tuck', chest: 'prompt' };
+        // Fidgets: it fluffs up, wings out and tufts bobbing; it winks.
+        case 'ruffle': {
+          const on = t > 0.2 && t < 1.6, k = Math.floor(t * 5) % 2;
+          return { ...b, armL: on ? (k ? 'up' : 'high') : 'out', armR: on ? (k ? 'high' : 'up') : 'out', tufts: on && k ? 'down' : 'up', happy: on ? 1 : 0, gazeW: 0 };
+        }
+        case 'wink': return { ...b, wink: t > 0.4 && t < 1.4 ? 1 : 0, look: [0.4, 0], gazeW: 0 };
+        default: return b;
+      }
+    },
+  });
+})();
+
 // MARK: - Antigravity · the pixel rainbow
 //
 // Antigravity's "A" as a pixel arch in rainbow stripes, hovering a couple
@@ -2872,6 +2994,162 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
         fitDraw(cv, g => { for (let i = 0; i < n; i++) g.put(a.right + i, a.top - i, BLUE); });
       } else pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
+    },
+  });
+})();
+
+// MARK: - Antigravity · the sea otter
+//
+// Floating where others would sink: a sea otter on its back, a wicker-gold
+// head and a cream face, paws folded over a yellow shell on its tummy, the
+// sea lapping round it. It thinks holding the shell up to its eyes, works
+// the way real otters do, cracking the shell with a stone, wraps itself in
+// kelp to rest, tosses the shell when it's done and lets it sink when it
+// fails. Offline the sea goes still and grey; locked, a padlock sits where
+// the shell was. (v5.4, the user's pick 2026-10-24.)
+(() => {
+  const INK = '#263349', HEAD = '#D9A04A', FUR = '#A8742E', PAW = '#7E5530', CREAM = '#FFF2D8', BLUSH = '#F6B4A6';
+  const SHELL = '#F2BB55', SHELL_D = '#D49A33', SHINE = '#FFF6C8', WATER = '#4D96EB', FOAM = '#B7D5F5', STONE = '#8D94A6', KELP = '#56AB78';
+  const DIM_HEAD = '#C9BBA2', DIM_FUR = '#9C8E7A', DIM_CREAM = '#D9D2C4', STILL = '#B9C1CD', STILL_D = '#9AA3B2';
+  // Rows 4 to 16: head, then the body it floats on, then its feet.
+  const HEAD_ART = [
+    '......O........O......',
+    '......OOOOOOOOOO......',
+    '.....OOOOOOOOOOOO.....',
+    '.....OOCCCCCCCCOO.....',
+    '.....OCCCCCCCCCCO.....',
+    '.....OCCCCNNCCCCO.....',
+    '......OOCCCCCCOO......',
+  ];
+  // Rolled over, it shows the back of its head.
+  const BACK_ART = [
+    '......O........O......',
+    '......OOOOOOOOOO......',
+    '.....OOOOOOOOOOOO.....',
+    '.....OOOOOOOOOOOO.....',
+    '.....OOOOOOOOOOOO.....',
+    '.....OOOOOOOOOOOO.....',
+    '......OOOOOOOOOO......',
+  ];
+  const BODY_ART = [
+    '.....BBBBBBBBBBBB.....',
+    '....BBBBBBBBBBBBBB....',
+    '....BBBBBBBBBBBBBB....',
+    '.....BBBBBBBBBBBB.....',
+    '......BBBBBBBBBB......',
+  ];
+  const MINI = ['h..h', 'hhhh', 'hcch', 'bbbb'];
+
+  function body(cv, p, c) {
+    const x = rnd(p.dx), y = 4 + rnd(p.dy) - rnd(p.lift ?? 0);
+    const dim = p.dim > 0.5;
+    const MAP = { O: dim ? DIM_HEAD : HEAD, B: dim ? DIM_FUR : FUR, C: dim ? DIM_CREAM : CREAM, N: INK };
+    const back = p.back > 0.5;
+    art(cv, back ? BACK_ART : HEAD_ART, x, y, MAP);
+    art(cv, BODY_ART, x, y + 7, MAP);
+    // Feet poke up at the far end; a kick lifts one.
+    const feet = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [1, 1], tuck: [0, 0], sit: [1, 1] }[p.legs] ?? [1, 1];
+    if (feet[0]) cv.rect(x + 6, y + 12, 2, 1, PAW);
+    if (feet[1]) cv.rect(x + 14, y + 12, 2, 1, PAW);
+    // What it holds on its tummy, and its paws: on the shell unless raised.
+    const hold = back ? 'none' : p.shell ?? 'held';
+    const sy = hold === 'up' ? y + 6 : y + 8;
+    if (hold === 'held' || hold === 'up') {
+      cv.rect(x + 9, sy, 4, 2, dim ? '#C9C0A8' : SHELL);
+      cv.put(x + 9, sy + 1, dim ? '#B5AC94' : SHELL_D);
+      cv.put(x + 12, sy + 1, dim ? '#B5AC94' : SHELL_D);
+      // The shine walks round the shell as it turns it.
+      if (p.turnShell) cv.put(x + 9 + Math.floor(c.T * 4) % 4, sy, SHINE);
+    } else if (hold === 'lock') art(cv, ['.##.', '#..#', '####', '#kk#'], x + 9, y + 7, { '#': SHELL, k: INK });
+    const raised = [];
+    for (const [side, mode] of [[-1, p.armL], [1, p.armR]]) {
+      const up = mode === 'up' || mode === 'high' || mode === 'wave';
+      const px = side < 0 ? x + 8 : x + 13;
+      if (!up && !back) { cv.rect(px, (hold === 'up' ? sy : y + 8), 1, 2, PAW); continue; }
+      if (!up) continue;
+      // A raised paw, up beside its head.
+      const hx = side < 0 ? x + 4 : x + 17, hy = y + (mode === 'high' || mode === 'wave' ? 3 : 4);
+      cv.rect(hx, hy, 1, 2, PAW);
+      raised.push([hx, hy], [hx, hy + 1]);
+    }
+    // The stone it cracks the shell with, in its raised right paw or down
+    // on the shell.
+    if (p.stone === 'up') { cv.rect(x + 17, y + 2, 1, 2, STONE); raised.push([x + 17, y + 2], [x + 17, y + 3]); }
+    else if (p.stone === 'down') cv.rect(x + 11, y + 7, 2, 1, STONE);
+    if (!back) {
+      cv.put(x + 7, y + 6, BLUSH);
+      cv.put(x + 14, y + 6, BLUSH);
+    }
+    // Wrapped in kelp to rest, so it doesn't drift.
+    if (p.kelp) for (let i = 4; i < 18; i++) if (cv.has(x + i, y + 9 + (i % 3 === 0 ? 1 : 0))) cv.put(x + i, y + 9 + (i % 3 === 0 ? 1 : 0), KELP);
+    const mine = [...cv.cells.keys()].map(k => k.split(',').map(Number));
+    cv.outline(mine, INK);
+    // The sea round it, never over it: rows 13 to 17, drifting slowly;
+    // still and grey when it's offline.
+    const still = p.sea === 'still';
+    const phase = still ? 0 : Math.floor(c.T / 0.75);
+    for (let r = 13; r <= 17; r++) for (let i = 2; i < 20; i++) {
+      if (!safe(i, r) || cv.has(i, r)) continue;
+      if (still ? r % 2 === 0 : (i + r + phase) % 4 === 0) continue;
+      cv.put(i, r, still ? (r === 15 ? STILL_D : STILL) : r % 2 ? FOAM : WATER);
+    }
+    const eyes = [[x + 8, y + 4], [x + 13, y + 4]];
+    if (!back) pxEyes(cv, eyes, c, p.eyes, INK);
+    return { mid: x + 10, top: y, left: x + 5, right: x + 16, ground: y + 13, midY: y + 5, front: y + 7, eyes, hands: true, x, y };
+  }
+  const pal = { main: WATER, body: FUR, dark: INK, light: FOAM, accent: SHELL, paper: '#FFFFFF', mini: (g, x, y) => g.glyph(MINI, x, y, HEAD, { c: CREAM, b: FUR }) };
+
+  lookBot('antigravity', 'otter', 'Sea otter', 0xA8742E, body, pal, {
+    fidgets: ['roll', 'groom', 'peek'],
+    rest: { shell: 'held', back: 0, kelp: 0, sea: 'move', stone: '', turnShell: 0 },
+    poses(s, t, T, b) {
+      switch (s) {
+        // Thinking: it holds the shell up to its eyes and turns it.
+        case 'thinking': return { ...b, prop: '', armR: 'out', shell: 'up', turnShell: 1, look: [Math.floor(t / 1.2) % 2 ? 1 : -1, 1], gazeW: 0 };
+        // Working: a stone up in its right paw, then down on the shell.
+        case 'working': {
+          const down = frac(t / 0.7) > 0.6;
+          return { ...b, dx: 0, prop: down ? 'chips' : '', armR: down ? 'out' : 'up', stone: down ? 'down' : 'up', eyes: 'focus', look: [0, 1], gazeW: 0 };
+        }
+        case 'failed': return { ...b, shell: 'none', prop: 'sink' };
+        case 'broken': return { ...b, shell: 'none' };
+        case 'offline': return { ...b, prop: '', sea: 'still' };
+        case 'locked': return { ...b, prop: '', shell: 'lock', armL: 'out', armR: 'out', look: [0, 1] };
+        case 'resting': return { ...b, dy: 0, kelp: 1 };
+        case 'sleeping': return { ...b, dy: 1 };
+        // Done: it tosses the shell up over its head and catches it.
+        case 'finished': return { ...b, shell: t < 1.2 ? 'none' : 'held', prop: t < 1.2 ? 'toss' : 'sparks' };
+        // Fidgets: it rolls over in the water and back; it rubs its face.
+        case 'roll': return { ...b, back: t > 0.4 && t < 1.0 ? 1 : 0, happy: t >= 1.0 && t < 1.8 ? 1 : 0, gazeW: 0 };
+        case 'groom': {
+          const on = t > 0.3 && t < 1.9, k = Math.floor(t * 4) % 2;
+          return { ...b, armL: on && k ? 'up' : 'out', armR: on && !k ? 'up' : 'out', happy: on ? 1 : 0, gazeW: 0 };
+        }
+        default: return b;
+      }
+    },
+    props(cv, back, q, a) {
+      const t = q.propT;
+      if (q.prop === 'chips') {
+        // Chips fly off the shell as the stone lands.
+        for (const [dx, dy] of [[-2, -1], [3, -2], [4, 0]]) { const px = a.x + 11 + dx, py = a.y + 7 + dy; if (safe(px, py) && !cv.has(px, py)) cv.put(px, py, '#FFD36B'); }
+        return true;
+      }
+      if (q.prop === 'toss') {
+        // Up over its head in an arc and back down to its paws.
+        const u = clamp(t / 1.2), h = Math.sin(PI * u) * 9;
+        const sx = a.x + 9 + rnd(Math.sin(PI * u) * 2), sy = rnd(a.y + 8 - h);
+        fitDraw(cv, g => { g.rect(sx, sy, 4, 2, SHELL); g.put(sx, sy + 1, SHELL_D); g.put(sx + 3, sy + 1, SHELL_D); });
+        return true;
+      }
+      if (q.prop === 'sink') {
+        // The shell slips off its tummy and sinks into the sea.
+        const u = clamp(t / 1.2), sx = a.x + 10, sy = a.y + 9 + rnd(u * 6);
+        if (u < 1) for (const [dx, dy, col] of [[0, 0, SHELL], [1, 0, SHELL], [0, 1, SHELL_D], [1, 1, SHELL_D]]) if (safe(sx + dx, sy + dy) && (sy > a.y + 12 || !cv.has(sx + dx, sy + dy))) cv.put(sx + dx, sy + dy, col);
+        if (q.cross > 0.5) pxProp(cv, back, { ...q, prop: 'smoke' }, a, pal, {});
+        return true;
+      }
+      return false;
     },
   });
 })();

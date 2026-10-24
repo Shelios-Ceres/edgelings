@@ -7,8 +7,8 @@ public static partial class LookCatalog
     private static readonly Dictionary<(CharacterTheme, string), Look[]> Data = new()
     {
         [(CharacterTheme.Pixel, "claude")] = new Look[] { new("clawd", "Clawd", 0xD77757) },
-        [(CharacterTheme.Pixel, "codex")] = new Look[] { new("notebook", "Notebook", 0x9EA1AB), new("puff", "Puff cloud", 0xA2A5AF), new("cloud", "Cloud", 0x8E919C), new("folio", "Folio", 0x8D94A6), new("scroll", "Scroll", 0xA0998A) },
-        [(CharacterTheme.Pixel, "antigravity")] = new Look[] { new("balloon", "Balloon", 0x3D7BF5), new("rainbow", "Rainbow A", 0x2FA3D6), new("aeri", "Aeri", 0x4D96EB), new("blocks", "Blocks", 0x3166A4), new("kite", "Kite", 0x5AA0F0) },
+        [(CharacterTheme.Pixel, "codex")] = new Look[] { new("notebook", "Notebook", 0x9EA1AB), new("puff", "Puff cloud", 0xA2A5AF), new("cloud", "Cloud", 0x8E919C), new("folio", "Folio", 0x8D94A6), new("scroll", "Scroll", 0xA0998A), new("owl", "Owl", 0x4D96EB) },
+        [(CharacterTheme.Pixel, "antigravity")] = new Look[] { new("balloon", "Balloon", 0x3D7BF5), new("rainbow", "Rainbow A", 0x2FA3D6), new("aeri", "Aeri", 0x4D96EB), new("blocks", "Blocks", 0x3166A4), new("kite", "Kite", 0x5AA0F0), new("otter", "Sea otter", 0xA8742E) },
         [(CharacterTheme.Pixel, "grok")] = new Look[] { new("ring", "Slashed ring", 0x0B0B0C), new("ringbot", "Ring bot", 0x2A2A30), new("horizon", "Event horizon", 0x3B3227), new("cat", "Black cat", 0x1A1A1F), new("astronaut", "Astronaut", 0x5E616C), new("martian", "Martian", 0x3A3A42) },
         [(CharacterTheme.Pixel, "cursor")] = new Look[] { new("ring", "Slashed ring", 0x0B0B0C), new("ringbot", "Ring bot", 0x2A2A30), new("horizon", "Event horizon", 0x3B3227), new("cat", "Black cat", 0x1A1A1F), new("astronaut", "Astronaut", 0x5E616C), new("martian", "Martian", 0x3A3A42) },
         [(CharacterTheme.Pixel, "kimi")] = new Look[] { new("blob", "Blob and terminal", 0x2B8BFF), new("rabbit", "Moon rabbit", 0x5AA6FF), new("terminal", "Terminal pal", 0x1F6FD6), new("moonlet", "Moonlet", 0x4A9BFF), new("rocket", "Rocket", 0x2B7BEF) },
