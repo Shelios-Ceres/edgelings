@@ -7,7 +7,7 @@ namespace AgentIsland.WinUI.Shell;
 // cells like FaceGrids (PixelIconData.cs), from the pixel characters' release.
 internal static partial class PixelIcons
 {
-    // Faces for the looks other than each agent's default (v5.2). The default
+    // Faces for the looks other than each agent's default (v5.4). The default
     // looks keep their FaceGrids entries.
     private static readonly Dictionary<(DisplayProvider, string), (string[] Rows, (char Key, uint Rgb)[] Colors)> LookFaceGrids = new()
     {
@@ -50,6 +50,19 @@ internal static partial class PixelIcons
             ".#########",
             "..f...f...",
         }, new[] { ('b', 0x4D96EBu), ('B', 0x3166A4u), ('#', 0x263349u), ('g', 0xF2BB55u), ('w', 0xFFF2D8u), ('k', 0x263349u), ('f', 0xD8C9ADu) }),
+        [(DisplayProvider.Codex, "owl")] = (new[]
+        {
+            ".o......o.",
+            ".ob....bo.",
+            ".obbbbbbo.",
+            "obccbbccbo",
+            "ockcbbckco",
+            "occcggccco",
+            "obbbggbbbo",
+            "obhbbbbbbo",
+            ".obhbhhbo.",
+            "..gg..gg..",
+        }, new[] { ('o', 0x263349u), ('b', 0x4D96EBu), ('c', 0xFFF2D8u), ('k', 0x263349u), ('g', 0xF2BB55u), ('h', 0x9DBFEAu) }),
         [(DisplayProvider.Codex, "scroll")] = (new[]
         {
             "..........",
@@ -102,6 +115,19 @@ internal static partial class PixelIcons
             "cc......gg",
             "..........",
         }, new[] { ('b', 0x4D96EBu), ('f', 0xFFF2D8u), ('k', 0x263349u), ('B', 0x3166A4u), ('c', 0xE77C65u), ('g', 0x56AB78u), ('y', 0xF2BB55u) }),
+        [(DisplayProvider.Antigravity, "otter")] = (new[]
+        {
+            "..h....h..",
+            ".hhhhhhhh.",
+            "hhcccccchh",
+            "hcckcckcch",
+            "hcckcckcch",
+            "hpccnnccph",
+            ".hhcccchh.",
+            "fffqyyqfff",
+            ".ffffffff.",
+            "ww.wwww.ww",
+        }, new[] { ('h', 0xD9A04Au), ('c', 0xFFF2D8u), ('k', 0x263349u), ('p', 0xF6B4A6u), ('n', 0x263349u), ('f', 0xA8742Eu), ('q', 0x7E5530u), ('y', 0xF2BB55u), ('w', 0x4D96EBu) }),
         [(DisplayProvider.Antigravity, "kite")] = (new[]
         {
             "....lb....",
