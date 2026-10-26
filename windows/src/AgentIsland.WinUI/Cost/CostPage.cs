@@ -18,9 +18,9 @@ namespace AgentIsland.WinUI.Cost;
 /// What the local logs say each agent used, on Settings' Usage & cost page:
 /// a period picker, totals, and one card per agent with its spend or tokens,
 /// a bar chart and its top models. Dollars are API list-price estimates;
-/// agents without published prices (Cursor, Kimi Code, DeepSeek) show tokens
-/// only, and Antigravity keeps no local log. The page builds one for each
-/// showing and disposes of it when it goes.
+/// Cursor, which bills by its own plan, shows tokens only, and Antigravity
+/// keeps no local log. The page builds one for each showing and disposes of
+/// it when it goes.
 internal sealed partial class CostPage : IDisposable
 {
     private enum Period
@@ -323,8 +323,8 @@ internal sealed partial class CostPage : IDisposable
     /// A provider's numbers; with AGENTISLAND_DEBUG_COST_SAMPLE=1, a sample
     /// for two agents, to check a chart with no spend, a day used without a
     /// price and a quiet last five hours (render after 8:00): Kimi Code's K3
-    /// at noon yesterday and its K2.8 Preview, which has no price, at 1:00
-    /// and 3:00 today, and Grok at 2:00.
+    /// at noon yesterday and a model with no price at 1:00 and 3:00 today,
+    /// and Grok at 2:00.
     private static ProviderCostSummary Summary(DisplayProvider provider)
     {
         var summary = CostStore.Shared.Summary(provider);
@@ -334,7 +334,7 @@ internal sealed partial class CostPage : IDisposable
         TokenEvent At(int hour, TriggerTool tool, string model, double? dollars) =>
             new(tool, midnight.AddHours(hour), model, 52_000, 9_000, 4_000, 300_000, dollars);
         var events = provider == DisplayProvider.Kimi
-            ? new[] { At(-12, TriggerTool.Kimi, "kimi-code/k3", null), At(1, TriggerTool.Kimi, "kimi-code/kimi-for-coding", null), At(3, TriggerTool.Kimi, "kimi-code/kimi-for-coding", null) }
+            ? new[] { At(-12, TriggerTool.Kimi, "kimi-code/k3", null), At(1, TriggerTool.Kimi, "kimi-code/unpriced-sample", null), At(3, TriggerTool.Kimi, "kimi-code/unpriced-sample", null) }
             : new[] { At(2, TriggerTool.Grok, "grok-4.7-build", 0.84) };
         return CostSummarizer.Summarize(events, now) with { ModelNames = summary.ModelNames };
     }

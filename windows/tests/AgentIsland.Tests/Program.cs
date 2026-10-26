@@ -70,6 +70,7 @@ public static class Program
             TokenDisplayTextTests.RunAll();
             TokenAccountingTests.RunAll();
             OtherTokenAccountingTests.RunAll();
+            PricingTests.RunAll();
             CursorDatabaseTests.RunAll();
             CursorQuotaStateTests.RunAll();
             CodexAccountSwitcherTests.RunAll();

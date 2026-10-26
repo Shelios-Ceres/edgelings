@@ -11,8 +11,8 @@ namespace AgentIsland.Cost;
 ///
 /// with usage {inputOther, output, inputCacheRead, inputCacheCreation} and the
 /// model id. Subagents count too — they spend the same plan. Kimi Code is a
-/// subscription with no per-token price, so these are tokens only, never
-/// dollars.
+/// subscription, so the dollars are API list-price estimates (Pricing); a
+/// model with no price shows as tokens only.
 public static class KimiLogReader
 {
     // v3 carries usage identity so copied session histories count only once.

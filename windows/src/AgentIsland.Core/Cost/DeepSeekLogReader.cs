@@ -10,7 +10,7 @@ namespace AgentIsland.Cost;
 /// data.usage splits input, output, cache reads and cache writes (their sum
 /// is totalTokens, so nothing double counts). The model comes from the most
 /// recent request/header. Signed-in accounts carry no per-token price here,
-/// so these are tokens only, never dollars.
+/// so the dollars are list-price estimates from Pricing.
 public static class DeepSeekLogReader
 {
     private static readonly LogParseCache Cache = new(TriggerTool.DeepSeek, "deepseek-parse-cache.v2.json");
