@@ -71,7 +71,7 @@ public sealed class CostStore : INotifyPropertyChanged
 
     /// One provider's rollup, keyed by DisplayProvider. Empty until its first
     /// scan commits, so a caller never sees null and a provider with no local
-    /// ledger (Antigravity today) reads as honest zeros rather than a fabricated $0.
+    /// log reads as honest zeros rather than a fabricated $0.
     public ProviderCostSummary Summary(DisplayProvider provider) =>
         _summaries.TryGetValue(provider, out var summary) ? summary : ProviderCostSummary.Empty;
 
@@ -119,14 +119,14 @@ public sealed class CostStore : INotifyPropertyChanged
         _scanStartedAt = DateTimeOffset.Now;
         var now = DateTimeOffset.Now;
         var lookback = CostSummarizer.YearHistoryDays(now);
-        // Seven readers, one gate. Grok self-reports dollars, Claude/Codex are
-        // table-priced, Cursor, Kimi Code and DeepSeek yield token counts only,
-        // and Antigravity is an honest empty stub — each summarized off the UI
+        // Seven readers, one gate. Grok self-reports dollars, Cursor yields token
+        // counts only and the rest are table-priced — each summarized off the UI
         // thread and committed together so a slow scan never blocks a fast one
-        // twice.
+        // twice. Antigravity's may ask its language servers for each step's
+        // model, so it can take a few seconds the first time.
         var claudeTask = Task.Run(() => CostSummarizer.Summarize(ClaudeLogReader.Scan(lookback), now));
         var codexTask = Task.Run(() => CostSummarizer.Summarize(CodexLogReader.Scan(lookback), now));
-        var antigravityTask = Task.Run(() => CostSummarizer.Summarize(AntigravityLogReader.Scan(lookback), now));
+        var antigravityTask = Task.Run(() => CostSummarizer.Summarize(AntigravityLogReader.Scan(lookback), now) with { ModelNames = AntigravityLogReader.ModelNames() });
         var grokTask = Task.Run(() => CostSummarizer.Summarize(GrokLogReader.Scan(lookback), now));
         var cursorTask = Task.Run(() => CostSummarizer.Summarize(CursorLogReader.Scan(lookback), now));
         var kimiTask = Task.Run(() => CostSummarizer.Summarize(KimiLogReader.Scan(lookback), now) with { ModelNames = KimiLogReader.ModelNames() });

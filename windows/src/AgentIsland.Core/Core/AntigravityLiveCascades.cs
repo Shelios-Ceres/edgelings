@@ -42,8 +42,9 @@ internal static class AntigravityLiveCascades
         return runs;
     }
 
-    /// The scan runs on a worker thread, so the server calls are waited on.
-    private static IReadOnlyDictionary<string, Run> Fetch(DateTimeOffset now)
+    /// Every Antigravity language server that answers, as (port, token): the
+    /// list is rebuilt only now and then, and each caller sees the same one.
+    internal static List<(int Port, string? Token)> Servers(DateTimeOffset now)
     {
         (DateTimeOffset At, List<(int Port, string? Token)> Servers) known;
         lock (Gate) known = _servers;
@@ -53,6 +54,13 @@ internal static class AntigravityLiveCascades
             servers = Discover();
             lock (Gate) _servers = (now, servers);
         }
+        return servers;
+    }
+
+    /// The scan runs on a worker thread, so the server calls are waited on.
+    private static IReadOnlyDictionary<string, Run> Fetch(DateTimeOffset now)
+    {
+        var servers = Servers(now);
         if (servers.Count == 0) return Empty;
         var runs = new Dictionary<string, Run>(StringComparer.Ordinal);
         foreach (var (port, token) in servers)

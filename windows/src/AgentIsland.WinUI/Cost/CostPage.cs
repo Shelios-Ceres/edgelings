@@ -18,9 +18,8 @@ namespace AgentIsland.WinUI.Cost;
 /// What the local logs say each agent used, on Settings' Usage & cost page:
 /// a period picker, totals, and one card per agent with its spend or tokens,
 /// a bar chart and its top models. Dollars are API list-price estimates;
-/// Cursor, which bills by its own plan, shows tokens only, and Antigravity
-/// keeps no local log. The page builds one for each showing and disposes of
-/// it when it goes.
+/// Cursor, which bills by its own plan, shows tokens only. The page builds
+/// one for each showing and disposes of it when it goes.
 internal sealed partial class CostPage : IDisposable
 {
     private enum Period
@@ -213,12 +212,13 @@ internal sealed partial class CostPage : IDisposable
 
         // In the drawer's order, one card per character.
         var shown = DrawerStore.Shared.Order.Where(p => p.HasCharacter() && ProviderVisibilityStore.Shared.IsShown(p)).ToList();
-        var slices = shown.Where(p => p != DisplayProvider.Antigravity).Select(CharacterSlice).ToList();
+        var counted = shown.Where(p => p != DisplayProvider.Antigravity || HasLog(p)).ToList();
+        var slices = counted.Select(CharacterSlice).ToList();
         UpdatePeriodCaption(slices);
         var page = new List<UIElement> { Totals(slices) };
-        var cards = shown.Select(provider => provider == DisplayProvider.Antigravity
-            ? NoLogCard(provider, _showAgents)
-            : AgentCard(slices.First(slice => slice.Provider == provider))).ToList();
+        var cards = shown.Select(provider => counted.Contains(provider)
+            ? AgentCard(slices.First(slice => slice.Provider == provider))
+            : NoLogCard(provider, _showAgents)).ToList();
         page.Add(Columns(cards, 2, TwoColumns, new Thickness(0, 8, 0, 0)));
         return page;
     }
@@ -387,10 +387,10 @@ internal sealed partial class CostPage : IDisposable
         return slice with { Recent = summary.RecentModels.Count > 0, NameOf = summary.NameOf };
     }
 
-    /// Cursor bills by its own plan and requests, not tokens; Antigravity
-    /// keeps no log. Everyone else has API list prices.
+    /// Cursor bills by its own plan and requests, not tokens. Everyone else
+    /// has API list prices.
     private static bool ProvidesDollars(DisplayProvider provider) =>
-        provider is not (DisplayProvider.Cursor or DisplayProvider.Antigravity);
+        provider is not DisplayProvider.Cursor;
 
     /// A model the price table does not know and the log did not price.
     private static bool Unpriced(ModelSpend model) =>
@@ -686,7 +686,15 @@ internal sealed partial class CostPage : IDisposable
         HorizontalAlignment = HorizontalAlignment.Right,
     };
 
-    /// Antigravity's card: no log to count, and the way to its quota. Its
+    /// Whether a scan has found any conversation to count. Before the first
+    /// scan it is assumed, so the card is not first the no-log one.
+    private static bool HasLog(DisplayProvider provider)
+    {
+        var summary = CostStore.Shared.Summary(provider);
+        return summary.AsOf is null || summary.DailyHistory.Count > 0 || summary.MonthTokens > 0;
+    }
+
+    /// Antigravity's card while it has no conversation to count, and the way to its quota. Its
     /// head keeps the numbers' room, unseen, so its name lines up with the
     /// name on the card beside it.
     private static FrameworkElement NoLogCard(DisplayProvider provider, Action showAgents)
@@ -703,7 +711,7 @@ internal sealed partial class CostPage : IDisposable
                 Head(provider, room),
                 new TextBlock
                 {
-                    Text = L10n.Tr("Antigravity keeps no local usage log."),
+                    Text = L10n.Tr("Antigravity has no conversations to count yet."),
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
                 },

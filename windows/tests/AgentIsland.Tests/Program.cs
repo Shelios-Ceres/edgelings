@@ -71,6 +71,7 @@ public static class Program
             TokenAccountingTests.RunAll();
             OtherTokenAccountingTests.RunAll();
             PricingTests.RunAll();
+            AntigravityCostTests.RunAll();
             CursorDatabaseTests.RunAll();
             CursorQuotaStateTests.RunAll();
             CodexAccountSwitcherTests.RunAll();

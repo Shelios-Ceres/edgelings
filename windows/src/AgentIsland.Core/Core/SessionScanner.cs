@@ -99,7 +99,7 @@ public static partial class SessionScanner
     /// Immediate subdirectories only, tolerating a missing root and a
     /// directory that vanishes mid-walk (Grok and Kimi Code both rotate their
     /// per-project folders while the monitor is running).
-    private static List<string> SafeEnumerateDirectories(string root)
+    internal static List<string> SafeEnumerateDirectories(string root)
     {
         try
         {

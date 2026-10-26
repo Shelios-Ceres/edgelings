@@ -268,11 +268,9 @@ public static class StatusCards
     }
 
     /// Today's and this month's tokens from the local logs, counted the way
-    /// the Token counting setting says; Grok's include Cursor's. Antigravity
-    /// keeps no local log.
+    /// the Token counting setting says; Grok's include Cursor's.
     public static StatusTokens? Tokens(DisplayProvider provider) => provider switch
     {
-        DisplayProvider.Antigravity => null,
         DisplayProvider.Grok => TokensFrom(TokenTotals.Sum(CostStore.Shared.Totals(DisplayProvider.Grok), CostStore.Shared.Totals(DisplayProvider.Cursor)),
             TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),
         _ => TokensFrom(CostStore.Shared.Totals(provider), TokenCountModeStore.Shared.Mode, DateTimeOffset.Now),

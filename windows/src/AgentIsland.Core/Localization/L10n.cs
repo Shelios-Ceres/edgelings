@@ -425,7 +425,8 @@ public static class L10n
         ["No sessions in the last 5 hours"] = "最近 5 小时没有会话",
         ["Tokens per hour (no price)"] = "每小时 Token（无价格）",
         ["Tokens per day (no price)"] = "每天 Token（无价格）",
-        ["Antigravity keeps no local usage log."] = "Antigravity 不在本机保存用量日志。",
+        ["Antigravity has no conversations to count yet."] = "Antigravity 还没有可统计的对话。",
+        ["Model not named"] = "未命名的模型",
         ["See its quota on the Agents page"] = "在「智能体」页查看它的配额",
         // The look pickers: each look's name (Classic's and Pixel's; Pixel shows English).
         ["Look"] = "外观",

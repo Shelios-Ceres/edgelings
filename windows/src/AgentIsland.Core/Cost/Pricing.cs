@@ -3,7 +3,9 @@ namespace AgentIsland.Cost;
 /// Hardcoded price table (USD per million tokens), snapshot 2026-10-11 of
 /// the first-party entries in LiteLLM's model_prices_and_context_window.json,
 /// with Moonshot's K3.1 Pro, K3 and K2.7 Code rows read from its pricing
-/// page (platform.kimi.ai/docs/pricing/chat) on 2026-10-26.
+/// page (platform.kimi.ai/docs/pricing/chat) and Google's Gemini rows read
+/// from ai.google.dev/gemini-api/docs/pricing (Standard tier), both on
+/// 2026-10-26.
 /// Unknown models price at $0 (ccusage parity) and are surfaced so the UI
 /// can warn about unpriced spend. Moonshot and DeepSeek bill cache writes as
 /// ordinary input, so their creation rate is the input rate.
@@ -80,16 +82,65 @@ public static class Pricing
         ["deepseek-flash"] = new(0.3, 1.2, 0.3, 0.006),
     };
 
+    // Models whose price changes on a date: Google announced both rises ahead
+    // of time. Each list starts at MinValue and the last row whose date has
+    // passed applies, by the event's own time. Rates change at midnight
+    // Pacific time, which is UTC-8 on both dates. Gemini's implicit caching
+    // has no write charge, so creation is the input rate.
+    private static readonly Dictionary<string, (DateTimeOffset From, Price Price)[]> Dated = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["gemini-3.8-flash"] = new[]
+        {
+            (DateTimeOffset.MinValue, new Price(0.75, 3.75, 0.75, 0.075)),
+            (MidnightPacific(2027, 1, 1), new Price(1.5, 7.5, 1.5, 0.15)),
+        },
+        ["gemini-4-argon"] = new[]
+        {
+            (DateTimeOffset.MinValue, new Price(2, 10, 2, 0.1)),
+            (MidnightPacific(2026, 12, 1), new Price(4, 20, 4, 0.2)),
+        },
+    };
+
+    private static DateTimeOffset MidnightPacific(int year, int month, int day) =>
+        new(year, month, day, 0, 0, 0, TimeSpan.FromHours(-8));
+
+    private static bool TryPrice(TokenEvent tokenEvent, out Price price)
+    {
+        var model = CanonicalModelName(tokenEvent.Model);
+        if (Dated.TryGetValue(model, out var rows))
+        {
+            price = rows.Last(row => row.From <= tokenEvent.Timestamp).Price;
+            return true;
+        }
+        return Table.TryGetValue(model, out price!);
+    }
+
     public static double Cost(TokenEvent tokenEvent)
     {
-        if (!Table.TryGetValue(CanonicalModelName(tokenEvent.Model), out var price)) return 0;
+        if (!TryPrice(tokenEvent, out var price)) return 0;
         return (tokenEvent.InputTokens * price.Input
                 + tokenEvent.OutputTokens * price.Output
                 + tokenEvent.CacheCreationTokens * price.CacheCreation
                 + tokenEvent.CacheReadTokens * price.CacheRead) / 1_000_000.0;
     }
 
-    public static bool IsKnown(string model) => Table.ContainsKey(CanonicalModelName(model));
+    public static bool IsKnown(string model) =>
+        Table.ContainsKey(CanonicalModelName(model)) || Dated.ContainsKey(CanonicalModelName(model));
+
+    /// A log's model id trimmed to the longest price key that equals it or
+    /// is a prefix of it ending at a dash ("gemini-4-argon-trial" prices as
+    /// "gemini-4-argon"). An id no key reaches stays as it is.
+    public static string Family(string model)
+    {
+        string? best = null;
+        foreach (var key in Table.Keys.Concat(Dated.Keys))
+        {
+            if (best is not null && key.Length <= best.Length) continue;
+            if (model.Equals(key, StringComparison.OrdinalIgnoreCase)
+                || model.StartsWith(key + "-", StringComparison.OrdinalIgnoreCase)) best = key;
+        }
+        return best ?? model;
+    }
 
     /// Date-suffixed model ids ("claude-haiku-4-5-20251001") strip to their
     /// base form: the suffix is a dash followed by exactly 8 digits.
