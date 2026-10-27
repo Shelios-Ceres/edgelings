@@ -84,6 +84,36 @@ public static class PixelThemeTests
         }
         Console.WriteLine("PASS the pixel panels' English stays inside its scope");
 
+        // A Settings handler holds the scope across an await (a dialog, a hook
+        // write): only its own code reads English, and two of them finishing
+        // out of order leave the app language as it was.
+        L10n.Current = L10n.Language.SimplifiedChinese;
+        try
+        {
+            var readInside = new List<bool>();
+            async Task Handler(Task gate)
+            {
+                using var english = L10n.English();
+                await gate;
+                readInside.Add(L10n.IsChinese);
+            }
+            var first = new TaskCompletionSource();
+            var second = new TaskCompletionSource();
+            var a = Handler(first.Task);
+            Expect(L10n.IsChinese, "the rest of the thread keeps the app language while a scope awaits");
+            var b = Handler(second.Task);
+            first.SetResult();
+            second.SetResult();
+            Task.WaitAll(a, b);
+            Expect(readInside.Count == 2 && readInside.All(chinese => !chinese), "each handler is in English again when it resumes");
+            Expect(L10n.IsChinese, "scopes closed out of order leave nothing stuck");
+        }
+        finally
+        {
+            L10n.Current = language;
+        }
+        Console.WriteLine("PASS an English scope held across an await stays with its own code");
+
         Expect(DrawerLooks.CardPhase(AgentPhase.Thinking, true, CharacterTheme.Pixel) == L10n.Tr("Sleeping")
             && DrawerLooks.CardPhase(AgentPhase.RateLimited, false, CharacterTheme.Pixel) == L10n.Tr("Resting")
             && DrawerLooks.CardPhase(AgentPhase.Thinking, false, CharacterTheme.Pixel) == DrawerLooks.PhaseLabel(AgentPhase.Thinking),

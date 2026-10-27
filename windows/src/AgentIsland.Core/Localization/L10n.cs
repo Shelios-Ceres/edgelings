@@ -16,23 +16,36 @@ public static class L10n
 
     public static Language Current { get; set; } = Language.Auto;
 
-    [ThreadStatic] private static bool _english;
+    private static readonly AsyncLocal<EnglishScope?> _english = new();
 
     /// Within the returned scope this thread localizes to English, whatever
     /// the app language: the pixel panels set their text in a Latin pixel face.
+    /// The scope belongs to the code that opened it, on its thread: an async
+    /// handler that holds it across an await has it again when it resumes,
+    /// but nothing else the thread runs meanwhile does, and scopes closed out
+    /// of order can't leave it stuck.
     public static IDisposable English()
     {
-        var scope = new EnglishScope(_english);
-        _english = true;
+        var scope = new EnglishScope(_english.Value);
+        _english.Value = scope;
         return scope;
     }
 
-    private sealed class EnglishScope(bool previous) : IDisposable
+    private sealed class EnglishScope(EnglishScope? previous) : IDisposable
     {
-        public void Dispose() => _english = previous;
+        public int Thread { get; } = Environment.CurrentManagedThreadId;
+        public bool Open { get; private set; } = true;
+
+        public void Dispose()
+        {
+            Open = false;
+            _english.Value = previous;
+        }
     }
 
-    public static bool IsChinese => !_english && Current switch
+    private static bool InEnglish => _english.Value is { Open: true } scope && scope.Thread == Environment.CurrentManagedThreadId;
+
+    public static bool IsChinese => !InEnglish && Current switch
     {
         Language.SimplifiedChinese => true,
         Language.English => false,
