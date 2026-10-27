@@ -22,8 +22,12 @@ public static class DeepSeekLogReader
         var root = IslandPaths.DeepSeekSessionsRoot;
         if (!Directory.Exists(root)) return new List<TokenEvent>();
         var files = SessionScanner.SafeEnumerateFiles(root, "session.v4.jsonl.zstd");
-        return Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), path => ParseLines(ZstdLog.ReadLines(path)));
+        return Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile);
     }
+
+    /// The log is decoded as it is read, never whole: an active session's
+    /// log can be tens of MB compressed and many times that as text.
+    internal static List<TokenEvent> ParseFile(string path) => ParseLines(LogLines.Read(path, maxLength: 2_000_000));
 
     internal static List<TokenEvent> ParseLines(IEnumerable<string> lines)
     {

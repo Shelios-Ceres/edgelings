@@ -85,6 +85,7 @@ public static class KimiDeepSeekTests
             ("model rows: a cache-heavy model ranks by billable in one mode and by all tokens in the other", ModelRowsFollowMode),
             ("kimi prices: a connected provider's model prices by the provider's own id", KimiProviderPrices),
             ("deepseek tokens: usage follows the header's model", DeepSeekTokens),
+            ("deepseek tokens: a framed log streams frame after frame, a torn tail frame is dropped", DeepSeekFramedLog),
             ("zstd: frames decode, a torn tail frame is dropped", ZstdFrames),
             ("zstd: a window cut mid-frame starts at the next frame", ZstdWindow),
             ("deepseek cwd: the workspace folder decodes", () =>
@@ -241,6 +242,35 @@ public static class KimiDeepSeekTests
         Expect(events[0].Model, "deepseek-flash");
         Expect(events[0].WireTokens, 12946L);
         Expect(events[0].BillableTokens, 1682L);
+    }
+
+    /// The log is a run of frames, one or two events each, and the writer may
+    /// be partway through the last one.
+    private static void DeepSeekFramedLog()
+    {
+        static string Step(int ago, long input) => DeepSeek("assistant/message", ago, new
+        {
+            usage = new { inputTokens = input, outputTokens = 10, cacheReadTokens = 0, cacheWriteTokens = 0 },
+        });
+        var torn = Frame(Step(5, 400) + "\n");
+        var data = Frame(DeepSeek("request/header", 9, new { header = new { config = new { model = "deepseek-flash" } } }) + "\n" + Step(8, 100) + "\n")
+            .Concat(Frame(Step(7, 200) + "\n"))
+            .Concat(Frame(DeepSeek("tool/call", 7, new { name = "pwsh", callId = "p" }) + "\n" + Step(6, 300) + "\n"))
+            .Concat(torn[..(torn.Length / 2)])
+            .ToArray();
+        var path = Path.Combine(Path.GetTempPath(), $"agentisland-deepseek-{Guid.NewGuid():N}.jsonl.zstd");
+        try
+        {
+            File.WriteAllBytes(path, data);
+            var events = DeepSeekLogReader.ParseFile(path);
+            Expect(events.Count, 3);
+            Expect(events.Sum(e => e.InputTokens), 600L);
+            Expect(events.All(e => e.Model == "deepseek-flash"), "every step follows the first frame's header");
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
     }
 
     private static void ZstdFrames()

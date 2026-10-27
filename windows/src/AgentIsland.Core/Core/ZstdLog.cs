@@ -31,15 +31,6 @@ public static class ZstdLog
         return lines.Skip(Math.Max(0, lines.Length - keep)).Select(line => line.TrimEnd('\r')).ToList();
     }
 
-    /// Every line of the log, for the cost reader.
-    public static IEnumerable<string> ReadLines(string path)
-    {
-        using var stream = SharedFile.Open(path);
-        var data = new byte[stream.Length];
-        stream.ReadExactly(data);
-        return Decode(data).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-    }
-
     /// Decodes from the first frame boundary that yields output. Compressed
     /// bytes can contain the magic by chance; a false start fails at once
     /// and the next candidate is tried.

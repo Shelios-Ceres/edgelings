@@ -153,7 +153,7 @@ public static class TokenAccountingTests
         using var fixture = new Fixture();
         var path = fixture.Write("session.zstd");
         using var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-        try { _ = ZstdLog.ReadLines(path).ToList(); }
+        try { _ = DeepSeekLogReader.ParseFile(path); }
         catch (IOException) { return; }
         throw new Exception("compressed cost-reader failure was silently turned into an empty log");
     }

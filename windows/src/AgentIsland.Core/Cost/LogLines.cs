@@ -9,9 +9,9 @@ internal static class LogLines
     /// without the ones a parser would only throw away: longer than
     /// maxLength, or lacking the marker every wanted line carries. The file
     /// opens when the first line is asked for and closes with the loop.
-    /// A `.zst` log is decoded as it is read, so a rollout that is hundreds
-    /// of MB of JSON never sits in memory; a torn or corrupt frame ends the
-    /// read and what decoded before it stands.
+    /// A `.zst` or `.zstd` log is decoded as it is read, frame after frame,
+    /// so a log that is hundreds of MB of JSON never sits in memory; a torn
+    /// or corrupt frame ends the read and what decoded before it stands.
     public static IEnumerable<string> Read(string path, int maxLength, string? mustContain = null) =>
         Read(path, maxLength, mustContain is null ? Array.Empty<string>() : new[] { mustContain });
 
@@ -19,7 +19,8 @@ internal static class LogLines
     /// them when there are none).
     public static IEnumerable<string> Read(string path, int maxLength, string[] markers)
     {
-        var compressed = path.EndsWith(".zst", StringComparison.OrdinalIgnoreCase);
+        var compressed = path.EndsWith(".zst", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".zstd", StringComparison.OrdinalIgnoreCase);
         using var stream = SharedFile.Open(path);
         using var decoded = compressed ? new DecompressionStream(stream, leaveOpen: true) : null;
         using var reader = new StreamReader(decoded ?? (Stream)stream);
