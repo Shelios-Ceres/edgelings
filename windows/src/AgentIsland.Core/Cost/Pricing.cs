@@ -5,7 +5,8 @@ namespace AgentIsland.Cost;
 /// with Moonshot's K3.1 Pro, K3 and K2.7 Code rows read from its pricing
 /// page (platform.kimi.ai/docs/pricing/chat) and Google's Gemini rows read
 /// from ai.google.dev/gemini-api/docs/pricing (Standard tier), both on
-/// 2026-10-26.
+/// 2026-10-26. DeepSeek's rows are its peak rates (api-docs.deepseek.com/
+/// quick_start/pricing, read 2026-10-27); outside its peak hours it bills half.
 /// Unknown models price at $0 (ccusage parity) and are surfaced so the UI
 /// can warn about unpriced spend. Moonshot and DeepSeek bill cache writes as
 /// ordinary input, so their creation rate is the input rate.
@@ -101,6 +102,21 @@ public static class Pricing
         },
     };
 
+    // DeepSeek's peak hours are 01:00-04:00 and 06:00-10:00 UTC, Monday to
+    // Friday; the rest of the week, weekends included, bills at half on all
+    // four rates. Chinese public holidays are not modelled and price as peak.
+    private static readonly HashSet<string> DeepSeekModels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-flash",
+    };
+
+    private static bool IsDeepSeekPeak(DateTimeOffset at)
+    {
+        var utc = at.UtcDateTime;
+        return utc.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday)
+            && utc.Hour is (>= 1 and < 4) or (>= 6 and < 10);
+    }
+
     private static DateTimeOffset MidnightPacific(int year, int month, int day) =>
         new(year, month, day, 0, 0, 0, TimeSpan.FromHours(-8));
 
@@ -112,7 +128,12 @@ public static class Pricing
             price = rows.Last(row => row.From <= tokenEvent.Timestamp).Price;
             return true;
         }
-        return Table.TryGetValue(model, out price!);
+        if (!Table.TryGetValue(model, out price!)) return false;
+        if (DeepSeekModels.Contains(model) && !IsDeepSeekPeak(tokenEvent.Timestamp))
+        {
+            price = new Price(price.Input / 2, price.Output / 2, price.CacheCreation / 2, price.CacheRead / 2);
+        }
+        return true;
     }
 
     public static double Cost(TokenEvent tokenEvent)
