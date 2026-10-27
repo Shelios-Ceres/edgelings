@@ -122,7 +122,7 @@ public static class Pricing
 
     private static bool TryPrice(TokenEvent tokenEvent, out Price price)
     {
-        var model = CanonicalModelName(tokenEvent.Model);
+        var model = CanonicalModelName(tokenEvent.PricedAs ?? tokenEvent.Model);
         if (Dated.TryGetValue(model, out var rows))
         {
             price = rows.Last(row => row.From <= tokenEvent.Timestamp).Price;

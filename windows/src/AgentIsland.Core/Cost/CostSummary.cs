@@ -148,7 +148,7 @@ public static class CostSummarizer
             if (local > now || local < yearStart) continue;
             var dollars = tokenEvent.Dollars;
             var model = Pricing.CanonicalModelName(tokenEvent.Model);
-            if (!Pricing.IsKnown(model)) unknown.Add(model);
+            if (!Pricing.IsKnown(tokenEvent.PricedAs ?? model)) unknown.Add(model);
 
             if (local >= todayStart)
             {

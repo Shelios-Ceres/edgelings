@@ -23,6 +23,11 @@ public sealed record TokenEvent(
     public string? ResponseKey { get; init; }
     public bool IsFinalUsage { get; init; }
 
+    /// The id to price this call under when it differs from <see cref="Model"/>:
+    /// Kimi Code's table id for a connected provider's model ("deepseek/deepseek-flash")
+    /// keeps its name, and the provider's own id ("deepseek-flash") has the price.
+    public string? PricedAs { get; init; }
+
     /// Dollar cost for this event. A provider that ships its own figure
     /// (Grok's costUsdTicks) sets <see cref="SelfReportedCostUSD"/>, and when
     /// present it OVERRIDES the Pricing-table computation — the provider's own

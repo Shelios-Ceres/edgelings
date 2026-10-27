@@ -23,7 +23,8 @@ public static class KimiLogReader
         var root = IslandPaths.KimiSessionsRoot;
         if (!Directory.Exists(root)) return new List<TokenEvent>();
         var files = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl");
-        return Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
+        var events = Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
+        return PriceByProvider(events, ProviderModels());
     }
 
     /// What Kimi Code calls its plan's models, by id, from the
@@ -34,7 +35,7 @@ public static class KimiLogReader
     {
         try
         {
-            return ModelNames(File.ReadAllText(Path.Combine(IslandPaths.Home, ".kimi-code", "config.toml")));
+            return ModelNames(ReadConfig());
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -42,29 +43,99 @@ public static class KimiLogReader
         }
     }
 
-    private static readonly Regex ModelTable = new(@"^\[\s*models\s*\.\s*""(?<id>[^""\\]+)""\s*\]\s*(#.*)?$");
-    private static readonly Regex DisplayName = new(@"^display_name\s*=\s*""(?<name>(?:[^""\\]|\\.)*)""\s*(#.*)?$");
+    private static string ReadConfig() =>
+        File.ReadAllText(Path.Combine(IslandPaths.Home, ".kimi-code", "config.toml"));
 
-    internal static Dictionary<string, string> ModelNames(string config)
+    /// Kimi's own provider; any other [models] table points at a provider the
+    /// user connected, whose price list is the model's own.
+    private const string OwnProvider = "managed:kimi-code";
+
+    private static readonly Regex ModelTable = new(@"^\[\s*models\s*\.\s*""(?<id>[^""\\]+)""\s*\]\s*(#.*)?$");
+    private static readonly Regex ModelKey = new(@"^(?<key>display_name|provider|model)\s*=\s*""(?<value>(?:[^""\\]|\\.)*)""\s*(#.*)?$");
+
+    private sealed record ModelEntry(string? Name, string? Provider, string? Model);
+
+    /// One pass over the settings. Only the display_name, provider and model
+    /// keys of the [models."<id>"] tables are read: a [providers] table holds
+    /// API keys, and nothing else of the file is looked at or kept.
+    private static Dictionary<string, ModelEntry> ReadModelTables(string config)
     {
-        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        string? model = null;
+        var tables = new Dictionary<string, ModelEntry>(StringComparer.OrdinalIgnoreCase);
+        string? id = null;
         foreach (var raw in config.Split('\n'))
         {
             var line = raw.Trim();
             if (line.StartsWith('['))
             {
                 var table = ModelTable.Match(line);
-                model = table.Success ? table.Groups["id"].Value : null;
+                id = table.Success ? table.Groups["id"].Value : null;
                 continue;
             }
-            if (model is null || DisplayName.Match(line) is not { Success: true } match) continue;
-            string name;
-            try { name = Regex.Unescape(match.Groups["name"].Value).Trim(); }
+            if (id is null || ModelKey.Match(line) is not { Success: true } match) continue;
+            string value;
+            try { value = Regex.Unescape(match.Groups["value"].Value).Trim(); }
             catch (ArgumentException) { continue; }
-            if (name.Length > 0) names[model] = name;
+            if (value.Length == 0) continue;
+            tables.TryGetValue(id, out var entry);
+            entry ??= new ModelEntry(null, null, null);
+            tables[id] = match.Groups["key"].Value switch
+            {
+                "display_name" => entry with { Name = value },
+                "provider" => entry with { Provider = value },
+                _ => entry with { Model = value },
+            };
+        }
+        return tables;
+    }
+
+    internal static Dictionary<string, string> ModelNames(string config)
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, entry) in ReadModelTables(config))
+        {
+            if (entry.Name is { } name) names[id] = name;
         }
         return names;
+    }
+
+    /// The provider's own model id of each table that points at another
+    /// provider ("deepseek/deepseek-flash" is "deepseek-flash"), which is what
+    /// Pricing knows it by.
+    internal static Dictionary<string, string> ProviderModels(string config)
+    {
+        var models = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, entry) in ReadModelTables(config))
+        {
+            if (entry.Provider is { } provider && !provider.Equals(OwnProvider, StringComparison.OrdinalIgnoreCase)
+                && entry.Model is { } model)
+            {
+                models[id] = model;
+            }
+        }
+        return models;
+    }
+
+    private static IReadOnlyDictionary<string, string> ProviderModels()
+    {
+        try
+        {
+            return ProviderModels(ReadConfig());
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return new Dictionary<string, string>();
+        }
+    }
+
+    /// An event of another provider's model that has no price under the
+    /// table's id is priced under the provider's own id; the event keeps the
+    /// table id, so names and the parse cache are unaffected.
+    internal static List<TokenEvent> PriceByProvider(List<TokenEvent> events, IReadOnlyDictionary<string, string> providerModels)
+    {
+        if (providerModels.Count == 0) return events;
+        return events.Select(e => providerModels.TryGetValue(e.Model, out var model) && !Pricing.IsKnown(e.Model)
+            ? e with { PricedAs = model }
+            : e).ToList();
     }
 
     internal static List<TokenEvent> ParseFile(string path)

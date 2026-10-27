@@ -81,6 +81,7 @@ public static class KimiDeepSeekTests
                 DeepSeek("step/end", 31), DeepSeek("turn/end", 30, new { reason = new { kind = "completed" } }))),
             ("kimi tokens: a usage record splits input and cache", KimiTokens),
             ("kimi names: its settings name the plan's models", KimiNames),
+            ("kimi prices: a connected provider's model prices by the provider's own id", KimiProviderPrices),
             ("deepseek tokens: usage follows the header's model", DeepSeekTokens),
             ("zstd: frames decode, a torn tail frame is dropped", ZstdFrames),
             ("zstd: a window cut mid-frame starts at the next frame", ZstdWindow),
@@ -131,6 +132,58 @@ public static class KimiDeepSeekTests
         Expect(names.Count, 2);
         Expect(names["kimi-code/kimi-for-coding"], "K2.8 Preview");
         Expect(names["KIMI-CODE/K3"], "K3");
+    }
+
+    private const string ProviderConfig = """
+        default_model = "deepseek/deepseek-flash"
+        [providers.deepseek]
+        type = "openai"
+        base_url = "https://api.deepseek.com"
+        api_key = "sk-fixture-not-a-real-key"
+        [providers."managed:kimi-code"]
+        type = "kimi"
+        [models."deepseek/deepseek-flash"]
+        provider = "deepseek"
+        model = "deepseek-flash"
+        display_name = "DeepSeek V4.1 Flash 1017"
+        [models."deepseek/deepseek-v4-pro"]
+        provider = "deepseek"
+        model = "deepseek-v4-pro"
+        display_name = "DeepSeek V4 Pro"
+        [models."kimi-code/unpriced-sample"]
+        provider = "managed:kimi-code"
+        model = "unpriced-sample"
+        display_name = "Sample"
+        [models."kimi-code/k3"]
+        provider = "elsewhere"
+        model = "not-a-priced-id"
+        """;
+
+    private static void KimiProviderPrices()
+    {
+        var providers = KimiLogReader.ProviderModels(ProviderConfig);
+        Expect(providers.Count, 3);
+        Expect(providers["deepseek/deepseek-flash"], "deepseek-flash");
+        Expect(providers["deepseek/deepseek-v4-pro"], "deepseek-v4-pro");
+        Expect(providers.ContainsKey("kimi-code/unpriced-sample"), false);
+        Expect(providers.Values.Any(v => v.Contains("sk-") || v.Contains("api.deepseek")), false);
+
+        // Tuesday 07:00 UTC is DeepSeek's peak: flash 0.3 + 1.2 + 0.3 + 0.006, pro 1.32 + 3.96 + 1.32 + 0.044.
+        var peak = new DateTimeOffset(2026, 10, 27, 7, 0, 0, TimeSpan.Zero);
+        TokenEvent Event(string model) => new(TriggerTool.Kimi, peak, model, 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        var events = KimiLogReader.PriceByProvider(
+            new List<TokenEvent> { Event("deepseek/deepseek-flash"), Event("deepseek/deepseek-v4-pro"), Event("kimi-code/unpriced-sample"), Event("kimi-code/k3") },
+            providers);
+        Expect(string.Join(",", events.Select(e => e.Model)),
+            "deepseek/deepseek-flash,deepseek/deepseek-v4-pro,kimi-code/unpriced-sample,kimi-code/k3");
+        Expect(Math.Abs(events[0].Dollars - 1.806) < 1e-9, $"flash priced, got {events[0].Dollars}");
+        Expect(Math.Abs(events[1].Dollars - 6.644) < 1e-9, $"pro priced, got {events[1].Dollars}");
+        Expect(events[2].Dollars, 0.0);
+        Expect(events[2].PricedAs, null);
+        Expect(events[3].PricedAs, null);
+        Expect(Math.Abs(events[3].Dollars - 21.3) < 1e-9, "a model that already has a price keeps it");
+        Expect(string.Join(",", CostSummarizer.Summarize(events, peak.AddHours(1)).UnknownModels), "kimi-code/unpriced-sample");
+        Expect(KimiLogReader.ModelNames(ProviderConfig)["deepseek/deepseek-flash"], "DeepSeek V4.1 Flash 1017");
     }
 
     private static void DeepSeekTokens()
