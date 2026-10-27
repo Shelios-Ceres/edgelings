@@ -45,7 +45,9 @@ public static partial class SessionScanner
             // conversation last moved. Falling back to the db mtime was the
             // bug behind a permanently spinning logo: Cursor rewrites that
             // file continuously while it is merely open.
-            if (turn.ActivityDate is not { } stamp) continue;
+            if (turn.ActivityDate is not { } createdAt) continue;
+            DateTimeOffset stamp;
+            lock (CursorGate) stamp = _cursorClock.Observe(composerId, turn.Key, json, createdAt, now);
             parsed.Add(new CursorConversation(
                 composerId,
                 CursorConversations.Title(json) ?? composerId[..Math.Min(8, composerId.Length)],
@@ -57,6 +59,7 @@ public static partial class SessionScanner
 
         lock (CursorGate)
         {
+            _cursorClock.Keep(parsed.ConvertAll(c => c.Id));
             _cursorStamp = fingerprint;
             _cursorReadAt = now;
             _cursorCache = parsed;
@@ -68,6 +71,7 @@ public static partial class SessionScanner
     private static string _cursorStamp = "";
     private static DateTimeOffset _cursorReadAt = DateTimeOffset.MinValue;
     private static List<CursorConversation> _cursorCache = new();
+    private static readonly CursorBubbleClock _cursorClock = new();
     private static TimeSpan CursorRereadAfter => TimeSpan.FromSeconds(10);
 
     /// One parsed conversation. Deliberately holds no status: status is a
@@ -98,7 +102,7 @@ public static partial class SessionScanner
     /// Assistant-last plus a quiet gap means the turn finished; assistant-last
     /// while still streaming reads as working. A user bubble last means the
     /// agent is thinking.
-    private static ActivityState CursorStatus(SessionTurnStatus turn, DateTimeOffset stamp, DateTimeOffset now)
+    internal static ActivityState CursorStatus(SessionTurnStatus turn, DateTimeOffset stamp, DateTimeOffset now)
     {
         var age = now - stamp;
         if (turn.IsDone)
