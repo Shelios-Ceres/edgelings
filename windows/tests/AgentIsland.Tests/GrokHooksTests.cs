@@ -28,6 +28,7 @@ public static class GrokHooksTests
             ("the scan reads a pending marker as the session's approval", ScanReadsApproval),
             ("a completed turn is not reopened by a late marker", ClosedTurnStaysClosed),
             ("a marker wakes the file watcher, another folder's json does not", MarkerWakesWatcher),
+            ("sessions, auth and hooks all read one Grok home", OneGrokHome),
         };
         foreach (var (name, test) in tests)
         {
@@ -212,6 +213,31 @@ public static class GrokHooksTests
         Expect(TranscriptEventStream.IsRelevant(Path.Combine(root, "local_1234.json")), "a Claude Desktop session still does");
         Expect(TranscriptEventStream.IsRelevant(Path.Combine(root, "updates.jsonl")), "a transcript still does");
     });
+
+    /// GROK_HOME as the CLI reads it, ~ expanded, with every reader under it.
+    private static void OneGrokHome()
+    {
+        var home = IslandPaths.Home;
+        Expect(IslandPaths.GrokHomeFrom(null), Path.Combine(home, ".grok"));
+        Expect(IslandPaths.GrokHomeFrom("  "), Path.Combine(home, ".grok"));
+        Expect(IslandPaths.GrokHomeFrom(@" D:\grok "), @"D:\grok");
+        Expect(IslandPaths.GrokHomeFrom("~"), home);
+        Expect(IslandPaths.GrokHomeFrom("~/grok"), Path.Combine(home, "grok"));
+        Expect(IslandPaths.GrokHomeFrom(@"~\grok"), Path.Combine(home, "grok"));
+        var grokHome = IslandPaths.GrokHome;
+        Expect(IslandPaths.GrokSessionsRoot, Path.Combine(grokHome, "sessions"));
+        Expect(AgentIsland.Usage.GrokAuthFile.DefaultPath, Path.Combine(grokHome, "auth.json"));
+        var before = GrokHooks.HooksDirectory;
+        GrokHooks.HooksDirectory = "";
+        try
+        {
+            Expect(GrokHooks.HookPath, Path.Combine(grokHome, "hooks", GrokHooks.HookFileName));
+        }
+        finally
+        {
+            GrokHooks.HooksDirectory = before;
+        }
+    }
 
     private static void ScanReadsApproval() => With((root, _, signals) =>
     {

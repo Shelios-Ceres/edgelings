@@ -25,10 +25,6 @@ public static class GrokHooks
     /// What the hook's command holds, which tells our file from another's.
     private const string Marker = ScriptFileName;
 
-    /// Grok's home: GROK_HOME, else ~/.grok.
-    public static string GrokHome =>
-        Environment.GetEnvironmentVariable("GROK_HOME") is { Length: > 0 } home ? home : Path.Combine(IslandPaths.Home, ".grok");
-
     /// Where the hook file goes; tests point it elsewhere.
     internal static string HooksDirectory { get; set; } = "";
 
@@ -36,7 +32,7 @@ public static class GrokHooks
     internal static string ScriptDirectory { get; set; } = "";
     internal static string SignalDirectory { get; set; } = "";
 
-    private static string Hooks => HooksDirectory.Length > 0 ? HooksDirectory : Path.Combine(GrokHome, "hooks");
+    private static string Hooks => HooksDirectory.Length > 0 ? HooksDirectory : Path.Combine(IslandPaths.GrokHome, "hooks");
     private static string Scripts => ScriptDirectory.Length > 0 ? ScriptDirectory : IslandPaths.AppSupportDir;
     internal static string Signals => SignalDirectory.Length > 0 ? SignalDirectory : Path.Combine(IslandPaths.AppSupportDir, "grok-hooks");
 

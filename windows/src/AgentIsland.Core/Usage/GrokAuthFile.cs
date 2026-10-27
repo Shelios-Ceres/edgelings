@@ -36,10 +36,8 @@ public static class GrokAuthFile
 
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
-    /// GROK_HOME overrides the credential directory, matching the CLI. A
-    /// tilde-prefixed value is expanded here: Windows shells never do it, and
-    /// the variable travels inside dotfiles copied over from a Mac.
-    public static string DefaultPath => Path.Combine(GrokHome, "auth.json");
+    /// GROK_HOME overrides the credential directory, matching the CLI.
+    public static string DefaultPath => Path.Combine(IslandPaths.GrokHome, "auth.json");
 
     public static bool Exists(string? path = null) => File.Exists(path ?? DefaultPath);
 
@@ -226,30 +224,7 @@ public static class GrokAuthFile
         }
     }
 
-    // MARK: - Paths and value coercion
-
-    private static string GrokHome
-    {
-        get
-        {
-            var custom = Environment.GetEnvironmentVariable("GROK_HOME");
-            return string.IsNullOrWhiteSpace(custom)
-                ? Path.Combine(IslandPaths.Home, ".grok")
-                : ExpandHome(custom);
-        }
-    }
-
-    private static string ExpandHome(string raw)
-    {
-        var trimmed = raw.Trim();
-        if (trimmed == "~") return IslandPaths.Home;
-        if (trimmed.StartsWith("~/", StringComparison.Ordinal)
-            || trimmed.StartsWith(@"~\", StringComparison.Ordinal))
-        {
-            return Path.Combine(IslandPaths.Home, trimmed[2..]);
-        }
-        return trimmed;
-    }
+    // MARK: - Value coercion
 
     private static string? NonEmpty(JsonNode? node)
     {

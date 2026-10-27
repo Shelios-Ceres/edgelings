@@ -28,7 +28,7 @@ public static class GrokLogReader
     public static List<TokenEvent> Scan(int lookbackDays)
     {
         var cutoff = DateTimeOffset.Now.AddDays(-lookbackDays);
-        var root = Path.Combine(IslandPaths.Home, ".grok", "sessions");
+        var root = IslandPaths.GrokSessionsRoot;
         if (!Directory.Exists(root)) return new List<TokenEvent>();
 
         var seen = new HashSet<string>(StringComparer.Ordinal);

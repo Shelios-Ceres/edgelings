@@ -68,9 +68,25 @@ public static class IslandPaths
     public static string CodexSessionIndexFile => Path.Combine(CodexHome, "session_index.jsonl");
     public static string CodexAuthFile => Path.Combine(CodexHome, "auth.json");
 
+    /// The grok CLI's home: GROK_HOME, else ~/.grok. Its sessions, auth.json
+    /// and hooks all live under it. A leading ~ is expanded here: Windows
+    /// shells never do it, and the variable travels inside dotfiles copied
+    /// over from a Mac.
+    public static string GrokHome => GrokHomeFrom(Environment.GetEnvironmentVariable("GROK_HOME"));
+
+    internal static string GrokHomeFrom(string? custom)
+    {
+        if (string.IsNullOrWhiteSpace(custom)) return Path.Combine(Home, ".grok");
+        var trimmed = custom.Trim();
+        if (trimmed == "~") return Home;
+        return trimmed.StartsWith("~/", StringComparison.Ordinal) || trimmed.StartsWith(@"~\", StringComparison.Ordinal)
+            ? Path.Combine(Home, trimmed[2..])
+            : trimmed;
+    }
+
     /// Grok CLI: one folder per percent-encoded working directory, one per
     /// session, the live event stream at updates.jsonl.
-    public static string GrokSessionsRoot => Path.Combine(Home, ".grok", "sessions");
+    public static string GrokSessionsRoot => Path.Combine(GrokHome, "sessions");
 
     /// Kimi Code (CLI and desktop app share it): one folder per working
     /// directory, one per session, the live event log at agents/main/wire.jsonl.
