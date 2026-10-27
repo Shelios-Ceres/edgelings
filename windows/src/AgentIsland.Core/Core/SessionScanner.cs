@@ -271,6 +271,7 @@ public static partial class SessionScanner
             DesktopSessions.Clear();
             AntigravityTitles.Clear();
             AntigravityHistories.Clear();
+            GrokTitles.Clear();
         }
         _codexTitles = new("", new());
     }

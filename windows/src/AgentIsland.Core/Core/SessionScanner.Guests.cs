@@ -20,9 +20,9 @@ public static partial class SessionScanner
             foreach (var sessionDir in SafeEnumerateDirectories(projectDir))
             {
                 var summary = Path.Combine(sessionDir, "summary.json");
-                if (!File.Exists(summary)) continue;
+                if (FileStamp(summary) is not { Length: > 0 } stamp) continue;
                 var sid = Path.GetFileName(sessionDir);
-                var title = GrokTitle(summary);
+                var title = GrokTitle(summary, stamp);
                 var updates = Path.Combine(sessionDir, "updates.jsonl");
                 var transcript = File.Exists(updates)
                     ? updates
@@ -43,18 +43,34 @@ public static partial class SessionScanner
         return output;
     }
 
-    private static string GrokTitle(string summaryPath)
+    private static readonly Dictionary<string, (string Stamp, string Title)> GrokTitles = new(StringComparer.Ordinal);
+
+    /// The tree holds every session ever run, and a summary changes only when
+    /// Grok rewrites it, so each one is parsed once per write time and length.
+    internal static string GrokTitle(string summaryPath, string stamp)
     {
+        lock (ScanCacheGate)
+        {
+            if (GrokTitles.TryGetValue(summaryPath, out var known) && known.Stamp == stamp) return known.Title;
+        }
+        string title;
         try
         {
             using var stream = SharedFile.Open(summaryPath);
             using var doc = System.Text.Json.JsonDocument.Parse(stream);
-            return (Jsonl.GetString(doc.RootElement, "session_summary") ?? "").Trim();
+            title = (Jsonl.GetString(doc.RootElement, "session_summary") ?? "").Trim();
         }
         catch
         {
+            // Read again next scan: a summary caught mid-write still changes.
             return "";
         }
+        lock (ScanCacheGate)
+        {
+            if (GrokTitles.Count > 5000) GrokTitles.Clear();
+            GrokTitles[summaryPath] = (stamp, title);
+        }
+        return title;
     }
 
     /// One folder per working directory, one per session; the main agent's

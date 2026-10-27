@@ -19,6 +19,7 @@ public static class GrokTurnStateTests
             ("frames without an update block are skipped", TestNonUpdateFramesSkipped),
             ("an out-of-range timestamp reads as no date", TestOutOfRangeTimestamp),
             ("an empty transcript is not done", TestEmptyTranscript),
+            ("a session's summary is parsed once per change", TestTitleParsedOncePerChange),
         };
         foreach (var (name, test) in tests)
         {
@@ -26,6 +27,27 @@ public static class GrokTurnStateTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("GrokTurnStateTests GREEN");
+    }
+
+    private static void TestTitleParsedOncePerChange()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"agentisland-grok-summary-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, """{"session_summary":" Fix the drawer "}""");
+            Expect(SessionScanner.GrokTitle(path, "stamp-1"), "Fix the drawer");
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Expect(SessionScanner.GrokTitle(path, "stamp-1"), "Fix the drawer");
+                Expect(SessionScanner.GrokTitle(path, "stamp-2"), "");
+            }
+            File.WriteAllText(path, """{"session_summary":"Ship it"}""");
+            Expect(SessionScanner.GrokTitle(path, "stamp-2"), "Ship it");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static void TestTurnCompletedIsDone()
