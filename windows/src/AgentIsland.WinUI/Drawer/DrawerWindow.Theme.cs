@@ -103,6 +103,8 @@ internal sealed partial class DrawerWindow
                 slot.Gazing = false;
                 slot.Svg = null;
                 slot.NextStep = 0;
+                // A bot held still steps into its new look's settled pose first.
+                slot.Since = _clock.Elapsed.TotalSeconds;
                 var holdsStill = DrawerLooks.HoldsStill(slot.Hold, theme, _reducedMotion, look);
                 engine.SetState(index, slot.Hold, holdsStill ? 0 : -1);
                 if (theme == CharacterTheme.Pixel && !holdsStill && !_reducedMotion) engine.Poke(index);
