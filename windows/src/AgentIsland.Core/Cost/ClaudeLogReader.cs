@@ -30,8 +30,10 @@ public static class ClaudeLogReader
         var output = new List<TokenEvent>();
         // A pathological multi-MB line (an embedded payload) can't be a
         // usage event; it is skipped before parsing so it never balloons
-        // peak memory (the macOS 64 MiB backstop's job, done harder).
-        foreach (var line in LogLines.Read(path, maxLength: 1_000_000))
+        // peak memory (the macOS 64 MiB backstop's job, done harder). Every
+        // usage event carries the "usage" key; user turns and tool results,
+        // most of the log, are never JSON-parsed.
+        foreach (var line in LogLines.Read(path, maxLength: 1_000_000, mustContain: "\"usage\""))
         {
             using var doc = Jsonl.TryParseLine(line);
             if (doc is null) continue;
