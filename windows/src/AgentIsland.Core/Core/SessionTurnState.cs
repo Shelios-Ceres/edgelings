@@ -554,11 +554,15 @@ public static class SessionTurnState
         && Jsonl.GetObject(envelope, "message") is { } message
         && Jsonl.GetString(message, "role") == "user";
 
-    /// DeepSeek Harness brackets every turn with turn/start … turn/end;
-    /// after the end only session bookkeeping is written, and a spliced inbox
-    /// message or turn/start opens the next one. `time` is unix milliseconds.
+    /// DeepSeek Harness brackets every turn with turn/start … turn/end. As
+    /// with Kimi, only a prompt (turn/start, the user's message, a spliced
+    /// inbox message) or the model at work (a request, a step, its message, a
+    /// tool call or result) opens a turn; anything else written after the end
+    /// (session bookkeeping, or a record a later version adds) is walked past.
+    /// An open turn is dated by its newest line. `time` is unix milliseconds.
     public static SessionTurnStatus DeepSeek(IReadOnlyList<string> lines)
     {
+        SessionTurnStatus? newest = null;
         for (var i = lines.Count - 1; i >= 0; i--)
         {
             using var doc = Jsonl.TryParseLine(lines[i]);
@@ -574,11 +578,15 @@ public static class SessionTurnState
                 case "session/end-seed" or "session/title" or "workspace/changes"
                     or "session-log-deepseek/delivery-accepted":
                     continue;
+                case "turn/start" or "user/message" or "agent/inbox/spliced" or "request/header" or "step/start"
+                    or "assistant/message" or "tool/call" or "tool/result":
+                    return newest ?? new SessionTurnStatus(false, key, stamp);
                 default:
-                    return new SessionTurnStatus(false, key, stamp);
+                    newest ??= new SessionTurnStatus(false, key, stamp);
+                    continue;
             }
         }
-        return new SessionTurnStatus(false, null, null);
+        return newest ?? new SessionTurnStatus(false, null, null);
     }
 
     private static string Stamp(DateTimeOffset? stamp) => stamp is { } s

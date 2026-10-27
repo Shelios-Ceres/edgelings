@@ -51,6 +51,9 @@ public static class KimiDeepSeekTests
                 DeepSeek("assistant/message", 9), DeepSeek("turn/end", 8), DeepSeek("session/end-seed", 7))),
             ("deepseek turn: a spliced inbox message reopens it", () => DeepSeekDone(false,
                 DeepSeek("turn/end", 8), DeepSeek("agent/inbox/spliced", 7))),
+            ("deepseek turn: a record it does not know leaves the close", () => DeepSeekDone(true,
+                DeepSeek("assistant/message", 9), DeepSeek("turn/end", 8), DeepSeek("session/resumed", 7), DeepSeek("session/rebind", 6))),
+            ("deepseek turn: an open turn is dated by its newest line", DeepSeekOpenTurn),
             ("kimi phase: a pending Bash call is running", () => KimiPhase(AgentPhase.Running,
                 Loop("step.begin", 6), Loop("tool.call", 5, new { name = "Bash", toolCallId = "b" }))),
             ("kimi phase: a returned call reads as thinking", () => KimiPhase(AgentPhase.Thinking,
@@ -362,6 +365,17 @@ public static class KimiDeepSeekTests
 
     private static void KimiDone(bool expected, params string[] lines) =>
         Expect(SessionTurnState.Kimi(lines).IsDone, expected);
+
+    private static void DeepSeekOpenTurn()
+    {
+        var turn = SessionTurnState.DeepSeek(new[]
+        {
+            DeepSeek("turn/end", 30), DeepSeek("turn/start", 20), DeepSeek("step/start", 19), DeepSeek("step/progress", 4),
+        });
+        Expect(!turn.IsDone, "a step after the close opens the next turn");
+        Expect(turn.ActivityDate == Now.AddSeconds(-4) && turn.Key?.EndsWith(":step/progress", StringComparison.Ordinal) == true,
+            $"dated by its newest line, got {turn.Key}");
+    }
 
     private static void DeepSeekDone(bool expected, params string[] lines) =>
         Expect(SessionTurnState.DeepSeek(lines).IsDone, expected);
