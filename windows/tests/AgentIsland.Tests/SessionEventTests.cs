@@ -20,6 +20,8 @@ public static class SessionEventTests
             ("a new turn of the same session is a new event", TestNewTurnIsNewEvent),
             ("a turn that ended long ago is not news", TestOldDoneIsNotNews),
             ("a turn that ended on an error is an error", TestErrorKind),
+            ("a turn that ended on a lost connection, a limit or a sign-in is an error", TestEndedOnTroubleIsError),
+            ("a question stays waiting while the connection drops", TestQuestionSurvivesNetworkTrouble),
             ("a hook prompt is an approval, once", TestApprovalFromHook),
             ("a question in the transcript speaks while the session works", TestQuestionFromTranscript),
             ("an answered prompt leaves the waiting list", TestAnsweredPromptLeaves),
@@ -130,6 +132,37 @@ public static class SessionEventTests
         rig.Detector.Observe(new[] { Session("a", ActivityState.Working, T0) }, T0);
         var seen = rig.Detector.Observe(new[] { Session("a", ActivityState.NeedsYou, T0.AddSeconds(10)) }, T0.AddSeconds(12));
         Expect(seen.Fresh.Count == 1 && seen.Fresh[0].Kind == SessionEventKind.Error && seen.Fresh[0].Key.StartsWith("error:"), "an error is not 'done'");
+    }
+
+    private static void TestEndedOnTroubleIsError()
+    {
+        foreach (var trouble in new[] { ActivityState.NetworkTrouble, ActivityState.RateLimited, ActivityState.AuthRequired })
+        {
+            var rig = new Rig();
+            rig.Detector.Observe(new[] { Session("a", ActivityState.Working, T0) }, T0);
+            var ended = new[] { Session("a", trouble, T0.AddSeconds(10)) with { TurnEnded = true } };
+            var seen = rig.Detector.Observe(ended, T0.AddSeconds(12));
+            Expect(seen.Fresh.Count == 1 && seen.Fresh[0].Kind == SessionEventKind.Error && seen.Fresh[0].Key == "error:claude:a:t1",
+                $"{trouble}: the turn's end speaks once, as an error");
+            Expect(seen.Waiting.Count == 1, $"{trouble}: and it waits on the user");
+            Expect(rig.Detector.Observe(ended, T0.AddSeconds(18)).Fresh.Count == 0, $"{trouble}: once");
+        }
+        var retrying = new Rig();
+        retrying.Detector.Observe(new[] { Session("a", ActivityState.Working, T0) }, T0);
+        var still = retrying.Detector.Observe(new[] { Session("a", ActivityState.NetworkTrouble, T0.AddSeconds(10)) }, T0.AddSeconds(12));
+        Expect(still.Fresh.Count == 0 && still.Waiting.Count == 0, "a turn still retrying waits on nobody");
+    }
+
+    private static void TestQuestionSurvivesNetworkTrouble()
+    {
+        var rig = new Rig();
+        rig.Detector.Observe(new[] { Session("a", ActivityState.Working, T0) }, T0);
+        rig.Phases["/t/a.jsonl"] = new PhaseReading(AgentPhase.Asking, "AskUserQuestion", T0.AddSeconds(20));
+        var asked = rig.Detector.Observe(new[] { Session("a", ActivityState.Working, T0.AddSeconds(20)) }, T0.AddSeconds(22));
+        Expect(asked.Fresh.Count == 1 && asked.Fresh[0].Kind == SessionEventKind.Question, "the question speaks");
+        var offline = rig.Detector.Observe(new[] { Session("a", ActivityState.NetworkTrouble, T0.AddSeconds(20)) }, T0.AddSeconds(28));
+        Expect(offline.Waiting.Count == 1 && offline.Waiting[0].Key == asked.Fresh[0].Key, "it stays on the list while offline");
+        Expect(offline.Fresh.Count == 0, "without speaking again");
     }
 
     private static void TestApprovalFromHook()

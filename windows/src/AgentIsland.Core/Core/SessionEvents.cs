@@ -105,15 +105,23 @@ public sealed class SessionEventDetector
         if (session.PendingPrompt is { } prompt && prompt.Phase is AgentPhase.Asking or AgentPhase.Approving)
             return Prompt(session, title, prompt, now);
 
-        if (session.Status == ActivityState.Working && session.TranscriptPath is { } working
+        // A question stays open while the connection drops under it.
+        if (session.Status is ActivityState.Working or ActivityState.NetworkTrouble && session.TranscriptPath is { } working
             && _classify(session.Tool, working, now) is { } reading
             && reading.Phase is AgentPhase.Asking or AgentPhase.Approving)
         {
             return Prompt(session, title, reading, now);
         }
 
-        if (session.Status != ActivityState.NeedsYou) return null;
         var turn = session.TurnKey ?? session.Modified.UtcTicks.ToString();
+        // A turn that ended on a lost connection, a limit or a sign-in is the
+        // user's to see to, as any other error is.
+        if (session.TurnEnded && session.Status.IsAttentionState())
+        {
+            return new SessionEvent(session.Tool, session.SessionId, title, SessionEventKind.Error,
+                "error:" + sessionKey + ":" + turn, session.Modified);
+        }
+        if (session.Status != ActivityState.NeedsYou) return null;
         var failed = session.TranscriptPath is { } done && _classify(session.Tool, done, now) is { Phase: AgentPhase.Failed };
         return new SessionEvent(
             session.Tool, session.SessionId, title,
