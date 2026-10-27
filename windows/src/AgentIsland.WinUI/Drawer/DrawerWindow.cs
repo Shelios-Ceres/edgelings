@@ -328,10 +328,15 @@ internal sealed partial class DrawerWindow : Window
         timer.Tick += (_, _) =>
         {
             timer.Stop();
+            _after.Remove(timer);
             if (!_closed) action();
         };
+        _after.Add(timer);
         timer.Start();
     }
+
+    // After's timers, held so they are not collected before they tick.
+    private readonly HashSet<DispatcherQueueTimer> _after = new();
 
     public void Relocalize() => RefreshCard();
 
@@ -344,6 +349,8 @@ internal sealed partial class DrawerWindow : Window
         _cardClose.Stop();
         _cardIntent.Stop();
         _momentGuard.Stop();
+        foreach (var timer in _after) timer.Stop();
+        _after.Clear();
         _card.Dispose();
         Hush();
         _subscriptions.Dispose();
