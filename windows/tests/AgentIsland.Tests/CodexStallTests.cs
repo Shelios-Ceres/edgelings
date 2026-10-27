@@ -22,6 +22,8 @@ public static class CodexStallTests
             ("codex usage limit is out of quota", TestUsageLimitIsRateLimited),
             ("codex interrupted turn is idle, not stalled", TestInterruptedTurnIsIdle),
             ("codex new turn after an interrupt is working", TestTurnAfterInterruptIsWorking),
+            ("codex /compact, /undo and a !command after a turn leave the session idle", TestLocalTasksAreIdle),
+            ("codex turn that ended on its model's answer still waits on the user", TestModelTurnAfterLocalTaskWaits),
         };
         foreach (var (name, test) in tests)
         {
@@ -135,6 +137,71 @@ public static class CodexStallTests
             Line(aborted.AddSeconds(20), "response_item", """{"type":"message","role":"user","content":[{"type":"input_text","text":"try again"}]}"""),
         }, now, lastWorking: aborted);
         Expect(state.Status == ActivityState.Working, $"a turn started after an interrupt must be working, got {state.Status}");
+    }
+
+    private static string[] FinishedTurn() => new[]
+    {
+        Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
+        Line(Start, "event_msg", """{"type":"user_message","message":"build it"}"""),
+        Line(Start.AddMinutes(1), "response_item", """{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Built."}]}"""),
+        Line(Start.AddMinutes(1), "event_msg", """{"type":"task_complete","turn_id":"t1"}"""),
+    };
+
+    private static void TestLocalTasksAreIdle()
+    {
+        var at = Start.AddMinutes(2);
+        var tasks = new Dictionary<string, string[]>
+        {
+            ["/compact"] = new[]
+            {
+                Line(at, "compacted", """{"message":"summary","replacement_history":[]}"""),
+                Line(at, "event_msg", """{"type":"context_compacted"}"""),
+            },
+            ["/undo"] = new[] { Line(at, "event_msg", """{"type":"undo_completed","success":true}""") },
+            ["!git status"] = new[]
+            {
+                Line(at, "response_item", """{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_shell_command>git status</user_shell_command>"}]}"""),
+            },
+        };
+        foreach (var (task, records) in tasks)
+        {
+            var lines = FinishedTurn()
+                .Append(Line(at, "event_msg", """{"type":"task_started","turn_id":"t2"}"""))
+                .Concat(records)
+                .Append(Line(at.AddSeconds(5), "event_msg", """{"type":"token_count","info":null}"""))
+                .Append(Line(at.AddSeconds(5), "event_msg", """{"type":"task_complete","turn_id":"t2","last_agent_message":null}"""))
+                .ToArray();
+            var turn = SessionTurnState.Codex(lines);
+            Expect(!turn.IsDone && turn.Idle, $"{task}: a task the model never answered owes nothing");
+            var state = Scan(lines, at.AddMinutes(1), lastWorking: at);
+            Expect(state.Status == ActivityState.Idle, $"{task}: the session is idle, not your turn, got {state.Status}");
+        }
+    }
+
+    private static void TestModelTurnAfterLocalTaskWaits()
+    {
+        var at = Start.AddMinutes(2);
+        var lines = FinishedTurn().Concat(new[]
+        {
+            Line(at, "event_msg", """{"type":"task_started","turn_id":"t2"}"""),
+            Line(at, "compacted", """{"message":"summary","replacement_history":[]}"""),
+            Line(at, "event_msg", """{"type":"task_complete","turn_id":"t2"}"""),
+            Line(at.AddMinutes(1), "event_msg", """{"type":"task_started","turn_id":"t3"}"""),
+            Line(at.AddMinutes(1), "response_item", """{"type":"message","role":"user","content":[{"type":"input_text","text":"and test it"}]}"""),
+            Line(at.AddMinutes(2), "response_item", """{"type":"reasoning","summary":[]}"""),
+            Line(at.AddMinutes(2), "response_item", """{"type":"function_call","name":"shell","call_id":"c1","arguments":"{}"}"""),
+            Line(at.AddMinutes(3), "response_item", """{"type":"function_call_output","call_id":"c1","output":"ok"}"""),
+            Line(at.AddMinutes(3), "event_msg", """{"type":"task_complete","turn_id":"t3"}"""),
+        }).ToArray();
+        var turn = SessionTurnState.Codex(lines);
+        Expect(turn.IsDone && turn.Key == "t3", $"a turn the model worked on is the user's again, got done={turn.IsDone} key={turn.Key}");
+        var failedEarly = new[]
+        {
+            Line(at, "event_msg", """{"type":"task_started","turn_id":"t2"}"""),
+            Line(at, "event_msg", """{"type":"task_complete","turn_id":"t2","error":"stream disconnected before completion"}"""),
+        };
+        Expect(SessionTurnState.Codex(failedEarly) is { IsDone: true, Trouble: TurnTrouble.Network },
+            "a turn that failed before any output still ends on its error");
     }
 
     private static (ActivityState Status, DateTimeOffset Modified) Scan(

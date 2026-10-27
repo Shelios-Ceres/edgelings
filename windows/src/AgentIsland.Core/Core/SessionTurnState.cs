@@ -136,6 +136,10 @@ public static class SessionTurnState
                 if (payloadType is "task_complete" or "turn/completed")
                 {
                     var trouble = ErrorText(payload) is { } error ? TroubleFrom(error) : TurnTrouble.None;
+                    // /compact, /undo and a !command run as tasks of their own
+                    // that the model never answers: over, and nothing is owed.
+                    if (trouble == TurnTrouble.None && IsCodexLocalTask(lines, i))
+                        return new SessionTurnStatus(false, Key(root, lines[i]), Date(root), Idle: true);
                     return new SessionTurnStatus(true, Key(root, lines[i]), Date(root), Trouble: trouble);
                 }
                 if (payloadType == "turn_aborted")
@@ -150,6 +154,47 @@ public static class SessionTurnState
             }
         }
         return new SessionTurnStatus(false, null, newest);
+    }
+
+    /// Whether the Codex task a completion closes ran without the model:
+    /// walking back to where it began meets no prompt and no model output. A
+    /// beginning past the tail cannot be told, so that task reads as the model's.
+    private static bool IsCodexLocalTask(IReadOnlyList<string> lines, int completion)
+    {
+        for (var i = completion - 1; i >= 0; i--)
+        {
+            using var doc = Jsonl.TryParseLine(lines[i]);
+            if (doc is null) continue;
+            var root = doc.RootElement;
+            var payload = Jsonl.GetObject(root, "payload");
+            var payloadType = payload is { } p ? Jsonl.GetString(p, "type") : null;
+            switch (Jsonl.GetString(root, "type"))
+            {
+                case "event_msg":
+                    if (payloadType is "task_started" or "turn/started" or "task_complete" or "turn/completed" or "turn_aborted"
+                        || payloadType?.EndsWith("/task_started", StringComparison.Ordinal) == true)
+                    {
+                        return true;
+                    }
+                    if (payloadType is "user_message" or "agent_message" or "agent_reasoning"
+                        || payloadType?.EndsWith("/user_message", StringComparison.Ordinal) == true)
+                    {
+                        return false;
+                    }
+                    continue;
+                case "response_item":
+                    if (payloadType is "reasoning" or "agent_message" or "function_call" or "custom_tool_call"
+                        or "local_shell_call" or "web_search_call")
+                    {
+                        return false;
+                    }
+                    if (payloadType == "message" && payload is { } message && Jsonl.GetString(message, "role") == "assistant") return false;
+                    continue;
+                default:
+                    continue;
+            }
+        }
+        return false;
     }
 
     /// Grok appends one JSON object per session event to `updates.jsonl` with

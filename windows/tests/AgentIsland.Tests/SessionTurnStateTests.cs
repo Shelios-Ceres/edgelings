@@ -106,6 +106,7 @@ public static class SessionTurnStateTests
         var lines = new[]
         {
             """{"timestamp":"2026-07-02T01:14:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}""",
+            """{"timestamp":"2026-07-02T01:15:41.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}""",
             """{"timestamp":"2026-07-02T01:15:42.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1"}}""",
         };
         var state = SessionTurnState.Codex(lines);
