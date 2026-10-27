@@ -12,7 +12,12 @@ internal static class LogLines
     /// A `.zst` log is decoded as it is read, so a rollout that is hundreds
     /// of MB of JSON never sits in memory; a torn or corrupt frame ends the
     /// read and what decoded before it stands.
-    public static IEnumerable<string> Read(string path, int maxLength, string? mustContain = null)
+    public static IEnumerable<string> Read(string path, int maxLength, string? mustContain = null) =>
+        Read(path, maxLength, mustContain is null ? Array.Empty<string>() : new[] { mustContain });
+
+    /// As above, keeping the lines that carry any one of the markers (all of
+    /// them when there are none).
+    public static IEnumerable<string> Read(string path, int maxLength, string[] markers)
     {
         var compressed = path.EndsWith(".zst", StringComparison.OrdinalIgnoreCase);
         using var stream = SharedFile.Open(path);
@@ -21,9 +26,18 @@ internal static class LogLines
         while (NextLine(reader, compressed) is { } line)
         {
             if (line.Length > maxLength) continue;
-            if (mustContain is not null && !line.Contains(mustContain, StringComparison.Ordinal)) continue;
+            if (markers.Length > 0 && !Carries(line, markers)) continue;
             yield return line;
         }
+    }
+
+    private static bool Carries(string line, string[] markers)
+    {
+        foreach (var marker in markers)
+        {
+            if (line.Contains(marker, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     private static string? NextLine(StreamReader reader, bool compressed)
