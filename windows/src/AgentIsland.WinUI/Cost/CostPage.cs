@@ -45,6 +45,7 @@ internal sealed partial class CostPage : IDisposable
     private readonly bool _pixel = Looks.Pixel;
     private readonly Subscriptions _subscriptions = new();
     private readonly DispatcherQueue _queue;
+    private readonly DispatcherQueueTimer _clock;
     private readonly Func<bool> _visible;
     private readonly Action _showAgents;
     private Period _period;
@@ -64,6 +65,17 @@ internal sealed partial class CostPage : IDisposable
         Watch(TokenCountModeStore.Shared);
         // A picked look brings its own colour to the agent's chart.
         Watch(DrawerStore.Shared, nameof(DrawerStore.LookId));
+        // "Last scanned" ages between scans, which can be 30 minutes apart.
+        _clock = queue.CreateTimer();
+        _clock.Interval = TimeSpan.FromSeconds(5);
+        _clock.Tick += (_, _) =>
+        {
+            if (!_visible()) return;
+            using var english = Looks.English();
+            var text = Scanned();
+            if (text != _scanned.Text) _scanned.Text = text;
+        };
+        _clock.Start();
     }
 
     /// The period tabs, the period's dates beside the scan, the totals and
@@ -72,6 +84,7 @@ internal sealed partial class CostPage : IDisposable
 
     public void Dispose()
     {
+        _clock.Stop();
         _count?.Stop();
         _glide?.Stop();
         _subscriptions.Dispose();
@@ -213,9 +226,7 @@ internal sealed partial class CostPage : IDisposable
         using var english = Looks.English();
         _numbers.Clear();
         _columns.Clear();
-        _scanned.Text = CostStore.Shared.LastUpdated is { } updated
-            ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
-            : L10n.Tr("Not scanned yet");
+        _scanned.Text = Scanned();
 
         // In the drawer's order, one card per character.
         var shown = DrawerStore.Shared.Order.Where(p => p.HasCharacter() && ProviderVisibilityStore.Shared.IsShown(p)).ToList();
@@ -229,6 +240,10 @@ internal sealed partial class CostPage : IDisposable
         page.Add(Columns(cards, 2, TwoColumns, new Thickness(0, 8, 0, 0)));
         return page;
     }
+
+    private static string Scanned() => CostStore.Shared.LastUpdated is { } updated
+        ? L10n.TrFormat("Last scanned {0}", Formatting.RelativeAgo(DateTimeOffset.Now - updated, L10n.IsChinese))
+        : L10n.Tr("Not scanned yet");
 
     /// Cards in count equal columns, or in one where the page is narrower
     /// than narrow: the totals three to a row, the agents' cards two.
