@@ -209,22 +209,29 @@ public static class StatusCards
         return meters;
     }
 
-    /// Gemini's 5-hour and weekly windows, then one meter per further Gemini
+    /// Gemini's 5-hour and longer windows, then one meter per further Gemini
     /// group under Google's own name for it (Gemini 4 Argon). Claude and GPT's
-    /// pool stays out. A single-window snapshot keeps today's one meter,
-    /// labelled by its window.
+    /// pool stays out. A single-window snapshot keeps today's one meter. Each
+    /// meter is labelled by its window: 5 hours, a day, else the week.
     internal static IReadOnlyList<StatusMeter> AntigravityMeters(
         AppUsage usage, AntigravityQuotaSnapshot? snapshot, string? caption, Func<WindowUsage, string, StatusMeter> meter)
     {
+        static string Label(double? period) => period switch
+        {
+            5 * 3600 => "5h",
+            24 * 3600 => "24h",
+            _ => "Week",
+        };
         var meters = new List<StatusMeter>();
         if (snapshot is null || usage.SecondaryMissing)
         {
-            meters.Add(meter(usage.FiveHour, usage.FiveHour.PeriodSeconds == 5 * 3600 ? "5h" : "Week"));
+            // A 5-hour bucket is known by its id too, whatever its window says.
+            meters.Add(meter(usage.FiveHour, snapshot?.GeminiPools.ShortWindow is not null ? "5h" : Label(usage.FiveHour.PeriodSeconds)));
         }
         else
         {
             meters.Add(meter(usage.FiveHour, "5h"));
-            meters.Add(meter(usage.Weekly, "Week"));
+            meters.Add(meter(usage.Weekly, Label(usage.Weekly.PeriodSeconds)));
         }
         foreach (var extra in snapshot?.GeminiPools.Extras ?? Array.Empty<AntigravityQuotaBucket>())
         {

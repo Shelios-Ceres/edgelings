@@ -37,6 +37,7 @@ public static class AntigravityQuotaTests
             ("a snapshot with no Gemini bucket falls back to its first", TestNoGemini),
             ("the card shows 5h, Week and the Argon pool, never Claude or GPT", TestMeters),
             ("a single window keeps one meter, and no snapshot shows a dash", TestMeterFallbacks),
+            ("each meter is labelled by its own window", TestMeterLabels),
             ("only the main group's pools put the bot to sleep", TestSleepRule),
             ("a snapshot saved before this change still restores", TestOldSnapshotRoundTrip),
             ("a failed refresh keeps every pool under its caption", TestKeptPools),
@@ -162,6 +163,28 @@ public static class AntigravityQuotaTests
         Expect(cold.Count, 1);
         Expect(cold[0].Label, "Week");
         Expect(cold[0].Value, "—");
+    }
+
+    /// A daily bucket is "24h", never "Week"; a 5-hour bucket known only by
+    /// its id is still "5h".
+    private static void TestMeterLabels()
+    {
+        var dailyOnly = new AntigravityQuotaSnapshot(new[]
+        {
+            new AntigravityQuotaBucket("gemini-daily", "Gemini Models", "daily", 0.4, Now.AddHours(9)),
+        });
+        Expect(Meters(dailyOnly).Single().Label, "24h");
+        var fiveHourById = new AntigravityQuotaSnapshot(new[]
+        {
+            new AntigravityQuotaBucket("gemini-5h", "Gemini Models", null, 0.1, Now.AddHours(2)),
+        });
+        Expect(Meters(fiveHourById).Single().Label, "5h");
+        var fiveHourAndDaily = new AntigravityQuotaSnapshot(new[]
+        {
+            new AntigravityQuotaBucket("gemini-5h", "Gemini Models", "5h", 0.1, Now.AddHours(2)),
+            new AntigravityQuotaBucket("gemini-daily", "Gemini Models", "1d", 0.4, Now.AddHours(9)),
+        });
+        Expect(string.Join(",", Meters(fiveHourAndDaily).Select(m => m.Label)), "5h,24h");
     }
 
     private static void TestSleepRule()
