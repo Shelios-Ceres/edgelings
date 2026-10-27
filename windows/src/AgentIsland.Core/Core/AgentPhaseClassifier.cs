@@ -30,16 +30,8 @@ public static class AgentPhaseClassifier
     {
         try
         {
-            return tool switch
-            {
-                TriggerTool.Claude when IsJsonl(transcriptPath) => ClaudePrompt(transcriptPath, now) ?? Claude(ReadTail(transcriptPath), now),
-                TriggerTool.Codex when IsJsonl(transcriptPath) => Codex(ReadTail(transcriptPath), now),
-                TriggerTool.Kimi when IsJsonl(transcriptPath) => Kimi(ReadTail(transcriptPath), now),
-                TriggerTool.Grok when IsJsonl(transcriptPath) => Grok(ReadTail(transcriptPath), now),
-                TriggerTool.Antigravity when IsJsonl(transcriptPath) => Antigravity(ReadTail(transcriptPath), now),
-                TriggerTool.DeepSeek => DeepSeek(ZstdLog.TailLines(transcriptPath, TailBytes * 2), now),
-                _ => null,
-            };
+            if (tool == TriggerTool.Claude && IsJsonl(transcriptPath) && ClaudePrompt(transcriptPath, now) is { } prompt) return prompt;
+            return ContentReading(tool, transcriptPath) is { } reading ? Age(reading, now) : null;
         }
         catch (IOException)
         {
@@ -49,6 +41,57 @@ public static class AgentPhaseClassifier
         {
             return null;
         }
+    }
+
+    /// A clock before any transcript line: read against it nothing has aged
+    /// yet, and Age applies the real clock afterwards.
+    private static readonly DateTimeOffset BeforeAnyLine = DateTimeOffset.MinValue;
+
+    private static readonly Dictionary<string, (long Ticks, long Size, PhaseReading Reading)> ContentReadings =
+        new(StringComparer.Ordinal);
+
+    /// The drawer asks about each busy or waiting agent twice a second, and a
+    /// transcript waiting on the user does not change for minutes. What its
+    /// content says depends only on the content (transcripts are append-only),
+    /// so it is kept per write time and length, and per language for the
+    /// details; only its age is worked out on every call.
+    private static PhaseReading? ContentReading(TriggerTool tool, string path)
+    {
+        Func<PhaseReading>? read = tool switch
+        {
+            TriggerTool.Claude when IsJsonl(path) => () => Claude(ReadTail(path), BeforeAnyLine),
+            TriggerTool.Codex when IsJsonl(path) => () => Codex(ReadTail(path), BeforeAnyLine),
+            TriggerTool.Kimi when IsJsonl(path) => () => Kimi(ReadTail(path), BeforeAnyLine),
+            TriggerTool.Grok when IsJsonl(path) => () => Grok(ReadTail(path), BeforeAnyLine),
+            TriggerTool.Antigravity when IsJsonl(path) => () => Antigravity(ReadTail(path), BeforeAnyLine),
+            TriggerTool.DeepSeek => () => DeepSeek(ZstdLog.TailLines(path, TailBytes * 2), BeforeAnyLine),
+            _ => null,
+        };
+        if (read is null) return null;
+        var info = new FileInfo(path);
+        var ticks = info.LastWriteTimeUtc.Ticks;
+        var size = info.Length;
+        var key = tool.RawValue() + (Localization.L10n.IsChinese ? "|zh|" : "|en|") + path;
+        lock (ContentReadings)
+        {
+            if (ContentReadings.TryGetValue(key, out var cached) && cached.Ticks == ticks && cached.Size == size) return cached.Reading;
+        }
+        var reading = read();
+        lock (ContentReadings)
+        {
+            if (ContentReadings.Count > 512) ContentReadings.Clear();
+            ContentReadings[key] = (ticks, size, reading);
+        }
+        return reading;
+    }
+
+    /// The same reading as one taken at `now`: a subagent call shown as
+    /// spawning turns to waiting on it, and Aged applies.
+    private static PhaseReading Age(PhaseReading reading, DateTimeOffset now)
+    {
+        if (reading.Phase == AgentPhase.Spawning && reading.At is { } since && now - since > SpawnShownFor)
+            reading = reading with { Phase = AgentPhase.WaitingOnAgents };
+        return Aged(reading, now);
     }
 
     public static PhaseReading Claude(IReadOnlyList<string> lines, DateTimeOffset now)

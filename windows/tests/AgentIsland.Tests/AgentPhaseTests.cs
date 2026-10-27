@@ -68,6 +68,8 @@ public static class AgentPhaseTests
             ("combine: needsYou is finished", () => Combined(AgentPhase.Finished, ActivityState.NeedsYou, null)),
             ("combine: exhausted quota sleeps", () => Combined(AgentPhase.RateLimited, ActivityState.Working, AgentPhase.Running, quotaExhausted: true)),
             ("combine: auth outranks everything", () => Combined(AgentPhase.AuthRequired, ActivityState.AuthRequired, AgentPhase.Running, quotaExhausted: true)),
+            ("classify: a transcript that has not changed is not read again, and still ages", KeptReadingAges),
+            ("classify: a kept reading's detail follows the language", KeptReadingFollowsLanguage),
         };
         foreach (var (name, test) in tests)
         {
@@ -75,6 +77,64 @@ public static class AgentPhaseTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("AgentPhaseTests GREEN");
+    }
+
+    /// The drawer asks twice a second; the file is read once per change.
+    private static void KeptReadingAges()
+    {
+        var path = Transcript(Call("function_call", "spawn_agent", 1, "s"));
+        try
+        {
+            Expect(Classified(path, Now), AgentPhase.Spawning);
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Expect(Classified(path, Now), AgentPhase.Spawning);
+                Expect(Classified(path, Now.AddSeconds(10)), AgentPhase.WaitingOnAgents);
+            }
+            File.AppendAllText(path, "\n" + Event("task_complete", 0));
+            Expect(Classified(path, Now), AgentPhase.Finished);
+            Expect(Classified(path, Now.AddMinutes(11)), AgentPhase.Idle);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        static AgentPhase? Classified(string path, DateTimeOffset now) =>
+            AgentPhaseClassifier.Classify(TriggerTool.Codex, path, now) is { } reading ? reading.Phase : null;
+    }
+
+    private static void KeptReadingFollowsLanguage()
+    {
+        var retry = new { type = "turn.step.retrying", time = Now.AddSeconds(-2).ToUnixTimeMilliseconds(), nextAttempt = 3, maxAttempts = 10 };
+        var path = Transcript(JsonSerializer.Serialize(retry));
+        var language = Localization.L10n.Current;
+        try
+        {
+            Localization.L10n.Current = Localization.L10n.Language.SimplifiedChinese;
+            var chinese = AgentPhaseClassifier.Classify(TriggerTool.Kimi, path, Now)?.Detail;
+            string? english;
+            using (Localization.L10n.English()) english = AgentPhaseClassifier.Classify(TriggerTool.Kimi, path, Now)?.Detail;
+            if (chinese != "正在重连 · 第 3/10 次" || english != "Reconnecting · attempt 3 of 10")
+                throw new Exception($"each language reads its own detail, got '{chinese}' and '{english}'");
+        }
+        finally
+        {
+            Localization.L10n.Current = language;
+            File.Delete(path);
+        }
+    }
+
+    private static string Transcript(params string[] lines)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"agentisland-phase-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(path, string.Join("\n", lines));
+        return path;
+    }
+
+    private static void Expect(AgentPhase? actual, AgentPhase expected)
+    {
+        if (actual != expected) throw new Exception($"expected {expected}, got {actual?.ToString() ?? "nothing"}");
     }
 
     private static void Claude(AgentPhase expected, params string[] lines) =>
