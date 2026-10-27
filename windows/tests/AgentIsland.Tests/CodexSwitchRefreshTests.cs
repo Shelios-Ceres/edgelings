@@ -19,6 +19,8 @@ public static class CodexSwitchRefreshTests
         SwitchStartsANewRefresh();
         ChangedLoginIsDropped();
         UnchangedLoginCommits();
+        NewLoginFailureShowsTheError();
+        CachedNumbersKeepTheirLogin();
         Console.WriteLine("CodexSwitchRefreshTests GREEN");
     }
 
@@ -133,6 +135,56 @@ public static class CodexSwitchRefreshTests
         Expect(store.Codex.FiveHour.UsedPercent, 1.0);
         Expect(log.Count, 1);
         Console.WriteLine("PASS a result for the same login commits and may auto-switch");
+    }
+
+    private static void NewLoginFailureShowsTheError()
+    {
+        var log = new List<string>();
+        var login = "account:a";
+        string? savedFor = null;
+        var store = Store(_ => Task.FromResult(Usage(1.0)), () => login, log);
+        store.SaveSnapshot = (_, _, _, _, codexLogin) => savedFor = codexLogin;
+        RefreshAndWait(store);
+        Expect(store.Codex.FiveHour.UsedPercent, 1.0);
+        Expect(savedFor, "account:a");
+
+        // Same login, failed fetch: its own numbers are kept.
+        store.CodexFetcher = _ => Task.FromResult(AppUsage.ErrorPair("network drop"));
+        RefreshAndWait(store);
+        Expect(store.Codex.FiveHour.UsedPercent == 1.0 && store.Codex.FiveHour.Kept, "a login's own numbers survive its failed fetch");
+
+        // Auto-switch activated account b, whose parked token has expired.
+        login = "account:b";
+        store.CodexFetcher = _ => Task.FromResult(AppUsage.ErrorPair("auth expired — codex login"));
+        RefreshAndWait(store);
+        Expect(store.Codex.FiveHour.UsedPercent == 0 && !store.Codex.FiveHour.Kept,
+            "account a's 100% is not shown under account b's login");
+        Expect(store.Codex.FiveHour.Error, "auth expired — codex login");
+        Expect(store.CodexUpdatedAt is null, "and a's sync time is not b's");
+        Console.WriteLine("PASS after a switch, a failed first fetch shows its error, not the previous account's numbers");
+    }
+
+    private static void CachedNumbersKeepTheirLogin()
+    {
+        var now = new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
+        var saved = UsageCachePolicy.SnapshotForSave(Usage(0.3), Usage(0.9), null, now, codexLogin: "account:a")!;
+        var restored = UsageCachePolicy.RestoredSnapshot(
+            JsonSerializer.Deserialize<UsageCacheSnapshot>(JsonSerializer.Serialize(saved))!, now.AddMinutes(1), UsageCachePolicy.KeepFor)!;
+        Expect(restored.CodexLogin, "account:a");
+        var claudeOnly = UsageCachePolicy.SnapshotForSave(Usage(0.4), AppUsage.Empty, restored, now.AddMinutes(2), fetchedCodex: false, codexLogin: "account:b")!;
+        Expect(claudeOnly.CodexLogin, "account:a");
+        Expect(UsageCachePolicy.SameCodexLogin("account:a", "account:a"), "the same login owns its numbers");
+        Expect(!UsageCachePolicy.SameCodexLogin("account:a", "account:b"), "another login does not inherit them");
+        Expect(UsageCachePolicy.SameCodexLogin(null, "account:b"), "a snapshot from before logins were saved stays usable");
+        Expect(UsageCachePolicy.SameCodexLogin("account:a", null), "an unreadable auth.json is not another login");
+        Console.WriteLine("PASS cached Codex numbers carry the login they were fetched for");
+    }
+
+    private static void RefreshAndWait(UsageStore store)
+    {
+        store.Refresh();
+        store.RefreshTask!.Wait(TimeSpan.FromSeconds(5));
+        WaitFor(() => !store.Loading);
     }
 
     private static void WaitFor(Func<bool> condition)

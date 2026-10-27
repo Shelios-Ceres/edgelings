@@ -8,6 +8,10 @@ public sealed class UsageCacheSnapshot
     public DateTimeOffset? ClaudeUpdatedAt { get; init; }
     public DateTimeOffset? CodexUpdatedAt { get; init; }
 
+    /// The Codex login (CodexCredentials.CurrentLogin) the Codex numbers were
+    /// fetched for. Null on snapshots saved before it was recorded.
+    public string? CodexLogin { get; init; }
+
     public UsageCacheSnapshot()
     {
     }
@@ -70,7 +74,8 @@ public static class UsageCachePolicy
         UsageCacheSnapshot? existing,
         DateTimeOffset now,
         bool fetchedClaude = true,
-        bool fetchedCodex = true)
+        bool fetchedCodex = true,
+        string? codexLogin = null)
     {
         var claudeCandidate = ProviderForSave(
             claude, fetchedClaude, existing?.Claude, existing?.ClaudeUpdatedAt ?? existing?.UpdatedAt, now);
@@ -83,8 +88,18 @@ public static class UsageCachePolicy
             codexCandidate?.Usage ?? AppUsage.Empty,
             Max(claudeCandidate?.UpdatedAt, codexCandidate?.UpdatedAt) ?? now,
             claudeCandidate?.UpdatedAt,
-            codexCandidate?.UpdatedAt);
+            codexCandidate?.UpdatedAt)
+        {
+            CodexLogin = codexCandidate is null ? null : codexCandidate.Value.IsFresh ? codexLogin : existing?.CodexLogin,
+        };
     }
+
+    /// Codex numbers belong to the login they were fetched for: another login
+    /// must never inherit them (Cursor's userId rule). A login that can't be
+    /// read right now is not taken for another one, and a snapshot from
+    /// before logins were recorded is taken as the current login's.
+    public static bool SameCodexLogin(string? heldFor, string? current) =>
+        heldFor is null || current is null || string.Equals(heldFor, current, StringComparison.Ordinal);
 
     public static UsageCacheSnapshot? RestoredSnapshot(
         UsageCacheSnapshot snapshot,
@@ -100,7 +115,10 @@ public static class UsageCachePolicy
             codexCopy ?? AppUsage.Empty,
             Max(snapshot.ClaudeUpdatedAt, snapshot.CodexUpdatedAt) ?? snapshot.UpdatedAt,
             claudeCopy is null ? null : snapshot.ClaudeUpdatedAt ?? snapshot.UpdatedAt,
-            codexCopy is null ? null : snapshot.CodexUpdatedAt ?? snapshot.UpdatedAt);
+            codexCopy is null ? null : snapshot.CodexUpdatedAt ?? snapshot.UpdatedAt)
+        {
+            CodexLogin = codexCopy is null ? null : snapshot.CodexLogin,
+        };
     }
 
     public static AppUsage? CacheableCopy(AppUsage usage)

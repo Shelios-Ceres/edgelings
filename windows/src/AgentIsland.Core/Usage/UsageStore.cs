@@ -31,6 +31,9 @@ public sealed class UsageStore : INotifyPropertyChanged
     private bool _codexReauthInProgress;
     private string? _codexAutoSwitched;
 
+    /// The login the Codex numbers were fetched for.
+    private string? _codexLogin;
+
     /// Accounts tried since the current exhaustion episode began; cleared the
     /// moment a reading comes back under 100%, so each episode walks the pool
     /// at most once and a fully-exhausted pool goes quiet instead of thrashing
@@ -77,11 +80,16 @@ public sealed class UsageStore : INotifyPropertyChanged
         }
         if (restore && LoadCachedSnapshot() is { } snapshot)
         {
+            var login = CodexLogin();
+            // Numbers cached for another Codex login than auth.json holds now
+            // are that account's, not this one's.
+            var codexOwned = UsageCachePolicy.SameCodexLogin(snapshot.CodexLogin, login);
             _claude = snapshot.Claude;
-            _codex = snapshot.Codex;
+            _codex = codexOwned ? snapshot.Codex : AppUsage.Empty;
+            _codexLogin = codexOwned ? snapshot.CodexLogin ?? login : null;
             _lastUpdated = snapshot.UpdatedAt;
             _claudeUpdatedAt = UsageCachePolicy.CacheableCopy(snapshot.Claude) is null ? null : snapshot.ClaudeUpdatedAt;
-            _codexUpdatedAt = UsageCachePolicy.CacheableCopy(snapshot.Codex) is null ? null : snapshot.CodexUpdatedAt;
+            _codexUpdatedAt = !codexOwned || UsageCachePolicy.CacheableCopy(snapshot.Codex) is null ? null : snapshot.CodexUpdatedAt;
         }
     }
 
@@ -89,7 +97,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     internal Func<CancellationToken, Task<AppUsage>> CodexFetcher { get; set; } = UsageFetcher.FetchCodex;
     internal Func<CancellationToken, Task<AppUsage>> ClaudeFetcher { get; set; } = UsageFetcher.FetchClaude;
     internal Func<string?> CodexLogin { get; set; } = CodexCredentials.CurrentLogin;
-    internal Action<AppUsage, AppUsage, bool, bool> SaveSnapshot { get; set; } = (_, _, _, _) => { };
+    internal Action<AppUsage, AppUsage, bool, bool, string?> SaveSnapshot { get; set; } = (_, _, _, _, _) => { };
     internal Action<AppUsage> AutoSwitch { get; set; } = _ => { };
     internal Action BeforeRefresh { get; set; } = () => { };
     internal Task? RefreshTask => _refreshTask;
@@ -182,11 +190,10 @@ public sealed class UsageStore : INotifyPropertyChanged
                     var codexCurrent = string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
                     var codexFailed = codexCurrent && IsErrorOnly(codexResult);
                     var claudeFailed = IsErrorOnly(claudeResult);
-                    var mergedCodex = codexCurrent ? MergedUsage(Codex, codexResult) : Codex;
+                    var mergedCodex = codexCurrent ? CommitCodex(codexResult, codexLogin) : Codex;
                     var mergedClaude = MergedUsage(Claude, claudeResult);
-                    if (codexCurrent) Codex = mergedCodex;
                     Claude = mergedClaude;
-                    SaveSnapshot(mergedClaude, mergedCodex, true, codexCurrent);
+                    SaveSnapshot(mergedClaude, mergedCodex, true, codexCurrent, _codexLogin);
                     RefreshWarning = WarningFor(codexFailed, claudeFailed);
                     var now = DateTimeOffset.Now;
                     RecordSuccessfulUpdate(claude: true, claudeResult, now);
@@ -292,6 +299,20 @@ public sealed class UsageStore : INotifyPropertyChanged
     private static AppUsage MergedUsage(AppUsage existing, AppUsage fetched) =>
         UsageCachePolicy.Merged(existing, fetched);
 
+    /// Shows a Codex result fetched for `login`. The numbers held for
+    /// another login are not kept through its failure: after a switch whose
+    /// first fetch fails, the error shows instead of the previous account's
+    /// quota under the new login.
+    private AppUsage CommitCodex(AppUsage fetched, string? login)
+    {
+        var sameLogin = UsageCachePolicy.SameCodexLogin(_codexLogin, login);
+        if (!sameLogin) CodexUpdatedAt = null;
+        var merged = MergedUsage(sameLogin ? Codex : AppUsage.Empty, fetched);
+        if (login is not null) _codexLogin = login;
+        Codex = merged;
+        return merged;
+    }
+
     private static string? WarningFor(bool codexFailed, bool claudeFailed)
     {
         // A provider the user hid from the drawer cannot nag from the
@@ -335,12 +356,13 @@ public sealed class UsageStore : INotifyPropertyChanged
     private static void SaveCachedSnapshot(
         AppUsage claude,
         AppUsage codex,
-        bool fetchedClaude = true,
-        bool fetchedCodex = true)
+        bool fetchedClaude,
+        bool fetchedCodex,
+        string? codexLogin)
     {
         var existing = LoadCachedSnapshot();
         var snapshot = UsageCachePolicy.SnapshotForSave(
-            claude, codex, existing, DateTimeOffset.Now, fetchedClaude, fetchedCodex);
+            claude, codex, existing, DateTimeOffset.Now, fetchedClaude, fetchedCodex, codexLogin);
         if (snapshot is null) return;
         Preferences.Set(CacheKey, snapshot);
     }
@@ -424,7 +446,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         {
             var merged = MergedUsage(Claude, fetched);
             Claude = merged;
-            SaveCachedSnapshot(merged, Codex, fetchedClaude: true, fetchedCodex: false);
+            SaveCachedSnapshot(merged, Codex, fetchedClaude: true, fetchedCodex: false, _codexLogin);
             RefreshWarning = IsErrorOnly(fetched) ? L10n.Tr("Claude stale") : null;
             LastAttemptedAt = DateTimeOffset.Now;
             RecordSuccessfulUpdate(claude: true, fetched, LastAttemptedAt.Value);
@@ -434,12 +456,13 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     private async Task FinishCodexReauth()
     {
+        // `codex login` may well sign in another account.
+        var login = CodexLogin();
         var fetched = await UsageFetcher.FetchCodex();
         await UiThread.InvokeAsync(() =>
         {
-            var merged = MergedUsage(Codex, fetched);
-            Codex = merged;
-            SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: true);
+            var merged = CommitCodex(fetched, login);
+            SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: true, _codexLogin);
             RefreshWarning = IsErrorOnly(fetched) && Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex)
                 ? L10n.Tr("Codex stale")
                 : null;
