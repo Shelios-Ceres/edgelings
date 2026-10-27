@@ -195,10 +195,12 @@ public static class GrokAuthFile
                     File.Move(tmp, path, overwrite: true);
                     return true;
                 }
-                catch (IOException) when (attempt < 4)
+                catch (Exception moveError) when (attempt < 4 && moveError is IOException or UnauthorizedAccessException)
                 {
                     // The grok CLI may hold a brief read lock on auth.json,
                     // and dropping the rotated refresh token bricks its login.
+                    // Replacing a file held without share-delete throws
+                    // UnauthorizedAccessException, not IOException.
                     System.Threading.Thread.Sleep(40 * (attempt + 1));
                 }
             }

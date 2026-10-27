@@ -22,6 +22,7 @@ public static class CodexAccountSwitcherTests
             ("unreadable live credentials cannot be replaced", UnreadableLiveAborts),
             ("a missing live login can activate a saved account", MissingLiveCanActivate),
             ("account activation rejects paths outside its store", OutsideStoreIsRejected),
+            ("a held credentials file is replaced once it is released", HeldFileIsReplaced),
         };
         foreach (var (name, test) in tests)
         {
@@ -186,6 +187,19 @@ public static class CodexAccountSwitcherTests
         File.WriteAllBytes(outside, Credential("other", "saved"));
         Expect(!CodexAccountSwitcher.Activate(new("outside", outside, null), fixture.Home),
             "activation accepted a credential path outside the store");
+    }
+
+    private static void HeldFileIsReplaced()
+    {
+        using var fixture = new Fixture();
+        var incoming = fixture.Save("incoming", Credential("incoming", "saved"));
+        fixture.Live(Credential("current", "fresh"));
+        fixture.Save("current", Credential("current", "fresh"));
+        var released = HeldFile.For(fixture.LivePath, TimeSpan.FromMilliseconds(150));
+        var activated = CodexAccountSwitcher.Activate(incoming, fixture.Home);
+        released.Wait();
+        Expect(activated, "the switch waited out a program holding auth.json open");
+        Expect(fixture.LiveBytes().SequenceEqual(Credential("incoming", "saved")), "the incoming login is live");
     }
 
     private sealed class Fixture : IDisposable

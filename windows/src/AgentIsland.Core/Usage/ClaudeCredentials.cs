@@ -250,7 +250,8 @@ public static class ClaudeCredentials
             File.WriteAllText(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = false }));
             // Retry the rename: Claude Code / Claude Desktop may hold a brief
             // read lock on the creds file, and dropping the rotated token
-            // bricks auth for every consumer.
+            // bricks auth for every consumer. A handle held without
+            // share-delete makes the replace throw UnauthorizedAccessException.
             for (var attempt = 0; ; attempt++)
             {
                 try
@@ -258,7 +259,7 @@ public static class ClaudeCredentials
                     File.Move(tmp, path, overwrite: true);
                     return true;
                 }
-                catch (IOException) when (attempt < 4)
+                catch (Exception moveError) when (attempt < 4 && moveError is IOException or UnauthorizedAccessException)
                 {
                     System.Threading.Thread.Sleep(40 * (attempt + 1));
                 }

@@ -24,6 +24,7 @@ public static class ClaudeCredentialsTests
             ("a rotated pair that is rate limited reads as rate limited, not as a lost sign-in", RotatedPairRateLimited),
             ("a refresh the CLI beat by a moment is followed by one look at the file", RefreshLosesTheRace),
             ("a failed refresh reads as a lost sign-in", RefreshFails),
+            ("a rotated pair is saved once another program lets go of the file", HeldFileIsWrittenOnceReleased),
         };
         var directory = Path.Combine(Path.GetTempPath(), "agentisland-credentials-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -208,5 +209,21 @@ public static class ClaudeCredentialsTests
         var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
         Expect(result is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage },
             "a refresh that fails reads as a lost sign-in");
+    }
+
+    private static async Task HeldFileIsWrittenOnceReleased()
+    {
+        Write("A", "R1");
+        Task? released = null;
+        ClaudeCredentials.RefreshToken = _ =>
+        {
+            // An antivirus scan opens the file just as the rotated pair is written.
+            released = HeldFile.For(CredentialsPath, TimeSpan.FromMilliseconds(150));
+            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+        };
+        var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
+        await released!;
+        Expect(result is ClaudeCredentials.Resolution.Usage, "the refreshed token's usage is returned, not a re-login");
+        Expect(Read() == ("B", "R2"), "the rotated pair is on disk, or Claude Code would sign out");
     }
 }

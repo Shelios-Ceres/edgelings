@@ -109,7 +109,10 @@ public static class UsageFetcher
         {
             var path = IslandPaths.CodexAuthFile;
             if (!File.Exists(path)) return null;
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            // Shared with delete, so this read never blocks the account
+            // switcher's (or the CLI's) rename over auth.json.
+            using var stream = SharedFile.Open(path);
+            using var doc = JsonDocument.Parse(stream);
             if (Jsonl.GetObject(doc.RootElement, "tokens") is not { } tokens) return null;
             return Jsonl.GetString(tokens, "access_token");
         }

@@ -376,7 +376,9 @@ public static class CodexAccountSwitcher
                     File.Move(tmp, path, overwrite: true);
                     return true;
                 }
-                catch (IOException) when (attempt < 4)
+                // Replacing a file another handle holds without share-delete
+                // throws UnauthorizedAccessException, not IOException.
+                catch (Exception moveError) when (attempt < 4 && moveError is IOException or UnauthorizedAccessException)
                 {
                     System.Threading.Thread.Sleep(40 * (attempt + 1));
                 }

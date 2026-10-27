@@ -21,6 +21,7 @@ public static class GrokAuthFileTests
         {
             MatchingLoginIsWritten(Path.Combine(directory, "match.json"));
             ChangedLoginIsLeftAlone(Path.Combine(directory, "changed.json"));
+            HeldFileIsWrittenOnceReleased(Path.Combine(directory, "held.json"));
             Console.WriteLine("GrokAuthFileTests GREEN");
         }
         finally
@@ -71,5 +72,16 @@ public static class GrokAuthFileTests
         Expect(entry.RefreshToken, "fresh-refresh");
         Expect(entry.Email, "b@example.test");
         Console.WriteLine("PASS a refresh for a login that has since changed leaves the file alone and returns the current entry");
+    }
+
+    private static void HeldFileIsWrittenOnceReleased(string path)
+    {
+        File.WriteAllText(path, Auth("old-access", "old-refresh", "a@example.test"));
+        var released = HeldFile.For(path, TimeSpan.FromMilliseconds(150));
+        var entry = GrokAuthFile.ApplyRefreshResponse(Response, path, Scope, "old-refresh", Now);
+        released.Wait();
+        Expect(entry?.RefreshToken == "new-refresh", "the rotated token is written once the other program lets go");
+        Expect(GrokAuthFile.LoadEntry(path)?.RefreshToken == "new-refresh", "and it is on disk");
+        Console.WriteLine("PASS a refresh waits out a program holding auth.json open instead of dropping the rotated token");
     }
 }
