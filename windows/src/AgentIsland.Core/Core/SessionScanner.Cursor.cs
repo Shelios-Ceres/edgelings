@@ -37,8 +37,18 @@ public static partial class SessionScanner
             return cached.ConvertAll(c => CursorSession(c, now));
         }
 
+        // A store that could not be read whole says nothing new: what the last
+        // read found stands, its reply clock with it, and the next scan reads
+        // again.
+        if (CursorConversations.NewestBubblePerConversation(path) is not { } bubbles)
+        {
+            List<CursorConversation> kept;
+            lock (CursorGate) kept = _cursorCache;
+            return kept.ConvertAll(c => CursorSession(c, now));
+        }
+
         var parsed = new List<CursorConversation>();
-        foreach (var (composerId, json) in CursorConversations.NewestBubblePerConversation(path))
+        foreach (var (composerId, json) in bubbles)
         {
             var turn = SessionTurnState.Cursor(new[] { json });
             // No usable bubble timestamp means we cannot say WHEN this

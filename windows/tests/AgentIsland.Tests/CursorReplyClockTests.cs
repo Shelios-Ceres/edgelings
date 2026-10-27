@@ -16,7 +16,44 @@ public static class CursorReplyClockTests
         GrowingReplyStaysWorking();
         NewBubbleWithOldTimestamp();
         LeavingConversationsAreForgotten();
+        BusyStoreIsNotAnEmptyRead();
         Console.WriteLine("CursorReplyClockTests GREEN");
+    }
+
+    /// A read that hits Cursor holding its store must not pass for a list of
+    /// every conversation: the scan would forget their reply clocks.
+    private static void BusyStoreIsNotAnEmptyRead()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agentisland-cursor-busy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "state.vscdb");
+        try
+        {
+            using (var writer = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                writer.Open();
+                Sql(writer, "CREATE TABLE cursorDiskKV(key TEXT PRIMARY KEY, value TEXT); "
+                    + """INSERT INTO cursorDiskKV VALUES ('bubbleId:c1:b1', '{"type":2,"text":"hi"}')""");
+                var read = CursorConversations.NewestBubblePerConversation(path);
+                Expect(read is { Count: 1 } && read[0].ComposerId == "c1", "a free store is read");
+                Sql(writer, "BEGIN EXCLUSIVE");
+                Expect(CursorConversations.NewestBubblePerConversation(path) is null, "a busy store is no read at all");
+                Sql(writer, "COMMIT");
+            }
+            Console.WriteLine("PASS a busy Cursor store reads as nothing new, not as no conversations");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(root, recursive: true);
+        }
+
+        static void Sql(Microsoft.Data.Sqlite.SqliteConnection connection, string sql)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
+        }
     }
 
     private static ActivityState Status(DateTimeOffset stamp, DateTimeOffset now) =>
