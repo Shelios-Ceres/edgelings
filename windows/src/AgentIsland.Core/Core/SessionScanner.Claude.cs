@@ -74,7 +74,7 @@ public static partial class SessionScanner
             requireTurn: true, externalGrace: grace);
     }
 
-    private static readonly Dictionary<string, bool> SdkTranscripts = new(StringComparer.Ordinal);
+    private static readonly ScanCache<bool> SdkTranscripts = new();
 
     /// True when a transcript was written by a headless SDK run, which names
     /// its entrypoint "sdk-py", "sdk-ts" and the like in its first records.
@@ -83,10 +83,7 @@ public static partial class SessionScanner
     /// before any record names its entrypoint is looked at again next scan.
     internal static bool IsSdkTranscript(string path)
     {
-        lock (SdkTranscripts)
-        {
-            if (SdkTranscripts.TryGetValue(path, out var known)) return known;
-        }
+        if (SdkTranscripts.TryGet(path, out var known)) return known;
         var sdk = false;
         var settled = false;
         try
@@ -111,11 +108,7 @@ public static partial class SessionScanner
             return false;
         }
         if (!settled) return sdk;
-        lock (SdkTranscripts)
-        {
-            if (SdkTranscripts.Count > 5000) SdkTranscripts.Clear();
-            SdkTranscripts[path] = sdk;
-        }
+        SdkTranscripts.Set(path, sdk);
         return sdk;
     }
 
@@ -213,23 +206,16 @@ public static partial class SessionScanner
         return (current, replaced);
     }
 
-    private static readonly Dictionary<string, string> TranscriptCwds = new(StringComparer.Ordinal);
-    private static readonly Dictionary<string, (long Ticks, long Size, DesktopSession Session)> DesktopSessions = new(StringComparer.Ordinal);
+    private static readonly ScanCache<string> TranscriptCwds = new();
+    private static readonly ScanCache<(long Ticks, long Size, DesktopSession Session)> DesktopSessions = new();
 
     /// Transcripts are append-only, so the cwd their first lines name holds.
     /// One that names none yet is read again next time.
     private static string TranscriptCwd(string path)
     {
-        lock (ScanCacheGate)
-        {
-            if (TranscriptCwds.TryGetValue(path, out var known)) return known;
-        }
+        if (TranscriptCwds.TryGet(path, out var known)) return known;
         if (CwdInClaudeTranscript(path) is not { } cwd) return ProjectFromClaudeTranscript(path);
-        lock (ScanCacheGate)
-        {
-            if (TranscriptCwds.Count > 5000) TranscriptCwds.Clear();
-            TranscriptCwds[path] = cwd;
-        }
+        TranscriptCwds.Set(path, cwd);
         return cwd;
     }
 
@@ -250,20 +236,13 @@ public static partial class SessionScanner
             return null;
         }
         DesktopSession? known = null;
-        lock (ScanCacheGate)
+        if (DesktopSessions.TryGet(path, out var cached))
         {
-            if (DesktopSessions.TryGetValue(path, out var cached))
-            {
-                if (cached.Ticks == ticks && cached.Size == size) return cached.Session;
-                known = cached.Session;
-            }
+            if (cached.Ticks == ticks && cached.Size == size) return cached.Session;
+            known = cached.Session;
         }
         if (ParseDesktopSessionFile(path) is not { } session) return known;
-        lock (ScanCacheGate)
-        {
-            if (DesktopSessions.Count > 5000) DesktopSessions.Clear();
-            DesktopSessions[path] = (ticks, size, session);
-        }
+        DesktopSessions.Set(path, (ticks, size, session));
         return session;
     }
 

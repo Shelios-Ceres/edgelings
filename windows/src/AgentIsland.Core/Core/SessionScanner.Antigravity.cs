@@ -149,7 +149,7 @@ public static partial class SessionScanner
         return null;
     }
 
-    private static readonly Dictionary<string, string> AntigravityTitles = new(StringComparer.Ordinal);
+    private static readonly ScanCache<string> AntigravityTitles = new();
 
     /// The first user message, unwrapped from the `<USER_REQUEST>` envelope
     /// the CLI writes — the fallback when the summaries table has no row
@@ -157,10 +157,7 @@ public static partial class SessionScanner
     /// title once found holds.
     internal static string? AntigravityTitle(string path)
     {
-        lock (ScanCacheGate)
-        {
-            if (AntigravityTitles.TryGetValue(path, out var known)) return known;
-        }
+        if (AntigravityTitles.TryGet(path, out var known)) return known;
         string? title = null;
         try
         {
@@ -181,11 +178,7 @@ public static partial class SessionScanner
             // Unreadable transcript — the id-prefix fallback covers it.
         }
         if (title is null) return null;
-        lock (ScanCacheGate)
-        {
-            if (AntigravityTitles.Count > 5000) AntigravityTitles.Clear();
-            AntigravityTitles[path] = title;
-        }
+        AntigravityTitles.Set(path, title);
         return title;
     }
 
@@ -203,8 +196,7 @@ public static partial class SessionScanner
         return first.Length > 48 ? first[..48] : first;
     }
 
-    private static readonly Dictionary<string, (string Stamp, Dictionary<string, string> Workspaces)> AntigravityHistories =
-        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ScanCache<(string Stamp, Dictionary<string, string> Workspaces)> AntigravityHistories = new();
 
     /// `history.jsonl` maps conversationId to its workspace. It is read
     /// whole once per change, not once per conversation on every scan, and
@@ -214,17 +206,17 @@ public static partial class SessionScanner
         var historyPath = Path.Combine(root, "history.jsonl");
         var stamp = FileStamp(historyPath);
         if (stamp.Length == 0) return null;
-        Dictionary<string, string>? workspaces = null;
-        lock (ScanCacheGate)
+        Dictionary<string, string> workspaces;
+        if (AntigravityHistories.TryGet(historyPath, out var known) && known.Stamp == stamp)
         {
-            if (AntigravityHistories.TryGetValue(root, out var known) && known.Stamp == stamp) workspaces = known.Workspaces;
+            workspaces = known.Workspaces;
         }
-        if (workspaces is null)
+        else
         {
             // An unreadable history only costs the cwd nicety, and is read again next scan.
             if (ReadAntigravityHistory(historyPath) is not { } read) return null;
             workspaces = read;
-            lock (ScanCacheGate) AntigravityHistories[root] = (stamp, workspaces);
+            AntigravityHistories.Set(historyPath, (stamp, workspaces));
         }
         return workspaces.TryGetValue(conversation, out var workspace) ? workspace : null;
     }

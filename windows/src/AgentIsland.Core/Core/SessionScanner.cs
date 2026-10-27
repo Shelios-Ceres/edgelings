@@ -187,15 +187,7 @@ public static partial class SessionScanner
 
     private static readonly long[] WidenedTailBytes = { 1L << 20, 4L << 20 };
 
-    private static readonly Dictionary<string, (long Ticks, long Size, SessionTurnStatus Turn, DateTimeOffset Modified)>
-        TurnCache = new(StringComparer.Ordinal);
-
-    /// Scans can overlap on more than one worker, and all of them land here.
-    /// An unsynchronized Dictionary written from two threads corrupts its
-    /// bucket chain, and a corrupted chain makes the NEXT lookup spin forever —
-    /// a hung scan thread, not an exception. The parse itself stays outside the lock so one slow tail
-    /// read never blocks the other scan.
-    private static readonly object TurnCacheGate = new();
+    private static readonly ScanCache<(long Ticks, long Size, SessionTurnStatus Turn, DateTimeOffset Modified)> TurnCache = new();
 
     /// The expensive half of SessionState — the tail read plus the JSON turn
     /// parse — depends only on file CONTENT, so it is cached on a (mtime, size)
@@ -218,14 +210,8 @@ public static partial class SessionScanner
             var info = new FileInfo(path);
             var ticks = info.LastWriteTimeUtc.Ticks;
             var size = info.Length;
-            lock (TurnCacheGate)
-            {
-                if (TurnCache.TryGetValue(path, out var cached)
-                    && cached.Ticks == ticks && cached.Size == size)
-                {
-                    return (cached.Turn, cached.Modified);
-                }
-            }
+            if (TurnCache.TryGet(path, out var cached) && cached.Ticks == ticks && cached.Size == size)
+                return (cached.Turn, cached.Modified);
             var modified = Mtime(path);
             var parsed = turnState(tail(path));
             // Huge lines (attachments) can push the last conversation line
@@ -238,14 +224,7 @@ public static partial class SessionScanner
                     if (parsed.Key is not null) break;
                 }
             }
-            lock (TurnCacheGate)
-            {
-                // Bound the cache against pathological growth (project-folder
-                // rotation minting new transcript paths forever); the working set
-                // is one entry per real session, rebuilt cheaply after a clear.
-                if (TurnCache.Count > 5000) TurnCache.Clear();
-                TurnCache[path] = (ticks, size, parsed, modified);
-            }
+            TurnCache.Set(path, (ticks, size, parsed, modified));
             return (parsed, modified);
         }
         catch
@@ -263,16 +242,13 @@ public static partial class SessionScanner
     /// behind a reused path never reads a stale parse.
     internal static void ClearTurnCache()
     {
-        lock (TurnCacheGate) TurnCache.Clear();
-        lock (ScanCacheGate)
-        {
-            CodexMetas.Clear();
-            TranscriptCwds.Clear();
-            DesktopSessions.Clear();
-            AntigravityTitles.Clear();
-            AntigravityHistories.Clear();
-            GrokTitles.Clear();
-        }
+        TurnCache.Clear();
+        CodexMetas.Clear();
+        TranscriptCwds.Clear();
+        DesktopSessions.Clear();
+        AntigravityTitles.Clear();
+        AntigravityHistories.Clear();
+        GrokTitles.Clear();
         _codexTitles = new("", new());
     }
 
@@ -281,7 +257,63 @@ public static partial class SessionScanner
     // Every scan used to re-read each Codex rollout's first line and parse
     // every Claude Desktop session file: most of a scan's cost, for data that
     // rarely changes.
-    private static readonly object ScanCacheGate = new();
+
+    /// A path-keyed cache the scan keeps. Its working set is one entry per
+    /// session on disk, and every scan touches all of them, so it is never
+    /// cleared wholesale: past its bound it forgets only what no scan has used
+    /// for a while (paths that vanished, as rotated project folders do), and a
+    /// working set larger than the bound is kept whole rather than re-read on
+    /// every scan.
+    ///
+    /// Scans can overlap on more than one worker, and all of them land here.
+    /// An unsynchronized Dictionary written from two threads corrupts its
+    /// bucket chain, and a corrupted chain makes the NEXT lookup spin forever:
+    /// a hung scan thread, not an exception. Callers read files outside the
+    /// lock, so one slow read never blocks the other scan.
+    internal sealed class ScanCache<TValue>(int bound = 5000, Func<long>? clock = null)
+    {
+        private static readonly long UnusedMilliseconds = (long)TimeSpan.FromMinutes(10).TotalMilliseconds;
+        private readonly Dictionary<string, (TValue Value, long UsedAt)> _entries = new(StringComparer.Ordinal);
+        private readonly Func<long> _clock = clock ?? (() => Environment.TickCount64);
+        private long? _sweptAt;
+
+        public bool TryGet(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TValue value)
+        {
+            lock (_entries)
+            {
+                if (_entries.TryGetValue(key, out var entry))
+                {
+                    _entries[key] = (entry.Value, _clock());
+                    value = entry.Value;
+                    return true;
+                }
+            }
+            value = default;
+            return false;
+        }
+
+        public void Set(string key, TValue value)
+        {
+            lock (_entries)
+            {
+                var now = _clock();
+                if (_entries.Count >= bound && (_sweptAt is not { } swept || now - swept >= UnusedMilliseconds))
+                {
+                    foreach (var stale in _entries.Where(entry => now - entry.Value.UsedAt >= UnusedMilliseconds).Select(entry => entry.Key).ToList())
+                    {
+                        _entries.Remove(stale);
+                    }
+                    _sweptAt = now;
+                }
+                _entries[key] = (value, now);
+            }
+        }
+
+        public void Clear()
+        {
+            lock (_entries) _entries.Clear();
+        }
+    }
 
     // MARK: - Helpers
 

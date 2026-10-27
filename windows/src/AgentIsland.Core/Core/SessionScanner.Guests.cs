@@ -43,16 +43,13 @@ public static partial class SessionScanner
         return output;
     }
 
-    private static readonly Dictionary<string, (string Stamp, string Title)> GrokTitles = new(StringComparer.Ordinal);
+    private static readonly ScanCache<(string Stamp, string Title)> GrokTitles = new();
 
     /// The tree holds every session ever run, and a summary changes only when
     /// Grok rewrites it, so each one is parsed once per write time and length.
     internal static string GrokTitle(string summaryPath, string stamp)
     {
-        lock (ScanCacheGate)
-        {
-            if (GrokTitles.TryGetValue(summaryPath, out var known) && known.Stamp == stamp) return known.Title;
-        }
+        if (GrokTitles.TryGet(summaryPath, out var known) && known.Stamp == stamp) return known.Title;
         string title;
         try
         {
@@ -65,11 +62,7 @@ public static partial class SessionScanner
             // Read again next scan: a summary caught mid-write still changes.
             return "";
         }
-        lock (ScanCacheGate)
-        {
-            if (GrokTitles.Count > 5000) GrokTitles.Clear();
-            GrokTitles[summaryPath] = (stamp, title);
-        }
+        GrokTitles.Set(summaryPath, (stamp, title));
         return title;
     }
 

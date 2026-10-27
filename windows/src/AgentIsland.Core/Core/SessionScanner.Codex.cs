@@ -176,23 +176,16 @@ public static partial class SessionScanner
         return output;
     }
 
-    private static readonly Dictionary<string, (string Sid, string Cwd, CodexRolloutKind Kind)> CodexMetas = new(StringComparer.Ordinal);
+    private static readonly ScanCache<(string Sid, string Cwd, CodexRolloutKind Kind)> CodexMetas = new();
 
     /// A rollout's session_meta is its first line, written once, so each
     /// file's is read once. A line still being written parses as nothing and
     /// is read again next time.
     private static (string Sid, string Cwd, CodexRolloutKind Kind)? CachedCodexMeta(string path)
     {
-        lock (ScanCacheGate)
-        {
-            if (CodexMetas.TryGetValue(path, out var known)) return known;
-        }
+        if (CodexMetas.TryGet(path, out var known)) return known;
         if (CodexMeta(path) is not { } meta) return null;
-        lock (ScanCacheGate)
-        {
-            if (CodexMetas.Count > 5000) CodexMetas.Clear();
-            CodexMetas[path] = meta;
-        }
+        CodexMetas.Set(path, meta);
         return meta;
     }
 }

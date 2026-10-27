@@ -36,6 +36,7 @@ public static class SessionTurnStateTests
             ("desktop prior transcript ids are read", TestPriorCliSessionIdsAreRead),
             ("a transcript its desktop session left behind is replaced", TestLeftBehindTranscriptsAreReplaced),
             ("claude desktop's moved data folder is found", TestMovedDesktopDataFolderIsFound),
+            ("a scan cache past its bound keeps what scans use and drops what they left", TestScanCacheKeepsWorkingSet),
         };
 
         foreach (var (name, test) in tests)
@@ -511,6 +512,25 @@ public static class SessionTurnStateTests
         {
             Directory.Delete(home, recursive: true);
         }
+    }
+
+    /// More transcripts than the bound used to clear the cache on every scan,
+    /// so every scan re-read every transcript.
+    private static void TestScanCacheKeepsWorkingSet()
+    {
+        var minutes = 0L;
+        var cache = new SessionScanner.ScanCache<int>(bound: 3, clock: () => minutes * 60_000);
+        foreach (var key in new[] { "a", "b", "c" }) cache.Set(key, 1);
+        minutes = 11;
+        foreach (var key in new[] { "a", "b", "c" }) Expect(cache.TryGet(key, out _), $"{key} is cached");
+        cache.Set("d", 1);
+        Expect(new[] { "a", "b", "c", "d" }.All(key => cache.TryGet(key, out _)), "a working set past the bound is kept whole");
+        minutes = 30;
+        Expect(cache.TryGet("a", out _) && cache.TryGet("d", out _), "the scans still use a and d");
+        minutes = 33;
+        cache.Set("e", 1);
+        Expect(cache.TryGet("a", out _) && cache.TryGet("d", out _) && cache.TryGet("e", out _), "what the scans use stays");
+        Expect(!cache.TryGet("b", out _) && !cache.TryGet("c", out _), "paths no scan has used for ten minutes go");
     }
 
     private static readonly IReadOnlyDictionary<string, DateTimeOffset> EmptyLastWorking =
