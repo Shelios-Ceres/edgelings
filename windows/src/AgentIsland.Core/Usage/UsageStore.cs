@@ -61,8 +61,21 @@ public sealed class UsageStore : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private UsageStore()
+        : this(restore: true)
     {
-        if (LoadCachedSnapshot() is { } snapshot)
+    }
+
+    /// A store of its own for tests, which also set the seams below: nothing
+    /// restored from, or saved to, the user's settings.
+    internal UsageStore(bool restore)
+    {
+        if (restore)
+        {
+            SaveSnapshot = SaveCachedSnapshot;
+            AutoSwitch = MaybeAutoSwitchCodex;
+            BeforeRefresh = KickOtherProviders;
+        }
+        if (restore && LoadCachedSnapshot() is { } snapshot)
         {
             _claude = snapshot.Claude;
             _codex = snapshot.Codex;
@@ -71,6 +84,15 @@ public sealed class UsageStore : INotifyPropertyChanged
             _codexUpdatedAt = UsageCachePolicy.CacheableCopy(snapshot.Codex) is null ? null : snapshot.CodexUpdatedAt;
         }
     }
+
+    // Test seams: what a refresh calls out to.
+    internal Func<CancellationToken, Task<AppUsage>> CodexFetcher { get; set; } = UsageFetcher.FetchCodex;
+    internal Func<CancellationToken, Task<AppUsage>> ClaudeFetcher { get; set; } = UsageFetcher.FetchClaude;
+    internal Func<string?> CodexLogin { get; set; } = CodexCredentials.CurrentLogin;
+    internal Action<AppUsage, AppUsage, bool, bool> SaveSnapshot { get; set; } = (_, _, _, _) => { };
+    internal Action<AppUsage> AutoSwitch { get; set; } = _ => { };
+    internal Action BeforeRefresh { get; set; } = () => { };
+    internal Task? RefreshTask => _refreshTask;
 
     public AppUsage Claude { get => _claude; private set { _claude = value; Raise(nameof(Claude)); } }
     public AppUsage Codex { get => _codex; private set { _codex = value; Raise(nameof(Codex)); } }
@@ -101,6 +123,16 @@ public sealed class UsageStore : INotifyPropertyChanged
         Refresh();
     }
 
+    /// The Codex login was just switched: the refresh in flight was fetched
+    /// for the old account, so it is cancelled (its result is dropped) and a
+    /// new one starts at once, past the usual guard against overlapping.
+    public void RefreshAfterCodexSwitch()
+    {
+        _refreshCts?.Cancel();
+        Loading = false;
+        Refresh();
+    }
+
     public void Refresh()
     {
         // Self-heal instead of early-return when a refresh has been "in
@@ -109,25 +141,18 @@ public sealed class UsageStore : INotifyPropertyChanged
         // reset detection and auto-resume — until the app was relaunched.
         if (Loading && DateTimeOffset.Now - _refreshStartedAt < TimeSpan.FromMinutes(2)) return;
 
-        // Guests re-probe every refresh cycle (macOS redetectGuests):
-        // signing into agy/grok/Cursor while the app runs claims the slot
-        // without a relaunch.
-        Model.ProviderVisibilityStore.Shared.RedetectGuests();
+        BeforeRefresh();
 
         Loading = true;
         _refreshStartedAt = DateTimeOffset.Now;
         LastAttemptedAt = _refreshStartedAt;
-        // Grok, Kimi Code, Antigravity and Cursor ride this exact cadence (poll / wake /
-        // unlock / network / manual) instead of owning timers; their stores
-        // no-op when the provider is undetected or when kicked again inside
-        // their own attempt floors.
-        GrokUsageStore.Shared.KickRefresh();
-        AntigravityUsageStore.Shared.KickRefresh();
-        CursorUsageStore.Shared.KickRefresh();
-        KimiUsageStore.Shared.KickRefresh();
         _refreshCts?.Cancel();
         var cts = new CancellationTokenSource();
         _refreshCts = cts;
+        // The Codex numbers are for the login in auth.json as the fetch
+        // starts; if another is signed in by the time they land, they are
+        // another account's.
+        var codexLogin = CodexLogin();
         _refreshTask = Task.Run(async () =>
         {
             try
@@ -135,8 +160,8 @@ public sealed class UsageStore : INotifyPropertyChanged
                 // Thread the token into the HTTP calls so a superseding refresh
                 // (network-up mid-flight on a dead path) actually aborts the dead
                 // request instead of letting it run to its own timeout.
-                var codexTask = FetchWithRetry(UsageFetcher.FetchCodex, cts.Token);
-                var claudeTask = FetchWithRetry(UsageFetcher.FetchClaude, cts.Token);
+                var codexTask = FetchWithRetry(CodexFetcher, cts.Token);
+                var claudeTask = FetchWithRetry(ClaudeFetcher, cts.Token);
                 var codexResult = await codexTask;
                 var claudeResult = await claudeTask;
 
@@ -152,19 +177,20 @@ public sealed class UsageStore : INotifyPropertyChanged
                         return;
                     }
 
-                    var codexFailed = IsErrorOnly(codexResult);
+                    var codexCurrent = string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
+                    var codexFailed = codexCurrent && IsErrorOnly(codexResult);
                     var claudeFailed = IsErrorOnly(claudeResult);
-                    var mergedCodex = MergedUsage(Codex, codexResult);
+                    var mergedCodex = codexCurrent ? MergedUsage(Codex, codexResult) : Codex;
                     var mergedClaude = MergedUsage(Claude, claudeResult);
-                    Codex = mergedCodex;
+                    if (codexCurrent) Codex = mergedCodex;
                     Claude = mergedClaude;
-                    SaveCachedSnapshot(mergedClaude, mergedCodex);
+                    SaveSnapshot(mergedClaude, mergedCodex, true, codexCurrent);
                     RefreshWarning = WarningFor(codexFailed, claudeFailed);
                     var now = DateTimeOffset.Now;
                     RecordSuccessfulUpdate(claude: true, claudeResult, now);
-                    RecordSuccessfulUpdate(claude: false, codexResult, now);
+                    if (codexCurrent) RecordSuccessfulUpdate(claude: false, codexResult, now);
                     Loading = false;
-                    MaybeAutoSwitchCodex(mergedCodex);
+                    if (codexCurrent) AutoSwitch(mergedCodex);
                 });
             }
             catch
@@ -176,6 +202,21 @@ public sealed class UsageStore : INotifyPropertyChanged
                 });
             }
         }, CancellationToken.None);
+    }
+
+    /// Grok, Kimi Code, Antigravity and Cursor ride this exact cadence (poll /
+    /// wake / unlock / network / manual) instead of owning timers; their stores
+    /// no-op when the provider is undetected or when kicked again inside their
+    /// own attempt floors. Guests re-probe every refresh cycle (macOS
+    /// redetectGuests): signing into agy/grok/Cursor while the app runs claims
+    /// the slot without a relaunch.
+    private static void KickOtherProviders()
+    {
+        Model.ProviderVisibilityStore.Shared.RedetectGuests();
+        GrokUsageStore.Shared.KickRefresh();
+        AntigravityUsageStore.Shared.KickRefresh();
+        CursorUsageStore.Shared.KickRefresh();
+        KimiUsageStore.Shared.KickRefresh();
     }
 
     /// AUTO mode of `CodexAccountSwitcher` (the codex-auto borrow, driven by

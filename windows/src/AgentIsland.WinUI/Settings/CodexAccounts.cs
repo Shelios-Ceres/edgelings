@@ -63,7 +63,7 @@ internal static class CodexAccounts
                 }
                 // A manual pick supersedes the last automatic rotation.
                 UsageStore.Shared.CodexAutoSwitched = null;
-                UsageStore.Shared.Refresh();
+                UsageStore.Shared.RefreshAfterCodexSwitch();
             };
             menu.Items.Add(item);
         }
