@@ -25,11 +25,19 @@ public static class SharedSubscription
         shared ? cursorBadge ?? grokBadge : grokBadge ?? cursorBadge;
 
     /// The character plays the more urgent of the two apps' phases, Grok's on
-    /// a tie; work done in Cursor says so in its detail.
+    /// a tie; work done in Cursor says so in its detail. Billed apart, one
+    /// app's spent quota or lapsed sign-in is its own: it never puts the
+    /// character to sleep over the other app's work or news. shared is asked
+    /// only then.
     public static (AgentPhase Phase, string? Detail) Pick(
-        (AgentPhase Phase, string? Detail) grok, (AgentPhase Phase, string? Detail) cursor)
+        (AgentPhase Phase, string? Detail) grok, (AgentPhase Phase, string? Detail) cursor, Func<bool> shared)
     {
-        var fromCursor = AgentPhases.Priority(cursor.Phase) < AgentPhases.Priority(grok.Phase);
+        static bool Standing(AgentPhase phase) => phase is AgentPhase.RateLimited or AgentPhase.AuthRequired;
+        static bool Busy(AgentPhase phase) => AgentPhases.IsWork(phase) || phase == AgentPhase.Finished;
+        var fromCursor = Standing(grok.Phase) != Standing(cursor.Phase)
+            && Busy(Standing(grok.Phase) ? cursor.Phase : grok.Phase) && !shared()
+            ? Standing(grok.Phase)
+            : AgentPhases.Priority(cursor.Phase) < AgentPhases.Priority(grok.Phase);
         var (phase, detail) = fromCursor ? cursor : grok;
         if (phase == AgentPhase.Idle) return (phase, null);
         if (!fromCursor) return (phase, detail);

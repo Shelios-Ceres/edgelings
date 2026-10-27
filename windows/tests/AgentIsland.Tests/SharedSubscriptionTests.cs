@@ -21,6 +21,7 @@ public static class SharedSubscriptionTests
             ("separate plans keep two pools", TestSeparatePlans),
             ("the busier app's phase wins, named", TestPickBusier),
             ("a tie goes to Grok, only Cursor's work is named", TestPickTie),
+            ("billed apart, one app's spent quota never sleeps over the other's work", TestStandingStateBilledApart),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
             ("the character's plan is the X Subscription's tier when shared", TestPlan),
         };
@@ -48,23 +49,41 @@ public static class SharedSubscriptionTests
 
     private static void TestPickBusier()
     {
-        var cursorWrites = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Writing, "Edit"));
+        var cursorWrites = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Writing, "Edit"), NotAsked);
         Expect(cursorWrites == (AgentPhase.Writing, $"{Cursor} · Edit"), $"Cursor at work shows, named: {cursorWrites}");
-        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null));
+        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null), NotAsked);
         Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok at work shows as itself: {grokRuns}");
-        var cursorDone = SharedSubscription.Pick((AgentPhase.Working, null), (AgentPhase.Finished, null));
+        var cursorDone = SharedSubscription.Pick((AgentPhase.Working, null), (AgentPhase.Finished, null), NotAsked);
         Expect(cursorDone == (AgentPhase.Finished, Cursor), $"a finished turn waiting on you outranks work: {cursorDone}");
-        var grokAsks = SharedSubscription.Pick((AgentPhase.Asking, null), (AgentPhase.Failed, null));
+        var grokAsks = SharedSubscription.Pick((AgentPhase.Asking, null), (AgentPhase.Failed, null), NotAsked);
         Expect(grokAsks.Phase == AgentPhase.Asking, $"a question outranks an error: {grokAsks}");
     }
 
     private static void TestPickTie()
     {
-        var tie = SharedSubscription.Pick((AgentPhase.Thinking, null), (AgentPhase.Writing, null));
+        var tie = SharedSubscription.Pick((AgentPhase.Thinking, null), (AgentPhase.Writing, null), NotAsked);
         Expect(tie == (AgentPhase.Thinking, null), $"two apps at work show Grok's: {tie}");
-        var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Idle, null));
+        var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Idle, null), NotAsked);
         Expect(idle == (AgentPhase.Idle, null), $"both idle is plain idle: {idle}");
     }
+
+    private static void TestStandingStateBilledApart()
+    {
+        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Apart);
+        Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok works while Cursor's own quota is spent: {grokRuns}");
+        var cursorWrites = SharedSubscription.Pick((AgentPhase.RateLimited, null), (AgentPhase.Writing, "Edit"), Apart);
+        Expect(cursorWrites == (AgentPhase.Writing, $"{Cursor} · Edit"), $"Cursor works while Grok's weekly pool is spent: {cursorWrites}");
+        var cursorDone = SharedSubscription.Pick((AgentPhase.AuthRequired, null), (AgentPhase.Finished, null), Apart);
+        Expect(cursorDone == (AgentPhase.Finished, Cursor), $"a finished turn beats the other app's lapsed sign-in: {cursorDone}");
+        var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.RateLimited, null), NotAsked);
+        Expect(idle == (AgentPhase.RateLimited, Cursor), $"with nothing else going on, the spent quota still shows: {idle}");
+        var shared = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Shared);
+        Expect(shared == (AgentPhase.RateLimited, Cursor), $"one shared pool spent is the character's: {shared}");
+    }
+
+    private static readonly Func<bool> Apart = () => false;
+    private static readonly Func<bool> Shared = () => true;
+    private static readonly Func<bool> NotAsked = () => throw new Exception("asked whether the pool is shared for no reason");
 
     private static void TestTokenSum()
     {

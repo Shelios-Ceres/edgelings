@@ -25,7 +25,7 @@ public sealed class DrawerActivityFrame
         var reading = ForProvider(provider);
         if (provider != DisplayProvider.Grok) return reading;
         var cursor = ForProvider(DisplayProvider.Cursor);
-        var (phase, detail) = SharedSubscription.Pick((reading.Phase, reading.Detail), (cursor.Phase, cursor.Detail));
+        var (phase, detail) = SharedSubscription.Pick((reading.Phase, reading.Detail), (cursor.Phase, cursor.Detail), SharedSubscription.GrokWithCursor);
         return new DrawerActivity(phase, detail, reading.Running + cursor.Running);
     }
 }
