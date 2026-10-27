@@ -112,8 +112,10 @@ public static class Preferences
         LoadFromDisk() ?? _values ?? new Dictionary<string, JsonElement>();
 
     /// The file's values: empty when there is no file yet or it is not
-    /// valid JSON (the next write replaces it), null when it cannot be read
-    /// right now.
+    /// valid JSON, null when it cannot be read right now. A file that is not
+    /// valid JSON (a crash mid-save can leave it empty or zeroed) is moved
+    /// aside as settings.json.corrupt-<time> and logged, so the next write
+    /// can't destroy what may still be recovered from it.
     private static Dictionary<string, JsonElement>? LoadFromDisk()
     {
         var path = SettingsPath;
@@ -125,8 +127,19 @@ public static class Preferences
                 return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(path))
                     ?? new Dictionary<string, JsonElement>();
             }
-            catch (JsonException)
+            catch (JsonException error)
             {
+                var aside = path + ".corrupt-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture);
+                try
+                {
+                    File.Move(path, aside);
+                    CoreLog.Error(error, $"Settings unreadable, moved aside as {Path.GetFileName(aside)}");
+                }
+                catch (Exception moveError) when (moveError is IOException or UnauthorizedAccessException)
+                {
+                    // Another copy of the app moved it first, or it is held:
+                    // either way the values read as defaults this time.
+                }
                 return new Dictionary<string, JsonElement>();
             }
             catch (IOException) when (attempt < 2)
@@ -154,7 +167,13 @@ public static class Preferences
             var path = SettingsPath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             tmp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(tmp, JsonSerializer.Serialize(_values, SerializerOptions));
+            // On disk before the rename: a power cut after it must not leave
+            // settings.json renamed onto bytes that were never written.
+            using (var stream = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(stream, _values, SerializerOptions);
+                stream.Flush(flushToDisk: true);
+            }
             File.Move(tmp, path, overwrite: true);
         }
         catch (Exception error)

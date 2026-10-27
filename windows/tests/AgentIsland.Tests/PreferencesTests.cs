@@ -39,6 +39,21 @@ public static class PreferencesTests
             Expect(Preferences.Get<int>("AgentIsland.test.key") == 2, "the value stays in memory for this run");
             Expect(Directory.GetFileSystemEntries(Path.GetDirectoryName(blocked)!).Length == 1, "the failed save leaves no temp copy");
             Console.WriteLine("PASS preferences: a save that fails is logged once and leaves nothing behind");
+
+            // A crash mid-save can leave the file zeroed: its bytes are kept aside, not overwritten.
+            var corrupt = Path.Combine(root, "corrupt", "settings.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(corrupt)!);
+            File.WriteAllBytes(corrupt, new byte[] { 0, 0, 0, 0 });
+            Preferences.FileOverride = corrupt;
+            Preferences.Forget();
+            logged.Clear();
+            Expect(Preferences.Get<int>("AgentIsland.test.key") == 0, "an unreadable file reads as defaults");
+            var aside = Directory.GetFiles(Path.GetDirectoryName(corrupt)!, "settings.json.corrupt-*");
+            Expect(aside.Length == 1 && File.ReadAllBytes(aside[0]).SequenceEqual(new byte[] { 0, 0, 0, 0 }), "the damaged file is kept aside as it was");
+            Expect(logged.Count == 1 && logged[0].Context.StartsWith("Settings unreadable", StringComparison.Ordinal), "and logged");
+            Preferences.Set("AgentIsland.test.key", 3);
+            Expect(Preferences.Get<int>("AgentIsland.test.key") == 3 && File.Exists(aside[0]), "the next save writes a fresh file beside it");
+            Console.WriteLine("PASS preferences: a corrupt file is moved aside and logged, not overwritten");
             Console.WriteLine("PreferencesTests GREEN");
         }
         finally
