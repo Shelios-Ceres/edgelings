@@ -200,7 +200,7 @@ public static class CodexAccountSwitcher
 
     // MARK: - Helpers (unit-tested)
 
-    private sealed record Identity(string AccountId, string? UserId);
+    internal sealed record Identity(string AccountId, string? UserId);
 
     internal static bool SameAccount(byte[] first, byte[] second) =>
         first.SequenceEqual(second) ||
@@ -211,7 +211,17 @@ public static class CodexAccountSwitcher
         try
         {
             using var document = JsonDocument.Parse(data);
-            if (!document.RootElement.TryGetProperty("tokens", out var tokens) ||
+            return IdentityIn(document.RootElement);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return null; }
+    }
+
+    internal static Identity? IdentityIn(JsonElement root)
+    {
+        try
+        {
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("tokens", out var tokens) ||
                 tokens.ValueKind != JsonValueKind.Object) return null;
             var account = StringIn(tokens, "account_id");
             string? user = null, subject = null;

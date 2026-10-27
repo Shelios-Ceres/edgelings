@@ -36,7 +36,23 @@ public static class CodexSwitchRefreshTests
         Expect(fallback is not null && !fallback.Contains("secret-token-1"), "the access token itself is never kept");
         Expect(fallback != Login("""{"tokens":{"access_token":"secret-token-2"}}"""), "another token is another login");
         Expect(Login("""{"tokens":{}}""") is null, "no login");
-        Console.WriteLine("PASS a login is told by its account id, else by a hash of its token");
+        // Two members of one Team workspace share the account id.
+        var alice = Login(Member("team-1", "user-alice", "t1"));
+        Expect(alice != Login(Member("team-1", "user-bob", "t1")), "another member of the same workspace is another login");
+        Expect(alice == Login(Member("team-1", "user-alice", "t2")), "a refreshed token is the same login");
+        Console.WriteLine("PASS a login is told by its account and user, else by a hash of its token");
+    }
+
+    private static string Member(string account, string user, string generation)
+    {
+        var claims = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object>
+        {
+            ["sub"] = user,
+            ["https://api.openai.com/auth"] = new { chatgpt_account_id = account, chatgpt_user_id = user },
+            ["generation"] = generation,
+        });
+        var jwt = "e30." + Convert.ToBase64String(claims).TrimEnd('=').Replace('+', '-').Replace('/', '_') + ".fake";
+        return JsonSerializer.Serialize(new { tokens = new { account_id = account, id_token = jwt, access_token = "FAKE-" + generation } });
     }
 
     private static UsageStore Store(Func<CancellationToken, Task<AppUsage>> codex, Func<string?> login, List<string> log)
