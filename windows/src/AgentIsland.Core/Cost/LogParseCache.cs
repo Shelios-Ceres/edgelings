@@ -13,7 +13,12 @@ public sealed class LogParseCache
     private sealed record EventDto(
         long Ts, string Model, long In, long Out, long Cc, long Cr,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResponseKey = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool IsFinalUsage = false);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool IsFinalUsage = false)
+    {
+        // A year of events names a handful of models: one string each, not
+        // one per event, for as long as the cache holds them.
+        public string Model { get; init; } = string.Intern(Model);
+    }
 
     private sealed record Entry(long MtimeTicks, long Size, List<EventDto> Events);
 
@@ -146,8 +151,11 @@ public sealed class LogParseCache
         _loaded = true;
         try
         {
-            if (File.Exists(_cachePath)
-                && JsonSerializer.Deserialize<Dictionary<string, Entry>>(File.ReadAllText(_cachePath)) is { } saved)
+            if (!File.Exists(_cachePath)) return;
+            // Streamed both ways: a year of one agent's events is tens of MB
+            // of JSON, which as one string would be twice that again.
+            using var stream = SharedFile.Open(_cachePath);
+            if (JsonSerializer.Deserialize<Dictionary<string, Entry>>(stream) is { } saved)
             {
                 // The deserializer's dictionary compares case-sensitively; a
                 // path in other casing would miss its entry and add a twin.
@@ -171,7 +179,7 @@ public sealed class LogParseCache
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
             tmp = _cachePath + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(tmp, JsonSerializer.Serialize(_entries));
+            using (var stream = File.Create(tmp)) JsonSerializer.Serialize(stream, _entries);
             File.Move(tmp, _cachePath, overwrite: true);
         }
         catch

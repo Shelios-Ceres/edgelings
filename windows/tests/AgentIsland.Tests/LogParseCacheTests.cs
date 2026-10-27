@@ -19,6 +19,8 @@ public static class LogParseCacheTests
             Console.WriteLine("PASS parse cache: overlapping walks of one cache neither fail nor lose events");
             TwoCopiesSaveTheSameFile(logs, cacheDirectory);
             Console.WriteLine("PASS parse cache: two copies saving one file leave a valid cache and no temp files");
+            ReloadSharesModelNames(logs, cacheDirectory);
+            Console.WriteLine("PASS parse cache: a reloaded cache keeps its events and one string per model");
             Console.WriteLine("LogParseCacheTests GREEN");
         }
         finally
@@ -98,5 +100,23 @@ public static class LogParseCacheTests
         var reread = new LogParseCache(TriggerTool.Claude, "shared.json", cacheDirectory);
         var warm = reread.Walk(files, cutoff, _ => throw new Exception("a saved entry was not read back"));
         Expect(warm.Count > 0, "the saved cache is valid JSON that a new copy reads back");
+    }
+
+    private static void ReloadSharesModelNames(string logs, string cacheDirectory)
+    {
+        var files = Enumerable.Range(0, 3).Select(i => Path.Combine(logs, $"models-{i}.jsonl")).ToList();
+        foreach (var file in files) File.WriteAllText(file, "x");
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-30);
+        var at = new DateTimeOffset(2026, 10, 12, 12, 0, 0, TimeSpan.Zero);
+        // Each parse makes its own copy of the name, as reading a log line does.
+        List<TokenEvent> ParseMany(string path) => Enumerable.Range(0, 50).Select(i =>
+            new TokenEvent(TriggerTool.Claude, at.AddMinutes(i), new string("model-x".AsSpan()), 10, 5, 0, 0) { ResponseKey = $"{path}|{i}" }).ToList();
+        var parsed = new LogParseCache(TriggerTool.Claude, "models.json", cacheDirectory).Walk(files, cutoff, ParseMany);
+        var reloaded = new LogParseCache(TriggerTool.Claude, "models.json", cacheDirectory)
+            .Walk(files, cutoff, _ => throw new Exception("a saved entry was not read back"));
+        Expect(reloaded.Count == parsed.Count && reloaded.Select(e => e.ResponseKey).Order().SequenceEqual(parsed.Select(e => e.ResponseKey).Order()),
+            "the reloaded cache holds the same events");
+        Expect(reloaded.Select(e => e.Model).Distinct(ReferenceEqualityComparer.Instance).Count() == 1,
+            "every reloaded event shares one model string");
     }
 }
