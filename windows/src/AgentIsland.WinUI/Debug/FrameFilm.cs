@@ -31,6 +31,8 @@ internal sealed class FrameFilm : Window
         var scale = Win32.GetDpiForWindow(_hwnd) / 96.0;
         AppWindow.Resize(new SizeInt32((int)(1000 * scale), (int)(760 * scale)));
         Content = _stage;
+        // The app quits only when told (App), and this run has no tray to tell it.
+        Closed += (_, _) => Application.Current.Exit();
         _stage.Loaded += async (_, _) =>
         {
             try
@@ -42,6 +44,7 @@ internal sealed class FrameFilm : Window
                 DebugTrace.Write("frame film failed: " + error);
             }
             DebugTrace.Write("frame film saved in " + directory);
+            Close();
         };
         Activate();
     }

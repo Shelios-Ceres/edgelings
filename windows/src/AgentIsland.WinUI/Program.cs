@@ -33,8 +33,11 @@ public static class Program
     /// same mutex, so the two never ran together.
     private static bool ClaimSingleInstance()
     {
-        // The isolated motion check creates no stores or background readers.
-        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1") return true;
+        // The isolated motion check and the frame film and spike create no
+        // stores or background readers.
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1"
+            || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_FILM") is { Length: > 0 }
+            || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_SPIKE") == "1") return true;
         _singleInstance = new Mutex(initiallyOwned: false, @"Local\AgentIsland.SingleInstance");
         try
         {

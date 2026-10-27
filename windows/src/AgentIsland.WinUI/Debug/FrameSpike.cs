@@ -23,6 +23,8 @@ internal sealed class FrameSpike : Window
     {
         _hwnd = WindowNative.GetWindowHandle(this);
         Title = "Frame spike";
+        // The app quits only when told (App), and this run has no tray to tell it.
+        Closed += (_, _) => Application.Current.Exit();
         var dark = Brand.IsDark();
         _frame = new ClassicFrame(this);
         var bar = new Grid { Height = ClassicFrame.TitleHeight, VerticalAlignment = VerticalAlignment.Top };
