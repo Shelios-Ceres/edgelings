@@ -95,8 +95,9 @@ public sealed class PixelSurface : Grid
         {
             var surface = (PixelSurface)d;
             surface._layers[layer].Fill = (Brush?)e.NewValue;
-            // A shadow appearing or leaving changes the plate's size.
-            if (layer == 0 && (e.OldValue is null) != (e.NewValue is null)) surface.Draw();
+            // A shadow appearing or leaving changes the plate's size; a ledge
+            // appearing (a button enabled after its first layout) needs its shape.
+            if (layer is 0 or 3 && (e.OldValue is null) != (e.NewValue is null)) surface.Draw();
         }));
 
     private void Draw()
