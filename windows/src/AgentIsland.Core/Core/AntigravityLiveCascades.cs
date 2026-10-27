@@ -30,16 +30,17 @@ internal static class AntigravityLiveCascades
     private static TimeSpan LookAgainAnyway => TimeSpan.FromMinutes(5);
 
     /// Each conversation the servers hold, by its id — the conversation's
-    /// folder name under brain\. Empty while no server answers.
-    public static IReadOnlyDictionary<string, Run> Read(DateTimeOffset now)
+    /// folder name under brain\ — and when they were asked. Empty while no
+    /// server answers.
+    public static (DateTimeOffset At, IReadOnlyDictionary<string, Run> Runs) Read(DateTimeOffset now)
     {
         lock (Gate)
         {
-            if (now - _last.At < Fresh) return _last.Runs;
+            if (now - _last.At < Fresh) return _last;
         }
         var runs = Fetch(now);
         lock (Gate) _last = (now, runs);
-        return runs;
+        return (now, runs);
     }
 
     /// Every Antigravity language server that answers, as (port, token): the
@@ -142,10 +143,13 @@ internal static class AntigravityLiveCascades
     /// whatever the transcript's silence; one the user cancelled is over
     /// with nothing owed; one stopped any other way while the transcript's
     /// turn is still open stopped for the user (an approval, an error, a
-    /// limit). Anything else leaves the transcript's own reading.
-    internal static ActivityState Apply(ActivityState fromTranscript, Run run) => run.Status switch
+    /// limit). Anything else leaves the transcript's own reading. An idle
+    /// cascade read before the transcript's newest step (a prompt sent since,
+    /// say) says nothing about that step.
+    internal static ActivityState Apply(ActivityState fromTranscript, Run run, bool readSinceTranscript = true) => run.Status switch
     {
         "CASCADE_RUN_STATUS_RUNNING" or "CASCADE_RUN_STATUS_BUSY" or "CASCADE_RUN_STATUS_CANCELING" => ActivityState.Working,
+        "CASCADE_RUN_STATUS_IDLE" when !readSinceTranscript => fromTranscript,
         "CASCADE_RUN_STATUS_IDLE" when run.Stopped == "EXECUTOR_TERMINATION_REASON_USER_CANCELED" => ActivityState.Idle,
         "CASCADE_RUN_STATUS_IDLE" when fromTranscript == ActivityState.Working => ActivityState.NeedsYou,
         _ => fromTranscript,

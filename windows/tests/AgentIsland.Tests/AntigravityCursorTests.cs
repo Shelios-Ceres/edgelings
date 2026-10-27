@@ -47,6 +47,15 @@ public static class AntigravityCursorTests
             ("antigravity server: an answered run leaves the transcript's reading", () =>
                 Expect(AntigravityLiveCascades.Apply(ActivityState.NeedsYou, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL")),
                     ActivityState.NeedsYou)),
+            ("antigravity server: an idle reading older than a prompt just sent is not your turn", () =>
+            {
+                Expect(AntigravityLiveCascades.Apply(ActivityState.Working, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL"),
+                    readSinceTranscript: false), ActivityState.Working);
+                Expect(AntigravityLiveCascades.Apply(ActivityState.Working, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_USER_CANCELED"),
+                    readSinceTranscript: false), ActivityState.Working);
+                Expect(AntigravityLiveCascades.Apply(ActivityState.Idle, Run("CASCADE_RUN_STATUS_RUNNING", null), readSinceTranscript: false),
+                    ActivityState.Working);
+            }),
             ("cursor turn: a tool still running is not an answer", () => CursorDone(false, Bubble(2, "loading"))),
             ("cursor turn: a finished tool is", () => CursorDone(true, Bubble(2, "completed"))),
             ("cursor turn: plain assistant text is an answer, a user bubble is not", () =>

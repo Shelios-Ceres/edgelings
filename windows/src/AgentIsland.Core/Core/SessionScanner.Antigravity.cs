@@ -22,7 +22,7 @@ public static partial class SessionScanner
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
         var output = new List<ScannedSession>();
-        IReadOnlyDictionary<string, AntigravityLiveCascades.Run>? live = null;
+        (DateTimeOffset At, IReadOnlyDictionary<string, AntigravityLiveCascades.Run> Runs)? live = null;
         var home = Path.Combine(IslandPaths.Home, ".gemini");
         foreach (var rootName in AntigravityRootNames)
         {
@@ -38,7 +38,10 @@ public static partial class SessionScanner
                 if (!File.Exists(path)) continue;
                 var state = SessionState(path, now, lastWorking, null, SessionTurnState.Antigravity);
                 live ??= AntigravityLiveCascades.Read(now);
-                var status = live.TryGetValue(conversation, out var run) ? AntigravityLiveCascades.Apply(state.Status, run) : state.Status;
+                var (readAt, runs) = live.Value;
+                var status = runs.TryGetValue(conversation, out var run)
+                    ? AntigravityLiveCascades.Apply(state.Status, run, readSinceTranscript: readAt > state.Modified)
+                    : state.Status;
                 var summary = summaries.TryGetValue(conversation, out var s) ? s : default;
                 var cwd = summary.Workspace
                     ?? AntigravityWorkspace(root, conversation) ?? "";
