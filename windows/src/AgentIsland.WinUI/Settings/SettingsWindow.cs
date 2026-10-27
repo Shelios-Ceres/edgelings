@@ -152,7 +152,7 @@ internal sealed partial class SettingsWindow : Window
         using var english = Shell.Looks.English();
         var title = "Agent Island — " + L10n.Tr("Settings");
         var root = Content is null
-            ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520)
+            ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520, Rescaled)
             : Shell.Chrome.Restyle(this, title);
         _pixel = Shell.Looks.Pixel;
         _pages = new ListView { SelectionMode = ListViewSelectionMode.Single, Margin = _pixel ? new Thickness(4) : new Thickness(6, 4, 6, 4) };
@@ -218,6 +218,14 @@ internal sealed partial class SettingsWindow : Window
         Grid.SetColumn(page, 1);
         body.Children.Add(page);
         return body;
+    }
+
+    /// The pixel kit sets its type and its cells in whole pixels of the
+    /// window's scale, so on a display of another scale the window is rebuilt
+    /// for it, as on a look switch.
+    private void Rescaled()
+    {
+        if (_pixel) DispatcherQueue.TryEnqueue(Relocalize);
     }
 
     private void SelectPage(Page page) => _pages.SelectedIndex = (int)page;

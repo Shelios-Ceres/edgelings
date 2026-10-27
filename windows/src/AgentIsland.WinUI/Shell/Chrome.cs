@@ -32,17 +32,21 @@ internal static class Chrome
     private static readonly Dictionary<IntPtr, ClassicFrame> Frames = new();
     // The smallest body each window allows, in DIP.
     private static readonly Dictionary<IntPtr, (double Width, double Height)> Minimums = new();
+    // What a window's owner redoes when the window moves to a display of another scale.
+    private static readonly Dictionary<IntPtr, Action> Rescales = new();
 
     /// Classic draws its own frame, except under a high-contrast theme, which
     /// keeps Windows' own frame and system colours.
     private static bool OwnFrame => !Looks.Pixel && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
 
     /// Returns the window's root: the title bar in row 0, content goes in
-    /// row 1.
-    public static Grid Apply(Window window, string title, double width, double height, double minWidth, double minHeight)
+    /// row 1. rescaled runs when the window moves to a display of another
+    /// scale, for what was built at the old one.
+    public static Grid Apply(Window window, string title, double width, double height, double minWidth, double minHeight, Action? rescaled = null)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
         Minimums[hwnd] = (minWidth, minHeight);
+        if (rescaled is not null) Rescales[hwnd] = rescaled;
         var root = Restyle(window, title);
         var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
         // The sizes are the body's: the frame's transparent margin goes outside them.
@@ -52,6 +56,14 @@ internal static class Chrome
     }
 
     private static Thickness RoomOf(IntPtr hwnd) => Frames.ContainsKey(hwnd) ? ClassicFrame.Room : new Thickness(0);
+
+    /// The window is on a display of another scale: its minimum is held in
+    /// physical pixels, and its owner may rebuild what it drew for the old scale.
+    private static void Rescaled(Window window, IntPtr hwnd)
+    {
+        KeepMinimum(window, hwnd);
+        if (Rescales.TryGetValue(hwnd, out var rescaled)) rescaled();
+    }
 
     /// The window's minimum: its body's, with the frame's margin around it.
     /// Classic's frame brings its own presenter, which forgets the old one's
@@ -135,13 +147,14 @@ internal static class Chrome
         var root = new Grid();
         if (!Icons.TryGetValue(hwnd, out var icons))
         {
-            icons = Icons[hwnd] = new WindowIcons(hwnd);
+            icons = Icons[hwnd] = new WindowIcons(hwnd, () => Rescaled(window, hwnd));
             window.Closed += (_, _) =>
             {
                 icons.Dispose();
                 Icons.Remove(hwnd);
                 Pixelated.Remove(hwnd);
                 Minimums.Remove(hwnd);
+                Rescales.Remove(hwnd);
             };
         }
         icons.Show(pixel, root);
@@ -267,7 +280,8 @@ internal static class Chrome
     /// A window's icons, loaded by the app at exactly the size Windows shows
     /// them, reloaded when the window's scale changes and destroyed with it.
     /// Windows never frees the icons a window is handed, and
-    /// AppWindow.SetIcon leaks one on every call.
+    /// AppWindow.SetIcon leaks one on every call. A change of scale is also
+    /// passed on (rescaled), once per change.
     private sealed class WindowIcons : IDisposable
     {
         private readonly IntPtr _hwnd;
@@ -277,11 +291,20 @@ internal static class Chrome
         private IntPtr _big;
         private bool _pixel;
         private (bool Pixel, uint Dpi, int Bar) _loaded;
+        private uint _dpi;
 
-        public WindowIcons(IntPtr hwnd)
+        public WindowIcons(IntPtr hwnd, Action rescaled)
         {
             _hwnd = hwnd;
-            _rescale = (_, _) => Load();
+            _dpi = Win32.GetDpiForWindow(hwnd);
+            _rescale = (_, _) =>
+            {
+                Load();
+                var dpi = Win32.GetDpiForWindow(_hwnd);
+                if (dpi == _dpi) return;
+                _dpi = dpi;
+                rescaled();
+            };
         }
 
         /// The look's icons; once root loads they follow its window's scale.

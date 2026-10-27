@@ -53,6 +53,7 @@ internal sealed partial class ClassicFrame : IDisposable
 
     private readonly bool _visualOnly;
     private bool _square;
+    private uint _dpi;
     private bool _maximized;
     private bool _active = true;
     private bool _disposed;
@@ -91,6 +92,7 @@ internal sealed partial class ClassicFrame : IDisposable
         Win32.SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, 0, 0, Win32.SwpNoMove | Win32.SwpNoSize | SwpNoZOrder | Win32.SwpNoActivate | SwpFrameChanged);
         window.Activated += OnActivated;
         _square = IsSquare();
+        _dpi = Win32.GetDpiForWindow(_hwnd);
     }
 
     /// The body is square (no margin, no shadow, no outline rounding) while
@@ -162,12 +164,18 @@ internal sealed partial class ClassicFrame : IDisposable
                 return Win32.DefSubclassProc(hwnd, message, wParam, new IntPtr(-1));
             case WmSize:
             case WmWindowPosChanged:
+                // A display of another scale keeps the body's DIP size, so the
+                // body reports no change: the regions and the outline (1 px)
+                // follow the scale from here.
                 var square = IsSquare();
-                if (square != _square)
+                var dpi = Win32.GetDpiForWindow(hwnd);
+                if (square != _square || dpi != _dpi)
                 {
                     _square = square;
+                    _dpi = dpi;
                     ShapeChanged?.Invoke();
                 }
+                else if (message == WmSize) SetRegions();
                 break;
         }
         return Win32.DefSubclassProc(hwnd, message, wParam, lParam);
