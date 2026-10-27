@@ -6,8 +6,8 @@ namespace AgentIsland.Core;
 
 /// Claude Code writes nothing to its transcript while a permission prompt is
 /// open, so from the transcript alone a session waiting for approval looks
-/// like a long-running tool. An opt-in Notification hook in
-/// ~/.claude/settings.json fills that gap: on a permission prompt or an MCP
+/// like a long-running tool. An opt-in Notification hook in Claude Code's
+/// settings.json fills that gap: on a permission prompt or an MCP
 /// input dialog it records the session id, transcript path, prompt type and
 /// time — never the prompt text — in AppSupportDir/claude-hooks. A
 /// Notification hook has no say over permissions; it only observes.
@@ -32,8 +32,9 @@ public static class ClaudeHooks
         "at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress | " +
         "Set-Content -Encoding UTF8 -Path (Join-Path $d ($id + '.json')) }";
 
-    /// Claude Code's user settings; tests point it elsewhere.
-    public static string SettingsPath => SettingsFileOverride ?? Path.Combine(IslandPaths.Home, ".claude", "settings.json");
+    /// Claude Code's user settings, in the config folder it reads
+    /// (CLAUDE_CONFIG_DIR, else ~/.claude); tests point it elsewhere.
+    public static string SettingsPath => SettingsFileOverride ?? Path.Combine(IslandPaths.ClaudeConfigRoots[0], "settings.json");
 
     internal static string? SettingsFileOverride { get; set; }
 

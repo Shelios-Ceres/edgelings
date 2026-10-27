@@ -32,6 +32,7 @@ public static class ClaudeHooksTests
             ("a corrupt unrelated marker does not hide approvals", CorruptMarkerIsIsolated),
             ("a locked unrelated marker does not hide approvals", LockedMarkerIsIsolated),
             ("switches flipped at once never clash, and the last one wins", TogglesTakeTurns),
+            ("the hook goes into the config folder Claude Code reads", SettingsInConfigFolder),
         };
         foreach (var (name, test) in tests)
         {
@@ -226,6 +227,23 @@ public static class ClaudeHooksTests
         Expect(ClaudeHooks.IsInstalled(), false);
         Expect(JsonNode.Parse(File.ReadAllText(settings))!["theme"]!.GetValue<string>(), "dark");
     });
+
+    /// CLAUDE_CONFIG_DIR moves settings.json with the transcripts and the
+    /// credentials, so the switch never edits a file Claude Code ignores.
+    private static void SettingsInConfigFolder()
+    {
+        var previous = ClaudeHooks.SettingsFileOverride;
+        ClaudeHooks.SettingsFileOverride = null;
+        try
+        {
+            Expect(ClaudeHooks.SettingsPath, Path.Combine(IslandPaths.ClaudeConfigRoots[0], "settings.json"));
+            Expect(Path.GetDirectoryName(ClaudeHooks.SettingsPath), Path.GetDirectoryName(IslandPaths.ClaudeCredentialsFile));
+        }
+        finally
+        {
+            ClaudeHooks.SettingsFileOverride = previous;
+        }
+    }
 
     /// A throwaway settings.json; the real one is never touched.
     private static void WithSettings(Action<string> test)
