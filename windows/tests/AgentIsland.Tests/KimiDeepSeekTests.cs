@@ -82,6 +82,7 @@ public static class KimiDeepSeekTests
             ("kimi tokens: a usage record splits input and cache", KimiTokens),
             ("kimi names: its settings name the plan's models", KimiNames),
             ("kimi list: K2 is told by name, by id without a name, and a K3 name on a K2 id is not K2", KimiK2Rule),
+            ("model rows: a cache-heavy model ranks by billable in one mode and by all tokens in the other", ModelRowsFollowMode),
             ("kimi prices: a connected provider's model prices by the provider's own id", KimiProviderPrices),
             ("deepseek tokens: usage follows the header's model", DeepSeekTokens),
             ("zstd: frames decode, a torn tail frame is dropped", ZstdFrames),
@@ -206,6 +207,23 @@ public static class KimiDeepSeekTests
         Expect(KimiLogReader.IsK2("kimi-k3.1-pro", null), false);
         Expect(KimiLogReader.IsK2("deepseek/deepseek-flash", null), false);
         Expect(KimiLogReader.IsK2("deepseek/kimi-k2-thinking", null), false);
+    }
+
+    private static void ModelRowsFollowMode()
+    {
+        // "cached" has the most tokens on the wire but the fewest billable ones.
+        var models = new[]
+        {
+            new ModelSpend("cached", 900_000, 20_000, 1),
+            new ModelSpend("fresh", 300_000, 250_000, 1),
+            new ModelSpend("middle", 400_000, 100_000, 1),
+        };
+        Expect(string.Join(",", ModelSpend.Ranked(models, billable: true).Select(m => m.Model)), "fresh,middle,cached");
+        Expect(string.Join(",", ModelSpend.Ranked(models, billable: false).Select(m => m.Model)), "cached,middle,fresh");
+        // The top three picked from four differ by mode too.
+        var four = models.Append(new ModelSpend("small", 50_000, 40_000, 1)).ToArray();
+        Expect(string.Join(",", ModelSpend.Ranked(four, true).Take(3).Select(m => m.Model)), "fresh,middle,small");
+        Expect(string.Join(",", ModelSpend.Ranked(four, false).Take(3).Select(m => m.Model)), "cached,middle,fresh");
     }
 
     private static void DeepSeekTokens()

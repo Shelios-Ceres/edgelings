@@ -111,7 +111,7 @@ internal sealed partial class CostPage : IDisposable
         /// Anything in the last five hours, which Today's models cover.
         public bool Recent { get; init; }
 
-        /// The models the card lists, which are not always the top three of Models.
+        /// The models the card lists, ranked by the page's token mode.
         public IReadOnlyList<ModelSpend> Listed { get; init; } = Array.Empty<ModelSpend>();
 
         /// What the agent calls its models.
@@ -390,15 +390,15 @@ internal sealed partial class CostPage : IDisposable
         return slice with { Recent = summary.RecentModels.Count > 0, NameOf = summary.NameOf, Listed = Listed(provider, slice.Models, summary, billableMode) };
     }
 
-    /// The model rows an agent's card shows: the top three, except Kimi Code's,
-    /// which lists every K3-or-later model and every connected provider's, by
-    /// the page's token mode. Its K2 models stay in the totals and the charts.
+    /// The model rows an agent's card shows, ranked by the page's token mode:
+    /// the top three, except Kimi Code's, which lists every K3-or-later model
+    /// and every connected provider's. Its K2 models stay in the totals and the charts.
     private static IReadOnlyList<ModelSpend> Listed(DisplayProvider provider, IReadOnlyList<ModelSpend> models, ProviderCostSummary summary, bool billable)
     {
-        if (provider != DisplayProvider.Kimi) return models.Take(3).ToList();
-        return models
+        var ranked = ModelSpend.Ranked(models, billable);
+        if (provider != DisplayProvider.Kimi) return ranked.Take(3).ToList();
+        return ranked
             .Where(model => !KimiLogReader.IsK2(model.Model, summary.ModelNames.GetValueOrDefault(model.Model)))
-            .OrderByDescending(model => billable ? model.BillableTokens : model.Tokens)
             .ToList();
     }
 

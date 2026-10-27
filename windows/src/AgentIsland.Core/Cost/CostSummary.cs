@@ -2,7 +2,13 @@ namespace AgentIsland.Cost;
 
 public sealed record DailyTokenBucket(DateTimeOffset DayStart, long Tokens, long BillableTokens, double Dollars);
 
-public sealed record ModelSpend(string Model, long Tokens, long BillableTokens, double Dollars);
+public sealed record ModelSpend(string Model, long Tokens, long BillableTokens, double Dollars)
+{
+    /// Largest first by the page's token mode: billable (input + output) or
+    /// wire (all tokens). The summary's own lists stay sorted by billable.
+    public static List<ModelSpend> Ranked(IEnumerable<ModelSpend> models, bool billable) =>
+        models.OrderByDescending(model => billable ? model.BillableTokens : model.Tokens).ToList();
+}
 
 /// One provider's rollups for the cost page and the overview grid.
 public sealed record ProviderCostSummary(
