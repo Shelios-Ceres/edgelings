@@ -202,12 +202,15 @@ public static class StatusCards
         var visibility = ProviderVisibilityStore.Shared;
         var meters = new List<StatusMeter>();
         if (visibility.IsDetected(DisplayProvider.Grok)) meters.Add(meter(ProviderUsage.For(DisplayProvider.Grok).FiveHour, "Week"));
-        if (visibility.IsDetected(DisplayProvider.Cursor) && !SharedSubscription.GrokWithCursor())
+        if (CursorHasOwnLine())
         {
             meters.Add(meter(ProviderUsage.For(DisplayProvider.Cursor).FiveHour, ProviderIdentity.DisplayName(DisplayProvider.Cursor)));
         }
         return meters;
     }
+
+    private static bool CursorHasOwnLine() =>
+        ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor) && !SharedSubscription.GrokWithCursor();
 
     /// Gemini's 5-hour and longer windows, then one meter per further Gemini
     /// group under Google's own name for it (Gemini 4 Argon). Claude and GPT's
@@ -310,7 +313,14 @@ public static class StatusCards
     public static IReadOnlyList<StatusPhrase> NoteParts(DisplayProvider provider)
     {
         var parts = new List<StatusPhrase>();
-        if (QuotaAge(provider, DateTimeOffset.Now) is { } age) parts.Add(age);
+        var now = DateTimeOffset.Now;
+        var monthEnded = provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now;
+        parts.AddRange(QuotaAges(
+            (ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded),
+            provider == DisplayProvider.Grok && CursorHasOwnLine()
+                ? (ProviderUsage.For(DisplayProvider.Cursor), QuotaUpdatedAt(DisplayProvider.Cursor))
+                : null,
+            now, TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds)));
         if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
         if (provider != DisplayProvider.Codex) return parts;
         if (ProviderUsage.For(provider).ResetCards is > 0 and var cards)
@@ -322,18 +332,31 @@ public static class StatusCards
         return parts;
     }
 
+    /// How old a card's quota numbers are: its agent's, then on Grok's card
+    /// Cursor's own line, named for Cursor as its warning is.
+    internal static IReadOnlyList<StatusPhrase> QuotaAges(
+        (AppUsage Usage, DateTimeOffset? UpdatedAt, bool MonthEnded) own,
+        (AppUsage Usage, DateTimeOffset? UpdatedAt)? cursorLine,
+        DateTimeOffset now, TimeSpan interval)
+    {
+        var ages = new List<StatusPhrase>();
+        if (QuotaAge(own.Usage, own.UpdatedAt, own.MonthEnded, now, interval) is { } age) ages.Add(age);
+        if (cursorLine is { } line && QuotaAge(line.Usage, line.UpdatedAt, false, now, interval) is { } cursor)
+        {
+            ages.Add(cursor with { Text = $"{ProviderIdentity.DisplayName(DisplayProvider.Cursor)}: {cursor.Text}" });
+        }
+        return ages;
+    }
+
     /// Explain the wait at a reset boundary before showing an age for old
     /// numbers; the prior window cannot describe the new balance.
-    private static StatusPhrase? QuotaAge(DisplayProvider provider, DateTimeOffset now)
+    private static StatusPhrase? QuotaAge(AppUsage usage, DateTimeOffset? updatedAt, bool monthEnded, DateTimeOffset now, TimeSpan interval)
     {
-        var usage = ProviderUsage.For(provider);
-        if (usage.FiveHour.At(now).AwaitingSync || usage.Weekly.At(now).AwaitingSync
-            || (provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now))
+        if (usage.FiveHour.At(now).AwaitingSync || usage.Weekly.At(now).AwaitingSync || monthEnded)
         {
             return Phrase(L10n.Tr("Awaiting sync"));
         }
-        var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
-        if (QuotaUpdatedAt(provider) is not { } at
+        if (updatedAt is not { } at
             || !QuotaIsStale(usage.FiveHour.Kept || usage.Weekly.Kept, at, now, interval))
         {
             return null;

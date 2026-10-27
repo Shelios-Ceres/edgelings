@@ -1,6 +1,8 @@
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using AgentIsland.Localization;
 using AgentIsland.Model;
+using AgentIsland.Usage;
 using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
@@ -22,6 +24,7 @@ public static class SharedSubscriptionTests
             ("the busier app's phase wins, named", TestPickBusier),
             ("a tie goes to Grok, only Cursor's work is named", TestPickTie),
             ("billed apart, one app's spent quota never sleeps over the other's work", TestStandingStateBilledApart),
+            ("Cursor's kept numbers on Grok's card say how old they are", TestCursorQuotaAge),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
             ("the character's plan is the X Subscription's tier when shared", TestPlan),
         };
@@ -79,6 +82,30 @@ public static class SharedSubscriptionTests
         Expect(idle == (AgentPhase.RateLimited, Cursor), $"with nothing else going on, the spent quota still shows: {idle}");
         var shared = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Shared);
         Expect(shared == (AgentPhase.RateLimited, Cursor), $"one shared pool spent is the character's: {shared}");
+    }
+
+    /// No grok CLI login, so Grok's own numbers are missing; Cursor's last
+    /// numbers were kept through two days of failed refreshes.
+    private static void TestCursorQuotaAge()
+    {
+        var now = new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
+        var interval = TimeSpan.FromMinutes(5);
+        var noGrok = (AppUsage.Empty, (DateTimeOffset?)null, false);
+        var kept = new AppUsage(new WindowUsage(0.4, now.AddDays(10), "network drop") { Kept = true, Observed = true }, WindowUsage.Unknown);
+        var previous = L10n.Current;
+        L10n.Current = L10n.Language.English;
+        try
+        {
+            var ages = StatusCards.QuotaAges(noGrok, (kept, now.AddDays(-2)), now, interval);
+            Expect(ages.Count == 1 && ages[0].Text == $"{Cursor}: Quota updated 2d ago", "named: " + string.Join(" | ", ages.Select(a => a.Text)));
+            var live = new AppUsage(new WindowUsage(0.4, now.AddDays(10), null) { Observed = true }, WindowUsage.Unknown);
+            Expect(StatusCards.QuotaAges(noGrok, (live, now.AddMinutes(-1)), now, interval).Count == 0, "live numbers need no note");
+            Expect(StatusCards.QuotaAges(noGrok, null, now, interval).Count == 0, "no Cursor line, no Cursor note");
+        }
+        finally
+        {
+            L10n.Current = previous;
+        }
     }
 
     private static readonly Func<bool> Apart = () => false;
