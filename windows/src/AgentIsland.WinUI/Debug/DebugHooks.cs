@@ -28,11 +28,16 @@ internal static class DebugHooks
         // the settings afterwards.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_PICK_LOOKS") is { Length: > 0 } picks)
         {
+            // An agent or look the catalog lacks is skipped, not saved onto Claude.
+            var theme = DrawerStore.Shared.Theme;
             foreach (var pick in picks.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
                 var parts = pick.Split('=');
-                if (parts.Length == 2 && Enum.GetValues<DisplayProvider>().FirstOrDefault(p => p.RawValue() == parts[0]) is var provider)
-                    DrawerStore.Shared.SetLookId(DrawerStore.Shared.Theme, provider, parts[1]);
+                if (parts.Length == 2
+                    && Enum.GetValues<DisplayProvider>().Cast<DisplayProvider?>().FirstOrDefault(p => p!.Value.RawValue() == parts[0]) is { } provider
+                    && LookCatalog.For(theme, provider).Any(look => look.Id == parts[1]))
+                    DrawerStore.Shared.SetLookId(theme, provider, parts[1]);
+                else DebugTrace.Write($"pick looks: no {theme} look {pick}");
             }
         }
         // AGENTISLAND_DEBUG_DRAWER_HIDDEN=1: measure without the drawer; the
