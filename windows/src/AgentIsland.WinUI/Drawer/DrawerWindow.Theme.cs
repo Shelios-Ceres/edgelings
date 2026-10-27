@@ -50,9 +50,16 @@ internal sealed partial class DrawerWindow
             var hold = resting && engine?.Draws(Resting) == true ? Resting
                 : bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme);
             rest.Add((bot.Index, hold, resting, SwatchOf(bot), engine?.Fidgets(bot.Provider, bot.Look) ?? Array.Empty<string>()));
+            // The new set starts from each bot's current state, so an older state still on its way is moot.
+            Volatile.Write(ref _shows[bot.Index], null);
         }
+        // A switch the loop has yet to take (it rests while the drawer is
+        // hidden) is superseded: its engine goes now, not when the loop wakes.
+        var handoff = new Handoff(engine);
+        Interlocked.Exchange(ref _handoff, handoff)?.Engine?.Dispose();
         _commands.Enqueue(() =>
         {
+            if (Interlocked.CompareExchange(ref _handoff, null, handoff) != handoff) return;
             var old = _engine;
             _engine = engine;
             _loopTheme = theme;

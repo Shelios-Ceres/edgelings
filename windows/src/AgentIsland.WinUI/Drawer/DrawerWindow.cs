@@ -99,6 +99,15 @@ internal sealed partial class DrawerWindow : Window
     /// the window's physical origin and scale for the gaze.
     private sealed record Scene((int Index, float X, float Y)[] Shown, int Left, int Top, double Scale);
 
+    /// A state Show asked for that the game loop has yet to take.
+    private sealed record PendingShow(string Entry, string Hold, bool Resting, CharacterTheme Theme);
+
+    /// A theme switch's engine on its way to the game loop.
+    private sealed class Handoff(ICharacterEngine? engine)
+    {
+        public ICharacterEngine? Engine { get; } = engine;
+    }
+
     private readonly IntPtr _hwnd;
     // Built on the UI thread, then owned by the game loop: a theme switch
     // hands the new engine over through _commands.
@@ -123,6 +132,10 @@ internal sealed partial class DrawerWindow : Window
     private readonly DispatcherQueueTimer _cardClose;
     private readonly DispatcherQueueTimer _cardIntent;
     private readonly ConcurrentQueue<Action> _commands = new();
+    // Per slot, written on the UI thread and taken by the game loop.
+    private readonly PendingShow?[] _shows;
+    // The theme switch the game loop has yet to take; a newer one supersedes it.
+    private Handoff? _handoff;
     private readonly List<int> _due = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
@@ -194,6 +207,7 @@ internal sealed partial class DrawerWindow : Window
             Fidgets = _engine?.Fidgets(b.Provider, b.Look) ?? Array.Empty<string>(),
             NextFidget = FirstFidgetAfter + Random.Shared.NextDouble() * FidgetGap,
         }).ToArray();
+        _shows = new PendingShow?[_slots.Length];
 
         SystemBackdrop = new TransparentBackdrop();
         _canvas = new CanvasAnimatedControl

@@ -126,13 +126,17 @@ internal sealed partial class DrawerWindow
 
     /// Puts a character into a state on the game loop. A resting one takes
     /// its set's resting state, or in a set without one idles, unfidgeting.
-    private void Show(Bot bot, string entry, string hold)
+    /// The loop takes only the latest state per character, so a loop that
+    /// rests (drawer hidden, displays off) does not pile up every change.
+    private void Show(Bot bot, string entry, string hold) =>
+        Volatile.Write(ref _shows[bot.Index], new PendingShow(entry, hold, bot.Rest is not null, _theme));
+
+    /// On the game loop: the states Show left since the last frame.
+    private void TakeShows()
     {
-        var index = bot.Index;
-        var theme = _theme;
-        var resting = bot.Rest is not null;
-        _commands.Enqueue(() =>
+        for (var index = 0; index < _shows.Length; index++)
         {
+            if (Interlocked.Exchange(ref _shows[index], null) is not var (entry, hold, resting, theme)) continue;
             var slot = _slots[index];
             if (resting && _engine?.Draws(Resting) == true) entry = hold = Resting;
             slot.Hold = hold;
@@ -141,10 +145,10 @@ internal sealed partial class DrawerWindow
             slot.Fidget = null;
             slot.NextFidget = slot.Since + FidgetGap * (0.5 + Random.Shared.NextDouble());
             // Reduced motion rests in the settled pose (the loop's start), held still.
-            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || DrawerLooks.HoldsStill(entry, theme, _reducedMotion, bot.Look) ? 0 : -1);
+            if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || DrawerLooks.HoldsStill(entry, theme, _reducedMotion, _bots[index].Look) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
-        });
+        }
     }
 
     private const string Resting = "resting";

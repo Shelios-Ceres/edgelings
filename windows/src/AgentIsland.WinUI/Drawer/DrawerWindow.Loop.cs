@@ -16,6 +16,7 @@ internal sealed partial class DrawerWindow
         var started = Stopwatch.GetTimestamp();
         _loopDevice = sender.Device;
         while (_commands.TryDequeue(out var command)) command();
+        TakeShows();
         var scene = _scene;
         var reduced = _reducedMotion;
         // Each character steps on its own schedule, with a few ms of vsync

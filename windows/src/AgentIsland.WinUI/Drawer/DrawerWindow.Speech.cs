@@ -154,6 +154,8 @@ internal sealed partial class DrawerWindow
     /// Reduced motion keeps the two emotes, which are information.
     private void PlayCue(Bot bot, string cue)
     {
+        // Nobody sees a cue while the game loop rests; it would only queue up.
+        if (_away || !_shown) return;
         if (_reducedMotion && cue is not ("ask" or "alert")) return;
         var index = bot.Index;
         _commands.Enqueue(() =>
@@ -170,7 +172,7 @@ internal sealed partial class DrawerWindow
     /// phase just changed (the entry is the gesture), nor under reduced motion.
     private void HopCharacter(Bot bot)
     {
-        if (_reducedMotion) return;
+        if (_reducedMotion || _away || !_shown) return;
         bot.Hop ??= CreateHop(bot);
         bot.Hop.Stop();
         bot.Hop.Start();
