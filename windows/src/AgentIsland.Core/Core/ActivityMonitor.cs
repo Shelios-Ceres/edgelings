@@ -35,6 +35,16 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// Everything that waits on the user right now, across every session.
     public IReadOnlyList<SessionEvent> Waiting { get; private set; } = Array.Empty<SessionEvent>();
 
+    /// Raised on the UI thread when a scan finds a different set of sessions
+    /// waiting (one more, one fewer, or one that changed kind), whether or
+    /// not any agent's overall state moved with it.
+    public event Action? WaitingChanged;
+
+    internal static bool SameWaiting(IReadOnlyList<SessionEvent> before, IReadOnlyList<SessionEvent> after) =>
+        before.Count == after.Count
+        && before.Select(item => (item.Key, item.Kind)).ToHashSet()
+            .SetEquals(after.Select(item => (item.Key, item.Kind)));
+
     private readonly SessionEventDetector _events = new();
 
     /// Providers whose session status is scanned. Cursor's comes from its
@@ -189,7 +199,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                         var scan = task.Result;
                         IsOffline = scan.Offline;
                         Apply(scan.Sessions, now);
+                        var waitingChanged = !SameWaiting(Waiting, scan.Observed.Waiting);
                         Waiting = scan.Observed.Waiting;
+                        if (waitingChanged) WaitingChanged?.Invoke();
                         if (scan.Observed.Fresh.Count > 0) SessionEventsRaised?.Invoke(scan.Observed.Fresh);
                     }
                     else

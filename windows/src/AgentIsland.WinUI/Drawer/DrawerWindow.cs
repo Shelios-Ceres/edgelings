@@ -248,6 +248,9 @@ internal sealed partial class DrawerWindow : Window
         Watch(IslandTargetDisplayStore.Shared, Layout);
         ActivityMonitor.Shared.SessionEventsRaised += OnSessionEvents;
         _subscriptions.Add(() => ActivityMonitor.Shared.SessionEventsRaised -= OnSessionEvents);
+        // An open card lists what waits; its bot's phase and count can stay put while that list changes.
+        ActivityMonitor.Shared.WaitingChanged += RefreshCard;
+        _subscriptions.Add(() => ActivityMonitor.Shared.WaitingChanged -= RefreshCard);
         Watch(UsageStore.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
         Watch(GrokUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Grok));

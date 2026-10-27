@@ -41,6 +41,8 @@ public static class ActivityMonitorScanTests
             logged.Clear();
             KeepsStatesWhenAScanFails(logged);
             Console.WriteLine("PASS activity monitor: a scan that throws keeps the states and is logged once");
+            WaitingListChangesAreAnnounced();
+            Console.WriteLine("PASS activity monitor: a change to the waiting list is announced even when the state stays");
             Console.WriteLine("ActivityMonitorScanTests GREEN");
         }
         finally
@@ -84,6 +86,39 @@ public static class ActivityMonitorScanTests
         failure = new InvalidOperationException("another");
         Scan(monitor);
         Expect(logged.Count == 2, "a different failure is written");
+    }
+
+    /// A second session starts waiting, or one of two stops, while the agent's
+    /// state stays NeedsYou: an open card must still hear of it.
+    private static void WaitingListChangesAreAnnounced()
+    {
+        static ScannedSession Waiting(string id) => new(TriggerTool.Grok, id, "", "Session " + id, DateTimeOffset.UtcNow,
+            ActivityState.NeedsYou, null, "turn-" + id, SessionLaunchTarget.Cli);
+        var sessions = new List<ScannedSession> { Waiting("s1") };
+        var monitor = new ActivityMonitor { Scanner = (_, _) => sessions };
+        var raised = 0;
+        monitor.WaitingChanged += () => raised++;
+
+        Scan(monitor);
+        Expect(raised, 1);
+
+        sessions.Add(Waiting("s2"));
+        Scan(monitor);
+        Expect(monitor.Waiting.Count, 2);
+        Expect(monitor.StateFor(TriggerTool.Grok) == ActivityState.NeedsYou, "the combined state did not move");
+        Expect(raised, 2);
+
+        Scan(monitor);
+        Expect(raised, 2);
+
+        sessions.RemoveAt(1);
+        Scan(monitor);
+        Expect(monitor.Waiting.Count, 1);
+        Expect(raised, 3);
+
+        var asked = new SessionEvent(TriggerTool.Grok, "s1", "Session s1", SessionEventKind.Question, "k", DateTimeOffset.UtcNow);
+        var done = asked with { Kind = SessionEventKind.Done };
+        Expect(!ActivityMonitor.SameWaiting(new[] { asked }, new[] { done }), "a session that changed kind is a change");
     }
 
     private static void Scan(ActivityMonitor monitor)
