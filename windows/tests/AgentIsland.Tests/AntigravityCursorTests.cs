@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentIsland.Core;
@@ -111,7 +112,7 @@ public static class AntigravityCursorTests
             ["source"] = source,
             ["type"] = type,
             ["status"] = "DONE",
-            ["created_at"] = Now.AddSeconds(-ago).ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+            ["created_at"] = Now.AddSeconds(-ago).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
         };
         if (content is not null) step["content"] = content;
         if (calls is not null)
@@ -128,7 +129,7 @@ public static class AntigravityCursorTests
         {
             ["type"] = type,
             ["bubbleId"] = "b1",
-            ["createdAt"] = Now.AddSeconds(-40).ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+            ["createdAt"] = Now.AddSeconds(-40).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
         };
         if (toolStatus is not null) bubble["toolFormerData"] = new JsonObject { ["name"] = "run_terminal_command_v2", ["status"] = toolStatus };
         return bubble.ToJsonString();

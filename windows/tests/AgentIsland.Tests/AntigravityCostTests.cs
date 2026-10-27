@@ -33,10 +33,17 @@ public static class AntigravityCostTests
             ("Gemini 4 Argon changes price at midnight Pacific on 2026-12-01", ArgonDated),
             ("an unnamed step reads in the language of the page that shows it", UnnamedInShownLanguage),
         };
-        foreach (var (name, test) in tests)
+        try
         {
-            test();
-            Console.WriteLine($"PASS antigravity cost: {name}");
+            foreach (var (name, test) in tests)
+            {
+                test();
+                Console.WriteLine($"PASS antigravity cost: {name}");
+            }
+        }
+        finally
+        {
+            foreach (var map in TempMaps) File.Delete(map);
         }
         Console.WriteLine("AntigravityCostTests GREEN");
     }
@@ -73,7 +80,14 @@ public static class AntigravityCostTests
         return Encoding.UTF8.GetBytes($"{{\"generatorMetadata\":[{string.Join(",", entries)}]}}");
     }
 
-    private static string TempMap() => Path.Combine(Path.GetTempPath(), "island-ag-" + Guid.NewGuid().ToString("N") + ".json");
+    private static readonly List<string> TempMaps = new();
+
+    private static string TempMap()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "island-ag-" + Guid.NewGuid().ToString("N") + ".json");
+        TempMaps.Add(path);
+        return path;
+    }
 
     private static void StepFields()
     {
