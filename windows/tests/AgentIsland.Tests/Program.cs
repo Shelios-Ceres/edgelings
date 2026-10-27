@@ -90,6 +90,7 @@ public static class Program
             AgentPresenceTests.RunAll();
             SessionEventTests.RunAll();
             GrokHooksTests.RunAll();
+            GrokAuthFileTests.RunAll();
             LookCatalogTests.RunAll();
             CharacterHostTests.RunAll();
             ClaudeCredentialsTests.RunAll();

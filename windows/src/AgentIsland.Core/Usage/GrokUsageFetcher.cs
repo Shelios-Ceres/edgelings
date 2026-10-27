@@ -146,7 +146,9 @@ public static class GrokUsageFetcher
     /// Exchange the refresh token at the issuer's token endpoint. The response
     /// rotates the refresh token, so success is defined as "the writeback
     /// landed" — an in-memory-only rotation would strand the user's own `grok`
-    /// CLI login the next time it refreshes.
+    /// CLI login the next time it refreshes. If the login in the file has
+    /// changed since the request left, nothing is written and the current
+    /// entry comes back instead.
     private static async Task<GrokAuthEntry?> Refresh(
         GrokAuthEntry entry, string authPath, CancellationToken ct)
     {
@@ -170,7 +172,7 @@ public static class GrokUsageFetcher
             using var response = await Http.Client.SendAsync(request, deadline.Token);
             if ((int)response.StatusCode != 200) return null;
             return GrokAuthFile.ApplyRefreshResponse(
-                await response.Content.ReadAsStringAsync(deadline.Token), authPath, entry.Scope);
+                await response.Content.ReadAsStringAsync(deadline.Token), authPath, entry.Scope, refreshToken);
         }
         catch
         {

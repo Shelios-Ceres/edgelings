@@ -69,11 +69,17 @@ public static class GrokAuthFile
 
     /// Apply an OAuth token response (`access_token` / rotated
     /// `refresh_token` / `expires_in` seconds) to the entry at `scope` and
-    /// persist it. Returns the updated entry, or null when nothing was
-    /// written (malformed response, missing file or scope, write failure) —
-    /// the caller then keeps using its in-memory token.
+    /// persist it. `sentRefreshToken` is the one the request carried: the
+    /// response belongs to that login, and is written only while the entry
+    /// still holds it. If the user logged in again meanwhile (the scope is the
+    /// same for any account), or the CLI refreshed first, the file is left
+    /// untouched and the entry now in it is returned, so the poll goes on with
+    /// the current login. Returns the updated entry, or null when nothing was
+    /// written and there is no current entry to use (malformed response,
+    /// missing file or scope, write failure) — the caller then keeps using its
+    /// in-memory token.
     public static GrokAuthEntry? ApplyRefreshResponse(
-        string responseJson, string path, string scope, DateTimeOffset? now = null)
+        string responseJson, string path, string scope, string sentRefreshToken, DateTimeOffset? now = null)
     {
         try
         {
@@ -87,6 +93,10 @@ public static class GrokAuthFile
                 root = parsed;
             }
             if (root[scope] is not JsonObject raw) return null;
+            if (!string.Equals(NonEmpty(raw["refresh_token"]), sentRefreshToken, StringComparison.Ordinal))
+            {
+                return Entry(scope, raw);
+            }
 
             raw["key"] = accessToken;
             if (NonEmpty(response["refresh_token"]) is { } rotated) raw["refresh_token"] = rotated;
