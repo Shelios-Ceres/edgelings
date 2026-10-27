@@ -1,6 +1,5 @@
 using System.Text.Json;
 using AgentIsland.Core;
-using AgentIsland.Localization;
 using AgentIsland.Usage;
 
 namespace AgentIsland.Cost;
@@ -32,14 +31,15 @@ public static class AntigravityLogReader
         return Models.Resolve(steps, AskServers);
     }
 
-    /// What Antigravity calls the models its steps name, by price id.
+    /// What Antigravity calls the models its steps name, by price id. A step
+    /// no server named is put into words where it is shown (NameOf), in the
+    /// page's language, not here on the scan thread.
     public static IReadOnlyDictionary<string, string> ModelNames() => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["gemini-4-argon"] = "Gemini 4 Argon",
         ["gemini-3.8-flash"] = "Gemini 3.8 Flash",
         ["claude-opus-5-5"] = "Claude Opus 5.5",
         ["claude-sonnet-5-5"] = "Claude Sonnet 5.5",
-        [UnknownModel] = L10n.Tr("Model not named"),
     };
 
     private static List<string> TranscriptFiles()

@@ -1,6 +1,7 @@
 using System.Text;
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using AgentIsland.Localization;
 using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
@@ -30,6 +31,7 @@ public static class AntigravityCostTests
             ("a model id trims to its longest price key", FamilyTrim),
             ("Gemini 3.8 Flash changes price at midnight Pacific on 2027-01-01", FlashDated),
             ("Gemini 4 Argon changes price at midnight Pacific on 2026-12-01", ArgonDated),
+            ("an unnamed step reads in the language of the page that shows it", UnnamedInShownLanguage),
         };
         foreach (var (name, test) in tests)
         {
@@ -246,5 +248,26 @@ public static class AntigravityCostTests
         Expect(Math.Abs(Million("gemini-4-argon", before) - (2 + 10 + 0.1)) < 1e-9, "through 2026-11-30: 2, 10, 0.10");
         Expect(Math.Abs(Million("gemini-4-argon", after) - (4 + 20 + 0.2)) < 1e-9, "from 2026-12-01: 4, 20, 0.20");
         Expect(Math.Abs(Million("gemini-4-argon", At) - (2 + 10 + 0.1)) < 1e-9, "October's rates");
+    }
+
+    private static void UnnamedInShownLanguage()
+    {
+        var language = L10n.Current;
+        L10n.Current = L10n.Language.SimplifiedChinese;
+        try
+        {
+            // Built on a scan thread, as CostStore builds it.
+            var summary = Task.Run(() => ProviderCostSummary.Empty with { ModelNames = AntigravityLogReader.ModelNames() }).Result;
+            Expect(summary.NameOf(AntigravityLogReader.UnknownModel) == "未命名的模型", "a Chinese page reads it in Chinese");
+            using (L10n.English())
+            {
+                Expect(summary.NameOf(AntigravityLogReader.UnknownModel) == "Model not named", "a page set in English (Pixel) reads it in English");
+            }
+            Expect(summary.NameOf("gemini-4-argon") == "Gemini 4 Argon", "a named model keeps its name");
+        }
+        finally
+        {
+            L10n.Current = language;
+        }
     }
 }

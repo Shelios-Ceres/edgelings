@@ -1,3 +1,5 @@
+using AgentIsland.Localization;
+
 namespace AgentIsland.Cost;
 
 public sealed record DailyTokenBucket(DateTimeOffset DayStart, long Tokens, long BillableTokens, double Dollars);
@@ -40,7 +42,11 @@ public sealed record ProviderCostSummary(
     /// its plan's aliases); an id it doesn't name reads as itself.
     public IReadOnlyDictionary<string, string> ModelNames { get; init; } = new Dictionary<string, string>();
 
-    public string NameOf(string model) => ModelNames.TryGetValue(model, out var name) ? name : model;
+    /// Antigravity's unnamed step reads in the caller's language: the
+    /// summary is built on a scan thread, the name shown on the UI's.
+    public string NameOf(string model) =>
+        model == AntigravityLogReader.UnknownModel ? L10n.Tr("Model not named")
+        : ModelNames.TryGetValue(model, out var name) ? name : model;
 
     public static ProviderCostSummary Empty { get; } = new(
         0, 0, 0, 0, 0, 0,
