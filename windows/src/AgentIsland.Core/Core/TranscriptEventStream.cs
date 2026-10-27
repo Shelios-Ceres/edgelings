@@ -7,17 +7,25 @@ namespace AgentIsland.Core;
 /// of seconds behind it. The poll stays as a fallback sweep.
 public sealed class TranscriptEventStream : IDisposable
 {
-    private readonly List<FileSystemWatcher> _watchers = new();
+    // A root that could not be watched is kept as null, so it is not tried
+    // again on every poll.
+    private readonly Dictionary<string, FileSystemWatcher?> _watchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Action _onChange;
+    private readonly Func<IEnumerable<string>> _roots;
 
     public TranscriptEventStream(Action onChange)
+        : this(onChange, Roots)
     {
-        _onChange = onChange;
     }
 
-    public void Start()
+    internal TranscriptEventStream(Action onChange, Func<IEnumerable<string>> roots)
     {
-        if (_watchers.Count > 0) return;
+        _onChange = onChange;
+        _roots = roots;
+    }
+
+    private static IEnumerable<string> Roots()
+    {
         var roots = new List<string>();
         roots.AddRange(IslandPaths.ClaudeProjectRoots);
         roots.Add(IslandPaths.CodexSessionsRoot);
@@ -27,8 +35,19 @@ public sealed class TranscriptEventStream : IDisposable
         roots.Add(IslandPaths.DeepSeekSessionsRoot);
         roots.Add(ClaudeHooks.SignalDirectory);
         roots.Add(GrokHooks.Signals);
-        foreach (var root in roots.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
+        return roots;
+    }
+
+    public void Start() => WatchNewRoots();
+
+    /// Watches every root that exists now and is not watched yet. Roots
+    /// appear while the app runs: a hook's signal folder on its first prompt,
+    /// an agent installed since, so the monitor's poll calls this again.
+    public void WatchNewRoots()
+    {
+        foreach (var root in _roots().Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
         {
+            if (_watchers.ContainsKey(root)) continue;
             try
             {
                 var watcher = new FileSystemWatcher(root)
@@ -44,11 +63,12 @@ public sealed class TranscriptEventStream : IDisposable
                 // correct recovery either way.
                 watcher.Error += (_, _) => _onChange();
                 watcher.EnableRaisingEvents = true;
-                _watchers.Add(watcher);
+                _watchers[root] = watcher;
             }
             catch
             {
                 // A root that cannot be watched still gets covered by the poll.
+                _watchers[root] = null;
             }
         }
     }
@@ -74,8 +94,9 @@ public sealed class TranscriptEventStream : IDisposable
 
     public void Dispose()
     {
-        foreach (var watcher in _watchers)
+        foreach (var watcher in _watchers.Values)
         {
+            if (watcher is null) continue;
             try
             {
                 watcher.EnableRaisingEvents = false;

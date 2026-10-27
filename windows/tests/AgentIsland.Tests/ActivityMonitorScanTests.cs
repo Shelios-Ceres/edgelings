@@ -43,6 +43,8 @@ public static class ActivityMonitorScanTests
             Console.WriteLine("PASS activity monitor: a scan that throws keeps the states and is logged once");
             WaitingListChangesAreAnnounced();
             Console.WriteLine("PASS activity monitor: a change to the waiting list is announced even when the state stays");
+            WatchesRootsThatAppearLater();
+            Console.WriteLine("PASS event stream: a folder that appears after start is watched from the next poll");
             Console.WriteLine("ActivityMonitorScanTests GREEN");
         }
         finally
@@ -119,6 +121,37 @@ public static class ActivityMonitorScanTests
         var asked = new SessionEvent(TriggerTool.Grok, "s1", "Session s1", SessionEventKind.Question, "k", DateTimeOffset.UtcNow);
         var done = asked with { Kind = SessionEventKind.Done };
         Expect(!ActivityMonitor.SameWaiting(new[] { asked }, new[] { done }), "a session that changed kind is a change");
+    }
+
+    /// The Claude hook's signal folder is made by the hook on its first
+    /// prompt, usually after the app started.
+    private static void WatchesRootsThatAppearLater()
+    {
+        var home = Path.Combine(Path.GetTempPath(), $"agentisland-watch-{Guid.NewGuid():N}");
+        var present = Path.Combine(home, "projects");
+        var later = Path.Combine(home, "signals");
+        Directory.CreateDirectory(present);
+        // Not disposed: a watcher thread may still release it after the test.
+        var changed = new SemaphoreSlim(0);
+        var stream = new TranscriptEventStream(() => changed.Release(), () => new[] { present, later });
+        try
+        {
+            stream.Start();
+            File.WriteAllText(Path.Combine(present, "a.jsonl"), "{}\n");
+            Expect(changed.Wait(TimeSpan.FromSeconds(5)), "a root there at start is watched");
+            Directory.CreateDirectory(later);
+            stream.WatchNewRoots();
+            while (changed.Wait(TimeSpan.FromMilliseconds(200)))
+            {
+            }
+            File.WriteAllText(Path.Combine(later, "s1.jsonl"), "{}\n");
+            Expect(changed.Wait(TimeSpan.FromSeconds(5)), "a root made later is watched once the poll looks again");
+        }
+        finally
+        {
+            stream.Dispose();
+            Directory.Delete(home, recursive: true);
+        }
     }
 
     private static void Scan(ActivityMonitor monitor)

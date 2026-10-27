@@ -95,8 +95,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     internal Task? LastScan { get; private set; }
 
     private UiTimer? _timer;
-    // Held only so the file watchers it owns stay alive: nothing reads it,
-    // and dropping it would let the GC stop them.
+    // Held so the file watchers it owns stay alive (dropping it would let the
+    // GC stop them), and so the poll can watch roots that appear later.
     private TranscriptEventStream? _eventStream;
     private DateTimeOffset _lastEventKick = DateTimeOffset.MinValue;
     private bool _kickPending;
@@ -110,7 +110,11 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         {
             Interval = TimeSpan.FromSeconds(6),
         };
-        _timer.Tick += (_, _) => Tick();
+        _timer.Tick += (_, _) =>
+        {
+            _eventStream?.WatchNewRoots();
+            Tick();
+        };
         _timer.Start();
 
         var stream = new TranscriptEventStream(() =>
