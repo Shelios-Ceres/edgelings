@@ -147,7 +147,7 @@ public static class CodexStallTests
         try
         {
             var seen = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [path] = lastWorking };
-            var (status, _, modified) = SessionScanner.SessionState(path, now, seen, null, SessionTurnState.Codex,
+            var (status, _, modified, _) = SessionScanner.SessionState(path, now, seen, null, SessionTurnState.Codex,
                 tail: p => SessionScanner.TailLines(p, bytes: tailBytes));
             return (status, modified);
         }

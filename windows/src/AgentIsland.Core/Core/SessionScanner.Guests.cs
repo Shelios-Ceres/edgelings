@@ -37,7 +37,7 @@ public static partial class SessionScanner
                     state.Status,
                     transcript,
                     state.TurnKey,
-                    SessionLaunchTarget.Cli));
+                    SessionLaunchTarget.Cli) { TurnEnded = state.TurnEnded });
             }
         }
         return output;
@@ -82,7 +82,7 @@ public static partial class SessionScanner
                 var state = SessionState(wire, now, lastWorking, null, SessionTurnState.Kimi);
                 var session = new ScannedSession(
                     TriggerTool.Kimi, sid, cwd, Fallback(cwd, sid),
-                    state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli);
+                    state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli) { TurnEnded = state.TurnEnded };
                 live ??= KimiLiveSessions.Read(now);
                 output.Add(live.TryGetValue(name, out var report) ? KimiLiveSessions.Apply(session, report) : session);
             }
@@ -125,7 +125,7 @@ public static partial class SessionScanner
                     tail: path => ZstdLog.TailLines(path));
                 output.Add(new ScannedSession(
                     TriggerTool.DeepSeek, sid, cwd, Fallback(cwd, sid),
-                    state.Modified, state.Status, log, state.TurnKey, SessionLaunchTarget.Cli));
+                    state.Modified, state.Status, log, state.TurnKey, SessionLaunchTarget.Cli) { TurnEnded = state.TurnEnded });
             }
         }
         return output;

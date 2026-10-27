@@ -43,7 +43,7 @@ public static partial class SessionScanner
                 state.Status,
                 path,
                 state.TurnKey,
-                SessionLaunchTarget.Cli));
+                SessionLaunchTarget.Cli) { TurnEnded = state.TurnEnded });
             if (output.Count >= MonitoringCodexLimit) break;
         }
         return output;

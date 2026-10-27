@@ -369,10 +369,12 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         };
 
     /// Codex can spread one thread over several rollout files, so threads
-    /// are counted by id, not by file.
+    /// are counted by id, not by file. A turn that ended on a lost connection
+    /// runs nothing any more.
     internal static int RunningCount(IEnumerable<ScannedSession> sessions, TriggerTool tool) =>
         LatestSessions(sessions)
-            .Count(s => s.Tool == tool && s.Status is ActivityState.Working or ActivityState.NetworkTrouble);
+            .Count(s => s.Tool == tool
+                && (s.Status == ActivityState.Working || s.Status == ActivityState.NetworkTrouble && !s.TurnEnded));
 
     internal static IEnumerable<ScannedSession> LatestSessions(IEnumerable<ScannedSession> sessions) =>
         sessions.Select((session, index) => (Session: session, Key: !string.IsNullOrWhiteSpace(session.SessionId)

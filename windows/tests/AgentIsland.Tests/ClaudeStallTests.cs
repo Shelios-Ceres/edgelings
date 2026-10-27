@@ -106,9 +106,16 @@ public static class ClaudeStallTests
 
     private static void TestFinalConnectionErrorIsNetworkTrouble()
     {
-        var status = Scan(new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "API Error: Connection error.") },
+        var state = ScanState(new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "API Error: Connection error.") },
             Start.AddMinutes(3), lastWorking: Start.AddMinutes(1));
-        Expect(status == ActivityState.NetworkTrouble, $"giving up on a lost connection is network trouble, got {status}");
+        Expect(state.Status == ActivityState.NetworkTrouble, $"giving up on a lost connection is network trouble, got {state.Status}");
+        Expect(state.TurnEnded, "and the turn is over, so nothing runs in it");
+        var failing = Start.AddMinutes(2);
+        var retrying = ScanState(new[]
+        {
+            Prompt(Start), Retry(failing, 1), Retry(failing.AddSeconds(1), 2), Retry(failing.AddSeconds(3), 3),
+        }, failing.AddSeconds(10), lastWorking: failing);
+        Expect(retrying.Status == ActivityState.NetworkTrouble && !retrying.TurnEnded, "a turn still retrying is not over");
     }
 
     private static void TestOtherApiErrorIsError()
@@ -192,7 +199,11 @@ public static class ClaudeStallTests
     private static string Line(DateTimeOffset at, string record) =>
         $$"""{"timestamp":"{{at.UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ}}",{{record[1..]}}""";
 
-    private static ActivityState Scan(string[] lines, DateTimeOffset now, DateTimeOffset lastWorking)
+    private static ActivityState Scan(string[] lines, DateTimeOffset now, DateTimeOffset lastWorking) =>
+        ScanState(lines, now, lastWorking).Status;
+
+    private static (ActivityState Status, string? TurnKey, DateTimeOffset Modified, bool TurnEnded) ScanState(
+        string[] lines, DateTimeOffset now, DateTimeOffset lastWorking)
     {
         var path = Path.Combine(Path.GetTempPath(), $"agentisland-claude-stall-{Guid.NewGuid():N}.jsonl");
         File.WriteAllText(path, string.Join("\n", lines) + "\n");
@@ -200,7 +211,7 @@ public static class ClaudeStallTests
         try
         {
             var seen = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [path] = lastWorking };
-            return SessionScanner.SessionState(path, now, seen, null, SessionTurnState.Claude).Status;
+            return SessionScanner.SessionState(path, now, seen, null, SessionTurnState.Claude);
         }
         finally
         {

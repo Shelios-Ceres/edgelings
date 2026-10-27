@@ -114,7 +114,7 @@ public static partial class SessionScanner
 
     // MARK: - State machine
 
-    public static (ActivityState Status, string? TurnKey, DateTimeOffset Modified) SessionState(
+    public static (ActivityState Status, string? TurnKey, DateTimeOffset Modified, bool TurnEnded) SessionState(
         string? path,
         DateTimeOffset now,
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
@@ -125,7 +125,7 @@ public static partial class SessionScanner
         TimeSpan? externalGrace = null)
     {
         if (path is null)
-            return (ActivityState.Idle, null, externalActivityDate ?? DateTimeOffset.MinValue);
+            return (ActivityState.Idle, null, externalActivityDate ?? DateTimeOffset.MinValue, false);
 
         // Claude's transcripts can hold lines far bigger than the usual tail
         // read, so the scan that requires a turn looks further back for one.
@@ -134,7 +134,7 @@ public static partial class SessionScanner
         // desktop says a turn began inside the attention window: the file's
         // write time alone proves nothing.
         if (requireTurn && turn.Key is null && externalActivityDate is null)
-            return (ActivityState.Idle, null, fileModified);
+            return (ActivityState.Idle, null, fileModified, false);
         var semanticModified = LatestDate(turn.ActivityDate, externalActivityDate);
         var effectiveModified = semanticModified ?? fileModified;
         // For a finished turn, external activity inside the bookkeeping grace
@@ -147,11 +147,11 @@ public static partial class SessionScanner
         var externalIsNewer = IsLater(externalActivityDate, externalReference);
         var age = now - effectiveModified;
 
-        if (age > AttentionWindow || turn.Idle) return (ActivityState.Idle, turn.Key, effectiveModified);
-        if (externalIsNewer) return (ActivityState.Working, turn.Key, effectiveModified);
+        if (age > AttentionWindow || turn.Idle) return (ActivityState.Idle, turn.Key, effectiveModified, false);
+        if (externalIsNewer) return (ActivityState.Working, turn.Key, effectiveModified, false);
         if (turn.IsDone)
         {
-            if (age >= NeedsYouCap) return (ActivityState.Idle, turn.Key, effectiveModified);
+            if (age >= NeedsYouCap) return (ActivityState.Idle, turn.Key, effectiveModified, true);
             var ended = turn.Trouble switch
             {
                 TurnTrouble.Network => ActivityState.NetworkTrouble,
@@ -161,11 +161,11 @@ public static partial class SessionScanner
                 // the transcript and shows it as an error.
                 _ => ActivityState.NeedsYou,
             };
-            return (ended, turn.Key, effectiveModified);
+            return (ended, turn.Key, effectiveModified, true);
         }
         if (turn.RetryingUntil is { } until && now < until)
-            return (ActivityState.NetworkTrouble, turn.Key, effectiveModified);
-        return (ActivityState.Working, turn.Key, effectiveModified);
+            return (ActivityState.NetworkTrouble, turn.Key, effectiveModified, false);
+        return (ActivityState.Working, turn.Key, effectiveModified, false);
     }
 
     /// Whether Grok's latest turn is still open (its transcript has no

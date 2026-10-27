@@ -27,7 +27,7 @@ public static partial class SessionScanner
             // An archived session is one the user put away: it may still run,
             // but a finished or failed turn in it never asks for them.
             if (desktop is { IsArchived: true } && state.Status != ActivityState.Working)
-                state = (ActivityState.Idle, state.TurnKey, state.Modified);
+                state = (ActivityState.Idle, state.TurnKey, state.Modified, state.TurnEnded);
             output.Add(new ScannedSession(
                 TriggerTool.Claude,
                 sid,
@@ -37,7 +37,7 @@ public static partial class SessionScanner
                 state.Status,
                 path,
                 state.TurnKey,
-                desktop is null ? SessionLaunchTarget.Cli : SessionLaunchTarget.ClaudeDesktop));
+                desktop is null ? SessionLaunchTarget.Cli : SessionLaunchTarget.ClaudeDesktop) { TurnEnded = state.TurnEnded });
         }
         return output;
     }
@@ -63,7 +63,7 @@ public static partial class SessionScanner
         : desktop.UserFrameAt is { } frame ? (frame, TimeSpan.Zero)
         : (desktop.LastActivityAt, DesktopBookkeepingGrace);
 
-    internal static (ActivityState Status, string? TurnKey, DateTimeOffset Modified) ClaudeSessionState(
+    internal static (ActivityState Status, string? TurnKey, DateTimeOffset Modified, bool TurnEnded) ClaudeSessionState(
         string? path,
         DateTimeOffset now,
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking,

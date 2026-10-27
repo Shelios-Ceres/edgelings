@@ -20,4 +20,8 @@ public sealed record ScannedSession(
 {
     public string Id => Tool.RawValue() + ":" + SessionId;
     public PhaseReading? PendingPrompt { get; init; }
+
+    /// The scan read the session's turn as over: a NetworkTrouble status is
+    /// then how the turn ended, not a retry still under way.
+    public bool TurnEnded { get; init; }
 }

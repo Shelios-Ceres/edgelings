@@ -281,7 +281,7 @@ public static class SessionTurnStateTests
 
     private static long Ms(string raw) => Date(raw).ToUnixTimeMilliseconds();
 
-    private static (ActivityState Status, string? TurnKey, DateTimeOffset Modified) ClaudeScan(
+    private static (ActivityState Status, string? TurnKey, DateTimeOffset Modified, bool TurnEnded) ClaudeScan(
         string[] lines, DateTimeOffset now, DesktopFile? desktop)
     {
         SessionScanner.ClearTurnCache();

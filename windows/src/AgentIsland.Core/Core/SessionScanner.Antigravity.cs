@@ -54,7 +54,7 @@ public static partial class SessionScanner
                     status,
                     path,
                     state.TurnKey,
-                    SessionLaunchTarget.Cli));
+                    SessionLaunchTarget.Cli) { TurnEnded = state.TurnEnded });
             }
         }
         return output;

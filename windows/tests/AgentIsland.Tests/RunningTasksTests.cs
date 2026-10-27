@@ -11,6 +11,7 @@ public static class RunningTasksTests
         var tests = new (string Name, Action Test)[]
         {
             ("running counts working threads and ones held up by the network", TestCountsWorkingAndNetworkTrouble),
+            ("a turn that ended on a lost connection is not running", TestEndedOnNetworkErrorIsNotRunning),
             ("a thread split over two rollouts counts once", TestSplitThreadCountsOnce),
             ("a continued rollout's completion supersedes old work", TestLatestCompletionWins),
             ("a continued rollout's interruption supersedes old work", TestLatestInterruptionWins),
@@ -40,6 +41,17 @@ public static class RunningTasksTests
         var codex = ActivityMonitor.RunningCount(sessions, TriggerTool.Codex);
         Expect(codex == 2, $"a working thread and one held up by the network are running, a finished and an idle one are not; got {codex}");
         Expect(ActivityMonitor.RunningCount(sessions, TriggerTool.Grok) == 0, "a provider with no sessions runs nothing");
+    }
+
+    private static void TestEndedOnNetworkErrorIsNotRunning()
+    {
+        var sessions = new[]
+        {
+            Session(TriggerTool.Claude, "retrying", ActivityState.NetworkTrouble),
+            Session(TriggerTool.Claude, "gave-up", ActivityState.NetworkTrouble) with { TurnEnded = true },
+        };
+        var count = ActivityMonitor.RunningCount(sessions, TriggerTool.Claude);
+        Expect(count == 1, $"only the turn still retrying runs, got {count}");
     }
 
     private static void TestSplitThreadCountsOnce()
