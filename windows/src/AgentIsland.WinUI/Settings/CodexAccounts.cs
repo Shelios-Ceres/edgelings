@@ -73,7 +73,11 @@ internal static class CodexAccounts
             foreach (var account in accounts)
             {
                 var child = new MenuFlyoutItem { Text = account.Label };
-                child.Click += (_, _) => CodexAccountSwitcher.Forget(account);
+                child.Click += async (_, _) =>
+                {
+                    menu.Hide();
+                    if (root() is { } xamlRoot && await ConfirmRemove(xamlRoot, account)) CodexAccountSwitcher.Forget(account);
+                };
                 remove.Items.Add(child);
             }
             menu.Items.Add(new MenuFlyoutSeparator());
@@ -90,6 +94,28 @@ internal static class CodexAccounts
         auto.Click += (_, _) => CodexAccountSwitcher.AutoSwitchEnabled = auto.IsChecked;
         menu.Items.Add(auto);
         MenuHost.UseKit(menu);
+    }
+
+    /// A removed login is gone for good (switching back needs a full codex
+    /// login), and it sits one row from the account the user meant, so the
+    /// pick is confirmed first.
+    private static async Task<bool> ConfirmRemove(XamlRoot root, CodexAccountSwitcher.Account account)
+    {
+        ContentDialog dialog;
+        using (Looks.English())
+        {
+            dialog = SettingsUi.Dialog(root);
+            dialog.Title = L10n.Tr("Remove saved account");
+            dialog.Content = new TextBlock
+            {
+                Text = account.Email is { } email && email != account.Label ? $"{account.Label}  ({email})" : account.Label,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            dialog.PrimaryButtonText = L10n.Tr("Remove");
+            dialog.CloseButtonText = L10n.Tr("Cancel");
+            dialog.DefaultButton = ContentDialogButton.Close;
+        }
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private static async Task SaveCurrent(XamlRoot root)
