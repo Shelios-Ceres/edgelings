@@ -90,7 +90,9 @@ internal sealed partial class DrawerWindow
         if (reduced || slot.Resting || slot.Fidgets.Length == 0 || slot.Hold != "idle" || slot.EngineState != "idle" || now < slot.NextFidget) return;
         slot.Fidget = slot.Fidgets[Random.Shared.Next(slot.Fidgets.Length)];
         slot.FidgetUntil = now + 2.5 + Random.Shared.NextDouble() * 2;
-        _engine!.SetState(index, slot.Fidget, -1);
+        // Pixel's fidgets are one-shot gestures (a hop in its first 1.4 s), so
+        // they play from their start; Classic's loop on short cycles of their own.
+        _engine!.SetState(index, slot.Fidget, _loopTheme == CharacterTheme.Pixel ? 0 : -1);
     }
 
     /// Feeds the pointer to the due characters; true when it is near any.
