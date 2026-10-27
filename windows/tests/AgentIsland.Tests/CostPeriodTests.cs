@@ -17,6 +17,7 @@ public static class CostPeriodTests
             ("report slices remain half-open and daily dollars sum to the total", HalfOpenSlice),
             ("today's tokens fall into their local hours", HourlyTokens),
             ("daylight-saving changes keep every hour in its own day, month and year", DaylightSaving),
+            ("today's models cover the whole day, not only the last five hours", TodayModels),
         };
         foreach (var (name, test) in tests)
         {
@@ -103,6 +104,23 @@ public static class CostPeriodTests
             "an hour must hold its own events only, and yesterday's must stay out");
         Expect(summary.TodayHourlyBillableTokens[4] == 300 && summary.TodayHourlyBillableTokens.Sum() == summary.TodayBillableTokens,
             "the billable hours must add up to the billable total");
+    }
+
+    private static void TodayModels()
+    {
+        var now = Local(2026, 10, 12, 15);
+        var summary = CostSummarizer.Summarize(new[]
+        {
+            Event(Local(2026, 10, 11, 20), 0, "yesterday-model"),
+            new TokenEvent(TriggerTool.Codex, Local(2026, 10, 12, 8), "morning-unpriced", 100, 20, 0, 0),
+            Event(Local(2026, 10, 12, 14), 1, "afternoon-model"),
+        }, now);
+        Expect(string.Join(",", summary.RecentModels.Select(m => m.Model)) == "afternoon-model",
+            "the card's rows stay the last five hours'");
+        Expect(string.Join(",", summary.TodayModels.Select(m => m.Model).Order()) == "afternoon-model,morning-unpriced",
+            "today's models include the morning's and leave yesterday's out");
+        Expect(summary.TodayModels.Single(m => m.Model == "morning-unpriced") is { Dollars: 0, Tokens: 120 },
+            "the morning's unpriced model shows up with its tokens and no dollars");
     }
 
     /// New York: summer time ends on 2026-11-01 and starts on 2026-03-08.

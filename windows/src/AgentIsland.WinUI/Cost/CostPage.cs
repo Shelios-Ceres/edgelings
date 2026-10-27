@@ -114,6 +114,10 @@ internal sealed partial class CostPage : IDisposable
         /// The models the card lists, ranked by the page's token mode.
         public IReadOnlyList<ModelSpend> Listed { get; init; } = Array.Empty<ModelSpend>();
 
+        /// Every model the period's spend covers: Today's Models are the
+        /// last five hours', its spend the whole day's.
+        public IReadOnlyList<ModelSpend> PeriodModels { get; init; } = Array.Empty<ModelSpend>();
+
         /// What the agent calls its models.
         public Func<string, string> NameOf { get; init; } = model => model;
     }
@@ -387,7 +391,13 @@ internal sealed partial class CostPage : IDisposable
                     Days(first, DayValue), summary.MonthModels, summary.AsOf) { TokenBars = Days(first, DayTokens) };
                 break;
         }
-        return slice with { Recent = summary.RecentModels.Count > 0, NameOf = summary.NameOf, Listed = Listed(provider, slice.Models, summary, billableMode) };
+        return slice with
+        {
+            Recent = summary.RecentModels.Count > 0,
+            NameOf = summary.NameOf,
+            Listed = Listed(provider, slice.Models, summary, billableMode),
+            PeriodModels = _period == Period.Today ? summary.TodayModels : slice.Models,
+        };
     }
 
     /// The model rows an agent's card shows, ranked by the page's token mode:
@@ -450,7 +460,7 @@ internal sealed partial class CostPage : IDisposable
             }, totals: true);
             stats.Add(card);
         }
-        var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.Models).Count(Unpriced);
+        var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.PeriodModels).Count(Unpriced);
         Stat(L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
             ? L10n.TrFormat(unpriced == 1 ? "{0} model has no price and counts as $0" : "{0} models have no price and count as $0", unpriced)
             : L10n.Tr("At API list prices"),

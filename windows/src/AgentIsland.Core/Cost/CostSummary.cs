@@ -38,6 +38,10 @@ public sealed record ProviderCostSummary(
     public IReadOnlyList<long> TodayHourlyTokens { get; init; } = new long[24];
     public IReadOnlyList<long> TodayHourlyBillableTokens { get; init; } = new long[24];
 
+    /// Every model used today, billable desc. RecentModels covers the last
+    /// five hours only, while today's spend covers the whole day.
+    public IReadOnlyList<ModelSpend> TodayModels { get; init; } = Array.Empty<ModelSpend>();
+
     /// What the agent itself calls its models, by model id (Kimi Code names
     /// its plan's aliases); an id it doesn't name reads as itself.
     public IReadOnlyDictionary<string, string> ModelNames { get; init; } = new Dictionary<string, string>();
@@ -154,6 +158,7 @@ public static class CostSummarizer
         var hourlyBillable = new long[24];
         var daily = new double[DateTime.DaysInMonth(today.Year, today.Month)];
         var recent = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
+        var todayModels = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
         var weekly = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
         var month = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
         var history = new Dictionary<DateTime, (long Tokens, long Billable, double Dollars)>();
@@ -176,6 +181,7 @@ public static class CostSummarizer
                 hourly[hour] += dollars;
                 hourlyTokens[hour] += tokenEvent.WireTokens;
                 hourlyBillable[hour] += tokenEvent.BillableTokens;
+                Accumulate(todayModels, model, tokenEvent, dollars);
             }
             if (local.Month == today.Month)
             {
@@ -229,6 +235,7 @@ public static class CostSummarizer
             LastSevenDays = Slice(events, LastSevenDaysStart(now, zone), now.AddTicks(1), zone),
             TodayHourlyTokens = hourlyTokens,
             TodayHourlyBillableTokens = hourlyBillable,
+            TodayModels = ToSpendList(todayModels),
         };
     }
 
