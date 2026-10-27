@@ -17,7 +17,8 @@ internal static class LookPreviews
     private const double Box = 44;
 
     private static readonly Dictionary<CharacterTheme, ICharacterEngine?> Engines = new();
-    private static readonly Dictionary<(CharacterTheme, DisplayProvider, string), int> Bots = new();
+    // Two bots per look: one that plays, and one that stays at its still.
+    private static readonly Dictionary<(CharacterTheme, DisplayProvider, string, bool Still), int> Bots = new();
     private static readonly Dictionary<(CharacterTheme, DisplayProvider, string, double, double), ImageSource> Stills = new();
     private static readonly SvgCanvas Canvas = new();
 
@@ -36,13 +37,13 @@ internal static class LookPreviews
         return Engines[theme] = engine;
     }
 
-    private static int Bot(CharacterTheme theme, DisplayProvider provider, string look, ICharacterEngine engine)
+    private static int Bot(CharacterTheme theme, DisplayProvider provider, string look, bool still, ICharacterEngine engine)
     {
-        if (Bots.TryGetValue((theme, provider, look), out var index)) return index;
+        if (Bots.TryGetValue((theme, provider, look, still), out var index)) return index;
         index = engine.AddBot(provider, DrawerLooks.TempoOf(provider), Seed, look);
         engine.SetState(index, "idle", 0);
         engine.Tick(Advance(index, Settled), 44);
-        return Bots[(theme, provider, look)] = index;
+        return Bots[(theme, provider, look, still)] = index;
     }
 
     private static double[] Advance(int index, double dt)
@@ -53,16 +54,20 @@ internal static class LookPreviews
         return dts;
     }
 
-    /// The look's idle frame, taken Settled seconds in: the same every time.
+    /// The look's idle frame, taken Settled seconds in: the same every time,
+    /// however far a tile has played the look.
     public static string? Still(CharacterTheme theme, DisplayProvider provider, string look, double size) =>
-        Step(theme, provider, look, 0, size);
+        Frame(theme, provider, look, still: true, 0, size);
 
     /// The look's idle animation moved on by dt seconds (0 repeats the frame
     /// it is at); null without an engine.
-    public static string? Step(CharacterTheme theme, DisplayProvider provider, string look, double dt, double size)
+    public static string? Step(CharacterTheme theme, DisplayProvider provider, string look, double dt, double size) =>
+        Frame(theme, provider, look, still: false, dt, size);
+
+    private static string? Frame(CharacterTheme theme, DisplayProvider provider, string look, bool still, double dt, double size)
     {
         if (Engine(theme) is not { } engine) return null;
-        var index = Bot(theme, provider, look, engine);
+        var index = Bot(theme, provider, look, still, engine);
         return engine.Tick(Advance(index, dt), size)[index]?.Svg;
     }
 
