@@ -41,6 +41,7 @@ public static class AntigravityQuotaTests
             ("only the main group's pools put the bot to sleep", TestSleepRule),
             ("a snapshot saved before this change still restores", TestOldSnapshotRoundTrip),
             ("a failed refresh keeps every pool under its caption", TestKeptPools),
+            ("a spent bucket whose zero fraction was left out stays, at 100%", TestOmittedZeroFraction),
         };
         foreach (var (name, test) in tests)
         {
@@ -102,6 +103,27 @@ public static class AntigravityQuotaTests
         Expect(Math.Round(usage.Weekly.UsedPercent, 2), 0.02);
         Expect(!usage.SecondaryMissing, "two windows are not a single-window provider");
         Expect(usage.Plan, "google ai pro");
+    }
+
+    private static void TestOmittedZeroFraction()
+    {
+        const string spent = """
+            {"response":{"groups":[
+              {"displayName":"Gemini Models","buckets":[
+                {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.4,"resetTime":"2026-10-25T11:36:10Z"},
+                {"bucketId":"gemini-5h","window":"5h","resetTime":"2026-10-20T14:10:54Z"},
+                {"bucketId":"gemini-unknown","window":"weekly"},
+                {"bucketId":"gemini-garbled","window":"weekly","remainingFraction":"lots","resetTime":"2026-10-25T11:36:10Z"}]}
+            ]}}
+            """;
+        var buckets = AntigravityQuotaParser.ParseQuotaSummary(Encoding.UTF8.GetBytes(spent))!.Value.Buckets;
+        Expect(buckets.Select(b => b.BucketId).SequenceEqual(new[] { "gemini-weekly", "gemini-5h" }),
+            "only the rows that say nothing, or something unreadable, are dropped: " + string.Join(", ", buckets.Select(b => b.BucketId)));
+        Expect(buckets[1].UsedPercent, 1.0);
+        var snapshot = new AntigravityQuotaSnapshot(buckets);
+        Expect(snapshot.GeminiPools.ShortWindow?.BucketId, "gemini-5h");
+        Expect(ProviderUsage.AntigravityFrom(snapshot, null, null).IsExhausted(Now), "the spent 5-hour pool puts the bot to sleep");
+        Expect(Meters(snapshot)[0].Value, "100%");
     }
 
     private static void TestSingleWindow()

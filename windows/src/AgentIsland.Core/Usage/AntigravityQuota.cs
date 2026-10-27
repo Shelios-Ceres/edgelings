@@ -161,15 +161,21 @@ public static class AntigravityQuotaParser
                     if (row.TryGetProperty("disabled", out var disabled)
                         && disabled.ValueKind == JsonValueKind.True) continue;
                     if (NonEmpty(String(row, "bucketId")) is not { } bucketId) continue;
-                    // Missing remainingFraction drops the row rather than
-                    // claiming 100% headroom.
-                    if (Fraction(row, "remainingFraction") is not { } remaining) continue;
+                    var resetAt = Timestamp(row, "resetTime");
+                    // The server's JSON leaves a zero out: a bucket with a
+                    // reset time and no remainingFraction at all is spent.
+                    // With neither, or with one that can't be read, the row
+                    // is dropped rather than claiming 100% headroom.
+                    double remaining;
+                    if (Fraction(row, "remainingFraction") is { } fraction) remaining = fraction;
+                    else if (resetAt is not null && !row.TryGetProperty("remainingFraction", out _)) remaining = 0;
+                    else continue;
                     buckets.Add(new AntigravityQuotaBucket(
                         bucketId,
                         groupLabel,
                         NonEmpty(String(row, "window")),
                         Math.Min(1, Math.Max(0, 1 - remaining)),
-                        Timestamp(row, "resetTime")));
+                        resetAt));
                 }
             }
             return (buckets, NonEmpty(String(envelope, "description")));
