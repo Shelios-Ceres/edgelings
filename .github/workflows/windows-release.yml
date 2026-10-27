@@ -26,6 +26,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Test
+        working-directory: windows
+        run: dotnet run --project tests/AgentIsland.Tests -c Release
+
       - name: Build (version = VERSION file)
         shell: pwsh
         working-directory: windows

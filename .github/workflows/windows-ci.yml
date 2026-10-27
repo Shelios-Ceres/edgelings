@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -55,22 +55,3 @@ jobs:
           name: AgentIsland-win-x64-test
           path: windows/dist/AgentIsland-*.zip
           if-no-files-found: error
-
-      # A stable, public, no-login download for testing: refresh a single
-      # PRERELEASE (tag windows-test) with the latest zip on every push to
-      # the working branch. Prerelease + non-'v*' tag = it never occupies
-      # releases/latest and never triggers the Sparkle/Windows auto-update
-      # flows, so no existing user is affected.
-      - name: Refresh test prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/claude/windows-ui-layout-audit-n94f76'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete windows-test --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-          gh release create windows-test windows/dist/AgentIsland-*.zip \
-            --repo "$GITHUB_REPOSITORY" \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "Windows test build (unstable)" \
-            --notes "Latest Windows test build from the windows-ui-layout-audit branch. Prerelease only — NOT shipped via auto-update. Download the zip, unzip, run AgentIsland.WinUI.exe."
