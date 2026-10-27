@@ -34,6 +34,7 @@ public static class ClaudeHooksTests
             ("switches flipped at once never clash, and the last one wins", TogglesTakeTurns),
             ("the hook goes into the config folder Claude Code reads", SettingsInConfigFolder),
             ("a config folder with no settings.json gets one", FreshSettings),
+            ("markers past the prompt lifetime are deleted, live ones kept", StaleMarkersPruned),
         };
         foreach (var (name, test) in tests)
         {
@@ -213,6 +214,18 @@ public static class ClaudeHooksTests
         using var locked = new FileStream(Path.Combine(ClaudeHooks.SignalDirectory, "unrelated.json"),
             FileMode.Create, FileAccess.ReadWrite, FileShare.None);
         Expect(ClaudeHooks.Pending(transcript, now)?.Type, ClaudeHooks.PermissionPrompt);
+    });
+
+    private static void StaleMarkersPruned() => WithFiles((transcript, now) =>
+    {
+        OpenTurn(transcript, now.AddSeconds(-30));
+        Marker(transcript, ClaudeHooks.PermissionPrompt, now.AddSeconds(-20));
+        var stale = Path.Combine(ClaudeHooks.SignalDirectory, "old-session.json");
+        File.WriteAllText(stale, """{"session_id":"old-session","transcript_path":"C:/x.jsonl","type":"permission_prompt","at":1}""");
+        File.SetLastWriteTimeUtc(stale, now.AddHours(-3).UtcDateTime);
+        Expect(ClaudeHooks.Pending(transcript, now)?.Type, ClaudeHooks.PermissionPrompt);
+        Expect(File.Exists(stale), false);
+        Expect(File.Exists(Path.Combine(ClaudeHooks.SignalDirectory, "s1.json")), true);
     });
 
     private static void TogglesTakeTurns() => WithSettings(settings =>

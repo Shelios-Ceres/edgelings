@@ -178,6 +178,14 @@ public static class ClaudeHooks
             {
                 try
                 {
+                    // A marker past the prompt lifetime can never open a
+                    // prompt again; deleting it keeps the folder, and this
+                    // read on every poll, down to the prompts still live.
+                    if (now - new DateTimeOffset(File.GetLastWriteTimeUtc(file), TimeSpan.Zero) >= PromptLifetime)
+                    {
+                        File.Delete(file);
+                        continue;
+                    }
                     using var doc = JsonDocument.Parse(File.ReadAllText(file));
                     var root = doc.RootElement;
                     if (Jsonl.GetString(root, "transcript_path") is not { } path
