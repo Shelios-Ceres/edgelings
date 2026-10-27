@@ -234,8 +234,9 @@ public static partial class SessionScanner
     }
 
     /// Claude Desktop rewrites a session's file whenever the session changes,
-    /// so a parse holds while the file's write time and length do.
-    private static DesktopSession? DesktopSessionAt(string path)
+    /// so a parse holds while the file's write time and length do. A file
+    /// caught mid-rewrite keeps its last parse, and is read again next scan.
+    internal static DesktopSession? DesktopSessionAt(string path)
     {
         long ticks, size;
         try
@@ -248,12 +249,16 @@ public static partial class SessionScanner
         {
             return null;
         }
+        DesktopSession? known = null;
         lock (ScanCacheGate)
         {
-            if (DesktopSessions.TryGetValue(path, out var cached) && cached.Ticks == ticks && cached.Size == size)
-                return cached.Session;
+            if (DesktopSessions.TryGetValue(path, out var cached))
+            {
+                if (cached.Ticks == ticks && cached.Size == size) return cached.Session;
+                known = cached.Session;
+            }
         }
-        if (ParseDesktopSessionFile(path) is not { } session) return null;
+        if (ParseDesktopSessionFile(path) is not { } session) return known;
         lock (ScanCacheGate)
         {
             if (DesktopSessions.Count > 5000) DesktopSessions.Clear();

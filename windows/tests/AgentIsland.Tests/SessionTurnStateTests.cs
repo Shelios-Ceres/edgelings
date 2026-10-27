@@ -32,6 +32,7 @@ public static class SessionTurnStateTests
             ("peer message after end_turn starts a working turn", TestPeerMessageStartsTurn),
             ("session file without latestUserFrameAt behaves as before", TestNoFrameDateFallsBack),
             ("desktop archived flag is read", TestArchivedFlagIsRead),
+            ("a desktop session file caught mid-rewrite keeps its last reading", TestDesktopFileMidRewriteKeepsReading),
             ("desktop prior transcript ids are read", TestPriorCliSessionIdsAreRead),
             ("a transcript its desktop session left behind is replaced", TestLeftBehindTranscriptsAreReplaced),
             ("claude desktop's moved data folder is found", TestMovedDesktopDataFolderIsFound),
@@ -436,6 +437,20 @@ public static class SessionTurnStateTests
         using var desktop = new DesktopFile(null, Ms("2026-10-19T13:00:00.000Z"), archived: true);
         var session = SessionScanner.ParseDesktopSessionFile(desktop.Path);
         Expect(session is { IsArchived: true }, "the archived flag must be read from the session file");
+    }
+
+    private static void TestDesktopFileMidRewriteKeepsReading()
+    {
+        using var desktop = new DesktopFile(null, Ms("2026-10-19T13:00:00.000Z"), archived: true);
+        Expect(SessionScanner.DesktopSessionAt(desktop.Path) is { IsArchived: true }, "the session is read");
+        File.WriteAllText(desktop.Path, """{"cliSessionId":"s1","isArch""");
+        Expect(SessionScanner.DesktopSessionAt(desktop.Path) is { IsArchived: true },
+            "a torn rewrite keeps the archived session archived");
+        File.WriteAllText(desktop.Path, """{"cliSessionId":"s1","isArchived":false}""");
+        Expect(SessionScanner.DesktopSessionAt(desktop.Path) is { IsArchived: false }, "the finished rewrite is read");
+        using var fresh = new DesktopFile(null, null, archived: false);
+        File.WriteAllText(fresh.Path, """{"cliSessionId":""");
+        Expect(SessionScanner.DesktopSessionAt(fresh.Path) is null, "a file never read whole has no reading");
     }
 
     // A session's /clear and /compact carry it on in a new transcript and
