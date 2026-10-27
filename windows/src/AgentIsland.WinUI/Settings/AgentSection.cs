@@ -464,12 +464,20 @@ internal sealed class AgentSection
         AutomationProperties.SetName(toggle, $"Claude · {L10n.Tr("Permission prompts")}");
         AutomationProperties.SetAutomationId(toggle, "Agent.claude.PermissionPrompts");
         var settling = false;
+        var pending = 0;
         toggle.Toggled += async (_, _) =>
         {
             if (settling) return;
             using var english = Looks.English();
             var wanted = toggle.IsOn;
+            pending++;
             var error = await Task.Run(() => ClaudeHooks.SetInstalled(wanted));
+            // Quick flips can land in either order: once the last is back, the file follows the switch.
+            if (--pending == 0 && error is null && toggle.IsOn != ClaudeHooks.IsInstalled())
+            {
+                wanted = toggle.IsOn;
+                error = await Task.Run(() => ClaudeHooks.SetInstalled(wanted));
+            }
             if (error is null) return;
             settling = true;
             toggle.IsOn = !wanted;
@@ -500,12 +508,19 @@ internal sealed class AgentSection
         AutomationProperties.SetName(toggle, $"Grok · {L10n.Tr("Permission prompts")}");
         AutomationProperties.SetAutomationId(toggle, "Agent.grok.PermissionPrompts");
         var settling = false;
+        var pending = 0;
         toggle.Toggled += async (_, _) =>
         {
             if (settling) return;
             using var english = Looks.English();
             var wanted = toggle.IsOn;
+            pending++;
             var error = await Task.Run(() => GrokHooks.SetInstalled(wanted));
+            if (--pending == 0 && error is null && toggle.IsOn != GrokHooks.IsInstalled())
+            {
+                wanted = toggle.IsOn;
+                error = await Task.Run(() => GrokHooks.SetInstalled(wanted));
+            }
             DebugTrace.Write($"grok hook switch: wanted {wanted}, error {error ?? "none"}, installed {GrokHooks.IsInstalled()}");
             if (error is null) return;
             settling = true;
