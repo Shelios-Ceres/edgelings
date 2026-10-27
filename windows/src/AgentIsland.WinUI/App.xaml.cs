@@ -65,8 +65,30 @@ public sealed partial class App : Application
         ActivityMonitor.Shared.Start();
         UsageStore.Shared.StartAutoRefresh();
         CostStore.Shared.StartAutoRefresh();
+        FollowSystemTheme();
 
         DebugHooks.Schedule(_drawer, _tray);
+    }
+
+    // Held so its event keeps coming.
+    private readonly Windows.UI.ViewManagement.UISettings _colors = new();
+    private (bool Dark, bool HighContrast) _scheme;
+
+    /// Templates repaint themselves when Windows turns light or dark (by hand
+    /// or on a schedule), but what code painted in the theme of the moment
+    /// does not: a switch rebuilds those surfaces, as a language switch does.
+    private void FollowSystemTheme()
+    {
+        static (bool, bool) Scheme() => (Brand.IsDark(), new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast);
+        _scheme = Scheme();
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _colors.ColorValuesChanged += (_, _) => queue.TryEnqueue(() =>
+        {
+            var scheme = Scheme();
+            if (scheme == _scheme) return;
+            _scheme = scheme;
+            Relocalize();
+        });
     }
 
     internal DrawerWindow? Drawer => _drawer;
@@ -75,7 +97,8 @@ public sealed partial class App : Application
 
     public void ToggleDrawer() => _drawer?.ToggleDeliberately();
 
-    /// A language change rebuilds the surfaces whose labels were baked in.
+    /// A language change rebuilds the surfaces whose labels were baked in
+    /// (and a theme switch those whose colours were).
     public void Relocalize()
     {
         _drawer?.Relocalize();
