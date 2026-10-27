@@ -22,7 +22,9 @@ public sealed partial class SvgCanvas
 
     public void Render(string svg, CanvasDrawingSession ds)
     {
-        if (!ReferenceEquals(ds.Device, _device))
+        // Evicted between frames only: a frame's clip groups hold the cached
+        // geometry they collected until the frame is drawn.
+        if (!ReferenceEquals(ds.Device, _device) || _paths.Count >= PathCacheLimit)
         {
             foreach (var path in _paths.Values) path.Dispose();
             _paths.Clear();
@@ -152,11 +154,6 @@ public sealed partial class SvgCanvas
         }
         var key = (fillRule == "evenodd" ? "E" : "N") + (Attr(e, "d") ?? "");
         if (_paths.TryGetValue(key, out var cached)) return cached;
-        if (_paths.Count >= PathCacheLimit)
-        {
-            foreach (var path in _paths.Values) path.Dispose();
-            _paths.Clear();
-        }
         var geometry = SvgPath.Parse(device, key[1..], fillRule == "evenodd");
         _paths[key] = geometry;
         return geometry;
