@@ -103,9 +103,9 @@ internal sealed partial class SettingsWindow
             "\uE8BD", Toggle(store.SpeechBubbles, on => store.SpeechBubbles = on)));
 
         body.Children.Add(Section(L10n.Tr("Placement")));
-        body.Children.Add(Card(L10n.Tr("Edge"), L10n.Tr("Which side of the screen the drawer docks to"), "\uE8AB",
-            Combo(new[] { L10n.Tr("Right edge"), L10n.Tr("Left edge") }, store.Side == DrawerSide.Right ? 0 : 1,
-                index => store.Side = index == 0 ? DrawerSide.Right : DrawerSide.Left)));
+        var edge = Combo(new[] { L10n.Tr("Right edge"), L10n.Tr("Left edge") }, store.Side == DrawerSide.Right ? 0 : 1,
+            index => store.Side = index == 0 ? DrawerSide.Right : DrawerSide.Left);
+        body.Children.Add(Card(L10n.Tr("Edge"), L10n.Tr("Which side of the screen the drawer docks to"), "\uE8AB", edge));
 
         var screens = Win32.Screens();
         var labels = new List<string> { L10n.Tr("Automatic (primary display)") };
@@ -129,17 +129,19 @@ internal sealed partial class SettingsWindow
         AutomationProperties.SetAutomationId(lockToggle, "Settings.Drawer.Locked");
         AutomationProperties.SetName(lockToggle, L10n.Tr("Lock position"));
         var position = Card(L10n.Tr("Position"), null, "\uE7C2", SideBySide(center, lockToggle));
-        void ShowLock()
+        // The drawer's menu docks it and locks it too.
+        void ShowPlacement()
         {
+            edge.SelectedIndex = store.Side == DrawerSide.Right ? 0 : 1;
             lockToggle.IsOn = store.Locked;
             center.IsEnabled = !store.Locked;
             SetDescription(position, L10n.Tr(store.Locked
                 ? "Characters stay put: dragging won't move the drawer, and a character appearing or leaving won't shift the ones above it"
                 : "Drag any character up or down to move the drawer"));
         }
-        ShowLock();
+        ShowPlacement();
         body.Children.Add(position);
-        FollowDrawerStore(ShowLock);
+        FollowDrawerStore(ShowPlacement);
 
 
         body.Children.Add(Section(L10n.Tr("Motion")));
