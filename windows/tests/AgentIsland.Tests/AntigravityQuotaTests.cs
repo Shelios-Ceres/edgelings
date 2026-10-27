@@ -42,6 +42,10 @@ public static class AntigravityQuotaTests
             ("a snapshot saved before this change still restores", TestOldSnapshotRoundTrip),
             ("a failed refresh keeps every pool under its caption", TestKeptPools),
             ("a spent bucket whose zero fraction was left out stays, at 100%", TestOmittedZeroFraction),
+            ("only Antigravity's own language server is asked, never Windsurf's or Codeium's", TestLanguageServerOwner),
+            ("a port is traced to the process listening on it", TestPortOwner),
+            ("a process's CSRF token is read once, and looked for again only after a while", TestCsrfTokenIsRemembered),
+            ("a helper that hangs is stopped at its timeout", TestHelperTimeout),
         };
         foreach (var (name, test) in tests)
         {
@@ -103,6 +107,102 @@ public static class AntigravityQuotaTests
         Expect(Math.Round(usage.Weekly.UsedPercent, 2), 0.02);
         Expect(!usage.SecondaryMissing, "two windows are not a single-window provider");
         Expect(usage.Plan, "google ai pro");
+    }
+
+    private static void TestLanguageServerOwner()
+    {
+        const string server = "language_server_windows_x64";
+        static bool Is(string name, string? path, string? parent) => AntigravityLanguageServer.IsAntigravityProcess(name, path, parent);
+        Expect(Is("agy", null, "pwsh") && Is("Antigravity", null, "explorer") && Is("antigravity-cli", null, null), "the CLI and the desktop app");
+        Expect(Is(server, @"C:\Users\u\AppData\Local\Programs\Antigravity\resources\app\extensions\antigravity\bin\language_server_windows_x64.exe", "Antigravity"),
+            "the desktop app's own server");
+        Expect(Is(server, @"D:\Tools\AG\bin\language_server_windows_x64.exe", "Antigravity"), "one Antigravity started, wherever it is installed");
+        Expect(Is(server, @"C:\Users\u\AppData\Local\Programs\Antigravity\resources\bin\language_server.exe", null), "one under an Antigravity folder");
+        Expect(!Is(server, @"C:\Users\u\AppData\Local\Programs\Windsurf\resources\app\extensions\windsurf\bin\language_server_windows_x64.exe", "Windsurf"),
+            "Windsurf's server");
+        Expect(!Is(server, @"C:\Users\u\.vscode\extensions\codeium.codeium-1.40.0\dist\abc\language_server_windows_x64.exe", "Code"),
+            "Codeium's server in VS Code");
+        Expect(!Is(server, null, null), "a server whose path and parent can't be read");
+        Expect(!Is("language_server_antigravity", @"C:\Tools\codeium\language_server_antigravity.exe", "Code"), "the file name alone says nothing");
+        Expect(!Is("Windsurf", null, null), "another editor");
+        var self = AntigravityLanguageServer.Processes().FirstOrDefault(p => p.Id == Environment.ProcessId);
+        using var current = System.Diagnostics.Process.GetCurrentProcess();
+        Expect(self.Name == current.ProcessName && self.ParentId > 0, $"the process list names this very process, got '{self.Name}'");
+    }
+
+    private static void TestPortOwner()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            Expect(AntigravityLanguageServer.PortOwner(port), (int?)Environment.ProcessId);
+            Expect(AntigravityLanguageServer.ListeningPorts(Environment.ProcessId).Contains(port), "and listed under it");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private static void TestCsrfTokenIsRemembered()
+    {
+        var previous = AntigravityLanguageServer.ReadCommandLine;
+        var reads = 0;
+        try
+        {
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.ReadCommandLine = _ =>
+            {
+                reads++;
+                return "language_server.exe --csrf_token abc-123 --extension_server_port 5000";
+            };
+            var pid = Environment.ProcessId;
+            Expect(AntigravityLanguageServer.CsrfToken(pid), "abc-123");
+            Expect(AntigravityLanguageServer.CsrfToken(pid), "abc-123");
+            Expect(reads, 1);
+
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.ReadCommandLine = _ =>
+            {
+                reads++;
+                return null;
+            };
+            reads = 0;
+            Expect(AntigravityLanguageServer.CsrfToken(pid) is null, "a read that fails finds no token");
+            Expect(AntigravityLanguageServer.CsrfToken(pid) is null, "and is not repeated on the next fetch");
+            Expect(reads, 1);
+        }
+        finally
+        {
+            AntigravityLanguageServer.ReadCommandLine = previous;
+            AntigravityLanguageServer.ForgetCsrfTokens();
+        }
+    }
+
+    private static void TestHelperTimeout()
+    {
+        var quick = AntigravityLanguageServer.Output(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c echo hello",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        }, TimeSpan.FromSeconds(10));
+        Expect(quick, "hello");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var hung = AntigravityLanguageServer.Output(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c ping -n 30 127.0.0.1",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        }, TimeSpan.FromMilliseconds(300));
+        Expect(hung is null, "a helper still running at its timeout gives nothing");
+        Expect(clock.Elapsed < TimeSpan.FromSeconds(5), $"and is not waited out, took {clock.Elapsed.TotalSeconds:F1}s");
     }
 
     private static void TestOmittedZeroFraction()

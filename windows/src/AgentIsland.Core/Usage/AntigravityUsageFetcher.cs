@@ -63,19 +63,20 @@ public static class AntigravityUsageFetcher
     /// The CLI's server wants no CSRF token; the desktop IDE gates on one it
     /// passes on its own command line. The token is lifted only after a 401
     /// says the plain call was refused — a strictly additive retry on a path
-    /// that already failed.
+    /// that already failed — and only from the process that owns the port:
+    /// no other process's token is ever sent to it.
     private static async Task<AntigravityLanguageServer.Reply?> CallWithCsrfRetry(
         string method, int port, string body)
     {
         var reply = await AntigravityLanguageServer.Call(method, port, body).ConfigureAwait(false);
         if (reply is not { Status: 401 }) return reply;
-        foreach (var pid in AntigravityLanguageServer.AntigravityProcessIds())
+        if (AntigravityLanguageServer.PortOwner(port) is not { } pid
+            || AntigravityLanguageServer.CsrfToken(pid) is not { Length: > 0 } token)
         {
-            if (AntigravityLanguageServer.CsrfToken(pid) is not { Length: > 0 } token) continue;
-            var retried = await AntigravityLanguageServer
-                .Call(method, port, body, token).ConfigureAwait(false);
-            if (retried is { Status: 200 }) return retried;
+            return reply;
         }
-        return reply;
+        var retried = await AntigravityLanguageServer
+            .Call(method, port, body, token).ConfigureAwait(false);
+        return retried is { Status: 200 } ? retried : reply;
     }
 }
