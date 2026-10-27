@@ -186,6 +186,10 @@ internal static class Win32
     public static uint PrimaryDpi() =>
         GetDpiForMonitor(MonitorFromPoint(new POINT(), 1 /* MONITOR_DEFAULTTOPRIMARY */), 0, out var dpi, out _) == 0 ? dpi : 96;
 
+    /// The DPI of the display under a screen point (the nearest one off-screen).
+    public static uint DpiAt(int x, int y) =>
+        GetDpiForMonitor(MonitorFromPoint(new POINT { X = x, Y = y }, MonitorDefaultToNearest), 0, out var dpi, out _) == 0 ? dpi : 96;
+
     public const int SmCxIcon = 11;
     public const int SmCxSmIcon = 49;
     public const uint WmSetIcon = 0x80;

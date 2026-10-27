@@ -34,15 +34,18 @@ internal static class Looks
     public static IDisposable? English() => Pixel ? L10n.English() : null;
 
     // The kits of the windows built last, for code that picks styles and
-    // brushes by name; every window's kit holds the same values.
+    // brushes by name; every window's kit holds the same values. Pixel's
+    // type sizes follow the scale, so a menu's kit, built for whichever
+    // display the menu opens on, is not kept here.
     private static PixelTheme? _pixelKit;
     private static ClassicTheme? _classicKit;
 
     private static bool _pixelTokensShared;
     private static bool _classicTokensShared;
 
-    /// The current look's kit for a window at this scale.
-    public static ResourceDictionary NewKit(double scale)
+    /// The current look's kit for a window at this scale; shared makes it the
+    /// kit Resource reads.
+    public static ResourceDictionary NewKit(double scale, bool shared = true)
     {
         if (Pixel)
         {
@@ -51,23 +54,27 @@ internal static class Looks
                 _pixelTokensShared = true;
                 Application.Current.Resources.MergedDictionaries.Add(PixelTheme.Tokens(scale));
             }
-            return _pixelKit = new PixelTheme(scale);
+            var pixel = new PixelTheme(scale);
+            if (shared) _pixelKit = pixel;
+            return pixel;
         }
         if (!_classicTokensShared)
         {
             _classicTokensShared = true;
             Application.Current.Resources.MergedDictionaries.Add(ClassicTheme.Tokens());
         }
-        return _classicKit = new ClassicTheme();
+        var classic = new ClassicTheme();
+        if (shared) _classicKit = classic;
+        return classic;
     }
 
-    /// A resource from the current kit (a Fluent key may name its stand-in),
-    /// else from the app's Fluent resources.
-    public static object Resource(string key)
+    /// A resource from the current kit, or from the given one (a Fluent key
+    /// may name its stand-in), else from the app's Fluent resources.
+    public static object Resource(string key, ResourceDictionary? from = null)
     {
         // Code can ask before any window has built a kit (the drawer's menu
         // at startup); the primary display's scale serves until one does.
-        var kit = (Pixel ? (ResourceDictionary?)_pixelKit : _classicKit)
+        var kit = from ?? (Pixel ? (ResourceDictionary?)_pixelKit : _classicKit)
             ?? NewKit(Platform.Win32.PrimaryDpi() / 96.0);
         var name = (Pixel ? PixelAliases : ClassicAliases).GetValueOrDefault(key, key);
         if (kit.ThemeDictionaries.TryGetValue(Brand.IsDark() ? "Default" : "Light", out var themed)
@@ -86,5 +93,5 @@ internal static class Looks
     /// The current kit's own resource by its unprefixed name, as
     /// Kit&lt;Style&gt;("ToggleSwitchStyle") for "PixelToggleSwitchStyle" or
     /// "ClassicToggleSwitchStyle".
-    public static T Kit<T>(string name) => (T)Resource(Prefix + name);
+    public static T Kit<T>(string name, ResourceDictionary? from = null) => (T)Resource(Prefix + name, from);
 }

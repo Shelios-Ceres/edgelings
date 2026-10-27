@@ -29,16 +29,19 @@ internal static class MenuHost
     {
         Ensure();
         _open?.Hide();
+        Win32.GetCursorPos(out var cursor);
+        var point = at ?? new PointInt32(cursor.X, cursor.Y);
         _root!.Resources.MergedDictionaries.Clear();
         if (kit)
         {
-            _root.Resources.MergedDictionaries.Add(Looks.NewKit(Win32.GetDpiForWindow(_hwnd) / 96.0));
-            UseKit(menu);
+            // Sized for the display the menu opens on, which need not be the
+            // one the host sat on for the last menu.
+            var dictionary = Looks.NewKit(Win32.DpiAt(point.X, point.Y) / 96.0, shared: false);
+            _root.Resources.MergedDictionaries.Add(dictionary);
+            UseKit(menu, dictionary);
             MenuMotion.Use(menu, _root);
         }
         _keepOpen = keepOpen;
-        Win32.GetCursorPos(out var cursor);
-        var point = at ?? new PointInt32(cursor.X, cursor.Y);
         _window!.AppWindow.MoveAndResize(new RectInt32(point.X, point.Y, 1, 1));
         _root!.RequestedTheme = Brand.IsDark() ? ElementTheme.Dark : ElementTheme.Light;
         // An empty region: the host is foreground but shows nothing, not
@@ -114,14 +117,14 @@ internal static class MenuHost
     /// The current kit for a menu: its presenter, each item's style by kind,
     /// and under Pixel the kit's drawing for every glyph it has one for.
     /// Menus open in popups, beyond any window's styles, so nothing here is
-    /// implicit.
-    public static void UseKit(MenuFlyout menu)
+    /// implicit. The styles come from the given kit, or the shared one.
+    public static void UseKit(MenuFlyout menu, ResourceDictionary? kit = null)
     {
-        menu.MenuFlyoutPresenterStyle = Looks.Kit<Style>("MenuFlyoutPresenterStyle");
-        UseKit(menu.Items, Looks.Pixel);
+        menu.MenuFlyoutPresenterStyle = Looks.Kit<Style>("MenuFlyoutPresenterStyle", kit);
+        UseKit(menu.Items, Looks.Pixel, kit);
     }
 
-    private static void UseKit(IList<MenuFlyoutItemBase> items, bool pixel)
+    private static void UseKit(IList<MenuFlyoutItemBase> items, bool pixel, ResourceDictionary? kit)
     {
         foreach (var item in items)
         {
@@ -133,12 +136,12 @@ internal static class MenuHost
                 RadioMenuFlyoutItem => "RadioMenuFlyoutItemStyle",
                 MenuFlyoutSeparator => "MenuFlyoutSeparatorStyle",
                 _ => "MenuFlyoutItemStyle",
-            });
+            }, kit);
             switch (item)
             {
                 case MenuFlyoutSubItem sub:
                     if (pixel && sub.Icon is FontIcon { Glyph: var subGlyph } && PixelIcons.NameFor(subGlyph) is { } subName) sub.Icon = PixelIcons.Icon(subName);
-                    UseKit(sub.Items, pixel);
+                    UseKit(sub.Items, pixel, kit);
                     break;
                 case MenuFlyoutItem { Icon: FontIcon { Glyph: var glyph } } plain when pixel && PixelIcons.NameFor(glyph) is { } name:
                     plain.Icon = PixelIcons.Icon(name);
