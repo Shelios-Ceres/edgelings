@@ -22,6 +22,7 @@ public static class OtherTokenAccountingTests
             ("Grok reports read failure instead of false zero", GrokReadFailure),
             ("Grok sums per-model usage without adding the top-level total", GrokModels),
             ("Cursor reads committed usage still held in the WAL", CursorWal),
+            ("Cursor usage without a date of its own is not counted as today's", CursorUndated),
         };
         foreach (var (name, test) in tests)
         {
@@ -123,6 +124,17 @@ public static class OtherTokenAccountingTests
         Expect(new FileInfo(path + "-wal").Length > 0, "fixture must retain uncheckpointed WAL data");
         Expect(CursorLogReader.ReadDatabase(path, 1).Single().WireTokens == 120,
             "read-only access must see committed usage before the writer checkpoints its WAL");
+    }
+
+    private static void CursorUndated()
+    {
+        static string Bubble(object? createdAt) => JsonSerializer.Serialize(createdAt is null
+            ? new { tokenCount = new { inputTokens = 100, outputTokens = 20 } }
+            : (object)new { createdAt, tokenCount = new { inputTokens = 100, outputTokens = 20 } });
+        Expect(CursorLogReader.ParseBubble(Bubble(null)) is null, "a bubble without createdAt has no day to count on");
+        Expect(CursorLogReader.ParseBubble(Bubble("not a date")) is null, "an unreadable createdAt has no day to count on");
+        var at = new DateTimeOffset(2026, 3, 2, 9, 0, 0, TimeSpan.Zero);
+        Expect(CursorLogReader.ParseBubble(Bubble(at.ToUnixTimeMilliseconds()))?.Timestamp == at, "a dated bubble counts on its own day");
     }
 
     private static string Kimi(string? agent, int seconds) => JsonSerializer.Serialize(new

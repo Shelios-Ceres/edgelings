@@ -18,7 +18,6 @@ public static class CursorLogReader
         // commits only successful tasks, preserving the last good totals.
         if (!File.Exists(path)) throw new FileNotFoundException("Cursor ledger unavailable", path);
         var cutoff = DateTimeOffset.UtcNow.AddDays(-lookbackDays);
-        var fallback = new DateTimeOffset(File.GetLastWriteTimeUtc(path));
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = path,
@@ -36,7 +35,7 @@ public static class CursorLogReader
             if (reader.IsDBNull(0)) continue;
             var json = reader.GetString(0);
             if (!json.Contains("tokenCount", StringComparison.Ordinal)) continue;
-            var parsed = ParseBubble(json, fallback);
+            var parsed = ParseBubble(json);
             if (parsed is not null && parsed.Timestamp >= cutoff) output.Add(parsed);
         }
         return output;
@@ -44,7 +43,10 @@ public static class CursorLogReader
     /// Returns null for bubbles without a usable token count. Absent or {0,0}
     /// counts are skipped — the survey machine is all historical zero sessions,
     /// so the reader simply yields nothing there rather than a wall of zeros.
-    internal static TokenEvent? ParseBubble(string json, DateTimeOffset fallback)
+    /// A bubble with no date of its own is skipped too: dated by the database,
+    /// whose mtime is today while Cursor runs, old usage would read as today's
+    /// on every scan.
+    internal static TokenEvent? ParseBubble(string json)
     {
         try
         {
@@ -60,10 +62,11 @@ public static class CursorLogReader
             var input = ReadInt(counts, "inputTokens");
             var output = ReadInt(counts, "outputTokens");
             if (input == 0 && output == 0) return null;
+            if (BubbleDate(root) is not { } createdAt) return null;
 
             return new TokenEvent(
                 TriggerTool.Cursor,
-                BubbleDate(root, fallback),
+                createdAt,
                 // A Cursor bubble carries no model field; a constant keeps
                 // downstream grouping stable. Nothing prices it, so cost is null.
                 "cursor",
@@ -83,11 +86,10 @@ public static class CursorLogReader
         parent.TryGetProperty(name, out var value) && value.TryGetInt32(out var parsed) ? parsed : 0;
 
     /// A bubble's `createdAt` when present (epoch ms as Cursor writes it, or an
-    /// ISO string defensively), else the db mtime. The shape is unproven on the
-    /// survey machine, so parsing is best-effort with a real-clock fallback.
-    private static DateTimeOffset BubbleDate(JsonElement root, DateTimeOffset fallback)
+    /// ISO string defensively).
+    private static DateTimeOffset? BubbleDate(JsonElement root)
     {
-        if (!root.TryGetProperty("createdAt", out var raw)) return fallback;
+        if (!root.TryGetProperty("createdAt", out var raw)) return null;
         if (raw.ValueKind == JsonValueKind.Number && raw.TryGetInt64(out var epoch))
         {
             // Values this large are milliseconds; anything smaller is seconds.
@@ -100,6 +102,6 @@ public static class CursorLogReader
         {
             return parsed;
         }
-        return fallback;
+        return null;
     }
 }
