@@ -69,10 +69,11 @@ public static class CostSummarizer
     /// Aggregate events over [start, end) with the same accounting rules as
     /// Summarize: wire vs billable split, canonical model grouping,
     /// self-reported cost override.
-    public static ReportSlice Slice(IReadOnlyList<TokenEvent> events, DateTimeOffset start, DateTimeOffset end)
+    public static ReportSlice Slice(IReadOnlyList<TokenEvent> events, DateTimeOffset start, DateTimeOffset end, TimeZoneInfo? zone = null)
     {
-        var startDay = start.ToLocalTime().Date;
-        var lastDay = end.ToLocalTime().AddTicks(-1).Date;
+        zone ??= TimeZoneInfo.Local;
+        var startDay = TimeZoneInfo.ConvertTime(start, zone).Date;
+        var lastDay = TimeZoneInfo.ConvertTime(end, zone).AddTicks(-1).Date;
         var dayCount = Math.Max(1, (int)(lastDay - startDay).TotalDays + 1);
 
         var tokenBuckets = new long[dayCount];
@@ -83,8 +84,8 @@ public static class CostSummarizer
 
         foreach (var tokenEvent in events)
         {
-            var local = tokenEvent.Timestamp.ToLocalTime();
-            if (local < start.ToLocalTime() || local >= end.ToLocalTime()) continue;
+            var local = TimeZoneInfo.ConvertTime(tokenEvent.Timestamp, zone);
+            if (local < start || local >= end) continue;
             var dayOffset = (int)(local.Date - startDay).TotalDays;
             if (dayOffset >= 0 && dayOffset < dayCount)
             {
@@ -104,7 +105,7 @@ public static class CostSummarizer
         for (var i = 0; i < dayCount; i++)
         {
             var date = startDay.AddDays(i);
-            var day = new DateTimeOffset(date, TimeZoneInfo.Local.GetUtcOffset(date));
+            var day = new DateTimeOffset(date, zone.GetUtcOffset(date));
             daily.Add(new DailyTokenBucket(day, tokenBuckets[i], billableBuckets[i], dollarBuckets[i]));
         }
 
@@ -122,17 +123,21 @@ public static class CostSummarizer
         return Math.Max(7, (int)(now.Date - jan1.Date).TotalDays + 1);
     }
 
-    public static DateTimeOffset LastSevenDaysStart(DateTimeOffset now)
+    public static DateTimeOffset LastSevenDaysStart(DateTimeOffset now, TimeZoneInfo? zone = null)
     {
-        var date = now.ToLocalTime().Date.AddDays(-6);
-        return new DateTimeOffset(date, TimeZoneInfo.Local.GetUtcOffset(date));
+        zone ??= TimeZoneInfo.Local;
+        var date = TimeZoneInfo.ConvertTime(now, zone).Date.AddDays(-6);
+        return new DateTimeOffset(date, zone.GetUtcOffset(date));
     }
 
-    public static ProviderCostSummary Summarize(IReadOnlyList<TokenEvent> events, DateTimeOffset now)
+    public static ProviderCostSummary Summarize(IReadOnlyList<TokenEvent> events, DateTimeOffset now, TimeZoneInfo? zone = null)
     {
-        var todayStart = new DateTimeOffset(now.Date, now.Offset);
-        var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset);
-        var yearStart = new DateTimeOffset(now.Year, 1, 1, 0, 0, 0, now.Offset);
+        zone ??= TimeZoneInfo.Local;
+        // Today, the month and the year are told by the event's local date. A
+        // midnight built with today's offset is an hour off across a
+        // daylight-saving change: the first hour of November would fall out
+        // of November, and February's last hour into March.
+        var today = TimeZoneInfo.ConvertTime(now, zone);
         var fiveHoursAgo = now.AddHours(-5);
         var sevenDaysAgo = now.AddDays(-7);
 
@@ -141,7 +146,7 @@ public static class CostSummarizer
         var hourly = new double[24];
         var hourlyTokens = new long[24];
         var hourlyBillable = new long[24];
-        var daily = new double[DateTime.DaysInMonth(now.Year, now.Month)];
+        var daily = new double[DateTime.DaysInMonth(today.Year, today.Month)];
         var recent = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
         var weekly = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
         var month = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
@@ -150,13 +155,13 @@ public static class CostSummarizer
 
         foreach (var tokenEvent in events)
         {
-            var local = tokenEvent.Timestamp.ToLocalTime();
-            if (local > now || local < yearStart) continue;
+            var local = TimeZoneInfo.ConvertTime(tokenEvent.Timestamp, zone);
+            if (local > now || local.Year != today.Year) continue;
             var dollars = tokenEvent.Dollars;
             var model = Pricing.CanonicalModelName(tokenEvent.Model);
             if (!Pricing.IsKnown(tokenEvent.PricedAs ?? model)) unknown.Add(model);
 
-            if (local >= todayStart)
+            if (local.Date == today.Date)
             {
                 todayDollars += dollars;
                 todayTokens += tokenEvent.WireTokens;
@@ -166,7 +171,7 @@ public static class CostSummarizer
                 hourlyTokens[hour] += tokenEvent.WireTokens;
                 hourlyBillable[hour] += tokenEvent.BillableTokens;
             }
-            if (local >= monthStart)
+            if (local.Month == today.Month)
             {
                 monthDollars += dollars;
                 monthTokens += tokenEvent.WireTokens;
@@ -187,15 +192,15 @@ public static class CostSummarizer
         // Cumulative series for the sparklines.
         var todaySeries = new double[24];
         double running = 0;
-        var currentHour = now.Hour;
+        var currentHour = today.Hour;
         for (var h = 0; h < 24; h++)
         {
             running += hourly[h];
             todaySeries[h] = h <= currentHour ? running : running;
         }
-        var monthSeries = new double[now.Day];
+        var monthSeries = new double[today.Day];
         running = 0;
-        for (var d = 0; d < now.Day; d++)
+        for (var d = 0; d < today.Day; d++)
         {
             running += daily[d];
             monthSeries[d] = running;
@@ -204,7 +209,7 @@ public static class CostSummarizer
         var dailyHistory = history
             .OrderBy(kv => kv.Key)
             .Select(kv => new DailyTokenBucket(
-                new DateTimeOffset(kv.Key, now.Offset), kv.Value.Tokens, kv.Value.Billable, kv.Value.Dollars))
+                new DateTimeOffset(kv.Key, zone.GetUtcOffset(kv.Key)), kv.Value.Tokens, kv.Value.Billable, kv.Value.Dollars))
             .ToList();
 
         return new ProviderCostSummary(
@@ -215,7 +220,7 @@ public static class CostSummarizer
             dailyHistory, unknown.ToList())
         {
             AsOf = now,
-            LastSevenDays = Slice(events, LastSevenDaysStart(now), now.AddTicks(1)),
+            LastSevenDays = Slice(events, LastSevenDaysStart(now, zone), now.AddTicks(1), zone),
             TodayHourlyTokens = hourlyTokens,
             TodayHourlyBillableTokens = hourlyBillable,
         };

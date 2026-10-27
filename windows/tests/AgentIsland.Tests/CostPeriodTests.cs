@@ -16,6 +16,7 @@ public static class CostPeriodTests
             ("early January includes the previous year's calendar days", CrossYear),
             ("report slices remain half-open and daily dollars sum to the total", HalfOpenSlice),
             ("today's tokens fall into their local hours", HourlyTokens),
+            ("daylight-saving changes keep every hour in its own day, month and year", DaylightSaving),
         };
         foreach (var (name, test) in tests)
         {
@@ -102,5 +103,37 @@ public static class CostPeriodTests
             "an hour must hold its own events only, and yesterday's must stay out");
         Expect(summary.TodayHourlyBillableTokens[4] == 300 && summary.TodayHourlyBillableTokens.Sum() == summary.TodayBillableTokens,
             "the billable hours must add up to the billable total");
+    }
+
+    /// New York: summer time ends on 2026-11-01 and starts on 2026-03-08.
+    private static void DaylightSaving()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        DateTimeOffset At(int month, int day, int hour, int minute, int offset) =>
+            new(month == 12 ? 2025 : 2026, month, day, hour, minute, 0, TimeSpan.FromHours(offset));
+
+        var november = CostSummarizer.Summarize(new[]
+        {
+            Event(At(10, 31, 23, 30, -4), 100), Event(At(11, 1, 0, 30, -4), 2), Event(At(11, 1, 15, 0, -5), 3),
+        }, At(11, 1, 16, 0, -5), zone);
+        Expect(november.TodayDollars == 5 && november.MonthDollars == 5,
+            $"the first hour of November, before the clocks go back, is November 1's; got today {november.TodayDollars}, month {november.MonthDollars}");
+        Expect(november.MonthCumulativeDollars[0] == 5, "it sits on November 1's point");
+
+        var midNovember = CostSummarizer.Summarize(new[] { Event(At(11, 1, 0, 30, -4), 2) }, At(11, 15, 12, 0, -5), zone);
+        Expect(midNovember.MonthDollars == 2, "it stays in November's total all month");
+
+        var march = CostSummarizer.Summarize(new[] { Event(At(2, 28, 23, 30, -5), 100), Event(At(3, 28, 12, 0, -4), 7) },
+            At(3, 28, 18, 0, -4), zone);
+        Expect(march.MonthDollars == 7 && march.MonthCumulativeDollars[27] == 7,
+            $"February's last hour stays out of March and off March 28, got {march.MonthDollars} / {march.MonthCumulativeDollars[27]}");
+        Expect(march.DailyHistory.Single(d => d.DayStart.Day == 28 && d.DayStart.Month == 3).DayStart.Offset == TimeSpan.FromHours(-4)
+            && march.DailyHistory.Single(d => d.DayStart.Month == 2).DayStart.Offset == TimeSpan.FromHours(-5),
+            "each day starts at its own midnight");
+
+        var july = CostSummarizer.Summarize(new[] { Event(At(12, 31, 23, 30, -5), 100), Event(At(7, 1, 9, 0, -4), 1) },
+            At(7, 1, 12, 0, -4), zone);
+        Expect(july.DailyHistory.Count == 1 && july.DailyHistory[0].Dollars == 1,
+            "the last hour of last year stays out of this year's history in summer");
     }
 }
