@@ -23,6 +23,7 @@ public static class CodexAccountSwitcherTests
             ("a missing live login can activate a saved account", MissingLiveCanActivate),
             ("account activation rejects paths outside its store", OutsideStoreIsRejected),
             ("a held credentials file is replaced once it is released", HeldFileIsReplaced),
+            ("saving under a name another account holds never overwrites it", TakenLabelIsRefused),
         };
         foreach (var (name, test) in tests)
         {
@@ -187,6 +188,21 @@ public static class CodexAccountSwitcherTests
         File.WriteAllBytes(outside, Credential("other", "saved"));
         Expect(!CodexAccountSwitcher.Activate(new("outside", outside, null), fixture.Home),
             "activation accepted a credential path outside the store");
+    }
+
+    private static void TakenLabelIsRefused()
+    {
+        using var fixture = new Fixture();
+        var work = fixture.Save("work", Credential("account-a", "parked"));
+        fixture.Live(Credential("account-b", "live"));
+        Expect(!CodexAccountSwitcher.ParkCurrent("work", fixture.Home), "another account's name was taken over");
+        Expect(!CodexAccountSwitcher.ParkCurrent("Work", fixture.Home), "a name differing only in case was taken over");
+        Expect(File.ReadAllBytes(work.Path).SequenceEqual(Credential("account-a", "parked")), "the parked login was overwritten");
+        Expect(CodexAccountSwitcher.ParkCurrent("personal", fixture.Home), "a free name was refused");
+
+        fixture.Live(Credential("account-a", "refreshed"));
+        Expect(CodexAccountSwitcher.ParkCurrent("work", fixture.Home), "the same account could not refresh its own name");
+        Expect(File.ReadAllBytes(work.Path).SequenceEqual(Credential("account-a", "refreshed")), "its fresher tokens were not saved");
     }
 
     private static void HeldFileIsReplaced()

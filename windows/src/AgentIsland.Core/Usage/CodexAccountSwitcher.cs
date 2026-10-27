@@ -89,6 +89,10 @@ public static class CodexAccountSwitcher
     private static bool Park(string? label, byte[] data, string home)
     {
         if (StoredPath(Sanitize(label), home) is not { } target) return false;
+        // A name already holding another account's login is not this one's
+        // to take: overwriting it would lose that login for good. Saving the
+        // same account again (with fresher tokens) is fine.
+        if (!TryRead(target, out var parked) || (parked is not null && !SameAccount(parked, data))) return false;
         var store = Path.Combine(home, "agentisland-accounts");
         try
         {
