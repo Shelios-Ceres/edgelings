@@ -13,6 +13,11 @@ public static class AgentPresenceTests
 {
     private static readonly Running Explorer = new(1, 0, "explorer");
 
+    // How npm's claude.cmd and claude.ps1 shims, and bun, start Claude Code.
+    private const string NpmClaude = @"""C:\Program Files\nodejs\node.exe"" ""C:\Users\me\AppData\Roaming\npm\\node_modules\@anthropic-ai\claude-code\cli.js""";
+    private const string PowerShellShimClaude = @"""C:\Program Files\nodejs\node.exe"" C:\Users\me\AppData\Roaming\npm/node_modules/@anthropic-ai/claude-code/cli.js";
+    private const string BunClaude = @"C:\Users\me\.bun\bin\bun.exe C:\Users\me\.bun\install\global\node_modules\@anthropic-ai\claude-code\cli.js";
+
     public static void RunAll()
     {
         var tests = new (string Name, Action Test)[]
@@ -91,6 +96,33 @@ public static class AgentPresenceTests
                 if (GrokBot.IsInstalled(false, _ => false)) throw new Exception("nothing there");
                 if (!GrokBot.IsInstalled(true, _ => false)) throw new Exception("running");
                 if (!GrokBot.IsInstalled(false, path => path.EndsWith(@"Grok Bot\Grok Bot.exe", StringComparison.OrdinalIgnoreCase))) throw new Exception("exe");
+            }),
+            ("Claude Code installed with npm runs as node and is not gone", () =>
+            {
+                foreach (var line in new[] { NpmClaude, PowerShellShimClaude, BunClaude })
+                {
+                    var host = line.Contains("bun.exe", StringComparison.Ordinal) ? "bun" : "node";
+                    if (AgentProcesses.Gone(new[] { (host, (string?)line) }).Contains(TriggerTool.Claude)) throw new Exception("idled: " + line);
+                }
+            }),
+            ("another node script is not Claude Code", () =>
+            {
+                if (!AgentProcesses.Gone(new[] { ("node", (string?)@"node D:\src\site\server.js") }).Contains(TriggerTool.Claude)) throw new Exception("any node counted");
+            }),
+            ("a node whose command line can't be read is never idled on a guess", () =>
+            {
+                if (AgentProcesses.Gone(new[] { ("node", (string?)null) }).Contains(TriggerTool.Claude)) throw new Exception("idled on a guess");
+            }),
+            ("npm's Claude Code in a terminal shows through the terminal", () => Expect(TriggerTool.Claude, AgentPresence.Open,
+                new[] { Explorer, new Running(18, 1, "WindowsTerminal"), new Running(19, 18, "pwsh"), new Running(20, 19, "node", NpmClaude) },
+                new[] { new AppWindow(18, false) })),
+            ("another node script doesn't keep Claude open", () => Expect(TriggerTool.Claude, AgentPresence.Closed,
+                new[] { Explorer, new Running(18, 1, "WindowsTerminal"), new Running(20, 18, "node", @"node D:\src\site\server.js") },
+                new[] { new AppWindow(18, false) })),
+            ("this process's command line reads back", () =>
+            {
+                var line = AgentProcesses.CommandLineOf(Environment.ProcessId);
+                if (line is null || !line.Contains("AgentIsland.Tests", StringComparison.OrdinalIgnoreCase)) throw new Exception($"read {line ?? "nothing"}");
             }),
         };
         foreach (var (name, test) in tests)

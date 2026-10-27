@@ -20,7 +20,7 @@ public enum AgentPresence
 public static class AgentPresences
 {
     /// A process: its id, its parent's, its image name without ".exe", and
-    /// its path where a name alone is ambiguous.
+    /// its path (a script host's command line) where a name alone is ambiguous.
     internal sealed record Running(int Id, int ParentId, string Name, string? Path = null);
 
     /// A top-level app window: whose it is, and whether it is minimized.
@@ -79,9 +79,7 @@ public static class AgentPresences
         var presence = new Dictionary<TriggerTool, AgentPresence>();
         foreach (var tool in AgentProcesses.Known.Select(k => k.Tool).Distinct())
         {
-            var mine = processes.Where(p => AgentProcesses.Known.Any(k => k.Tool == tool
-                && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase)
-                && (k.PathHint is null || p.Path is null || p.Path.Contains(k.PathHint, StringComparison.OrdinalIgnoreCase)))
+            var mine = processes.Where(p => AgentProcesses.Known.Any(k => k.Tool == tool && AgentProcesses.Matches(k, p.Name, p.Path))
                 || AgentProcesses.PresenceOnly.Any(k => k.Tool == tool && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase))).ToList();
             presence[tool] = mine.Count == 0 ? AgentPresence.Closed : mine.Select(Shows).Min();
         }
@@ -112,9 +110,9 @@ public static class AgentPresences
             {
                 var name = Path.GetFileNameWithoutExtension(entry.ExeFile);
                 // Only a name a path tells apart needs its path.
-                var path = AgentProcesses.Known.Any(k => k.PathHint is not null && string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase))
-                    ? PathOf((int)entry.ProcessId)
-                    : null;
+                var path = !AgentProcesses.Known.Any(k => k.PathHint is not null && string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase)) ? null
+                    : AgentProcesses.Hosts.Contains(name) ? AgentProcesses.CommandLineOf((int)entry.ProcessId)
+                    : PathOf((int)entry.ProcessId);
                 list.Add(new Running((int)entry.ProcessId, (int)entry.ParentProcessId, name, path));
             }
         }
