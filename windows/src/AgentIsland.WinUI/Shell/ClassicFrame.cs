@@ -88,11 +88,11 @@ internal sealed partial class ClassicFrame : IDisposable
         var noBorder = unchecked((int)0xFFFFFFFE);
         Win32.DwmSetWindowAttribute(_hwnd, DwmwaBorderColor, ref noBorder, sizeof(int));
         window.SystemBackdrop = new TransparentBackdrop();
+        _dpi = Win32.GetDpiForWindow(_hwnd);
         Win32.SetWindowSubclass(_hwnd, _proc, 2, IntPtr.Zero);
         Win32.SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, 0, 0, Win32.SwpNoMove | Win32.SwpNoSize | SwpNoZOrder | Win32.SwpNoActivate | SwpFrameChanged);
         window.Activated += OnActivated;
         _square = IsSquare();
-        _dpi = Win32.GetDpiForWindow(_hwnd);
     }
 
     /// The body is square (no margin, no shadow, no outline rounding) while
