@@ -29,6 +29,8 @@ public static class ClaudeCredentialsTests
             ("a file that cannot be parsed is never replaced with a bare skeleton", UnreadableFileIsLeftAlone),
             ("a refresh for a login replaced meanwhile leaves the new login alone", ReplacedLoginIsLeftAlone),
             ("a file the CLI deleted meanwhile is written fresh", MissingFileIsSeeded),
+            ("a refresh the network stopped is not a lost sign-in", RefreshUnavailable),
+            ("only a refused grant reads as a lost sign-in", RefreshReplies),
         };
         var directory = Path.Combine(Path.GetTempPath(), "agentisland-credentials-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -57,6 +59,13 @@ public static class ClaudeCredentialsTests
     }
 
     private static string CredentialsPath => ClaudeCredentials.CredentialsFileOverride!;
+
+    private static Task<ClaudeCredentials.RefreshResult> Refreshed(string access, string refresh) =>
+        Task.FromResult<ClaudeCredentials.RefreshResult>(
+            new ClaudeCredentials.RefreshResult.Refreshed(new ClaudeCredentials.RefreshedTokens(access, refresh, 1)));
+
+    private static Task<ClaudeCredentials.RefreshResult> Rejected() =>
+        Task.FromResult<ClaudeCredentials.RefreshResult>(new ClaudeCredentials.RefreshResult.Rejected());
 
     /// What Claude Code keeps in the file: the pair, plus fields this app must leave alone.
     private static void Write(string access, string refresh) => File.WriteAllText(CredentialsPath, new JsonObject
@@ -97,7 +106,7 @@ public static class ClaudeCredentialsTests
         ClaudeCredentials.RefreshToken = refresh =>
         {
             refreshedWith.Add(refresh);
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+            return Refreshed("B", "R2");
         };
         var seen = new List<string>();
         var result = await ClaudeCredentials.ResolveUsage((token, _) =>
@@ -141,7 +150,7 @@ public static class ClaudeCredentialsTests
         ClaudeCredentials.RefreshToken = refresh =>
         {
             refreshedWith.Add(refresh);
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("C", "R3", 1));
+            return Refreshed("C", "R3");
         };
         var seen = new List<string>();
         var result = await ClaudeCredentials.ResolveUsage((token, _) =>
@@ -193,7 +202,7 @@ public static class ClaudeCredentialsTests
         ClaudeCredentials.RefreshToken = _ =>
         {
             Write("B", "R2");
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(null);
+            return Rejected();
         };
         var seen = new List<string>();
         var result = await ClaudeCredentials.ResolveUsage((token, _) =>
@@ -209,7 +218,7 @@ public static class ClaudeCredentialsTests
     private static async Task RefreshFails()
     {
         Write("A", "R1");
-        ClaudeCredentials.RefreshToken = _ => Task.FromResult<ClaudeCredentials.RefreshedTokens?>(null);
+        ClaudeCredentials.RefreshToken = _ => Rejected();
         var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
         Expect(result is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage },
             "a refresh that fails reads as a lost sign-in");
@@ -223,7 +232,7 @@ public static class ClaudeCredentialsTests
         {
             // An antivirus scan opens the file just as the rotated pair is written.
             released = HeldFile.For(CredentialsPath, TimeSpan.FromMilliseconds(150));
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+            return Refreshed("B", "R2");
         };
         var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
         await released!;
@@ -246,7 +255,7 @@ public static class ClaudeCredentialsTests
                 await Task.Delay(60);
                 File.WriteAllText(CredentialsPath, whole);
             });
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+            return Refreshed("B", "R2");
         };
         var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
         await finished!;
@@ -263,7 +272,7 @@ public static class ClaudeCredentialsTests
         ClaudeCredentials.RefreshToken = _ =>
         {
             File.WriteAllText(CredentialsPath, "{\"claudeAiOauth\":{\"accessToken\":\"A\",");
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+            return Refreshed("B", "R2");
         };
         var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
         Expect(File.ReadAllText(CredentialsPath) == "{\"claudeAiOauth\":{\"accessToken\":\"A\",",
@@ -278,7 +287,7 @@ public static class ClaudeCredentialsTests
         {
             // The user ran `claude /login` as another account while the refresh was out.
             Write("C", "R9");
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+            return Refreshed("B", "R2");
         };
         var seen = new List<string>();
         var result = await ClaudeCredentials.ResolveUsage((token, _) =>
@@ -297,10 +306,47 @@ public static class ClaudeCredentialsTests
         ClaudeCredentials.RefreshToken = _ =>
         {
             File.Delete(CredentialsPath);
-            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+            return Refreshed("B", "R2");
         };
         var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
         Expect(result is ClaudeCredentials.Resolution.Usage, "the refreshed token's usage is returned");
         Expect(Read() == ("B", "R2"), "the rotated pair is written to a fresh file");
+    }
+
+    private static async Task RefreshUnavailable()
+    {
+        Write("A", "R1");
+        ClaudeCredentials.RefreshToken = _ =>
+            Task.FromResult<ClaudeCredentials.RefreshResult>(new ClaudeCredentials.RefreshResult.Unavailable("network drop"));
+        var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        Expect(result is ClaudeCredentials.Resolution.Failed { Message: "network drop" },
+            $"a timeout at the token endpoint reads as one, got {result}");
+        Expect(!ClaudeCredentials.IsAuthRecoverableError(((ClaudeCredentials.Resolution.Failed)result).Message),
+            "and offers no sign-in button");
+        Expect(Read() == ("A", "R1"), "the file is untouched");
+    }
+
+    private static Task RefreshReplies()
+    {
+        var now = new DateTimeOffset(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
+        static byte[] Body(string json) => System.Text.Encoding.UTF8.GetBytes(json);
+        var tokens = Body("""{"access_token":"B","refresh_token":"R2","expires_in":3600}""");
+        foreach (var status in new[] { 400, 401, 403 })
+        {
+            Expect(ClaudeCredentials.RefreshResultFor(status, Body("""{"error":"invalid_grant"}"""), now)
+                is ClaudeCredentials.RefreshResult.Rejected, $"{status} is a refused grant");
+        }
+        foreach (var status in new[] { 429, 500, 503 })
+        {
+            Expect(ClaudeCredentials.RefreshResultFor(status, Body("{}"), now)
+                is ClaudeCredentials.RefreshResult.Unavailable { Message: var message } && message == $"HTTP {status}",
+                $"{status} is not a lost sign-in");
+        }
+        Expect(ClaudeCredentials.RefreshResultFor(200, Body("<html>sign in to the hotel wifi</html>"), now)
+            is ClaudeCredentials.RefreshResult.Unavailable, "a captive portal's page is not a lost sign-in");
+        Expect(ClaudeCredentials.RefreshResultFor(200, tokens, now)
+            is ClaudeCredentials.RefreshResult.Refreshed { Tokens: { AccessToken: "B", RefreshToken: "R2" } refreshed }
+            && refreshed.ExpiresAtMs == now.AddSeconds(3600).ToUnixTimeMilliseconds(), "a token reply is read");
+        return Task.CompletedTask;
     }
 }

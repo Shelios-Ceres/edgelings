@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentIsland.Core;
+using AgentIsland.Localization;
 
 namespace AgentIsland.Usage;
 
@@ -134,7 +135,8 @@ public static class ClaudeCredentials
                 case ProbeOutcome.OtherError error: return (null, error.Message);
             }
         }
-        if (await RefreshToken(current.RefreshToken) is not { } refreshed)
+        var refresh = await RefreshToken(current.RefreshToken);
+        if (refresh is not RefreshResult.Refreshed { Tokens: var refreshed })
         {
             // Claude Code may have refreshed between the read above and this
             // call, which spends our copy: one more look at the file, one probe.
@@ -148,7 +150,10 @@ public static class ClaudeCredentials
                     case ProbeOutcome.OtherError error: return (null, error.Message);
                 }
             }
-            return (null, TokenRefreshFailedMessage);
+            // Only a refused grant means the sign-in is gone. A timeout, a
+            // rate limit or a server error says nothing about it, and the
+            // next poll asks again.
+            return (null, refresh is RefreshResult.Unavailable unavailable ? unavailable.Message : TokenRefreshFailedMessage);
         }
         switch (WriteClaudeCreds(refreshed, current.RefreshToken))
         {
@@ -186,7 +191,7 @@ public static class ClaudeCredentials
 
     /// Test seams: another credentials file, and the refresh call.
     internal static string? CredentialsFileOverride;
-    internal static Func<string, Task<RefreshedTokens?>> RefreshToken = RefreshClaudeToken;
+    internal static Func<string, Task<RefreshResult>> RefreshToken = RefreshClaudeToken;
 
     private static string CredentialsFile => CredentialsFileOverride ?? IslandPaths.ClaudeCredentialsFile;
 
@@ -353,7 +358,17 @@ public static class ClaudeCredentials
 
     internal sealed record RefreshedTokens(string AccessToken, string RefreshToken, long ExpiresAtMs);
 
-    private static async Task<RefreshedTokens?> RefreshClaudeToken(string refreshToken)
+    internal abstract record RefreshResult
+    {
+        internal sealed record Refreshed(RefreshedTokens Tokens) : RefreshResult;
+        /// The token endpoint refused the grant: the refresh token is spent
+        /// or revoked, and only a new sign-in helps.
+        internal sealed record Rejected : RefreshResult;
+        /// The network, a rate limit or a server error stood in the way.
+        internal sealed record Unavailable(string Message) : RefreshResult;
+    }
+
+    private static async Task<RefreshResult> RefreshClaudeToken(string refreshToken)
     {
         try
         {
@@ -366,18 +381,39 @@ public static class ClaudeCredentials
             });
             request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             using var response = await Http.Client.SendAsync(request);
-            if ((int)response.StatusCode != 200) return null;
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
+            return RefreshResultFor((int)response.StatusCode, await response.Content.ReadAsByteArrayAsync(), DateTimeOffset.UtcNow);
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
+        {
+            return new RefreshResult.Unavailable(L10n.Tr("network drop"));
+        }
+        catch (Exception error)
+        {
+            return new RefreshResult.Unavailable(error.Message);
+        }
+    }
+
+    /// 400 is invalid_grant, 401 and 403 a refused client or account: those
+    /// are the sign-in. Anything else — 429, a 5xx, a body that is not the
+    /// token reply (a captive portal) — is not, so it never asks the user to
+    /// sign in again.
+    internal static RefreshResult RefreshResultFor(int status, byte[] body, DateTimeOffset now)
+    {
+        if (status is 400 or 401 or 403) return new RefreshResult.Rejected();
+        if (status != 200) return new RefreshResult.Unavailable($"HTTP {status}");
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
             var access = Jsonl.GetString(doc.RootElement, "access_token");
             var refresh = Jsonl.GetString(doc.RootElement, "refresh_token");
-            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh)) return null;
+            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh)) return new RefreshResult.Unavailable("bad response");
             var expiresIn = Jsonl.GetDouble(doc.RootElement, "expires_in") ?? 28_800;
-            var expiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresIn).ToUnixTimeMilliseconds();
-            return new RefreshedTokens(access!, refresh!, expiresAt);
+            var expiresAt = now.AddSeconds(expiresIn).ToUnixTimeMilliseconds();
+            return new RefreshResult.Refreshed(new RefreshedTokens(access!, refresh!, expiresAt));
         }
-        catch
+        catch (JsonException)
         {
-            return null;
+            return new RefreshResult.Unavailable("bad response");
         }
     }
 }
