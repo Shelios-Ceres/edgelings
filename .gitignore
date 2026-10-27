@@ -17,6 +17,8 @@ landing.zip
 
 # Sparkle framework + tools — fetched on demand by scripts/setup-sparkle.sh.
 Vendor/
+# EdDSA private-key export from docs/SPARKLE.md step 4 (`generate_keys -x`).
+sparkle_ed_priv
 .gstack/
 
 # QA / browse / playwright tooling artifacts.
