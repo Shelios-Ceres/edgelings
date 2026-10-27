@@ -149,11 +149,19 @@ public static partial class SessionScanner
         return null;
     }
 
+    private static readonly Dictionary<string, string> AntigravityTitles = new(StringComparer.Ordinal);
+
     /// The first user message, unwrapped from the `<USER_REQUEST>` envelope
     /// the CLI writes — the fallback when the summaries table has no row
-    /// yet (it is written asynchronously).
-    private static string? AntigravityTitle(string path)
+    /// yet (it is written asynchronously). The transcript only grows, so a
+    /// title once found holds.
+    internal static string? AntigravityTitle(string path)
     {
+        lock (ScanCacheGate)
+        {
+            if (AntigravityTitles.TryGetValue(path, out var known)) return known;
+        }
+        string? title = null;
         try
         {
             using var stream = SharedFile.Open(path);
@@ -164,14 +172,21 @@ public static partial class SessionScanner
                 if (doc is null) continue;
                 if (Jsonl.GetString(doc.RootElement, "type") != "USER_INPUT") continue;
                 if (Jsonl.GetString(doc.RootElement, "content") is not { Length: > 0 } content) continue;
-                return AntigravityRequestText(content);
+                title = AntigravityRequestText(content);
+                break;
             }
         }
         catch
         {
             // Unreadable transcript — the id-prefix fallback covers it.
         }
-        return null;
+        if (title is null) return null;
+        lock (ScanCacheGate)
+        {
+            if (AntigravityTitles.Count > 5000) AntigravityTitles.Clear();
+            AntigravityTitles[path] = title;
+        }
+        return title;
     }
 
     internal static string? AntigravityRequestText(string content)
@@ -188,28 +203,54 @@ public static partial class SessionScanner
         return first.Length > 48 ? first[..48] : first;
     }
 
-    /// `history.jsonl` maps conversationId to its workspace.
-    private static string? AntigravityWorkspace(string root, string conversation)
+    private static readonly Dictionary<string, (string Stamp, Dictionary<string, string> Workspaces)> AntigravityHistories =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// `history.jsonl` maps conversationId to its workspace. It is read
+    /// whole once per change, not once per conversation on every scan, and
+    /// through a handle that lets agy keep writing it.
+    internal static string? AntigravityWorkspace(string root, string conversation)
     {
+        var historyPath = Path.Combine(root, "history.jsonl");
+        var stamp = FileStamp(historyPath);
+        if (stamp.Length == 0) return null;
+        Dictionary<string, string>? workspaces = null;
+        lock (ScanCacheGate)
+        {
+            if (AntigravityHistories.TryGetValue(root, out var known) && known.Stamp == stamp) workspaces = known.Workspaces;
+        }
+        if (workspaces is null)
+        {
+            // An unreadable history only costs the cwd nicety, and is read again next scan.
+            if (ReadAntigravityHistory(historyPath) is not { } read) return null;
+            workspaces = read;
+            lock (ScanCacheGate) AntigravityHistories[root] = (stamp, workspaces);
+        }
+        return workspaces.TryGetValue(conversation, out var workspace) ? workspace : null;
+    }
+
+    private static Dictionary<string, string>? ReadAntigravityHistory(string historyPath)
+    {
+        var workspaces = new Dictionary<string, string>(StringComparer.Ordinal);
         try
         {
-            var historyPath = Path.Combine(root, "history.jsonl");
-            if (!File.Exists(historyPath)) return null;
-            foreach (var line in File.ReadLines(historyPath))
+            using var stream = SharedFile.Open(historyPath);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            while (reader.ReadLine() is { } line)
             {
                 using var doc = Jsonl.TryParseLine(line);
                 if (doc is null) continue;
-                if (Jsonl.GetString(doc.RootElement, "conversationId") != conversation) continue;
+                if (Jsonl.GetString(doc.RootElement, "conversationId") is not { Length: > 0 } conversation) continue;
                 if (Jsonl.GetString(doc.RootElement, "workspace") is { Length: > 0 } workspace)
                 {
-                    return workspace;
+                    workspaces.TryAdd(conversation, workspace);
                 }
             }
         }
         catch
         {
-            // A torn history file only costs the cwd nicety.
+            return null;
         }
-        return null;
+        return workspaces;
     }
 }

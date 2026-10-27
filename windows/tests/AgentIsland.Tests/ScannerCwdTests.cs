@@ -16,6 +16,8 @@ public static class ScannerCwdTests
             ("cwd read from line 1", TestCwdFromFirstLine),
             ("cwd found past a non-json first line", TestCwdSkipsGarbageLine),
             ("hyphenated path preserved exactly", TestHyphenatedPathPreserved),
+            ("antigravity history is read once per change, even while agy writes it", TestAntigravityHistoryReadOnce),
+            ("antigravity's first prompt is read once as the title", TestAntigravityTitleReadOnce),
         };
         foreach (var (name, test) in tests)
         {
@@ -32,6 +34,53 @@ public static class ScannerCwdTests
         var file = Path.Combine(dir, "session.jsonl");
         File.WriteAllLines(file, lines);
         return file;
+    }
+
+    private static void TestAntigravityHistoryReadOnce()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ai-agy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var history = Path.Combine(root, "history.jsonl");
+        try
+        {
+            File.WriteAllLines(history, new[]
+            {
+                """{"conversationId":"c1","workspace":""}""",
+                """{"conversationId":"c1","workspace":"D:\\proj"}""",
+                """{"conversationId":"c1","workspace":"D:\\later"}""",
+            });
+            using (var agy = new FileStream(history, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+            {
+                Expect(SessionScanner.AntigravityWorkspace(root, "c1"), @"D:\proj");
+                Expect(SessionScanner.AntigravityWorkspace(root, "c2"), (string?)null);
+            }
+            using (new FileStream(history, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Expect(SessionScanner.AntigravityWorkspace(root, "c1"), @"D:\proj");
+            }
+            File.AppendAllText(history, """{"conversationId":"c2","workspace":"D:\\two"}""" + "\n");
+            Expect(SessionScanner.AntigravityWorkspace(root, "c2"), @"D:\two");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void TestAntigravityTitleReadOnce()
+    {
+        var path = WriteTranscript(
+            """{"source":"SYSTEM","type":"EPHEMERAL_MESSAGE"}""",
+            """{"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_REQUEST>\nFix the build\n</USER_REQUEST>"}""");
+        try
+        {
+            Expect(SessionScanner.AntigravityTitle(path), "Fix the build");
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Expect(SessionScanner.AntigravityTitle(path), "Fix the build");
+            }
+        }
+        finally { CleanUp(path); }
     }
 
     private static string JsonCwd(string cwd) =>

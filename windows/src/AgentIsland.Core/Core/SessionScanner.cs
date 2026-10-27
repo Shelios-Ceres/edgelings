@@ -269,6 +269,8 @@ public static partial class SessionScanner
             CodexMetas.Clear();
             TranscriptCwds.Clear();
             DesktopSessions.Clear();
+            AntigravityTitles.Clear();
+            AntigravityHistories.Clear();
         }
         _codexTitles = new("", new());
     }
