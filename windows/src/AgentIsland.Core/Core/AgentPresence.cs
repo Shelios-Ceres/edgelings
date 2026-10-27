@@ -37,6 +37,8 @@ public static class AgentPresences
     // A console's window belongs to its host, a child of the shell it serves.
     private static readonly HashSet<string> ConsoleHosts = new(StringComparer.OrdinalIgnoreCase) { "conhost", "OpenConsole" };
 
+    private const string Terminal = "WindowsTerminal";
+
     /// Every agent with a known process name, as it stands now. An agent whose
     /// processes can't be read counts as open: it never rests on a guess.
     public static IReadOnlyDictionary<TriggerTool, AgentPresence> Now()
@@ -45,7 +47,7 @@ public static class AgentPresences
         {
             var processes = Processes();
             if (processes.Any(p => string.Equals(p.Name, GrokBot.ProcessName, StringComparison.OrdinalIgnoreCase))) GrokBot.NoteRunning();
-            return Of(processes, Windows());
+            return Of(processes, Windows(), id => PathOf(id) is { } path && IsConsoleImage(path));
         }
         catch
         {
@@ -53,26 +55,47 @@ public static class AgentPresences
         }
     }
 
-    internal static Dictionary<TriggerTool, AgentPresence> Of(IReadOnlyList<Running> processes, IReadOnlyList<AppWindow> windows)
+    /// isConsole says whether a process is a console program; without it no
+    /// chain counts as a console handed off to Windows Terminal.
+    internal static Dictionary<TriggerTool, AgentPresence> Of(IReadOnlyList<Running> processes, IReadOnlyList<AppWindow> windows,
+        Func<int, bool>? isConsole = null)
     {
         var byId = new Dictionary<int, Running>();
         foreach (var process in processes) byId.TryAdd(process.Id, process);
         var children = processes.ToLookup(p => p.ParentId);
         var shown = windows.ToLookup(w => w.ProcessId);
+        AgentPresence Most(IEnumerable<AppWindow> candidates)
+        {
+            var most = AgentPresence.Hidden;
+            foreach (var window in candidates)
+            {
+                if (!window.Minimized) return AgentPresence.Open;
+                most = AgentPresence.Minimized;
+            }
+            return most;
+        }
         // The most a process shows, through its host chain.
         AgentPresence Shows(Running process)
         {
             var most = AgentPresence.Hidden;
             var seen = new HashSet<int>();
+            Running? top = null;
             for (var current = process; current is not null && seen.Add(current.Id) && seen.Count <= 8 && !Shell.Contains(current.Name);
                 current = byId.GetValueOrDefault(current.ParentId))
             {
+                top = current;
                 var hosts = children[current.Id].Where(child => ConsoleHosts.Contains(child.Name)).Select(child => child.Id).Prepend(current.Id);
-                foreach (var window in hosts.SelectMany(id => shown[id]))
-                {
-                    if (!window.Minimized) return AgentPresence.Open;
-                    most = AgentPresence.Minimized;
-                }
+                var here = Most(hosts.SelectMany(id => shown[id]));
+                if (here == AgentPresence.Open) return here;
+                if (here == AgentPresence.Minimized) most = here;
+            }
+            // Windows 11 hands a console started from the Start menu or Run
+            // to Windows Terminal: its tab is in a terminal window outside
+            // the chain. Only a chain started by a console program is one; a
+            // CLI under a desktop app in the tray stays in the tray.
+            if (most == AgentPresence.Hidden && top is not null && isConsole?.Invoke(top.Id) == true)
+            {
+                return Most(processes.Where(p => string.Equals(p.Name, Terminal, StringComparison.OrdinalIgnoreCase)).SelectMany(p => shown[p.Id]));
             }
             return most;
         }
@@ -138,6 +161,30 @@ public static class AgentPresences
         }, IntPtr.Zero);
         return list;
     }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> ConsoleImages = new(StringComparer.OrdinalIgnoreCase);
+
+    /// Whether an executable is a console program: its PE header's subsystem
+    /// is IMAGE_SUBSYSTEM_WINDOWS_CUI. Read once per path.
+    internal static bool IsConsoleImage(string path) => ConsoleImages.GetOrAdd(path, static image =>
+    {
+        try
+        {
+            using var stream = new FileStream(image, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new BinaryReader(stream);
+            if (reader.ReadUInt16() != 0x5A4D) return false;
+            stream.Position = 0x3C;
+            var header = reader.ReadInt32();
+            stream.Position = header;
+            if (reader.ReadUInt32() != 0x4550) return false;
+            stream.Position = header + 4 + 20 + 68;
+            return reader.ReadUInt16() == 3;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return false;
+        }
+    });
 
     private static string? PathOf(int id)
     {

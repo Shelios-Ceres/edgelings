@@ -124,6 +124,25 @@ public static class AgentPresenceTests
                 var line = AgentProcesses.CommandLineOf(Environment.ProcessId);
                 if (line is null || !line.Contains("AgentIsland.Tests", StringComparison.OrdinalIgnoreCase)) throw new Exception($"read {line ?? "nothing"}");
             }),
+            ("a CLI handed off to Windows Terminal shows through the terminal", () => Expect(TriggerTool.Grok, AgentPresence.Open,
+                Handoff("grok"), new[] { new AppWindow(61, false) }, ConsolePrograms)),
+            ("a CLI handed off to a minimized Windows Terminal is minimized", () => Expect(TriggerTool.Grok, AgentPresence.Minimized,
+                Handoff("grok"), new[] { new AppWindow(61, true) }, ConsolePrograms)),
+            ("a handed-off CLI with no terminal window is in the tray", () => Expect(TriggerTool.Grok, AgentPresence.Hidden,
+                Handoff("grok"), new AppWindow[0], ConsolePrograms)),
+            ("a CLI under a desktop app in the tray stays in the tray beside a terminal", () => Expect(TriggerTool.Claude, AgentPresence.Hidden,
+                new[] { Explorer, new Running(10, 1, "claude"), new Running(11, 10, "claude"), new Running(61, 1, "WindowsTerminal") },
+                new[] { new AppWindow(61, false) }, id => id == 11)),
+            ("a desktop app in the tray stays in the tray beside a terminal", () => Expect(TriggerTool.DeepSeek, AgentPresence.Hidden,
+                new[] { Explorer, new Running(60, 1, "DeepSeek Harness"), new Running(61, 1, "WindowsTerminal") },
+                new[] { new AppWindow(61, false) }, ConsolePrograms)),
+            ("the PE header tells a console program from a desktop one", () =>
+            {
+                var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
+                if (!IsConsoleImage(Path.Combine(system, "cmd.exe"))) throw new Exception("cmd.exe is a console program");
+                if (IsConsoleImage(Path.Combine(system, "notepad.exe"))) throw new Exception("notepad.exe is not");
+                if (IsConsoleImage(Path.Combine(system, "no-such-program.exe"))) throw new Exception("a missing file is not");
+            }),
         };
         foreach (var (name, test) in tests)
         {
@@ -145,9 +164,22 @@ public static class AgentPresenceTests
     private static Running[] Console(string cli) =>
         new[] { Explorer, new Running(39, 1, "cmd"), new Running(40, 39, cli), new Running(41, 39, "conhost") };
 
-    private static void Expect(TriggerTool tool, AgentPresence expected, IReadOnlyList<Running> processes, IReadOnlyList<AppWindow> windows)
+    /// A CLI started from the Start menu with Windows Terminal as the default
+    /// terminal: the shell is Explorer's child and keeps a windowless console
+    /// host; the tab lives in a terminal the system started.
+    private static Running[] Handoff(string cli) =>
+        new[]
+        {
+            Explorer, new Running(50, 1, "powershell"), new Running(51, 50, cli), new Running(52, 50, "conhost"),
+            new Running(59, 0, "svchost"), new Running(61, 59, "WindowsTerminal"), new Running(62, 61, "OpenConsole"),
+        };
+
+    private static bool ConsolePrograms(int id) => id is 50 or 51 or 52 or 62;
+
+    private static void Expect(TriggerTool tool, AgentPresence expected, IReadOnlyList<Running> processes, IReadOnlyList<AppWindow> windows,
+        Func<int, bool>? isConsole = null)
     {
-        var actual = Of(processes, windows)[tool];
+        var actual = Of(processes, windows, isConsole)[tool];
         if (actual != expected) throw new Exception($"{tool}: expected {expected}, got {actual}");
     }
 }
