@@ -12,12 +12,25 @@ public static class CursorLogReader
 
     public static List<TokenEvent> Scan(int lookbackDays) => ReadDatabase(DatabasePath, lookbackDays);
 
+    private sealed record LastRead(string Path, string Stamp, DateTimeOffset Cutoff, List<TokenEvent> Events);
+
+    /// The ledger can be GBs, and while Cursor is closed nothing in it moves:
+    /// the last read stands until the database or its WAL changes.
+    private static volatile LastRead? _last;
+
     internal static List<TokenEvent> ReadDatabase(string path, int lookbackDays)
     {
         // Missing, locked or incomplete databases are failed scans. CostStore
         // commits only successful tasks, preserving the last good totals.
         if (!File.Exists(path)) throw new FileNotFoundException("Cursor ledger unavailable", path);
         var cutoff = DateTimeOffset.UtcNow.AddDays(-lookbackDays);
+        // Taken before the read, so a commit landing during it reads anew.
+        var stamp = Stamp(path);
+        if (_last is { } last && string.Equals(last.Path, path, StringComparison.OrdinalIgnoreCase)
+            && last.Stamp == stamp && cutoff >= last.Cutoff)
+        {
+            return last.Events.Where(tokenEvent => tokenEvent.Timestamp >= cutoff).ToList();
+        }
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = path,
@@ -27,18 +40,29 @@ public static class CursorLogReader
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'";
+        // Bubbles without a count never leave SQLite as strings.
+        command.CommandText = "SELECT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND instr(value, 'tokenCount') > 0";
         using var reader = command.ExecuteReader();
         var output = new List<TokenEvent>();
         while (reader.Read())
         {
             if (reader.IsDBNull(0)) continue;
-            var json = reader.GetString(0);
-            if (!json.Contains("tokenCount", StringComparison.Ordinal)) continue;
-            var parsed = ParseBubble(json);
+            var parsed = ParseBubble(reader.GetString(0));
             if (parsed is not null && parsed.Timestamp >= cutoff) output.Add(parsed);
         }
-        return output;
+        _last = new LastRead(path, stamp, cutoff, output);
+        return output.ToList();
+    }
+
+    /// A commit changes the database's or its WAL's write time or length.
+    private static string Stamp(string path)
+    {
+        static string Of(string file)
+        {
+            var info = new FileInfo(file);
+            return info.Exists ? $"{info.LastWriteTimeUtc.Ticks}/{info.Length}" : "none";
+        }
+        return Of(path) + "|" + Of(path + "-wal");
     }
     /// Returns null for bubbles without a usable token count. Absent or {0,0}
     /// counts are skipped — the survey machine is all historical zero sessions,

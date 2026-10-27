@@ -15,6 +15,7 @@ public static class CursorDatabaseTests
         Run("deleted and rolled back credentials cannot become current", DeletedIdentity);
         Run("unreadable ledger faults instead of replacing totals with zero", ReadFailure);
         Run("empty ledger is a successful zero and WAL deletion is respected", EmptyLedger);
+        Run("an unchanged ledger is not read again, a commit is", UnchangedLedger);
         Run("packaged SQLite engine includes the security fix", EngineVersion);
         Console.WriteLine("CursorDatabaseTests GREEN");
     }
@@ -71,6 +72,29 @@ public static class CursorDatabaseTests
         fixture.Sql("PRAGMA wal_checkpoint(TRUNCATE)");
         fixture.Sql("DELETE FROM cursorDiskKV");
         Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 0, "committed deletion must not count stale pages");
+    }
+
+    private static void UnchangedLedger()
+    {
+        using var fixture = new Fixture();
+        fixture.Bubble();
+        // Out of WAL mode, so the ledger reads with no writer holding it open.
+        fixture.Sql("PRAGMA journal_mode=DELETE");
+        fixture.Connection.Close();
+        Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 1, "control ledger must contain one bubble");
+        using (new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 1, "an unchanged ledger must be served without opening it");
+        }
+        fixture.Connection.Open();
+        using (var command = fixture.Connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO cursorDiskKV VALUES ('bubbleId:second', @value)";
+            command.Parameters.AddWithValue("@value", JsonSerializer.Serialize(new { createdAt = DateTimeOffset.Now.ToUnixTimeMilliseconds(), tokenCount = new { inputTokens = 5, outputTokens = 1 } }));
+            command.ExecuteNonQuery();
+        }
+        Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 2, "a commit must be read");
+        Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 2, "a repeated read must return the same bubbles");
     }
 
     private static void EngineVersion()
