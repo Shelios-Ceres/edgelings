@@ -41,11 +41,49 @@ public static class Program
         _singleInstance = new Mutex(initiallyOwned: false, @"Local\AgentIsland.SingleInstance");
         try
         {
-            return _singleInstance.WaitOne(TimeSpan.FromSeconds(10));
+            if (!_singleInstance.WaitOne(0))
+            {
+                // The running copy brings its drawer back (it may be hidden
+                // from the tray), so the launch is not lost; a copy that is
+                // quitting hands over within the wait.
+                Knock();
+                if (!_singleInstance.WaitOne(TimeSpan.FromSeconds(10))) return false;
+            }
         }
         catch (AbandonedMutexException)
         {
-            return true; // the previous holder died without releasing it
+            // The previous holder died without releasing it.
         }
+        // Made while the mutex is held, so a later launch finds it; a knock
+        // left for a copy that has since quit is not for this one.
+        _relaunch = new EventWaitHandle(false, EventResetMode.AutoReset, RelaunchName);
+        _relaunch.Reset();
+        return true;
+    }
+
+    private const string RelaunchName = @"Local\AgentIsland.Relaunch";
+    private static EventWaitHandle? _relaunch;
+    // Held so the wait goes on for the life of the app.
+    private static RegisteredWaitHandle? _relaunchWait;
+
+    private static void Knock()
+    {
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(RelaunchName, out var relaunch)) return;
+            using (relaunch) relaunch.Set();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// Answers a later launch's knock with reveal, on the UI thread.
+    internal static void AnswerRelaunches(Action reveal)
+    {
+        if (_relaunch is null) return;
+        var queue = DispatcherQueue.GetForCurrentThread();
+        _relaunchWait = ThreadPool.RegisterWaitForSingleObject(_relaunch, (_, _) => queue.TryEnqueue(() => reveal()),
+            null, Timeout.Infinite, executeOnlyOnce: false);
     }
 }

@@ -61,6 +61,8 @@ public sealed partial class App : Application
 
         _drawer = new DrawerWindow();
         _tray = new TrayIcon();
+        // Launching the app again, from Start or a shortcut, brings this copy's drawer back.
+        Program.AnswerRelaunches(RevealDrawer);
 
         ActivityMonitor.Shared.Start();
         UsageStore.Shared.StartAutoRefresh();
