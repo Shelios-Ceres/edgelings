@@ -111,6 +111,9 @@ internal sealed partial class CostPage : IDisposable
         /// Anything in the last five hours, which Today's models cover.
         public bool Recent { get; init; }
 
+        /// The models the card lists, which are not always the top three of Models.
+        public IReadOnlyList<ModelSpend> Listed { get; init; } = Array.Empty<ModelSpend>();
+
         /// What the agent calls its models.
         public Func<string, string> NameOf { get; init; } = model => model;
     }
@@ -384,7 +387,19 @@ internal sealed partial class CostPage : IDisposable
                     Days(first, DayValue), summary.MonthModels, summary.AsOf) { TokenBars = Days(first, DayTokens) };
                 break;
         }
-        return slice with { Recent = summary.RecentModels.Count > 0, NameOf = summary.NameOf };
+        return slice with { Recent = summary.RecentModels.Count > 0, NameOf = summary.NameOf, Listed = Listed(provider, slice.Models, summary, billableMode) };
+    }
+
+    /// The model rows an agent's card shows: the top three, except Kimi Code's,
+    /// which lists every K3-or-later model and every connected provider's, by
+    /// the page's token mode. Its K2 models stay in the totals and the charts.
+    private static IReadOnlyList<ModelSpend> Listed(DisplayProvider provider, IReadOnlyList<ModelSpend> models, ProviderCostSummary summary, bool billable)
+    {
+        if (provider != DisplayProvider.Kimi) return models.Take(3).ToList();
+        return models
+            .Where(model => !KimiLogReader.IsK2(model.Model, summary.ModelNames.GetValueOrDefault(model.Model)))
+            .OrderByDescending(model => billable ? model.BillableTokens : model.Tokens)
+            .ToList();
     }
 
     /// Cursor bills by its own plan and requests, not tokens. Everyone else
@@ -495,7 +510,7 @@ internal sealed partial class CostPage : IDisposable
             });
         }
 
-        var models = slice.Models.Take(3).ToList();
+        var models = slice.Listed;
         if (models.Count > 0)
         {
             panel.Children.Add(new TextBlock

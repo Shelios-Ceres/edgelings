@@ -81,6 +81,7 @@ public static class KimiDeepSeekTests
                 DeepSeek("step/end", 31), DeepSeek("turn/end", 30, new { reason = new { kind = "completed" } }))),
             ("kimi tokens: a usage record splits input and cache", KimiTokens),
             ("kimi names: its settings name the plan's models", KimiNames),
+            ("kimi list: K2 is told by name, by id without a name, and a K3 name on a K2 id is not K2", KimiK2Rule),
             ("kimi prices: a connected provider's model prices by the provider's own id", KimiProviderPrices),
             ("deepseek tokens: usage follows the header's model", DeepSeekTokens),
             ("zstd: frames decode, a torn tail frame is dropped", ZstdFrames),
@@ -184,6 +185,27 @@ public static class KimiDeepSeekTests
         Expect(Math.Abs(events[3].Dollars - 21.3) < 1e-9, "a model that already has a price keeps it");
         Expect(string.Join(",", CostSummarizer.Summarize(events, peak.AddHours(1)).UnknownModels), "kimi-code/unpriced-sample");
         Expect(KimiLogReader.ModelNames(ProviderConfig)["deepseek/deepseek-flash"], "DeepSeek V4.1 Flash 1017");
+    }
+
+    private static void KimiK2Rule()
+    {
+        Expect(KimiLogReader.IsK2("kimi-code/kimi-for-coding", "K2.8 Preview"), true);
+        Expect(KimiLogReader.IsK2("kimi-code/kimi-for-coding-highspeed", "K2.7 Code Highspeed"), true);
+        Expect(KimiLogReader.IsK2("kimi-code/anything", "k2.9"), true);
+        // Named K3 or later: listed, even on an id that used to be K2.
+        Expect(KimiLogReader.IsK2("kimi-code/kimi-for-coding", "K3.1 Pro"), false);
+        Expect(KimiLogReader.IsK2("kimi-code/k3", "K3"), false);
+        Expect(KimiLogReader.IsK2("kimi-code/k3-256k", "K3 256k"), false);
+        Expect(KimiLogReader.IsK2("deepseek/deepseek-flash", "DeepSeek V4.1 Flash 1017"), false);
+        // No name: by id.
+        Expect(KimiLogReader.IsK2("kimi-code/kimi-for-coding", null), true);
+        Expect(KimiLogReader.IsK2("kimi-code/kimi-for-coding-highspeed", null), true);
+        Expect(KimiLogReader.IsK2("kimi-k2.7-code", null), true);
+        Expect(KimiLogReader.IsK2("kimi-code/kimi-k2.6", null), true);
+        Expect(KimiLogReader.IsK2("kimi-code/k3", null), false);
+        Expect(KimiLogReader.IsK2("kimi-k3.1-pro", null), false);
+        Expect(KimiLogReader.IsK2("deepseek/deepseek-flash", null), false);
+        Expect(KimiLogReader.IsK2("deepseek/kimi-k2-thinking", null), false);
     }
 
     private static void DeepSeekTokens()
