@@ -71,6 +71,7 @@ public static class Program
             ClaudeHooksTests.RunAll();
             CodexReplayGuardTests.RunAll();
             CodexSwitchRefreshTests.RunAll();
+            UsageRetryTests.RunAll();
             CodexAutoSwitchReadingTests.RunAll();
             CodexArchiveTests.RunAll();
             CursorReplyClockTests.RunAll();

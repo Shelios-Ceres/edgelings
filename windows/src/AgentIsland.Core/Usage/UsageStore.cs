@@ -159,9 +159,11 @@ public sealed class UsageStore : INotifyPropertyChanged
             {
                 // Thread the token into the HTTP calls so a superseding refresh
                 // (network-up mid-flight on a dead path) actually aborts the dead
-                // request instead of letting it run to its own timeout.
-                var codexTask = FetchWithRetry(CodexFetcher, cts.Token);
-                var claudeTask = FetchWithRetry(ClaudeFetcher, cts.Token);
+                // request instead of letting it run to its own timeout. The
+                // fetchers retry a transient network failure themselves; a
+                // failed reply (429, 403, a lost sign-in) is never asked again.
+                var codexTask = CodexFetcher(cts.Token);
+                var claudeTask = ClaudeFetcher(cts.Token);
                 var codexResult = await codexTask;
                 var claudeResult = await claudeTask;
 
@@ -286,22 +288,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     private static bool IsErrorOnly(AppUsage usage) =>
         usage.FiveHour.Error is not null && usage.Weekly.Error is not null
         && usage.FiveHour.UsedPercent == 0 && usage.Weekly.UsedPercent == 0;
-
-    /// Transient-network retry (macOS ae5bafc): an SSL hiccup or timeout
-    /// gets two more tries with a short backoff before anything is shown.
-    /// A superseding refresh cancels the wait, and a genuine outage still
-    /// resolves within seconds — the merge path then keeps the last data.
-    private static async Task<AppUsage> FetchWithRetry(
-        Func<CancellationToken, Task<AppUsage>> fetch, CancellationToken token)
-    {
-        for (var attempt = 0; ; attempt++)
-        {
-            var result = await fetch(token);
-            if (!IsErrorOnly(result) || attempt >= 2 || token.IsCancellationRequested) return result;
-            try { await Task.Delay(TimeSpan.FromSeconds(attempt == 0 ? 1 : 3), token); }
-            catch (TaskCanceledException) { return result; }
-        }
-    }
 
     private static AppUsage MergedUsage(AppUsage existing, AppUsage fetched) =>
         UsageCachePolicy.Merged(existing, fetched);

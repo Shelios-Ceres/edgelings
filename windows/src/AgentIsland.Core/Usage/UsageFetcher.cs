@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AgentIsland.Core;
+using AgentIsland.Localization;
 
 namespace AgentIsland.Usage;
 
@@ -19,10 +20,13 @@ public static class UsageFetcher
 
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
-            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-            using var response = await Http.Client.SendAsync(request, ct);
+            using var response = await Http.SendRetryingTransient(() =>
+            {
+                var request = new HttpRequestMessage(
+                    HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
+                request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+                return request;
+            }, ct);
             var status = (int)response.StatusCode;
 
             // 401 means the access_token has expired. The Codex CLI rotates
@@ -62,9 +66,14 @@ public static class UsageFetcher
         }
         catch (Exception error)
         {
-            return AppUsage.ErrorPair(error.Message);
+            return AppUsage.ErrorPair(ShortError(error, ct));
         }
     }
+
+    /// Tile-sized caption for a transport failure that outlasted its retries
+    /// (macOS shortError); anything else keeps its own message.
+    private static string ShortError(Exception error, CancellationToken ct) =>
+        Http.IsTransient(error, ct) ? L10n.Tr("network drop") : error.Message;
 
     /// GET wham/rate-limit-reset-credits → the available cards, each with
     /// OpenAI's own title ("Full reset") and expires_at. Returns null on any
@@ -167,16 +176,18 @@ public static class UsageFetcher
     {
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get, "https://api.anthropic.com/api/oauth/usage");
-            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-            request.Headers.TryAddWithoutValidation("anthropic-beta", "oauth-2025-04-20");
-            request.Headers.TryAddWithoutValidation("Accept", "application/json");
-            // Anthropic gates this endpoint on a CLI User-Agent. Without it
-            // the request 401s even with a valid token.
-            request.Headers.TryAddWithoutValidation("User-Agent", "claude-code/2.1.121");
-
-            using var response = await Http.Client.SendAsync(request, ct);
+            using var response = await Http.SendRetryingTransient(() =>
+            {
+                var request = new HttpRequestMessage(
+                    HttpMethod.Get, "https://api.anthropic.com/api/oauth/usage");
+                request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+                request.Headers.TryAddWithoutValidation("anthropic-beta", "oauth-2025-04-20");
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
+                // Anthropic gates this endpoint on a CLI User-Agent. Without it
+                // the request 401s even with a valid token.
+                request.Headers.TryAddWithoutValidation("User-Agent", "claude-code/2.1.121");
+                return request;
+            }, ct);
             var status = (int)response.StatusCode;
             if (status == 401) return new ClaudeCredentials.ProbeOutcome.Unauthorized();
             if (status == 403) return new ClaudeCredentials.ProbeOutcome.ScopeInsufficient();
@@ -199,7 +210,7 @@ public static class UsageFetcher
         }
         catch (Exception error)
         {
-            return new ClaudeCredentials.ProbeOutcome.OtherError(error.Message);
+            return new ClaudeCredentials.ProbeOutcome.OtherError(ShortError(error, ct));
         }
     }
 
