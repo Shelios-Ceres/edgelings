@@ -45,8 +45,14 @@ public static class Program
             }
             return 0;
         }
+        // The store singletons read and write Preferences: every suite runs
+        // against a settings file of its own, never the developer's real one.
+        var settings = Path.Combine(Path.GetTempPath(), "agentisland-test-settings-" + Guid.NewGuid().ToString("N"));
+        Preferences.FileOverride = Path.Combine(settings, "settings.json");
+        Preferences.Forget();
         try
         {
+            SettingsIsolation();
             SessionTurnStateTests.RunAll();
             CodexStallTests.RunAll();
             ClaudeStallTests.RunAll();
@@ -108,6 +114,21 @@ public static class Program
             Console.Error.WriteLine($"RED: {error.Message}");
             return 1;
         }
+        finally
+        {
+            Preferences.FileOverride = null;
+            Preferences.Forget();
+            try { Directory.Delete(settings, recursive: true); } catch { }
+        }
+    }
+
+    private static void SettingsIsolation()
+    {
+        Preferences.Set("AgentIsland.tests.isolation", 1);
+        var saved = File.Exists(Preferences.FileOverride) && File.ReadAllText(Preferences.FileOverride!).Contains("AgentIsland.tests.isolation");
+        Preferences.Remove("AgentIsland.tests.isolation");
+        Check.Expect(saved, "a preference written by a test lands in the run's own settings file");
+        Console.WriteLine("PASS the suite reads and writes a temporary settings file, never the real one");
     }
 
     private static int LiveScan()
