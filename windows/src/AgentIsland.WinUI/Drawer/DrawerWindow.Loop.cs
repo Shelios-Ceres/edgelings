@@ -52,12 +52,16 @@ internal sealed partial class DrawerWindow
         foreach (var index in _due)
         {
             var slot = _slots[index];
-            // Under reduced motion a sleeping character holds still, once its
-            // blend into the settled pose is done.
-            dts[index] = DrawerLooks.HoldsStill(slot.EngineState, theme, reduced, _bots[index].Look) && now - slot.Since > 0.5 ? double.NaN : Math.Min(now - slot.LastStep, 0.1);
-            slot.LastStep = now;
             var fps = !DrawerLooks.IsCalm(slot.EngineState, theme) ? activeFps : near ? gazeFps : calmFps;
             var interval = 1.0 / fps;
+            // Under reduced motion a sleeping character holds still, once its
+            // blend into the settled pose is done. A step covers the time since
+            // the last one, so a bot stepped at 6 fps keeps its pace; only a
+            // longer gap (the loop resting) is cut short.
+            dts[index] = DrawerLooks.HoldsStill(slot.EngineState, theme, reduced, _bots[index].Look) && now - slot.Since > 0.5
+                ? double.NaN
+                : Math.Min(now - slot.LastStep, Math.Max(0.1, 1.5 * interval));
+            slot.LastStep = now;
             slot.NextStep = now - slot.NextStep > interval ? now + interval : slot.NextStep + interval;
         }
         if (_engine is null) return;
