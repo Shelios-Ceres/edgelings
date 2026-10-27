@@ -237,7 +237,20 @@ public static class CodexSwitchRefreshTests
         first.SetResult(Usage(0.9));
         Expect(claude == 2, $"the cancelled refresh's Claude half is asked again, got {claude}");
         Expect(store.Claude.FiveHour.UsedPercent, 0.3);
-        Console.WriteLine("PASS a switch that cancels a full refresh still fetches Claude once more");
+
+        // The poll lands while a switch's Codex-only refresh is still out:
+        // it takes over rather than being dropped, so Claude is not skipped.
+        var slow = new TaskCompletionSource<AppUsage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        codexCalls = 0;
+        store.CodexFetcher = _ => Interlocked.Increment(ref codexCalls) == 1 ? slow.Task : Task.FromResult(Usage(0.2));
+        store.RefreshAfterCodexSwitch();
+        WaitFor(() => Volatile.Read(ref codexCalls) == 1);
+        store.Refresh();
+        Settle(store);
+        slow.SetResult(Usage(0.9));
+        Expect(claude == 3, $"the poll during a switch still asked Claude, got {claude}");
+        Expect(store.Codex.FiveHour.UsedPercent, 0.2);
+        Console.WriteLine("PASS a switch that cancels a full refresh still fetches Claude once more, and a poll is never swallowed by a switch");
     }
 
     private static void RefreshAndWait(UsageStore store)

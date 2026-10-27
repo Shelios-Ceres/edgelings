@@ -162,7 +162,10 @@ public sealed class UsageStore : INotifyPropertyChanged
         // flight" for minutes: a wedged one (faulted task, socket dead after
         // sleep) used to latch Loading forever, freezing usage — and with it
         // reset detection and auto-resume — until the app was relaunched.
-        if (Loading && DateTimeOffset.Now - _refreshStartedAt < TimeSpan.FromMinutes(2)) return;
+        // A Codex-only refresh in flight is superseded by one that needs
+        // Claude, or the poll would skip Claude for a whole interval.
+        if (Loading && (_refreshFetchesClaude || !fetchClaude)
+            && DateTimeOffset.Now - _refreshStartedAt < TimeSpan.FromMinutes(2)) return;
 
         BeforeRefresh();
 
