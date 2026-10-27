@@ -116,20 +116,23 @@ public static class KimiUsageFetcher
 
     /// What changes when Kimi Code signs in again: its CLI writes a fresh
     /// access token (they last 15 minutes) and its desktop app registers a
-    /// new server when it opens. The registration's name, not its write
-    /// time: the heartbeat rewrites the file every 15 s. Null without Kimi
+    /// new server when it opens. The registrations' names, not their write
+    /// times: each live server rewrites its file every 15 s, so with two
+    /// running the newest one flipped on every heartbeat. Null without Kimi
     /// Code.
-    public static string? SignInStamp()
+    public static string? SignInStamp() => SignInStamp(Home);
+
+    internal static string? SignInStamp(string home)
     {
         try
         {
-            if (!Directory.Exists(Home)) return null;
-            var credentials = new FileInfo(Path.Combine(Home, "credentials", "kimi-code.json"));
-            var instances = new DirectoryInfo(Path.Combine(Home, "server", "instances"));
-            var server = instances.Exists
-                ? instances.EnumerateFiles("*.json").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault()?.Name
+            if (!Directory.Exists(home)) return null;
+            var credentials = new FileInfo(Path.Combine(home, "credentials", "kimi-code.json"));
+            var instances = new DirectoryInfo(Path.Combine(home, "server", "instances"));
+            var servers = instances.Exists
+                ? string.Join(",", instances.EnumerateFiles("*.json").Select(f => f.Name).Order(StringComparer.Ordinal))
                 : null;
-            return $"{(credentials.Exists ? credentials.LastWriteTimeUtc.Ticks : 0)}|{server}";
+            return $"{(credentials.Exists ? credentials.LastWriteTimeUtc.Ticks : 0)}|{servers}";
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {

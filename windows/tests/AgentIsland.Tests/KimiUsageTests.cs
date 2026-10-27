@@ -30,6 +30,7 @@ public static class KimiUsageTests
             ("live: a question asks the user", LiveQuestion),
             ("live: an active turn works while its log is quiet", LiveActive),
             ("live: an idle report never stops a session", LiveIdle),
+            ("sign-in stamp: two servers' heartbeats don't read as a new sign-in", HeartbeatsKeepTheStamp),
         };
         foreach (var (name, test) in tests)
         {
@@ -136,4 +137,31 @@ public static class KimiUsageTests
 
     private static ScannedSession Session(ActivityState status) =>
         new(TriggerTool.Kimi, "a", "", "a", Now, status, null, null, SessionLaunchTarget.Cli);
+
+    private static void HeartbeatsKeepTheStamp()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "agentisland-kimi-" + Guid.NewGuid().ToString("N"));
+        var instances = Path.Combine(home, "server", "instances");
+        Directory.CreateDirectory(instances);
+        try
+        {
+            var a = Path.Combine(instances, "01JA.json");
+            var b = Path.Combine(instances, "01JB.json");
+            File.WriteAllText(a, "{}");
+            File.WriteAllText(b, "{}");
+            var t = DateTime.UtcNow;
+            File.SetLastWriteTimeUtc(a, t);
+            File.SetLastWriteTimeUtc(b, t.AddSeconds(-7));
+            var stamp = KimiUsageFetcher.SignInStamp(home);
+            // B beats its heartbeat seven seconds later, and is now the newest.
+            File.SetLastWriteTimeUtc(b, t.AddSeconds(8));
+            Expect(KimiUsageFetcher.SignInStamp(home), stamp);
+            File.WriteAllText(Path.Combine(instances, "01JC.json"), "{}");
+            Expect(KimiUsageFetcher.SignInStamp(home) != stamp, "a server that opens is still a new sign-in");
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+    }
 }
