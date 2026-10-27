@@ -232,13 +232,14 @@ public sealed class UsageStore : INotifyPropertyChanged
     private void MaybeAutoSwitchCodex(AppUsage usage)
     {
         if (!CodexAccountSwitcher.AutoSwitchEnabled) return;
-        var primary = usage.FiveHour.Error is null ? usage.FiveHour : usage.Weekly;
-        if (primary.Error is not null) return;
-        if (primary.UsedPercent < 0.999)
+        switch (ReadCodexQuota(usage, DateTimeOffset.Now))
         {
-            _codexAutoSwitchTried.Clear();
-            _codexAutoSwitchPool = null;
-            return;
+            case CodexQuotaReading.Unreadable:
+                return;
+            case CodexQuotaReading.Clear:
+                _codexAutoSwitchTried.Clear();
+                _codexAutoSwitchPool = null;
+                return;
         }
         var pool = _codexAutoSwitchPool ??= CodexAccountSwitcher.Accounts()
             .Select(account => account.Label)
@@ -258,6 +259,26 @@ public sealed class UsageStore : INotifyPropertyChanged
         _codexAutoSwitchTried.Add(next.Label);
         CodexAutoSwitched = next.Label;
         Refresh();
+    }
+
+    internal enum CodexQuotaReading
+    {
+        /// Both windows have errors: nothing to go on.
+        Unreadable,
+        /// A readable window is used up (the rule that puts the bot to sleep).
+        Spent,
+        /// Readable, and nothing is spent.
+        Clear,
+    }
+
+    /// Whether the account has run dry, by the same rule as
+    /// `AppUsage.IsExhausted`: any window without an error, at its reading
+    /// for `now` (one past its reset counts as reset), is at 100%. A window
+    /// with an error is not read, so the other one decides.
+    internal static CodexQuotaReading ReadCodexQuota(AppUsage usage, DateTimeOffset now)
+    {
+        if (usage.FiveHour.HasError && usage.Weekly.HasError) return CodexQuotaReading.Unreadable;
+        return usage.IsExhausted(now) ? CodexQuotaReading.Spent : CodexQuotaReading.Clear;
     }
 
     /// True when both windows have errors and zero values — nothing useful
