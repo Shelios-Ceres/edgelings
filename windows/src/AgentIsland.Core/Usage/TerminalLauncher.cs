@@ -12,6 +12,22 @@ public static class TerminalLauncher
         var command = $"\"{binary}\" {arguments}";
         try
         {
+            // cmd /k keeps the quotes around a path only when nothing between
+            // them is one of & < > ( ) @ ^ |; otherwise it strips them, and a
+            // CLI under C:\Users\R&D Team\ runs as "C:\Users\R" and "D Team…".
+            // Such a path gets a console of its own, its command wrapped in
+            // one more pair of quotes that /s strips instead.
+            if (binary.IndexOfAny(CmdSpecials) >= 0)
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/s /k " + ShieldedCommand(binary, arguments, title),
+                    UseShellExecute = false,
+                    WorkingDirectory = Core.IslandPaths.Home,
+                });
+                return true;
+            }
             var wt = Trigger.CLILocator.Locate("wt");
             if (wt is not null)
             {
@@ -39,4 +55,10 @@ public static class TerminalLauncher
             return false;
         }
     }
+
+    private static readonly char[] CmdSpecials = { '&', '<', '>', '(', ')', '@', '^', '|' };
+
+    /// What follows `cmd /s /k` (or /c): the window's title, then the CLI.
+    internal static string ShieldedCommand(string binary, string arguments, string title) =>
+        $"\"title {title}& \"{binary}\" {arguments}\"";
 }
