@@ -99,6 +99,7 @@ public static class Program
             ActivityMonitorScanTests.RunAll();
             LogParseCacheTests.RunAll();
             PreferencesTests.RunAll();
+            CrashLogTests.RunAll();
             Console.WriteLine("ALL GREEN");
             return 0;
         }
