@@ -21,6 +21,8 @@ public static class CodexSwitchRefreshTests
         UnchangedLoginCommits();
         NewLoginFailureShowsTheError();
         CachedNumbersKeepTheirLogin();
+        SwitchAsksCodexAlone();
+        SwitchMidRefreshAsksClaudeAgain();
         Console.WriteLine("CodexSwitchRefreshTests GREEN");
     }
 
@@ -180,9 +182,72 @@ public static class CodexSwitchRefreshTests
         Console.WriteLine("PASS cached Codex numbers carry the login they were fetched for");
     }
 
+    private static void SwitchAsksCodexAlone()
+    {
+        var claude = 0;
+        var codex = 0;
+        var store = new UsageStore(restore: false)
+        {
+            ClaudeFetcher = _ =>
+            {
+                Interlocked.Increment(ref claude);
+                return Task.FromResult(AppUsage.ErrorPair("rate limited"));
+            },
+            CodexFetcher = _ =>
+            {
+                Interlocked.Increment(ref codex);
+                return Task.FromResult(Usage(0.2));
+            },
+            CodexLogin = () => "account:a",
+        };
+        RefreshAndWait(store);
+        var attempted = store.LastAttemptedAt;
+        var warning = store.RefreshWarning;
+        foreach (var _ in Enumerable.Range(0, 3))
+        {
+            store.RefreshAfterCodexSwitch();
+            Settle(store);
+        }
+        Expect(claude == 1, $"three Codex switches did not ask Anthropic again, got {claude} Claude fetches");
+        Expect(codex == 4, $"each switch fetched Codex, got {codex}");
+        Expect(store.LastAttemptedAt == attempted, "the Claude attempt time (the manual-refresh floor) is Claude's own");
+        Expect(store.RefreshWarning == warning, "Claude's failed fetch still counts toward the warning");
+        Console.WriteLine("PASS a Codex switch fetches Codex alone, so Anthropic keeps its poll cadence");
+    }
+
+    private static void SwitchMidRefreshAsksClaudeAgain()
+    {
+        var claude = 0;
+        var first = new TaskCompletionSource<AppUsage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var codexCalls = 0;
+        var store = new UsageStore(restore: false)
+        {
+            ClaudeFetcher = _ =>
+            {
+                Interlocked.Increment(ref claude);
+                return Task.FromResult(Usage(0.3));
+            },
+            CodexFetcher = _ => Interlocked.Increment(ref codexCalls) == 1 ? first.Task : Task.FromResult(Usage(0.2)),
+            CodexLogin = () => "account:a",
+        };
+        store.Refresh();
+        WaitFor(() => Volatile.Read(ref codexCalls) == 1);
+        store.RefreshAfterCodexSwitch();
+        Settle(store);
+        first.SetResult(Usage(0.9));
+        Expect(claude == 2, $"the cancelled refresh's Claude half is asked again, got {claude}");
+        Expect(store.Claude.FiveHour.UsedPercent, 0.3);
+        Console.WriteLine("PASS a switch that cancels a full refresh still fetches Claude once more");
+    }
+
     private static void RefreshAndWait(UsageStore store)
     {
         store.Refresh();
+        Settle(store);
+    }
+
+    private static void Settle(UsageStore store)
+    {
         store.RefreshTask!.Wait(TimeSpan.FromSeconds(5));
         WaitFor(() => !store.Loading);
     }

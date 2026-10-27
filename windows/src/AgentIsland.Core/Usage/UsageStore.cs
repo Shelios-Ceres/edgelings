@@ -34,6 +34,13 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// The login the Codex numbers were fetched for.
     private string? _codexLogin;
 
+    private bool _refreshFetchesClaude;
+
+    /// Whether each provider's latest fetch came back empty-handed; the
+    /// footer warning is made from both, whichever one was just fetched.
+    private bool _claudeFailed;
+    private bool _codexFailed;
+
     /// Accounts tried since the current exhaustion episode began; cleared the
     /// moment a reading comes back under 100%, so each episode walks the pool
     /// at most once and a fully-exhausted pool goes quiet instead of thrashing
@@ -134,14 +141,22 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// The Codex login was just switched: the refresh in flight was fetched
     /// for the old account, so it is cancelled (its result is dropped) and a
     /// new one starts at once, past the usual guard against overlapping.
+    /// Only Codex is fetched, unless the cancelled refresh was also Claude's.
     public void RefreshAfterCodexSwitch()
     {
+        var claudeToo = Loading && _refreshFetchesClaude;
         _refreshCts?.Cancel();
         Loading = false;
-        Refresh();
+        Refresh(fetchClaude: claudeToo);
     }
 
-    public void Refresh()
+    public void Refresh() => Refresh(fetchClaude: true);
+
+    /// Codex alone when only Codex asked for it — a switch, an auto-switch,
+    /// a Codex reset — so Claude keeps its poll cadence: Anthropic
+    /// rate-limits the usage endpoint hard, and walking three spent Codex
+    /// accounts used to ask it four times in ten seconds.
+    private void Refresh(bool fetchClaude)
     {
         // Self-heal instead of early-return when a refresh has been "in
         // flight" for minutes: a wedged one (faulted task, socket dead after
@@ -153,7 +168,8 @@ public sealed class UsageStore : INotifyPropertyChanged
 
         Loading = true;
         _refreshStartedAt = DateTimeOffset.Now;
-        LastAttemptedAt = _refreshStartedAt;
+        _refreshFetchesClaude = fetchClaude;
+        if (fetchClaude) LastAttemptedAt = _refreshStartedAt;
         _refreshCts?.Cancel();
         var cts = new CancellationTokenSource();
         _refreshCts = cts;
@@ -171,9 +187,9 @@ public sealed class UsageStore : INotifyPropertyChanged
                 // fetchers retry a transient network failure themselves; a
                 // failed reply (429, 403, a lost sign-in) is never asked again.
                 var codexTask = CodexFetcher(cts.Token);
-                var claudeTask = ClaudeFetcher(cts.Token);
+                var claudeTask = fetchClaude ? ClaudeFetcher(cts.Token) : null;
                 var codexResult = await codexTask;
-                var claudeResult = await claudeTask;
+                var claudeResult = claudeTask is null ? null : await claudeTask;
 
                 await UiThread.InvokeAsync(() =>
                 {
@@ -188,15 +204,14 @@ public sealed class UsageStore : INotifyPropertyChanged
                     }
 
                     var codexCurrent = string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
-                    var codexFailed = codexCurrent && IsErrorOnly(codexResult);
-                    var claudeFailed = IsErrorOnly(claudeResult);
+                    if (codexCurrent) _codexFailed = IsErrorOnly(codexResult);
+                    if (claudeResult is not null) _claudeFailed = IsErrorOnly(claudeResult);
                     var mergedCodex = codexCurrent ? CommitCodex(codexResult, codexLogin) : Codex;
-                    var mergedClaude = MergedUsage(Claude, claudeResult);
-                    Claude = mergedClaude;
-                    SaveSnapshot(mergedClaude, mergedCodex, true, codexCurrent, _codexLogin);
-                    RefreshWarning = WarningFor(codexFailed, claudeFailed);
+                    if (claudeResult is not null) Claude = MergedUsage(Claude, claudeResult);
+                    SaveSnapshot(Claude, mergedCodex, claudeResult is not null, codexCurrent, _codexLogin);
+                    RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
                     var now = DateTimeOffset.Now;
-                    RecordSuccessfulUpdate(claude: true, claudeResult, now);
+                    if (claudeResult is not null) RecordSuccessfulUpdate(claude: true, claudeResult, now);
                     if (codexCurrent) RecordSuccessfulUpdate(claude: false, codexResult, now);
                     Loading = false;
                     if (codexCurrent) AutoSwitch(mergedCodex);
@@ -267,7 +282,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (!CodexAccountSwitcher.Activate(next)) return;
         _codexAutoSwitchTried.Add(next.Label);
         CodexAutoSwitched = next.Label;
-        Refresh();
+        Refresh(fetchClaude: false);
     }
 
     internal enum CodexQuotaReading
@@ -447,7 +462,8 @@ public sealed class UsageStore : INotifyPropertyChanged
             var merged = MergedUsage(Claude, fetched);
             Claude = merged;
             SaveCachedSnapshot(merged, Codex, fetchedClaude: true, fetchedCodex: false, _codexLogin);
-            RefreshWarning = IsErrorOnly(fetched) ? L10n.Tr("Claude stale") : null;
+            _claudeFailed = IsErrorOnly(fetched);
+            RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
             LastAttemptedAt = DateTimeOffset.Now;
             RecordSuccessfulUpdate(claude: true, fetched, LastAttemptedAt.Value);
             ClaudeReauthInProgress = false;
@@ -463,9 +479,8 @@ public sealed class UsageStore : INotifyPropertyChanged
         {
             var merged = CommitCodex(fetched, login);
             SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: true, _codexLogin);
-            RefreshWarning = IsErrorOnly(fetched) && Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex)
-                ? L10n.Tr("Codex stale")
-                : null;
+            _codexFailed = IsErrorOnly(fetched);
+            RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
             LastAttemptedAt = DateTimeOffset.Now;
             RecordSuccessfulUpdate(claude: false, fetched, LastAttemptedAt.Value);
             CodexReauthInProgress = false;
@@ -551,14 +566,14 @@ public sealed class UsageStore : INotifyPropertyChanged
             var now = DateTimeOffset.Now;
             var previous = _lastResetEdgeCheck;
             _lastResetEdgeCheck = now;
-            var boundaries = new[]
-            {
-                Claude.FiveHour.ResetAt, Claude.Weekly.ResetAt,
-                Codex.FiveHour.ResetAt, Codex.Weekly.ResetAt,
-            };
-            if (boundaries.Any(reset => reset is { } at && previous < at && at <= now))
+            bool Passed(DateTimeOffset? reset) => reset is { } at && previous < at && at <= now;
+            if (Passed(Claude.FiveHour.ResetAt) || Passed(Claude.Weekly.ResetAt))
             {
                 Refresh();
+            }
+            else if (Passed(Codex.FiveHour.ResetAt) || Passed(Codex.Weekly.ResetAt))
+            {
+                Refresh(fetchClaude: false);
             }
         };
         _resetEdgeTimer.Start();
