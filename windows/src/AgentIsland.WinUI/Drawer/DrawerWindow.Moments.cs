@@ -15,6 +15,10 @@ internal sealed partial class DrawerWindow
         _reducedMotion = Motion.ReducedMotion;
         UpdateCap();
         ApplyAway(!_displays.On || Win32.InputDesktopElsewhere());
+        // The work area changes without a display change when the taskbar
+        // auto-hides or resizes, an app bar docks, or the taskbar reaches a
+        // display after the display change was announced.
+        if (!_away && _screen is { } screen && ResolveScreen() != screen) Layout();
         var monitor = Win32.MonitorFromWindow(_hwnd, Win32.MonitorDefaultToNearest);
         var foreground = Win32.GetForegroundWindow();
         var fullscreen = foreground != _hwnd && Win32.IsFullscreen(foreground, monitor);
