@@ -17,15 +17,33 @@ public static class CodexLogReader
     {
         var cutoff = DateTimeOffset.Now.AddDays(-lookbackDays);
         // `codex archive` moves finished rollouts to a sibling root; the spend
-        // is just as real there. Subagent rollouts stay in: same reason.
+        // is just as real there, and it compresses what it archives to
+        // `.jsonl.zst`. Subagent rollouts stay in: same reason.
         var files = new List<string>();
         foreach (var root in new[] { IslandPaths.CodexSessionsRoot, IslandPaths.CodexArchivedSessionsRoot })
         {
-            if (Directory.Exists(root)) files.AddRange(SessionScanner.SafeEnumerateFiles(root, "*.jsonl"));
+            if (!Directory.Exists(root)) continue;
+            files.AddRange(SessionScanner.SafeEnumerateFiles(root, "*.jsonl"));
+            files.AddRange(SessionScanner.SafeEnumerateFiles(root, "*.jsonl.zst"));
         }
+        files = DropCompressedTwins(files);
         if (files.Count == 0) return new List<TokenEvent>();
         return Cache.Walk(files, cutoff, ParseFile);
     }
+
+    /// A rollout caught mid-compression exists both ways. Count it once, from
+    /// the plain file.
+    internal static List<string> DropCompressedTwins(List<string> files)
+    {
+        var plain = new HashSet<string>(
+            files.Where(path => !IsCompressed(path)).Select(Path.GetFileName)!,
+            StringComparer.OrdinalIgnoreCase);
+        return files
+            .Where(path => !IsCompressed(path) || !plain.Contains(Path.GetFileName(path)[..^".zst".Length]))
+            .ToList();
+    }
+
+    private static bool IsCompressed(string path) => path.EndsWith(".zst", StringComparison.OrdinalIgnoreCase);
 
     internal static List<TokenEvent> ParseFile(string path)
     {

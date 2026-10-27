@@ -64,6 +64,7 @@ public static class Program
             KimiUsageTests.RunAll();
             ClaudeHooksTests.RunAll();
             CodexReplayGuardTests.RunAll();
+            CodexArchiveTests.RunAll();
             UsageCachePolicyTests.RunAll();
             UsageFreshnessTests.RunAll();
             CostPeriodTests.RunAll();
