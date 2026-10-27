@@ -33,12 +33,15 @@ public static class ClaudeHooksTests
             ("a locked unrelated marker does not hide approvals", LockedMarkerIsIsolated),
             ("switches flipped at once never clash, and the last one wins", TogglesTakeTurns),
             ("the hook goes into the config folder Claude Code reads", SettingsInConfigFolder),
+            ("a config folder with no settings.json gets one", FreshSettings),
         };
         foreach (var (name, test) in tests)
         {
             test();
             Console.WriteLine($"PASS claude hooks: {name}");
         }
+        if (LinkedSettingsStayLinked()) Console.WriteLine("PASS claude hooks: a linked settings.json is written through, and stays a link");
+        else Console.WriteLine("SKIP claude hooks: a linked settings.json (this account can't create symbolic links)");
         Console.WriteLine("ClaudeHooksTests GREEN");
     }
 
@@ -243,6 +246,49 @@ public static class ClaudeHooksTests
         {
             ClaudeHooks.SettingsFileOverride = previous;
         }
+    }
+
+    private static void FreshSettings() => WithSettings(settings =>
+    {
+        Expect(ClaudeHooks.SetInstalled(true), null);
+        Expect(File.Exists(settings) && ClaudeHooks.IsInstalled(), "settings.json is created with the hook");
+        Expect(File.Exists(settings + ".agentisland.bak"), false);
+    });
+
+    /// A settings.json linked into a dotfiles folder: the hook lands in the
+    /// dotfiles copy and the link survives; a dangling link is left alone.
+    /// False where this account can't create symbolic links.
+    private static bool LinkedSettingsStayLinked()
+    {
+        var made = true;
+        WithSettings(settings =>
+        {
+            var dotfiles = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(settings)!)!, "dotfiles");
+            Directory.CreateDirectory(dotfiles);
+            var real = Path.Combine(dotfiles, "settings.json");
+            File.WriteAllText(real, """{"theme":"dark"}""");
+            try
+            {
+                File.CreateSymbolicLink(settings, real);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                made = false;
+                return;
+            }
+            Expect(ClaudeHooks.SetInstalled(true), null);
+            Expect(new FileInfo(settings).LinkTarget is not null, "settings.json is still a link");
+            Expect(ClaudeHooks.Contains(JsonNode.Parse(File.ReadAllText(real))), true);
+            Expect(ClaudeHooks.IsInstalled(), true);
+            Expect(Directory.GetFiles(dotfiles, "*.tmp").Length, 0);
+            Expect(ClaudeHooks.SetInstalled(false), null);
+            Expect(new FileInfo(settings).LinkTarget is not null && !ClaudeHooks.Contains(JsonNode.Parse(File.ReadAllText(real))),
+                "uninstall writes through the link too");
+            File.Delete(real);
+            Expect(ClaudeHooks.SetInstalled(true) is { Length: > 0 }, "a dangling link says why it did nothing");
+            Expect(new FileInfo(settings).LinkTarget is not null && !File.Exists(real), "and stays as it was");
+        });
+        return made;
     }
 
     /// A throwaway settings.json; the real one is never touched.

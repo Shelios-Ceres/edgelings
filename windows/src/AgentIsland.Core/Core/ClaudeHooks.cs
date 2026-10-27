@@ -61,7 +61,9 @@ public static class ClaudeHooks
 
     /// Adds or removes the hook, keeping everything else in the file. The
     /// first change leaves a backup beside it. Returns an error message, or
-    /// null on success. A file that is not plain JSON is left alone.
+    /// null on success. A file that is not plain JSON is left alone. A
+    /// settings.json that links elsewhere (a dotfiles folder) is rewritten
+    /// where it points, so the link stays.
     public static string? SetInstalled(bool installed)
     {
         lock (InstallGate)
@@ -70,7 +72,9 @@ public static class ClaudeHooks
             try
             {
                 var path = SettingsPath;
-                var target = path;
+                var file = new FileInfo(path);
+                var target = file.LinkTarget is null ? path : file.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? path;
+                if (target != path && !File.Exists(target)) return $"settings.json links to {target}, which doesn't exist, so it was left alone.";
                 JsonNode? root = File.Exists(target) ? JsonNode.Parse(File.ReadAllText(target)) : new JsonObject();
                 if (root is not JsonObject settings) return "settings.json is not a JSON object";
                 var changed = installed ? Install(settings) : Uninstall(settings);
