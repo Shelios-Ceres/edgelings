@@ -150,10 +150,28 @@ public static class ClaudeCredentials
             }
             return (null, TokenRefreshFailedMessage);
         }
-        // Anthropic rotates the refresh token, invalidating the pair we just
-        // used. If we can't persist the rotated tokens, the on-disk creds are
-        // now dead — force a re-login instead of 401-ing forever.
-        if (!WriteClaudeCreds(refreshed)) return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+        switch (WriteClaudeCreds(refreshed, current.RefreshToken))
+        {
+            // Anthropic rotates the refresh token, invalidating the pair we
+            // just used. If we can't persist the rotated tokens, the on-disk
+            // creds are now dead — force a re-login instead of 401-ing forever.
+            case WriteBack.Failed:
+                return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+            // Claude Code refreshed first, or the user signed in again (maybe
+            // as someone else): the login in the file is the one to show.
+            case WriteBack.Superseded:
+                if (ReadClaudeCreds() is { } signedIn && signedIn != current)
+                {
+                    switch (await probe(signedIn.AccessToken, signedIn.SubscriptionType))
+                    {
+                        case ProbeOutcome.Success success: return (new Resolution.Usage(success.Usage), null);
+                        case ProbeOutcome.RateLimited: return (new Resolution.Failed("rate limited"), null);
+                        case ProbeOutcome.ScopeInsufficient: return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
+                        case ProbeOutcome.OtherError error: return (null, error.Message);
+                    }
+                }
+                return (null, null);
+        }
         switch (await probe(refreshed.AccessToken, plan))
         {
             case ProbeOutcome.Success success: return (new Resolution.Usage(success.Usage), null);
@@ -197,43 +215,55 @@ public static class ClaudeCredentials
         }
     }
 
+    private enum WriteBack
+    {
+        Written,
+        /// The file no longer holds the refresh token that was sent; it was
+        /// left alone.
+        Superseded,
+        Failed,
+    }
+
     /// Updates the claudeAiOauth block in place, preserving unrelated fields
     /// (scopes, subscriptionType, rateLimitTier) and any other top-level
     /// keys in the file; seeds a minimal structure when the file doesn't
     /// exist yet (the CLI deleted it between the read and the write).
-    /// Returns false if the write ultimately fails — Anthropic has already
+    /// Failed if the write ultimately fails — Anthropic has already
     /// invalidated the OLD refresh token server-side, so a lost write means
     /// the on-disk credentials are dead and the caller must force a re-login
     /// rather than 401 forever.
+    ///
+    /// The tokens belong to the login whose refresh token was sent, so they
+    /// are written only while the file still holds it (the Grok rule of
+    /// c9c591e): if Claude Code refreshed first, or the user signed in again
+    /// as another account, the file is left alone. A file that exists but
+    /// cannot be read or parsed is never replaced either — a bare skeleton
+    /// would wipe scopes, subscriptionType and the MCP logins beside the pair.
     ///
     /// There is no chmod 0600 to mirror here: the file lives inside
     /// %USERPROFILE%, and both the temp file and the destination inherit that
     /// tree's per-user DACL — the same protection Claude Code's own writer
     /// gets on Windows.
-    private static bool WriteClaudeCreds(RefreshedTokens refreshed)
+    private static WriteBack WriteClaudeCreds(RefreshedTokens refreshed, string sentRefreshToken)
     {
         var tmp = string.Empty;
         try
         {
             var path = CredentialsFile;
-            JsonNode root;
-            try
+            if (ReadForWriteBack(path, out var missing) is not { } root) return WriteBack.Failed;
+            if (root["claudeAiOauth"] is JsonObject oauth)
             {
-                // Share the read: Claude Code and Claude Desktop keep this file
-                // open, and an exclusive open would throw — dropping us into the
-                // empty-object branch, which rewrites the file WITHOUT scopes,
-                // subscriptionType or anything else the CLI stores there.
-                using var existing = SharedFile.Open(path);
-                root = JsonNode.Parse(existing) ?? new JsonObject();
+                var held = oauth["refreshToken"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+                if (!string.Equals(held, sentRefreshToken, StringComparison.Ordinal)) return WriteBack.Superseded;
             }
-            catch
-            {
-                root = new JsonObject();
-            }
-            if (root["claudeAiOauth"] is not JsonObject oauth)
+            else if (missing)
             {
                 oauth = new JsonObject();
                 root["claudeAiOauth"] = oauth;
+            }
+            else
+            {
+                return WriteBack.Superseded;
             }
             oauth["accessToken"] = refreshed.AccessToken;
             oauth["refreshToken"] = refreshed.RefreshToken;
@@ -257,7 +287,7 @@ public static class ClaudeCredentials
                 try
                 {
                     File.Move(tmp, path, overwrite: true);
-                    return true;
+                    return WriteBack.Written;
                 }
                 catch (Exception moveError) when (attempt < 4 && moveError is IOException or UnauthorizedAccessException)
                 {
@@ -271,7 +301,35 @@ public static class ClaudeCredentials
             // Never strand the temp copy: it holds a live token pair, and
             // nothing else ever cleans up ~\.claude.
             try { if (tmp.Length > 0) File.Delete(tmp); } catch { }
-            return false;
+            return WriteBack.Failed;
+        }
+    }
+
+    /// The file as it stands, or null when it exists but cannot be read or
+    /// parsed even after a few short waits (Claude Code rewrites it in place,
+    /// so it can be caught empty or half-written). Shared, because Claude Code
+    /// and Claude Desktop keep it open. Only a missing file reads as a fresh
+    /// object.
+    private static JsonObject? ReadForWriteBack(string path, out bool missing)
+    {
+        missing = false;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var existing = SharedFile.Open(path);
+                if (JsonNode.Parse(existing) is JsonObject root) return root;
+            }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+            {
+                missing = true;
+                return new JsonObject();
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+            {
+            }
+            if (attempt >= 4) return null;
+            System.Threading.Thread.Sleep(25 * (attempt + 1));
         }
     }
 

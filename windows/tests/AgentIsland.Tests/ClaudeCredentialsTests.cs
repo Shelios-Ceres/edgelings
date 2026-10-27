@@ -25,6 +25,10 @@ public static class ClaudeCredentialsTests
             ("a refresh the CLI beat by a moment is followed by one look at the file", RefreshLosesTheRace),
             ("a failed refresh reads as a lost sign-in", RefreshFails),
             ("a rotated pair is saved once another program lets go of the file", HeldFileIsWrittenOnceReleased),
+            ("a file caught mid-rewrite is read again and everything else in it is kept", MidRewriteIsReadAgain),
+            ("a file that cannot be parsed is never replaced with a bare skeleton", UnreadableFileIsLeftAlone),
+            ("a refresh for a login replaced meanwhile leaves the new login alone", ReplacedLoginIsLeftAlone),
+            ("a file the CLI deleted meanwhile is written fresh", MissingFileIsSeeded),
         };
         var directory = Path.Combine(Path.GetTempPath(), "agentisland-credentials-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -225,5 +229,78 @@ public static class ClaudeCredentialsTests
         await released!;
         Expect(result is ClaudeCredentials.Resolution.Usage, "the refreshed token's usage is returned, not a re-login");
         Expect(Read() == ("B", "R2"), "the rotated pair is on disk, or Claude Code would sign out");
+    }
+
+    private static async Task MidRewriteIsReadAgain()
+    {
+        Write("A", "R1");
+        var whole = File.ReadAllText(CredentialsPath);
+        Task? finished = null;
+        ClaudeCredentials.RefreshToken = _ =>
+        {
+            // Claude Code rewrites the file in place (to save an MCP login, say):
+            // it is empty for a moment, then whole again.
+            File.WriteAllText(CredentialsPath, "");
+            finished = Task.Run(async () =>
+            {
+                await Task.Delay(60);
+                File.WriteAllText(CredentialsPath, whole);
+            });
+            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+        };
+        var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
+        await finished!;
+        Expect(result is ClaudeCredentials.Resolution.Usage, "the refreshed token's usage is returned");
+        Expect(Read() == ("B", "R2"), "the rotated pair is saved");
+        var saved = JsonNode.Parse(File.ReadAllText(CredentialsPath))!;
+        Expect((string?)saved["otherKey"] == "kept" && (string?)saved["claudeAiOauth"]!["subscriptionType"] == "max",
+            "the file read whole is the one updated, so nothing else is lost");
+    }
+
+    private static async Task UnreadableFileIsLeftAlone()
+    {
+        Write("A", "R1");
+        ClaudeCredentials.RefreshToken = _ =>
+        {
+            File.WriteAllText(CredentialsPath, "{\"claudeAiOauth\":{\"accessToken\":\"A\",");
+            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+        };
+        var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        Expect(File.ReadAllText(CredentialsPath) == "{\"claudeAiOauth\":{\"accessToken\":\"A\",",
+            "a file that never parses is left as it is, not rewritten as a skeleton");
+        Expect(result is ClaudeCredentials.Resolution.ReauthRequired, "the lost pair asks for a new sign-in");
+    }
+
+    private static async Task ReplacedLoginIsLeftAlone()
+    {
+        Write("A", "R1");
+        ClaudeCredentials.RefreshToken = _ =>
+        {
+            // The user ran `claude /login` as another account while the refresh was out.
+            Write("C", "R9");
+            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+        };
+        var seen = new List<string>();
+        var result = await ClaudeCredentials.ResolveUsage((token, _) =>
+        {
+            seen.Add(token);
+            return Task.FromResult(token == "A" ? Expired : Ok);
+        });
+        Expect(Read() == ("C", "R9"), "the new login is not overwritten with the old account's refreshed pair");
+        Expect(result is ClaudeCredentials.Resolution.Usage, "the new login's usage is returned");
+        Expect(string.Join(",", seen) == "A,C", $"the login now in the file is probed, got {string.Join(",", seen)}");
+    }
+
+    private static async Task MissingFileIsSeeded()
+    {
+        Write("A", "R1");
+        ClaudeCredentials.RefreshToken = _ =>
+        {
+            File.Delete(CredentialsPath);
+            return Task.FromResult<ClaudeCredentials.RefreshedTokens?>(new ClaudeCredentials.RefreshedTokens("B", "R2", 1));
+        };
+        var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
+        Expect(result is ClaudeCredentials.Resolution.Usage, "the refreshed token's usage is returned");
+        Expect(Read() == ("B", "R2"), "the rotated pair is written to a fresh file");
     }
 }
