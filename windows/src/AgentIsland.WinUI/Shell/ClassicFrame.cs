@@ -222,6 +222,7 @@ internal sealed partial class ClassicFrame : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        if (_wired) UnwireButtons();
         if (_visualOnly) return;
         _window.Activated -= OnActivated;
         Win32.RemoveWindowSubclass(_hwnd, _proc, 2);

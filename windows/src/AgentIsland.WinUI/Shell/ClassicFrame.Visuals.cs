@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Windows.Foundation;
 using Windows.UI;
 
 namespace AgentIsland.WinUI.Shell;
@@ -151,6 +152,10 @@ internal sealed partial class ClassicFrame
         return row;
     }
 
+    // The window's pointer source outlives the frame (a switch to Pixel and
+    // back makes a new one), so Dispose takes these off it again.
+    private TypedEventHandler<InputNonClientPointerSource, NonClientPointerEventArgs>? _entered, _exited, _pressed, _released;
+
     private void WireButtons()
     {
         void Over(NonClientPointerEventArgs e, CaptionState state)
@@ -158,10 +163,19 @@ internal sealed partial class ClassicFrame
             if (!_cells.TryGetValue(e.RegionKind, out var cell)) return;
             _window.DispatcherQueue.TryEnqueue(() => cell.Set(state, Brand.IsDark(), _active));
         }
-        NonClient.PointerEntered += (_, e) => Over(e, CaptionState.Hover);
-        NonClient.PointerExited += (_, e) => Over(e, CaptionState.Rest);
-        NonClient.PointerPressed += (_, e) => Over(e, CaptionState.Pressed);
-        NonClient.PointerReleased += (_, e) => Over(e, e.IsPointInRegion ? CaptionState.Hover : CaptionState.Rest);
+        NonClient.PointerEntered += _entered = (_, e) => Over(e, CaptionState.Hover);
+        NonClient.PointerExited += _exited = (_, e) => Over(e, CaptionState.Rest);
+        NonClient.PointerPressed += _pressed = (_, e) => Over(e, CaptionState.Pressed);
+        NonClient.PointerReleased += _released = (_, e) => Over(e, e.IsPointInRegion ? CaptionState.Hover : CaptionState.Rest);
+    }
+
+    private void UnwireButtons()
+    {
+        NonClient.PointerEntered -= _entered;
+        NonClient.PointerExited -= _exited;
+        NonClient.PointerPressed -= _pressed;
+        NonClient.PointerReleased -= _released;
+        _entered = _exited = _pressed = _released = null;
     }
 
     /// For the verification films: a caption cell in rest, hover or pressed.
