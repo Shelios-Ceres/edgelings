@@ -102,33 +102,48 @@ public static class GrokHooks
     /// the change up.
     public static string? SetInstalled(bool installed)
     {
-        try
+        // A switch flipped on and straight back off must not remove the
+        // files while the first change is still writing them.
+        lock (InstallGate)
         {
-            if (Conflicts()) return $"{HookFileName} in {Hooks} is not Agent Island's, so it was left alone.";
-            if (!installed)
+            try
             {
-                if (File.Exists(HookPath)) File.Delete(HookPath);
-                if (File.Exists(ScriptPath)) File.Delete(ScriptPath);
-                if (Directory.Exists(Hooks) && !Directory.EnumerateFileSystemEntries(Hooks).Any()) Directory.Delete(Hooks);
+                if (Conflicts()) return $"{HookFileName} in {Hooks} is not Agent Island's, so it was left alone.";
+                if (!installed)
+                {
+                    if (File.Exists(HookPath)) File.Delete(HookPath);
+                    if (File.Exists(ScriptPath)) File.Delete(ScriptPath);
+                    if (Directory.Exists(Hooks) && !Directory.EnumerateFileSystemEntries(Hooks).Any()) Directory.Delete(Hooks);
+                    return null;
+                }
+                Directory.CreateDirectory(Scripts);
+                Directory.CreateDirectory(Hooks);
+                Write(ScriptPath, Script);
+                Write(HookPath, HookJson());
                 return null;
             }
-            Directory.CreateDirectory(Scripts);
-            Directory.CreateDirectory(Hooks);
-            Write(ScriptPath, Script);
-            Write(HookPath, HookJson());
-            return null;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            return error.Message;
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                return error.Message;
+            }
         }
     }
 
+    private static readonly object InstallGate = new();
+
     private static void Write(string path, string text)
     {
-        var temp = path + ".agentisland.tmp";
-        File.WriteAllText(temp, text, new UTF8Encoding(false));
-        File.Move(temp, path, overwrite: true);
+        var temp = path + ".agentisland-" + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temp, text, new UTF8Encoding(false));
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch { }
+            throw;
+        }
     }
 
     // MARK: - Signals

@@ -31,6 +31,7 @@ public static class ClaudeHooksTests
             ("future and expired markers are ignored", InvalidTimesIgnored),
             ("a corrupt unrelated marker does not hide approvals", CorruptMarkerIsIsolated),
             ("a locked unrelated marker does not hide approvals", LockedMarkerIsIsolated),
+            ("switches flipped at once never clash, and the last one wins", TogglesTakeTurns),
         };
         foreach (var (name, test) in tests)
         {
@@ -209,6 +210,41 @@ public static class ClaudeHooksTests
             FileMode.Create, FileAccess.ReadWrite, FileShare.None);
         Expect(ClaudeHooks.Pending(transcript, now)?.Type, ClaudeHooks.PermissionPrompt);
     });
+
+    private static void TogglesTakeTurns() => WithSettings(settings =>
+    {
+        File.WriteAllText(settings, """{"theme":"dark"}""");
+        var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
+        Parallel.For(0, 64, new ParallelOptions { MaxDegreeOfParallelism = 8 }, i =>
+        {
+            if (ClaudeHooks.SetInstalled(i % 2 == 0) is { } error) errors.Add(error);
+        });
+        Expect(errors.IsEmpty, "no change failed: " + string.Join(" | ", errors.Distinct()));
+        Expect(Directory.GetFiles(Path.GetDirectoryName(settings)!, "*.tmp").Length, 0);
+        Expect(ClaudeHooks.SetInstalled(true), null);
+        Expect(ClaudeHooks.SetInstalled(false), null);
+        Expect(ClaudeHooks.IsInstalled(), false);
+        Expect(JsonNode.Parse(File.ReadAllText(settings))!["theme"]!.GetValue<string>(), "dark");
+    });
+
+    /// A throwaway settings.json; the real one is never touched.
+    private static void WithSettings(Action<string> test)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agentisland-claude-settings-" + Guid.NewGuid().ToString("N"));
+        var previous = ClaudeHooks.SettingsFileOverride;
+        Directory.CreateDirectory(root);
+        ClaudeHooks.SettingsFileOverride = Path.Combine(root, ".claude", "settings.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ClaudeHooks.SettingsFileOverride)!);
+            test(ClaudeHooks.SettingsFileOverride);
+        }
+        finally
+        {
+            ClaudeHooks.SettingsFileOverride = previous;
+            Directory.Delete(root, recursive: true);
+        }
+    }
 
     private static void OpenTurn(string transcript, DateTimeOffset at)
     {

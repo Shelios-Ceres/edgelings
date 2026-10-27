@@ -29,6 +29,7 @@ public static class GrokHooksTests
             ("a completed turn is not reopened by a late marker", ClosedTurnStaysClosed),
             ("a marker wakes the file watcher, another folder's json does not", MarkerWakesWatcher),
             ("sessions, auth and hooks all read one Grok home", OneGrokHome),
+            ("switches flipped at once never clash, and the last one wins", TogglesTakeTurns),
         };
         foreach (var (name, test) in tests)
         {
@@ -212,6 +213,20 @@ public static class GrokHooksTests
         Expect(!TranscriptEventStream.IsRelevant(Path.Combine(root, "state.json")), "another folder's json does not");
         Expect(TranscriptEventStream.IsRelevant(Path.Combine(root, "local_1234.json")), "a Claude Desktop session still does");
         Expect(TranscriptEventStream.IsRelevant(Path.Combine(root, "updates.jsonl")), "a transcript still does");
+    });
+
+    private static void TogglesTakeTurns() => With((root, hooks, _) =>
+    {
+        var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
+        Parallel.For(0, 64, new ParallelOptions { MaxDegreeOfParallelism = 8 }, i =>
+        {
+            if (GrokHooks.SetInstalled(i % 2 == 0) is { } error) errors.Add(error);
+        });
+        Expect(errors.IsEmpty, "no change failed: " + string.Join(" | ", errors.Distinct()));
+        Expect(GrokHooks.SetInstalled(true) is null && GrokHooks.IsInstalled(), "the last install wins");
+        Expect(Directory.GetFiles(hooks, "*.tmp").Length == 0 && Directory.GetFiles(Path.Combine(root, "scripts"), "*.tmp").Length == 0,
+            "no temp copy is left behind");
+        Expect(GrokHooks.SetInstalled(false) is null && !GrokHooks.IsInstalled(), "the last uninstall wins");
     });
 
     /// GROK_HOME as the CLI reads it, ~ expanded, with every reader under it.

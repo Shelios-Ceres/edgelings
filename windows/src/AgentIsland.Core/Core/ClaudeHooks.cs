@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -31,10 +32,17 @@ public static class ClaudeHooks
         "at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress | " +
         "Set-Content -Encoding UTF8 -Path (Join-Path $d ($id + '.json')) }";
 
-    public static string SettingsPath => Path.Combine(IslandPaths.Home, ".claude", "settings.json");
+    /// Claude Code's user settings; tests point it elsewhere.
+    public static string SettingsPath => SettingsFileOverride ?? Path.Combine(IslandPaths.Home, ".claude", "settings.json");
+
+    internal static string? SettingsFileOverride { get; set; }
 
     /// Where the hook drops its markers; tests point it elsewhere.
     internal static string SignalDirectory { get; set; } = Path.Combine(IslandPaths.AppSupportDir, "claude-hooks");
+
+    // A switch flipped on and straight back off must not read the file
+    // before the first change has landed.
+    private static readonly object InstallGate = new();
 
     // MARK: - Install
 
@@ -55,31 +63,41 @@ public static class ClaudeHooks
     /// null on success. A file that is not plain JSON is left alone.
     public static string? SetInstalled(bool installed)
     {
-        try
+        lock (InstallGate)
         {
-            var path = SettingsPath;
-            JsonNode? root = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : new JsonObject();
-            if (root is not JsonObject settings) return "settings.json is not a JSON object";
-            var changed = installed ? Install(settings) : Uninstall(settings);
-            if (!changed) return null;
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var backup = path + ".agentisland.bak";
-            if (File.Exists(path) && !File.Exists(backup)) File.Copy(path, backup);
-            var temp = path + ".agentisland.tmp";
-            // Relaxed escaping keeps quotes and non-ASCII text in the user's
-            // file readable instead of turning them into escape sequences.
-            var options = new JsonSerializerOptions
+            var temp = "";
+            try
             {
-                WriteIndented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            };
-            File.WriteAllText(temp, settings.ToJsonString(options) + Environment.NewLine);
-            File.Move(temp, path, overwrite: true);
-            return null;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return error.Message;
+                var path = SettingsPath;
+                var target = path;
+                JsonNode? root = File.Exists(target) ? JsonNode.Parse(File.ReadAllText(target)) : new JsonObject();
+                if (root is not JsonObject settings) return "settings.json is not a JSON object";
+                var changed = installed ? Install(settings) : Uninstall(settings);
+                if (!changed) return null;
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var backup = path + ".agentisland.bak";
+                if (File.Exists(target) && !File.Exists(backup)) File.Copy(target, backup);
+                // Relaxed escaping keeps quotes and non-ASCII text in the user's
+                // file readable instead of turning them into escape sequences.
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                };
+                temp = target + ".agentisland-" + Guid.NewGuid().ToString("N") + ".tmp";
+                using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    stream.Write(Encoding.UTF8.GetBytes(settings.ToJsonString(options) + Environment.NewLine));
+                    stream.Flush(flushToDisk: true);
+                }
+                File.Move(temp, target, overwrite: true);
+                return null;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+            {
+                try { if (temp.Length > 0) File.Delete(temp); } catch { }
+                return error.Message;
+            }
         }
     }
 
