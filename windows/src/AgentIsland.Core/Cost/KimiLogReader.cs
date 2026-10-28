@@ -15,8 +15,18 @@ namespace AgentIsland.Cost;
 /// model with no price shows as tokens only.
 public static class KimiLogReader
 {
-    // v3 carries usage identity so copied session histories count only once.
-    private static readonly LogParseCache Cache = new(TriggerTool.Kimi, "kimi-parse-cache.v3.json");
+    // v3 carries usage identity so copied session histories count only once;
+    // v4 tags the memory plugin's background runs.
+    private static readonly LogParseCache Cache = new(TriggerTool.Kimi, "kimi-parse-cache.v4.json");
+
+    /// The model id the Usage & cost page lists the memory plugin's background
+    /// runs under (shown as "Memory (background)", see ProviderCostSummary.NameOf).
+    /// Their tokens count in every total; the row is priced by the model that
+    /// really ran them.
+    public const string MemoryModel = "kimi-memory-background";
+
+    // A memory run's events sit in the parse cache as "<MemoryModel>|<real model>".
+    private const string MemoryTag = MemoryModel + "|";
 
     public static List<TokenEvent> Scan(int lookbackDays)
     {
@@ -150,11 +160,23 @@ public static class KimiLogReader
     /// table id, so names and the parse cache are unaffected.
     internal static List<TokenEvent> PriceByProvider(List<TokenEvent> events, IReadOnlyDictionary<string, string> providerModels)
     {
-        if (providerModels.Count == 0) return events;
-        return events.Select(e => providerModels.TryGetValue(e.Model, out var model) && !Pricing.IsKnown(e.Model)
-            ? e with { PricedAs = model }
-            : e).ToList();
+        if (providerModels.Count == 0 && !events.Any(IsMemoryRun)) return events;
+        return events.Select(e =>
+        {
+            // A memory run lists as one row whatever ran it, and is priced as that model.
+            if (IsMemoryRun(e))
+            {
+                var real = e.Model[MemoryTag.Length..];
+                return e with { Model = MemoryModel, PricedAs = PricedAs(real, providerModels) ?? real };
+            }
+            return PricedAs(e.Model, providerModels) is { } model ? e with { PricedAs = model } : e;
+        }).ToList();
     }
+
+    private static bool IsMemoryRun(TokenEvent e) => e.Model.StartsWith(MemoryTag, StringComparison.Ordinal);
+
+    private static string? PricedAs(string model, IReadOnlyDictionary<string, string> providerModels) =>
+        providerModels.TryGetValue(model, out var priced) && !Pricing.IsKnown(model) ? priced : null;
 
     internal static List<TokenEvent> ParseFile(string path)
     {
@@ -165,6 +187,10 @@ public static class KimiLogReader
         foreach (var line in LogLines.Read(path, maxLength: 100_000, mustContain: "\"usage.record\""))
         {
             if (Parse(line) is { } tokenEvent) output.Add(tokenEvent);
+        }
+        if (output.Count > 0 && KimiMemoryRuns.IsMemoryRunLog(path))
+        {
+            output = output.Select(e => e with { Model = MemoryTag + e.Model }).ToList();
         }
         return Deduplicate(output);
     }

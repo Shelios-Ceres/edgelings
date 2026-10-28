@@ -50,6 +50,7 @@ public sealed record ProviderCostSummary(
     /// summary is built on a scan thread, the name shown on the UI's.
     public string NameOf(string model) =>
         model == AntigravityLogReader.UnknownModel ? L10n.Tr("Model not named")
+        : model == KimiLogReader.MemoryModel ? L10n.Tr("Memory (background)")
         : ModelNames.TryGetValue(model, out var name) ? name : model;
 
     public static ProviderCostSummary Empty { get; } = new(

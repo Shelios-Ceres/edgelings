@@ -442,6 +442,7 @@ public static class L10n
         ["Tokens per day (no price)"] = "每天 Token（无价格）",
         ["Antigravity has no conversations to count yet."] = "Antigravity 还没有可统计的对话。",
         ["Model not named"] = "未命名的模型",
+        ["Memory (background)"] = "记忆（后台）",
         ["See its quota on the Agents page"] = "在「智能体」页查看它的配额",
         // The look pickers: each look's name (Classic's and Pixel's; Pixel shows English).
         ["Look"] = "外观",

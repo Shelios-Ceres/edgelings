@@ -87,7 +87,8 @@ public static partial class SessionScanner
                 if (!IsRecent(wire, now)) continue;
                 var name = Path.GetFileName(sessionDir);
                 var sid = name.StartsWith("session_", StringComparison.Ordinal) ? name["session_".Length..] : name;
-                var cwd = KimiCwd(Path.Combine(sessionDir, "state.json"));
+                var cwd = KimiMemoryRuns.SessionCwd(Path.Combine(sessionDir, "state.json"));
+                if (KimiMemoryRuns.IsMemoryFolder(cwd)) continue;
                 var state = SessionState(wire, now, lastWorking, null, SessionTurnState.Kimi);
                 var session = new ScannedSession(
                     TriggerTool.Kimi, sid, cwd, Fallback(cwd, sid),
@@ -97,20 +98,6 @@ public static partial class SessionScanner
             }
         }
         return output;
-    }
-
-    private static string KimiCwd(string statePath)
-    {
-        try
-        {
-            using var stream = SharedFile.Open(statePath);
-            using var doc = System.Text.Json.JsonDocument.Parse(stream);
-            return Jsonl.GetString(doc.RootElement, "cwd") ?? "";
-        }
-        catch
-        {
-            return "";
-        }
     }
 
     /// session.v4.jsonl.zstd is the session's event log as appended zstd

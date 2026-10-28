@@ -410,7 +410,7 @@ internal sealed class AgentSection
             .First();
         // The model doing most of the last five hours' work, as its agent names it.
         var costs = AgentIsland.Cost.CostStore.Shared.Summary(provider);
-        if (costs.RecentModels.FirstOrDefault() is { } model) parts.Add(costs.NameOf(model.Model));
+        if (costs.RecentModels.FirstOrDefault(m => m.Model != AgentIsland.Cost.KimiLogReader.MemoryModel) is { } model) parts.Add(costs.NameOf(model.Model));
         if (thread is not null)
         {
             if (Project(thread.Cwd) is { } project) parts.Add(project);
