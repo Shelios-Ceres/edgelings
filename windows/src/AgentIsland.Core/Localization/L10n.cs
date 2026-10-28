@@ -388,7 +388,7 @@ public static class L10n
         ["Sign in inside Kimi Code; its plan usage syncs whenever the app or the CLI signs in"] = "请在 Kimi Code 里登录；应用或 CLI 每次登录时都会同步套餐用量",
         ["Waiting for your approval"] = "等你批准",
         ["Permission prompts"] = "权限确认",
-        ["Shows when Claude Code waits for you to approve a tool. Adds a small hook to ~/.claude/settings.json that records only the session and the prompt type; sessions started afterwards pick it up."] = "Claude Code 等你批准工具时，角色会显示出来。会在 ~/.claude/settings.json 加一个小 hook，只记录会话和提示类型；之后新开的会话生效。",
+        ["Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up."] = "Claude Code 等你批准工具时，角色会显示出来。会在 Claude Code 的 settings.json 加一个小 hook，只记录会话和提示类型；之后新开的会话生效。",
         ["Couldn't change Claude Code's settings"] = "无法修改 Claude Code 的设置",
         ["Couldn't change Grok's hooks"] = "无法修改 Grok 的 hook",
         ["Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up."] = "Grok 等你批准工具时，角色会显示出来。会在 ~/.grok/hooks 加一个 hook 文件 agentisland-notify.json，只记录会话和提示类型；之后新开的会话生效。",

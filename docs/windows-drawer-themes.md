@@ -292,7 +292,7 @@ card but never speaks. A finished turn is news for two minutes.
 
 **The two permission-prompt hooks** are opt-in, one switch on the agent's card
 in Settings → Agents. Claude's adds a Notification group to
-`~/.claude/settings.json`. Grok's adds one file of ours,
+Claude Code's `settings.json` (in `CLAUDE_CONFIG_DIR`, default `~/.claude`). Grok's adds one file of ours,
 `~/.grok/hooks/agentisland-notify.json` (Grok's global hooks are always
 trusted; nothing else in `~/.grok` is touched), whose command runs a script of
 ours, `%APPDATA%\AgentIsland\grok-hook.ps1`, through `powershell.exe` by name so

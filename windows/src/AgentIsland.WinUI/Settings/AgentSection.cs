@@ -489,7 +489,7 @@ internal sealed class AgentSection
             Header = L10n.Tr("Permission prompts"),
             Description = new TextBlock
             {
-                Text = L10n.Tr("Shows when Claude Code waits for you to approve a tool. Adds a small hook to ~/.claude/settings.json that records only the session and the prompt type; sessions started afterwards pick it up."),
+                Text = L10n.Tr("Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up."),
                 TextWrapping = TextWrapping.Wrap,
             },
             HeaderIcon = Icon("\uE8D7"),
