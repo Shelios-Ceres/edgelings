@@ -21,7 +21,11 @@ public static class AgentPresences
 {
     /// A process: its id, its parent's, its image name without ".exe", and
     /// its path (a script host's command line) where a name alone is ambiguous.
-    internal sealed record Running(int Id, int ParentId, string Name, string? Path = null);
+    internal sealed record Running(int Id, int ParentId, string Name, string? Path = null)
+    {
+        /// A headless `kimi -p` run: no window, so never a sign that Kimi is open.
+        public bool Headless { get; init; }
+    }
 
     /// A top-level app window: whose it is, and whether it is minimized.
     internal sealed record AppWindow(int ProcessId, bool Minimized);
@@ -102,7 +106,7 @@ public static class AgentPresences
         var presence = new Dictionary<TriggerTool, AgentPresence>();
         foreach (var tool in AgentProcesses.Known.Select(k => k.Tool).Distinct())
         {
-            var mine = processes.Where(p => AgentProcesses.Known.Any(k => k.Tool == tool && AgentProcesses.Matches(k, p.Name, p.Path))
+            var mine = processes.Where(p => !p.Headless).Where(p => AgentProcesses.Known.Any(k => k.Tool == tool && AgentProcesses.Matches(k, p.Name, p.Path))
                 || AgentProcesses.PresenceOnly.Any(k => k.Tool == tool && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase))).ToList();
             presence[tool] = mine.Count == 0 ? AgentPresence.Closed : mine.Select(Shows).Min();
         }
@@ -136,7 +140,10 @@ public static class AgentPresences
                 var path = !AgentProcesses.Known.Any(k => k.PathHint is not null && string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase)) ? null
                     : AgentProcesses.Hosts.Contains(name) ? AgentProcesses.CommandLineOf((int)entry.ProcessId)
                     : PathOf((int)entry.ProcessId);
-                list.Add(new Running((int)entry.ProcessId, (int)entry.ParentProcessId, name, path));
+                list.Add(new Running((int)entry.ProcessId, (int)entry.ParentProcessId, name, path)
+                {
+                    Headless = AgentProcesses.KimiRunOf((int)entry.ProcessId, name, path).Print,
+                });
             }
         }
         finally

@@ -57,7 +57,10 @@ internal static class AgentProcesses
                     var name = process.ProcessName;
                     var known = Known.FirstOrDefault(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase));
                     if (known.Name is null) continue;
-                    running.Add((name, known.PathHint is null ? null : Hosts.Contains(name) ? CommandLineOf(process.Id) : PathOf(process)));
+                    var path = known.PathHint is null ? null : Hosts.Contains(name) ? CommandLineOf(process.Id) : PathOf(process);
+                    // The memory plugin's headless runs are not Kimi being open.
+                    if (KimiRunOf(process.Id, name, path).MemoryRun) continue;
+                    running.Add((name, path));
                 }
             }
             return Gone(running);
@@ -67,6 +70,11 @@ internal static class AgentProcesses
             return new HashSet<TriggerTool>();
         }
     }
+
+    /// The memory plugin's headless runs are left out first: they keep no
+    /// session of the user's alive.
+    internal static IReadOnlySet<TriggerTool> Gone(IEnumerable<(string Name, string? Path, KimiRun Run)> running) =>
+        Gone(running.Where(p => !p.Run.MemoryRun).Select(p => (p.Name, p.Path)));
 
     /// An unreadable path counts as alive: a session is never idled on a guess.
     internal static IReadOnlySet<TriggerTool> Gone(IEnumerable<(string Name, string? Path)> running)
@@ -80,6 +88,87 @@ internal static class AgentProcesses
             }
         }
         return Known.Select(k => k.Tool).Where(tool => !alive.Contains(tool)).ToHashSet();
+    }
+
+    /// What a Kimi Code process's command line says about its run, as two
+    /// booleans: Print is a headless `kimi -p` run; MemoryRun is one of the
+    /// memory plugin's. Nothing of the line is kept: the worker's prompt can
+    /// hold the user's own memory text.
+    internal readonly record struct KimiRun(bool Print, bool MemoryRun);
+
+    /// Read only for a process that already matched the Kimi entry's path
+    /// hint; a line that can't be read says nothing, so the process counts as
+    /// it did before.
+    internal static KimiRun KimiRunOf(int id, string name, string? path)
+    {
+        var known = Known.FirstOrDefault(k => k.Tool == TriggerTool.Kimi && k.PathHint is not null);
+        return !Matches(known, name, path) || path is null ? default : KimiRunOf(CommandLineOf(id));
+    }
+
+    internal static KimiRun KimiRunOf(string? commandLine)
+    {
+        if (string.IsNullOrEmpty(commandLine)) return default;
+        if (!HasPrintFlag(commandLine)) return default;
+        // The worker starts each run in the plugin's memories folder with its
+        // own agent profile from the plugin's runtime folder, and its
+        // consolidation prompt names the memories folder.
+        var line = commandLine.Replace('/', '\\');
+        var memory = Names(line, KimiMemoryRuns.Folder) || Names(line, Path.Combine(IslandPaths.KimiHome, "memory", "runtime"));
+        return new KimiRun(true, memory);
+    }
+
+    /// `-p` or `--prompt`, as a whole argument outside quotes.
+    private static bool HasPrintFlag(string commandLine)
+    {
+        var token = new System.Text.StringBuilder();
+        var quoted = false;
+        var found = false;
+        void End()
+        {
+            if (token.Length > 0)
+            {
+                var text = token.ToString();
+                if (text == "-p" || text == "--prompt" || text.StartsWith("--prompt=", StringComparison.Ordinal)) found = true;
+            }
+            token.Clear();
+        }
+        for (var i = 0; i < commandLine.Length && !found; i++)
+        {
+            var c = commandLine[i];
+            if (c == '\\' && i + 1 < commandLine.Length && commandLine[i + 1] == '"')
+            {
+                token.Append('"');
+                i++;
+            }
+            else if (c == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (char.IsWhiteSpace(c) && !quoted)
+            {
+                End();
+            }
+            else
+            {
+                token.Append(c);
+            }
+        }
+        End();
+        return found;
+    }
+
+    /// Whether the line names the folder (either slash, any case) as a path of its own:
+    /// not as the start of a longer folder name.
+    private static bool Names(string line, string folder)
+    {
+        var path = folder.Replace('/', '\\').TrimEnd('\\');
+        for (var at = line.IndexOf(path, StringComparison.OrdinalIgnoreCase); at >= 0;
+            at = line.IndexOf(path, at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var end = at + path.Length;
+            if (end == line.Length || !(char.IsLetterOrDigit(line[end]) || line[end] is '-' or '_' or '.')) return true;
+        }
+        return false;
     }
 
     /// Whether a process is this entry's: by name, and by its path (a script

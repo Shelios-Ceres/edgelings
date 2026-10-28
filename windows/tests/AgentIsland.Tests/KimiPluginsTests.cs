@@ -20,6 +20,9 @@ public static class KimiPluginsTests
             ("memory runs: a project named memories elsewhere is a real session", MemoriesNamedProject),
             ("memory runs: their tokens list as one row, priced by the real model, totals unchanged", MemoryCostSplit),
             ("memory runs: the row is named in the shown language", MemoryRowName),
+            ("headless runs: a command line says only whether it prints and whether it is the memory worker's", HeadlessCommandLines),
+            ("headless runs: presence ignores every -p run", HeadlessPresence),
+            ("headless runs: Gone ignores only the memory worker's", HeadlessGone),
             ("mailbox: mail present at launch is listed but silent", MailAtLaunch),
             ("mailbox: files appearing speak once, more files once more, the same files never again", MailSpeaksOncePerBatch),
             ("mailbox: files moved to read leave the list", MailReadLeavesList),
@@ -371,5 +374,66 @@ public static class KimiPluginsTests
         var said = mixed.Next(100)!;
         Expect(said.Events.Count, 2);
         Expect(said.Events.All(e => e.Kind == SessionEventKind.Done), "the summary counts only sessions that need the user");
+    }
+
+    // Command lines written by hand: nothing here comes from a real run.
+    private static string Line(string home, string args) => $"\"{home}\\bin\\kimi.exe\" {args}";
+
+    private static void HeadlessCommandLines() => WithHome(home =>
+    {
+        var agent = $"--agent-file {home}\\memory\\runtime\\memory-extractor.md";
+        // The extraction run: its profile is the plugin's own, its prompt is the user's session text.
+        var extract = AgentProcesses.KimiRunOf(Line(home, $"--model m {agent} -p \"a prompt that says nothing of folders\" --output-format stream-json"));
+        Expect(extract, new AgentProcesses.KimiRun(true, true));
+        // The consolidation run's prompt names the memories folder, the profile is elsewhere.
+        var consolidate = AgentProcesses.KimiRunOf(Line(home, $"--agent-file D:\\other\\agent.md -p \"Tidy {home.Replace('\\', '/')}/memories please\""));
+        Expect(consolidate, new AgentProcesses.KimiRun(true, true));
+        // The user's own print runs.
+        Expect(AgentProcesses.KimiRunOf(Line(home, "-p \"fix the bug\"")), new AgentProcesses.KimiRun(true, false));
+        Expect(AgentProcesses.KimiRunOf(Line(home, "--prompt \"fix the bug\"")), new AgentProcesses.KimiRun(true, false));
+        Expect(AgentProcesses.KimiRunOf(Line(home, "--prompt=fix")), new AgentProcesses.KimiRun(true, false));
+        Expect(AgentProcesses.KimiRunOf(Line(home, $"-p \"look in {home}\\memories-old\"")), new AgentProcesses.KimiRun(true, false));
+        // Not print runs: the CLI, the web server, a prompt text that merely contains -p, a plugin host.
+        Expect(AgentProcesses.KimiRunOf(Line(home, "")), default(AgentProcesses.KimiRun));
+        Expect(AgentProcesses.KimiRunOf(Line(home, "web --port 51990 --no-open")), default(AgentProcesses.KimiRun));
+        Expect(AgentProcesses.KimiRunOf(Line(home, "__plugin_run_node ./mcp/server.mjs")), default(AgentProcesses.KimiRun));
+        Expect(AgentProcesses.KimiRunOf(Line(home, "\"say -p to me\"")), default(AgentProcesses.KimiRun));
+        Expect(AgentProcesses.KimiRunOf(Line(home, $"{home}\\memories")), default(AgentProcesses.KimiRun));
+        // Unreadable.
+        Expect(AgentProcesses.KimiRunOf((string?)null), default(AgentProcesses.KimiRun));
+        Expect(AgentProcesses.KimiRunOf(""), default(AgentProcesses.KimiRun));
+    });
+
+    private const string KimiExe = @"C:\Users\me\.kimi-code\bin\kimi.exe";
+
+    private static void HeadlessPresence()
+    {
+        var explorer = new AgentPresences.Running(1, 0, "explorer");
+        AgentPresence KimiNow(AgentPresences.Running[] processes, AgentPresences.AppWindow[] windows) =>
+            AgentPresences.Of(processes, windows)[TriggerTool.Kimi];
+        var headless = new AgentPresences.Running(90, 1, "kimi", KimiExe) { Headless = true };
+        Expect(KimiNow(new[] { explorer, headless }, Array.Empty<AgentPresences.AppWindow>()), AgentPresence.Closed);
+        // Even with a window of its own: a headless run is never what the user is looking at.
+        Expect(KimiNow(new[] { explorer, headless }, new[] { new AgentPresences.AppWindow(90, false) }), AgentPresence.Closed);
+        var desktop = new AgentPresences.Running(70, 1, "Kimi Code");
+        Expect(KimiNow(new[] { explorer, desktop, headless }, new[] { new AgentPresences.AppWindow(70, false) }), AgentPresence.Open);
+        Expect(KimiNow(new[] { explorer, desktop, headless }, new[] { new AgentPresences.AppWindow(70, true) }), AgentPresence.Minimized);
+        Expect(KimiNow(new[] { explorer, desktop, headless }, Array.Empty<AgentPresences.AppWindow>()), AgentPresence.Hidden);
+        var cli = new AgentPresences.Running(80, 1, "kimi", KimiExe);
+        Expect(KimiNow(new[] { explorer, cli, headless }, new[] { new AgentPresences.AppWindow(80, false) }), AgentPresence.Open);
+        Expect(KimiNow(new[] { explorer, cli }, new[] { new AgentPresences.AppWindow(80, false) }), AgentPresence.Open);
+    }
+
+    private static void HeadlessGone()
+    {
+        var memory = new AgentProcesses.KimiRun(true, true);
+        var own = new AgentProcesses.KimiRun(true, false);
+        var unread = default(AgentProcesses.KimiRun);
+        Expect(AgentProcesses.Gone(new[] { ("kimi", (string?)KimiExe, memory) }).Contains(TriggerTool.Kimi), true);
+        Expect(AgentProcesses.Gone(new[] { ("kimi", (string?)KimiExe, own) }).Contains(TriggerTool.Kimi), false);
+        // A line that could not be read is the default: it counts as it did.
+        Expect(AgentProcesses.Gone(new[] { ("kimi", (string?)KimiExe, unread) }).Contains(TriggerTool.Kimi), false);
+        Expect(AgentProcesses.Gone(new[] { ("kimi", (string?)KimiExe, memory), ("kimi", (string?)KimiExe, unread) }).Contains(TriggerTool.Kimi), false);
+        Expect(AgentProcesses.Gone(new[] { ("kimi", (string?)KimiExe, memory), ("Kimi Code", (string?)null, unread) }).Contains(TriggerTool.Kimi), false);
     }
 }
