@@ -243,13 +243,13 @@ public static class KimiPluginsTests
         {
             for (var seed = 0; seed < 40; seed++) lines.Add(BotLines.For(fresh[0], new Random(seed)) ?? "");
         }
-        Expect(string.Join("|", lines.Order()), "A message came in.|You've got mail.");
+        Expect(string.Join("|", lines.Order(StringComparer.Ordinal)), "A message came in.|You've got mail.");
         L10n.Current = L10n.Language.SimplifiedChinese;
         try
         {
             var zh = new HashSet<string>();
             for (var seed = 0; seed < 40; seed++) zh.Add(BotLines.For(fresh[0], new Random(seed)) ?? "");
-            Expect(string.Join("|", zh.Order()), "来消息了。|有新邮件。");
+            Expect(string.Join("|", zh.Order(StringComparer.Ordinal)), "有新邮件。|来消息了。");
         }
         finally
         {
