@@ -157,8 +157,8 @@ enum CodexAccountSwitcher {
 
     static func sameAccount(_ first: Data, _ second: Data) -> Bool {
         if first == second { return true }
-        guard let identity = identity(in: first) else { return false }
-        return identity == identity(in: second)
+        guard let firstIdentity = identity(in: first) else { return false }
+        return firstIdentity == identity(in: second)
     }
 
     private static func identity(in data: Data) -> Identity? {
