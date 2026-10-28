@@ -26,7 +26,7 @@ public static class CursorLogReader
         var cutoff = DateTimeOffset.UtcNow.AddDays(-lookbackDays);
         // Taken before the read, so a commit landing during it reads anew.
         var stamp = Stamp(path);
-        if (_last is { } last && string.Equals(last.Path, path, StringComparison.OrdinalIgnoreCase)
+        if (stamp is not null && _last is { } last && string.Equals(last.Path, path, StringComparison.OrdinalIgnoreCase)
             && last.Stamp == stamp && cutoff >= last.Cutoff)
         {
             return last.Events.Where(tokenEvent => tokenEvent.Timestamp >= cutoff).ToList();
@@ -50,20 +50,47 @@ public static class CursorLogReader
             var parsed = ParseBubble(reader.GetString(0));
             if (parsed is not null && parsed.Timestamp >= cutoff) output.Add(parsed);
         }
-        _last = new LastRead(path, stamp, cutoff, output);
+        _last = stamp is null ? null : new LastRead(path, stamp, cutoff, output);
         return output.ToList();
     }
 
-    /// A commit changes the database's or its WAL's write time or length.
-    private static string Stamp(string path)
+    /// Write time and length alone can miss a commit: NTFS stamps a file that a
+    /// writer holds open lazily, a commit into free pages keeps the length, and a
+    /// reset WAL is rewritten from its start at the same length. So the stamp
+    /// adds SQLite's own change counters: the database header's change counter
+    /// and page count (rollback mode), the WAL header's checkpoint sequence and
+    /// salts (they change on each reset), and the wal-index header's iChange and
+    /// mxFrame (they move on every WAL write). Null when any of it cannot be
+    /// read, so the caller reads the database instead of guessing.
+    internal static string? Stamp(string path)
     {
-        static string Of(string file)
+        static string Of(string file, int offset, int count)
         {
             var info = new FileInfo(file);
-            return info.Exists ? $"{info.LastWriteTimeUtc.Ticks}/{info.Length}" : "none";
+            if (!info.Exists) return "none";
+            var buffer = new byte[count];
+            var read = 0;
+            // Shared with the writer, and no SQLite lock is taken: SQLite's
+            // byte-range locks sit far past these header bytes.
+            using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read,
+                       FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.None))
+            {
+                stream.Position = offset;
+                int step;
+                while (read < count && (step = stream.Read(buffer, read, count - read)) > 0) read += step;
+            }
+            return $"{info.LastWriteTimeUtc.Ticks}/{info.Length}/{Convert.ToHexString(buffer, 0, read)}";
         }
-        return Of(path) + "|" + Of(path + "-wal");
+        try
+        {
+            return Of(path, 24, 8) + "|" + Of(path + "-wal", 0, 32) + "|" + Of(path + "-shm", 0, 48);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
+
     /// Returns null for bubbles without a usable token count. Absent or {0,0}
     /// counts are skipped — the survey machine is all historical zero sessions,
     /// so the reader simply yields nothing there rather than a wall of zeros.

@@ -16,6 +16,7 @@ public static class CursorDatabaseTests
         Run("unreadable ledger faults instead of replacing totals with zero", ReadFailure);
         Run("empty ledger is a successful zero and WAL deletion is respected", EmptyLedger);
         Run("an unchanged ledger is not read again, a commit is", UnchangedLedger);
+        Run("a WAL commit that keeps every length and write time still moves the stamp", WalCommitSameLength);
         Run("packaged SQLite engine includes the security fix", EngineVersion);
         Console.WriteLine("CursorDatabaseTests GREEN");
     }
@@ -82,8 +83,11 @@ public static class CursorDatabaseTests
         fixture.Sql("PRAGMA journal_mode=DELETE");
         fixture.Connection.Close();
         Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 1, "control ledger must contain one bubble");
-        using (new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        // The range SQLite takes its shared locks in: a reader cannot open the
+        // database while it is held, but the header bytes the stamp reads stay free.
+        using (var holder = new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
         {
+            holder.Lock(0x40000002, 510);
             Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 1, "an unchanged ledger must be served without opening it");
         }
         fixture.Connection.Open();
@@ -95,6 +99,26 @@ public static class CursorDatabaseTests
         }
         Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 2, "a commit must be read");
         Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 2, "a repeated read must return the same bubbles");
+    }
+
+    private static void WalCommitSameLength()
+    {
+        using var fixture = new Fixture();
+        fixture.Bubble();
+        fixture.Sql("PRAGMA wal_checkpoint(RESTART)");
+        Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 1, "control ledger must contain one bubble");
+        var files = new[] { fixture.Path, fixture.Path + "-wal", fixture.Path + "-shm" };
+        var before = CursorLogReader.Stamp(fixture.Path);
+        var lengths = files.Select(file => new FileInfo(file).Length).ToArray();
+        var times = files.Select(File.GetLastWriteTimeUtc).ToArray();
+        fixture.Bubble("second");
+        // The WAL restarts from its first frame, so the commit lands inside the
+        // old length; the write times are put back as a lazily stamped file shows them.
+        Expect(files.Select(file => new FileInfo(file).Length).SequenceEqual(lengths), "the commit must keep every file's length");
+        for (var i = 0; i < files.Length; i++) File.SetLastWriteTimeUtc(files[i], times[i]);
+        var after = CursorLogReader.Stamp(fixture.Path);
+        Expect(before is not null && after is not null && before != after, "the stamp must move on a commit that changes no length or write time");
+        Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 2, "a commit must be read");
     }
 
     private static void EngineVersion()
@@ -144,10 +168,11 @@ public static class CursorDatabaseTests
             command.Parameters.AddWithValue("@plan", plan);
             command.ExecuteNonQuery();
         }
-        public void Bubble()
+        public void Bubble(string key = "fixture")
         {
             using var command = Connection.CreateCommand();
-            command.CommandText = "INSERT INTO cursorDiskKV VALUES ('bubbleId:fixture', @value)";
+            command.CommandText = "INSERT INTO cursorDiskKV VALUES (@key, @value)";
+            command.Parameters.AddWithValue("@key", "bubbleId:" + key);
             command.Parameters.AddWithValue("@value", JsonSerializer.Serialize(new { createdAt = DateTimeOffset.Now.ToUnixTimeMilliseconds(), tokenCount = new { inputTokens = 100, outputTokens = 20 } }));
             command.ExecuteNonQuery();
         }
