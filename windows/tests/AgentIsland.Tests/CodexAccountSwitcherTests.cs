@@ -195,13 +195,13 @@ public static class CodexAccountSwitcherTests
         using var fixture = new Fixture();
         var work = fixture.Save("work", Credential("account-a", "parked"));
         fixture.Live(Credential("account-b", "live"));
-        Expect(!CodexAccountSwitcher.ParkCurrent("work", fixture.Home), "another account's name was taken over");
-        Expect(!CodexAccountSwitcher.ParkCurrent("Work", fixture.Home), "a name differing only in case was taken over");
+        Expect(CodexAccountSwitcher.ParkCurrent("work", fixture.Home) == CodexAccountSwitcher.ParkResult.NameTaken, "another account's name was taken over");
+        Expect(CodexAccountSwitcher.ParkCurrent("Work", fixture.Home) == CodexAccountSwitcher.ParkResult.NameTaken, "a name differing only in case was taken over");
         Expect(File.ReadAllBytes(work.Path).SequenceEqual(Credential("account-a", "parked")), "the parked login was overwritten");
-        Expect(CodexAccountSwitcher.ParkCurrent("personal", fixture.Home), "a free name was refused");
+        Expect(CodexAccountSwitcher.ParkCurrent("personal", fixture.Home) == CodexAccountSwitcher.ParkResult.Saved, "a free name was refused");
 
         fixture.Live(Credential("account-a", "refreshed"));
-        Expect(CodexAccountSwitcher.ParkCurrent("work", fixture.Home), "the same account could not refresh its own name");
+        Expect(CodexAccountSwitcher.ParkCurrent("work", fixture.Home) == CodexAccountSwitcher.ParkResult.Saved, "the same account could not refresh its own name");
         Expect(File.ReadAllBytes(work.Path).SequenceEqual(Credential("account-a", "refreshed")), "its fresher tokens were not saved");
     }
 

@@ -140,7 +140,11 @@ internal static class CodexAccounts
         dialog.CloseButtonText = L10n.Tr("Cancel");
         dialog.DefaultButton = ContentDialogButton.Primary;
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        if (!CodexAccountSwitcher.ParkCurrent(string.IsNullOrWhiteSpace(name.Text) ? null : name.Text))
+        var parked = CodexAccountSwitcher.ParkCurrent(string.IsNullOrWhiteSpace(name.Text) ? null : name.Text);
+        if (parked == CodexAccountSwitcher.ParkResult.NameTaken)
+            await SettingsUi.Alert(root, L10n.Tr("Couldn't save account"),
+                L10n.Tr("That name already holds a different account. Pick another name, or remove that account first."));
+        else if (parked == CodexAccountSwitcher.ParkResult.Failed)
             await SettingsUi.Alert(root, L10n.Tr("Couldn't save account"),
                 L10n.Tr("The current login could not be read or saved. Check file access and try again."));
     }

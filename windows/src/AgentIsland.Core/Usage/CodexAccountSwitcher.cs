@@ -25,6 +25,8 @@ public static class CodexAccountSwitcher
     /// a login belongs to; the token itself never leaves the file.
     public sealed record Account(string Label, string Path, string? Email);
 
+    public enum ParkResult { Saved, NameTaken, Failed }
+
     private const string AutoSwitchKey = "codexAutoSwitchWhenExhausted";
     private const int MaxLabelLength = 40;
 
@@ -78,21 +80,22 @@ public static class CodexAccountSwitcher
     }
 
     /// Park the CURRENT login under `label`, so it can be switched back to.
-    public static bool ParkCurrent(string? label) => ParkCurrent(label, IslandPaths.CodexHome);
+    public static ParkResult ParkCurrent(string? label) => ParkCurrent(label, IslandPaths.CodexHome);
 
-    internal static bool ParkCurrent(string? label, string home)
+    internal static ParkResult ParkCurrent(string? label, string home)
     {
-        if (ReadBytesOrNull(Path.Combine(home, "auth.json")) is not { } live) return false;
+        if (ReadBytesOrNull(Path.Combine(home, "auth.json")) is not { } live) return ParkResult.Failed;
         return Park(label, live, home);
     }
 
-    private static bool Park(string? label, byte[] data, string home)
+    private static ParkResult Park(string? label, byte[] data, string home)
     {
-        if (StoredPath(Sanitize(label), home) is not { } target) return false;
+        if (StoredPath(Sanitize(label), home) is not { } target) return ParkResult.Failed;
         // A name already holding another account's login is not this one's
         // to take: overwriting it would lose that login for good. Saving the
         // same account again (with fresher tokens) is fine.
-        if (!TryRead(target, out var parked) || (parked is not null && !SameAccount(parked, data))) return false;
+        if (!TryRead(target, out var parked)) return ParkResult.Failed;
+        if (parked is not null && !SameAccount(parked, data)) return ParkResult.NameTaken;
         var store = Path.Combine(home, "agentisland-accounts");
         try
         {
@@ -103,9 +106,9 @@ public static class CodexAccountSwitcher
         {
             System.Diagnostics.Debug.WriteLine(
                 $"AgentIsland: could not create the Codex account store: {error.Message}");
-            return false;
+            return ParkResult.Failed;
         }
-        return WriteAtomic(target, data);
+        return WriteAtomic(target, data) ? ParkResult.Saved : ParkResult.Failed;
     }
 
     /// Save the exact outgoing credentials before replacing the live login.
@@ -125,7 +128,7 @@ public static class CodexAccountSwitcher
                 ReadBytesOrNull(parked.Path) is { } stored && SameAccount(stored, live)).ToList();
             if (matching.Count == 0)
             {
-                if (!Park("previous-" + Guid.NewGuid().ToString("N")[..30], live, home)) return false;
+                if (Park("previous-" + Guid.NewGuid().ToString("N")[..30], live, home) != ParkResult.Saved) return false;
             }
             else
             {

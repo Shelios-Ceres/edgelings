@@ -303,6 +303,7 @@ public static class L10n
         ["Couldn't switch account"] = "无法切换账号",
         ["Switch canceled. Credentials could not be read or safely saved. Check file access and try again."] = "切换已取消：无法读取或安全保存登录凭据。请检查文件访问权限后重试。",
         ["Couldn't save account"] = "无法保存账号",
+        ["That name already holds a different account. Pick another name, or remove that account first."] = "这个名字已保存了另一个账号。换个名字，或先移除那个账号。",
         ["The current login could not be read or saved. Check file access and try again."] = "无法读取或保存当前登录凭据。请检查文件访问权限后重试。",
         ["Not detected — install Claude Code and sign in"] = "未检测到——请安装 Claude Code 并登录",
         ["Not detected — install the Codex CLI and sign in"] = "未检测到——请安装 Codex CLI 并登录",
