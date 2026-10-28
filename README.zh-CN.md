@@ -47,7 +47,7 @@ Edgelings 源自 Tristan Tang 的 [Agent Island](https://github.com/PurryTam/age
   <sub>全部 Agent 合在一张卡片里</sub>
 </p>
 
-这些图都是应用自带的预览工具用虚构数据离屏渲染的,不含任何真实会话。
+这些图都是应用自带的预览工具用虚构数据离屏渲染的,图里的小机器人是抽屉里真正的角色,不含任何真实会话。
 
 ### 它不做什么
 

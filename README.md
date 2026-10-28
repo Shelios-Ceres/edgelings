@@ -47,7 +47,7 @@ A WinUI 3 app. It sits as a thin drawer of bots on the left or right edge of a d
   <sub>The all-agents card</sub>
 </p>
 
-The pictures are rendered by the app's own preview tools from made-up data. They show no real sessions.
+The pictures are rendered offscreen by the app's own preview tools from made-up data; the bots are the drawer's own. They show no real sessions.
 
 ### What it doesn't do
 
