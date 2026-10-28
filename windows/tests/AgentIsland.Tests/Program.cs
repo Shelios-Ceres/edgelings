@@ -19,6 +19,10 @@ public static class Program
             Console.OutputEncoding = System.Text.Encoding.UTF8;
             return CostDump.Run();
         }
+        if (args.Length > 0 && args[0] == "mailwatch")
+        {
+            return MailWatch(args.Length > 1 && int.TryParse(args[1], out var seconds) ? seconds : 600);
+        }
         if (args.Length > 0 && args[0] == "locate")
         {
             foreach (var name in new[] { "claude", "codex", "wt" })
@@ -133,6 +137,38 @@ public static class Program
         Console.WriteLine("PASS the suite reads and writes a temporary settings file, never the real one");
     }
 
+    /// `mailwatch [seconds]`: the app's own mail path against this machine's
+    /// real Kimi sessions, scanned every two seconds. Prints when a session's
+    /// unread mail changes (counts and session ids only: no file is opened),
+    /// and every time the detector says a fresh Mail event. A diagnostic.
+    private static int MailWatch(int seconds)
+    {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        var detector = new SessionEventDetector();
+        var last = new Dictionary<string, int>();
+        var end = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        var lastWorking = new Dictionary<string, DateTimeOffset>();
+        while (DateTimeOffset.UtcNow < end)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var sessions = SessionScanner.ScanKimi(now, lastWorking);
+            var seen = detector.Observe(sessions, now);
+            var counts = seen.Waiting.Where(e => e.Kind == SessionEventKind.Mail).ToDictionary(e => e.SessionId, e => e.Count);
+            foreach (var (id, count) in counts)
+            {
+                if (!last.TryGetValue(id, out var was) || was != count) Console.WriteLine($"{DateTime.Now:HH:mm:ss} unread mail in {id[..8]}: {count}");
+            }
+            foreach (var id in last.Keys.Where(id => !counts.ContainsKey(id))) Console.WriteLine($"{DateTime.Now:HH:mm:ss} no unread mail in {id[..8]}");
+            last = counts;
+            foreach (var e in seen.Fresh.Where(e => e.Kind == SessionEventKind.Mail))
+            {
+                Console.WriteLine($"{DateTime.Now:HH:mm:ss} FRESH mail event for {e.SessionId[..8]}, count {e.Count}, key {e.Key[..Math.Min(14, e.Key.Length)]}...");
+            }
+            Thread.Sleep(2000);
+        }
+        return 0;
+    }
+
     private static int LiveScan()
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -148,7 +184,7 @@ public static class Program
             Console.WriteLine(
                 $"[{session.Tool,-6}] {session.Status,-12} age={age.TotalSeconds,8:F0}s  " +
                 $"{session.Label} ({session.SessionId[..Math.Min(8, session.SessionId.Length)]}) " +
-                $"target={session.LaunchTarget}");
+                $"target={session.LaunchTarget}" + (session.UnreadMail.Count > 0 ? $" unread-mail={session.UnreadMail.Count}" : ""));
         }
         return 0;
     }
