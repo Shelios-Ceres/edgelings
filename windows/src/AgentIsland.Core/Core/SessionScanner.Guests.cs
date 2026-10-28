@@ -92,12 +92,38 @@ public static partial class SessionScanner
                 var state = SessionState(wire, now, lastWorking, null, SessionTurnState.Kimi);
                 var session = new ScannedSession(
                     TriggerTool.Kimi, sid, cwd, Fallback(cwd, sid),
-                    state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli) { TurnEnded = state.TurnEnded };
+                    state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli)
+                {
+                    TurnEnded = state.TurnEnded,
+                    UnreadMail = KimiUnreadMail(name),
+                };
                 live ??= KimiLiveSessions.Read(now);
                 output.Add(live.TryGetValue(name, out var report) ? KimiLiveSessions.Apply(session, report) : session);
             }
         }
         return output;
+    }
+
+    /// The mailbox plugin leaves a session's unread messages as *.json files
+    /// directly in mailbox\inbox\<session folder name>\ (read ones move to a
+    /// read\ folder inside it). Counted by their names and write times; the
+    /// folder is only listed, and nothing in it is opened, written or moved.
+    internal static IReadOnlyList<MailFile> KimiUnreadMail(string sessionFolderName)
+    {
+        try
+        {
+            var inbox = new DirectoryInfo(Path.Combine(IslandPaths.KimiHome, "mailbox", "inbox", sessionFolderName));
+            if (!inbox.Exists) return Array.Empty<MailFile>();
+            return inbox.EnumerateFiles()
+                .Where(file => file.Extension.Equals(".json", StringComparison.OrdinalIgnoreCase))
+                .Select(file => new MailFile(file.Name, new DateTimeOffset(file.LastWriteTimeUtc)))
+                .OrderBy(file => file.At)
+                .ToList();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return Array.Empty<MailFile>();
+        }
     }
 
     /// session.v4.jsonl.zstd is the session's event log as appended zstd

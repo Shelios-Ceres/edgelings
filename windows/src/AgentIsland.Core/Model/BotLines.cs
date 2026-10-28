@@ -25,6 +25,9 @@ public static class BotLines
     public static bool Speaks(AgentPhase phase) =>
         Lines.ContainsKey(phase) && phase is not (AgentPhase.Finished or AgentPhase.Approving or AgentPhase.Asking or AgentPhase.Failed);
 
+    /// What a bot says when unread mail turns up in a session's mailbox.
+    private static readonly string[] MailLines = { "You've got mail.", "A message came in." };
+
     /// The phase a session's event stands for in the stock lines.
     private static AgentPhase? PhaseOf(SessionEventKind kind) => kind switch
     {
@@ -40,6 +43,7 @@ public static class BotLines
     public static string? For(SessionEvent item, Random random) => item.Kind switch
     {
         SessionEventKind.TaskSkipped => L10n.Tr("A scheduled task couldn't run."),
+        SessionEventKind.Mail => L10n.Tr(MailLines[random.Next(MailLines.Length)]),
         _ => PhaseOf(item.Kind) is { } phase && Lines.TryGetValue(phase, out var lines)
             ? L10n.Tr(lines[random.Next(lines.Length)])
             : null,
@@ -51,8 +55,13 @@ public static class BotLines
         SessionEventKind.Done => "Done",
         SessionEventKind.Question => classic ? "Asking" : "Question",
         SessionEventKind.Approval => classic ? "Needs OK" : "Approval",
+        SessionEventKind.Mail => "Mail",
         _ => "Error",
     });
+
+    /// The card's word for a session's event; unread mail adds how many.
+    public static string Word(SessionEvent item, bool classic = false) =>
+        item.Kind == SessionEventKind.Mail && item.Count > 1 ? $"{Word(item.Kind)} {item.Count}" : Word(item.Kind, classic);
 
     /// A summary's lead: how many sessions wait on the bot's agent.
     public static string SummaryTitle(int count) => string.Format(L10n.Tr("{0} sessions need you."), count);

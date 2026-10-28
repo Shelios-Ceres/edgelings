@@ -38,23 +38,24 @@ public sealed record StatusWaitingList(IReadOnlyList<StatusWaiting> Rows, int Mo
     public static readonly TimeSpan ClassicFor = TimeSpan.FromMinutes(15);
 
     /// Classic's list: approvals, questions, errors (a scheduled task that
-    /// did not run among them) and finished turns, each of the last two for
-    /// fifteen minutes.
+    /// did not run among them), unread mail while it is unread, and finished
+    /// turns, errors and finished turns each for fifteen minutes.
     public static StatusWaitingList ForClassic(IEnumerable<SessionEvent> waiting, DateTimeOffset now)
     {
         var ordered = waiting
-            .Where(e => e.Kind is SessionEventKind.Approval or SessionEventKind.Question || now - e.At < ClassicFor)
+            .Where(e => e.Kind is SessionEventKind.Approval or SessionEventKind.Question or SessionEventKind.Mail || now - e.At < ClassicFor)
             .OrderBy(e => e.Kind switch
             {
                 SessionEventKind.Approval => 0,
                 SessionEventKind.Question => 1,
                 SessionEventKind.Error or SessionEventKind.TaskSkipped => 2,
-                _ => 3,
+                SessionEventKind.Mail => 3,
+                _ => 4,
             })
             .ThenByDescending(e => e.At)
             .ToList();
         var rows = ordered.Take(ClassicMaxRows)
-            .Select(e => new StatusWaiting(e.Title, BotLines.Word(e.Kind, classic: true), e.Kind))
+            .Select(e => new StatusWaiting(e.Title, BotLines.Word(e, classic: true), e.Kind))
             .ToList();
         return new StatusWaitingList(rows, ordered.Count - rows.Count);
     }
@@ -72,12 +73,13 @@ public sealed record StatusWaitingList(IReadOnlyList<StatusWaiting> Rows, int Mo
                 SessionEventKind.Approval => 0,
                 SessionEventKind.Question => 1,
                 SessionEventKind.Error => 2,
-                _ => 3,
+                SessionEventKind.Mail => 3,
+                _ => 4,
             })
             .ThenByDescending(e => e.At)
             .ToList();
         var rows = ordered.Take(MaxRows)
-            .Select(e => new StatusWaiting(HasCjk(e.Title) ? "A session" : e.Title, BotLines.Word(e.Kind), e.Kind))
+            .Select(e => new StatusWaiting(HasCjk(e.Title) ? "A session" : e.Title, BotLines.Word(e), e.Kind))
             .ToList();
         return new StatusWaitingList(rows, ordered.Count - rows.Count);
     }

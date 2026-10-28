@@ -137,6 +137,7 @@ internal sealed partial class DrawerWindow
     {
         SessionEventKind.Done => LineKind.Done,
         SessionEventKind.Error or SessionEventKind.TaskSkipped => LineKind.Error,
+        SessionEventKind.Mail => LineKind.Plain,
         _ => LineKind.Waiting,
     };
 
@@ -146,6 +147,7 @@ internal sealed partial class DrawerWindow
         SessionEventKind.Done => "done",
         SessionEventKind.Question => "ask",
         SessionEventKind.Approval => "alert",
+        SessionEventKind.Mail => "",
         _ => "error",
     };
 
@@ -158,6 +160,7 @@ internal sealed partial class DrawerWindow
     /// Reduced motion keeps the two emotes, which are information.
     private void PlayCue(Bot bot, string cue)
     {
+        if (cue.Length == 0) return;
         // Nobody sees a cue while the game loop rests; it would only queue up.
         if (_away || !_shown) return;
         if (_reducedMotion && cue is not ("ask" or "alert")) return;

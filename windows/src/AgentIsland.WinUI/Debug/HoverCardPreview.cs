@@ -468,6 +468,7 @@ internal sealed class HoverCardPreview : Window
         await Film(File("m5-approval"), bubble, () => Say(Stock("Can I run this? Needs your OK."), LineKind.Waiting));
         await Film(File("m5-question"), bubble, () => Say(Stock("Quick question for you."), LineKind.Waiting));
         await Film(File("m5-error"), bubble, () => Say(Stock("Hit an error."), LineKind.Error));
+        await Film(File("m5-mail"), bubble, () => Say(Stock("You've got mail."), LineKind.Plain));
         string Count(int n) { using (_pixel ? L10n.English() : null) return BotLines.SummaryTitle(n); }
         await Film(File("m5-merged"), bubble, () => Say(Count(_pixel ? 3 : 2), LineKind.Waiting));
         _bubble!.Hide(animated: false);
@@ -477,6 +478,7 @@ internal sealed class HoverCardPreview : Window
         {
             Waiting("Windows Builder", SessionEventKind.Approval),
             Waiting("Main", SessionEventKind.Done, 3),
+            Waiting("Review", SessionEventKind.Mail) with { Count = 2 },
             Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
         };
         var many = new[]

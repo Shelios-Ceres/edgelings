@@ -443,6 +443,9 @@ public static class L10n
         ["Antigravity has no conversations to count yet."] = "Antigravity 还没有可统计的对话。",
         ["Model not named"] = "未命名的模型",
         ["Memory (background)"] = "记忆（后台）",
+        ["Mail"] = "邮件",
+        ["You've got mail."] = "有新邮件。",
+        ["A message came in."] = "来消息了。",
         ["See its quota on the Agents page"] = "在「智能体」页查看它的配额",
         // The look pickers: each look's name (Classic's and Pixel's; Pixel shows English).
         ["Look"] = "外观",

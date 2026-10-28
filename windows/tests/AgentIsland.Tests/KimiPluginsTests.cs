@@ -2,6 +2,7 @@ using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Cost;
 using AgentIsland.Localization;
+using AgentIsland.Model;
 using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
@@ -19,6 +20,13 @@ public static class KimiPluginsTests
             ("memory runs: a project named memories elsewhere is a real session", MemoriesNamedProject),
             ("memory runs: their tokens list as one row, priced by the real model, totals unchanged", MemoryCostSplit),
             ("memory runs: the row is named in the shown language", MemoryRowName),
+            ("mailbox: mail present at launch is listed but silent", MailAtLaunch),
+            ("mailbox: files appearing speak once, more files once more, the same files never again", MailSpeaksOncePerBatch),
+            ("mailbox: files moved to read leave the list", MailReadLeavesList),
+            ("mailbox: a count above one shows on both styles' cards", MailCountOnCard),
+            ("mailbox: a session the scan does not list is ignored", MailForUnlistedSession),
+            ("mailbox: only names are looked at, and nothing under mailbox changes", MailNeverReadOrTouched),
+            ("mailbox: a mail bubble never merges into a summary", MailNeverMerges),
         };
         foreach (var (name, test) in tests)
         {
@@ -176,5 +184,192 @@ public static class KimiPluginsTests
         {
             L10n.Current = language;
         }
+    }
+
+    private static SessionEventDetector Detector() =>
+        new((_, _, _) => null, () => Array.Empty<SkippedTask>());
+
+    private static string Inbox(string home, string id) =>
+        Path.Combine(home, "mailbox", "inbox", "session_" + id);
+
+    private static void Mail(string home, string id, params string[] names)
+    {
+        var inbox = Inbox(home, id);
+        Directory.CreateDirectory(inbox);
+        foreach (var name in names) File.WriteAllText(Path.Combine(inbox, name), "{ not a message we read");
+    }
+
+    private static SessionObservation Observe(SessionEventDetector detector)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return detector.Observe(SessionScanner.ScanKimi(now, new Dictionary<string, DateTimeOffset>()), now);
+    }
+
+    private static SessionEvent[] MailOf(IEnumerable<SessionEvent> events) =>
+        events.Where(e => e.Kind == SessionEventKind.Mail).ToArray();
+
+    private static void Listed(string home, string id) =>
+        Session(home, "wd_work_b", id, @"D:\work\app", DateTimeOffset.UtcNow, Turn("agent.turn.started", DateTimeOffset.UtcNow));
+
+    private static void MailAtLaunch() => WithHome(home =>
+    {
+        Listed(home, "s1");
+        Mail(home, "s1", "a.json");
+        var detector = Detector();
+        var first = Observe(detector);
+        Expect(MailOf(first.Waiting).Length, 1);
+        Expect(MailOf(first.Fresh).Length, 0);
+        // Later scans of the same file stay quiet.
+        Expect(MailOf(Observe(detector).Fresh).Length, 0);
+    });
+
+    private static void MailSpeaksOncePerBatch() => WithHome(home =>
+    {
+        Listed(home, "s1");
+        var detector = Detector();
+        Observe(detector);
+
+        Mail(home, "s1", "a.json", "b.json");
+        var arrived = Observe(detector);
+        var fresh = MailOf(arrived.Fresh);
+        Expect(fresh.Length, 1);
+        Expect(fresh[0].Count, 2);
+        Expect(fresh[0].Tool, TriggerTool.Kimi);
+        var lines = new HashSet<string>();
+        using (L10n.English())
+        {
+            for (var seed = 0; seed < 40; seed++) lines.Add(BotLines.For(fresh[0], new Random(seed)) ?? "");
+        }
+        Expect(string.Join("|", lines.Order()), "A message came in.|You've got mail.");
+        L10n.Current = L10n.Language.SimplifiedChinese;
+        try
+        {
+            var zh = new HashSet<string>();
+            for (var seed = 0; seed < 40; seed++) zh.Add(BotLines.For(fresh[0], new Random(seed)) ?? "");
+            Expect(string.Join("|", zh.Order()), "来消息了。|有新邮件。");
+        }
+        finally
+        {
+            L10n.Current = L10n.Language.Auto;
+        }
+
+        Expect(MailOf(Observe(detector).Fresh).Length, 0);
+
+        Mail(home, "s1", "c.json");
+        var more = Observe(detector);
+        Expect(MailOf(more.Fresh).Length, 1);
+        Expect(MailOf(more.Fresh)[0].Count, 3);
+        Expect(MailOf(more.Fresh)[0].Key != fresh[0].Key, "a new batch is a new event");
+        Expect(MailOf(more.Waiting).Length, 1);
+        Expect(MailOf(Observe(detector).Fresh).Length, 0);
+
+        // A name that came and went does not speak when it returns.
+        var inbox = Inbox(home, "s1");
+        Directory.CreateDirectory(Path.Combine(inbox, "read"));
+        File.Move(Path.Combine(inbox, "a.json"), Path.Combine(inbox, "read", "a.json"));
+        Expect(MailOf(Observe(detector).Fresh).Length, 0);
+        File.Move(Path.Combine(inbox, "read", "a.json"), Path.Combine(inbox, "a.json"));
+        Expect(MailOf(Observe(detector).Fresh).Length, 0);
+    });
+
+    private static void MailReadLeavesList() => WithHome(home =>
+    {
+        Listed(home, "s1");
+        var detector = Detector();
+        Observe(detector);
+        Mail(home, "s1", "a.json");
+        Expect(MailOf(Observe(detector).Waiting).Length, 1);
+        var inbox = Inbox(home, "s1");
+        Directory.CreateDirectory(Path.Combine(inbox, "read"));
+        File.Move(Path.Combine(inbox, "a.json"), Path.Combine(inbox, "read", "a.json"));
+        var after = Observe(detector);
+        Expect(MailOf(after.Waiting).Length, 0);
+        Expect(StatusWaitingList.Of(after.Waiting).Rows.Count, 0);
+    });
+
+    private static void MailCountOnCard() => WithHome(home =>
+    {
+        Listed(home, "s1");
+        Mail(home, "s1", "a.json");
+        var detector = Detector();
+        Observe(detector);
+        var one = Observe(detector).Waiting;
+        Mail(home, "s1", "b.json", "c.json");
+        var three = Observe(detector).Waiting;
+        using (L10n.English())
+        {
+            Expect(StatusWaitingList.Of(one).Rows.Single().Word, "Mail");
+            Expect(StatusWaitingList.Of(three).Rows.Single().Word, "Mail 3");
+            // Classic keeps unread mail on its list however long it has sat there.
+            var later = DateTimeOffset.UtcNow.AddHours(3);
+            Expect(StatusWaitingList.ForClassic(three, later).Rows.Single().Word, "Mail 3");
+        }
+        var language = L10n.Current;
+        L10n.Current = L10n.Language.SimplifiedChinese;
+        try
+        {
+            Expect(StatusWaitingList.Of(three).Rows.Single().Word, "邮件 3");
+        }
+        finally
+        {
+            L10n.Current = language;
+        }
+    });
+
+    private static void MailForUnlistedSession() => WithHome(home =>
+    {
+        // Idle for two days: not listed. A memory run: not listed. And a mailbox with no session at all.
+        var old = DateTimeOffset.UtcNow.AddDays(-2);
+        Session(home, "wd_work_b", "old", @"D:\work\app", old, Turn("agent.turn.started", old));
+        Session(home, "wd_memories_a", "run", Path.Combine(home, "memories"), DateTimeOffset.UtcNow, Turn("agent.turn.started", DateTimeOffset.UtcNow));
+        var detector = Detector();
+        Observe(detector);
+        Mail(home, "old", "a.json");
+        Mail(home, "run", "a.json");
+        Mail(home, "nobody", "a.json");
+        var seen = Observe(detector);
+        Expect(MailOf(seen.Waiting).Length, 0);
+        Expect(MailOf(seen.Fresh).Length, 0);
+    });
+
+    private static void MailNeverReadOrTouched() => WithHome(home =>
+    {
+        Listed(home, "s1");
+        Mail(home, "s1", "a.json", "notes.txt");
+        Directory.CreateDirectory(Path.Combine(Inbox(home, "s1"), "read"));
+        File.WriteAllText(Path.Combine(Inbox(home, "s1"), "read", "old.json"), "{}");
+        string Snapshot() => string.Join(";", Directory.EnumerateFileSystemEntries(Path.Combine(home, "mailbox"), "*", SearchOption.AllDirectories)
+            .Order().Select(path => path + "@" + File.GetLastWriteTimeUtc(path).Ticks));
+        var before = Snapshot();
+        // A file held open exclusively is still only listed.
+        using (new FileStream(Path.Combine(Inbox(home, "s1"), "a.json"), FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            var detector = Detector();
+            Observe(detector);
+            Expect(MailOf(Observe(detector).Waiting).Single().Count, 1);
+        }
+        Expect(Snapshot(), before);
+    });
+
+    private static void MailNeverMerges()
+    {
+        SessionEvent Event(string key, SessionEventKind kind) =>
+            new(TriggerTool.Kimi, key, key, kind, key, DateTimeOffset.UtcNow);
+        foreach (var rules in new[] { SpeechRules.Pixel, SpeechRules.Classic })
+        {
+            var queue = new SpeechQueue { Rules = rules };
+            queue.Add(Event("m1", SessionEventKind.Mail));
+            queue.Add(Event("m2", SessionEventKind.Mail));
+            queue.Add(Event("m3", SessionEventKind.Mail));
+            var speech = queue.Next(100);
+            Expect(speech is { IsSummary: false } && speech.First.Kind == SessionEventKind.Mail, "mail speaks alone");
+        }
+        var mixed = new SpeechQueue { Rules = SpeechRules.Classic };
+        mixed.Add(Event("m", SessionEventKind.Mail));
+        mixed.Add(Event("d1", SessionEventKind.Done));
+        mixed.Add(Event("d2", SessionEventKind.Done));
+        var said = mixed.Next(100)!;
+        Expect(said.Events.Count, 2);
+        Expect(said.Events.All(e => e.Kind == SessionEventKind.Done), "the summary counts only sessions that need the user");
     }
 }

@@ -79,15 +79,19 @@ public sealed class SpeechQueue
             .ThenBy(x => x.Index)
             .Select(x => x.Event)
             .ToList();
-        var say = ordered.Count >= Rules.MergeAt ? ordered : new List<SessionEvent> { ordered[0] };
+        // "N sessions need you" would be wrong for mail: it always speaks alone.
+        var mergeable = ordered.Where(e => e.Kind != SessionEventKind.Mail).ToList();
+        var say = mergeable.Count >= Rules.MergeAt ? mergeable : new List<SessionEvent> { ordered[0] };
         foreach (var item in say) _queued.Remove(item);
         _shownAt = now;
         return Shown = new Speech(say);
     }
 
-    /// Approvals and questions first, then everything else in the order it came.
+    /// Approvals and questions first, then everything else in the order it
+    /// came, mail last.
     private static int Urgency(SessionEvent item) =>
-        item.Kind is SessionEventKind.Question or SessionEventKind.Approval ? 0 : 1;
+        item.Kind is SessionEventKind.Question or SessionEventKind.Approval ? 0
+        : item.Kind == SessionEventKind.Mail ? 2 : 1;
 
     /// The bubble is gone, by its own time or taken back.
     public void Dismissed(double now)

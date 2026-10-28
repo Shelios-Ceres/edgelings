@@ -17,6 +17,8 @@ public enum SessionEventKind
     Error,
     /// A scheduled task could not run.
     TaskSkipped,
+    /// Unread mail from another session sits in the session's mailbox.
+    Mail,
 }
 
 /// One thing a session wants, or wanted at a moment. Key identifies it for
@@ -30,6 +32,9 @@ public sealed record SessionEvent(
     DateTimeOffset At)
 {
     public string SessionKey => Tool.RawValue() + ":" + SessionId;
+
+    /// How many unread messages a Mail event stands for.
+    public int Count { get; init; } = 1;
 }
 
 /// What one scan found: Fresh is what turned up since the last scan, Waiting
@@ -49,7 +54,17 @@ public sealed class SessionEventDetector
     private readonly Func<TriggerTool, string, DateTimeOffset, PhaseReading?> _classify;
     private readonly Func<IReadOnlyList<SkippedTask>> _skips;
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, MailState> _mail = new(StringComparer.Ordinal);
     private bool _primed;
+
+    /// What the detector knows of a session's mailbox: every file name it has
+    /// listed (a name seen before never speaks again) and the number of the
+    /// batch that last brought something new, which makes the event's key.
+    private sealed class MailState
+    {
+        public readonly HashSet<string> Names = new(StringComparer.OrdinalIgnoreCase);
+        public int Batch;
+    }
 
     public SessionEventDetector()
         : this(CachedPhase.Classify, ScheduledTaskSkips.Read)
@@ -75,11 +90,29 @@ public sealed class SessionEventDetector
             if (_seen.Add(item.Key) && _primed && IsNews(item, now)) fresh.Add(item);
         }
 
+        foreach (var session in ActivityMonitor.LatestSessions(sessions))
+        {
+            if (session.UnreadMail.Count == 0) continue;
+            var (item, isNew) = Mail(session, now);
+            waiting.Add(item);
+            if (isNew && _primed) fresh.Add(item);
+        }
+
         foreach (var skipped in _skips())
         {
             var key = "skip:" + skipped.Id + ":" + skipped.Stamp;
             var item = new SessionEvent(TriggerTool.Claude, skipped.Id, skipped.Name, SessionEventKind.TaskSkipped, key, skipped.At ?? now);
             if (_seen.Add(key) && _primed) fresh.Add(item);
+        }
+
+        if (_mail.Values.Sum(state => state.Names.Count) > SeenLimit)
+        {
+            // Only names still unread can come back as news.
+            var unread = sessions.Where(s => s.UnreadMail.Count > 0).Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var (id, state) in _mail)
+            {
+                if (!unread.Contains(id)) state.Names.Clear();
+            }
         }
 
         if (_seen.Count > SeenLimit)
@@ -92,6 +125,26 @@ public sealed class SessionEventDetector
         _primed = true;
         fresh.Sort((a, b) => a.At.CompareTo(b.At));
         return new SessionObservation(fresh, waiting);
+    }
+
+    /// A session with unread mail waits for as long as the files stay in its
+    /// inbox. It speaks when a name turns up that was not listed before and a
+    /// new file is itself fresh, as a finished turn must be: mail already in
+    /// the inbox when the app starts, or when the session first shows, is on
+    /// the list but not news. Only file names are looked at.
+    private (SessionEvent Item, bool IsNew) Mail(ScannedSession session, DateTimeOffset now)
+    {
+        if (!_mail.TryGetValue(session.Id, out var state)) _mail[session.Id] = state = new MailState();
+        var added = session.UnreadMail.Where(file => state.Names.Add(file.Name)).ToList();
+        if (added.Count > 0) state.Batch++;
+        var newest = session.UnreadMail.Max(file => file.At);
+        var item = new SessionEvent(
+            session.Tool, session.SessionId, session.Label, SessionEventKind.Mail,
+            "mail:" + session.Id + ":" + state.Batch, newest)
+        {
+            Count = session.UnreadMail.Count,
+        };
+        return (item, added.Any(file => now - file.At < FreshFor));
     }
 
     /// A finished turn is news only while it is fresh; a prompt
