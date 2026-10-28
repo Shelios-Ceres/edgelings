@@ -16,6 +16,13 @@ Edgelings grew out of [Agent Island](https://github.com/PurryTam/agent-island) b
   <img src="docs/media/edgelings/drawer.png" alt="The same drawer of seven bots in Pixel and Classic styles, on a light and a dark background" width="620">
 </p>
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/media/edgelings/bots-thinking.gif" alt="The drawer's bots thinking: Pixel bots in the top row, Classic bots below, each with its own small idle motion" width="360"><br><sub>Thinking</sub></td>
+    <td align="center"><img src="docs/media/edgelings/bots-working.gif" alt="The drawer's bots working on a task: Pixel bots in the top row, Classic bots below" width="360"><br><sub>Working</sub></td>
+  </tr>
+</table>
+
 ## What it does on Windows
 
 A WinUI 3 app. It sits as a thin drawer of bots on the left or right edge of a display, plus a tray icon.

@@ -16,6 +16,13 @@ Edgelings 源自 Tristan Tang 的 [Agent Island](https://github.com/PurryTam/age
   <img src="docs/media/edgelings/drawer.png" alt="同一排七个小机器人,分别是 Pixel 和 Classic 两种风格,各有浅色和深色背景" width="620">
 </p>
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/media/edgelings/bots-thinking.gif" alt="抽屉里的机器人在思考:上排是 Pixel,下排是 Classic,每个都有自己的小动作" width="360"><br><sub>思考中</sub></td>
+    <td align="center"><img src="docs/media/edgelings/bots-working.gif" alt="抽屉里的机器人在干活:上排是 Pixel,下排是 Classic" width="360"><br><sub>工作中</sub></td>
+  </tr>
+</table>
+
 ## Windows 版能做什么
 
 基于 WinUI 3。屏幕左边缘或右边缘有一排小机器人组成的抽屉,另有托盘图标。
