@@ -45,6 +45,10 @@ public sealed class SpeechQueue
 
     public int Count => _queued.Count;
 
+    /// Whether an event of this kind is on screen or waiting its turn.
+    public bool Holds(SessionEventKind kind) =>
+        _queued.Any(e => e.Kind == kind) || Shown?.Events.Any(e => e.Kind == kind) == true;
+
     public bool Add(SessionEvent item)
     {
         if (_queued.Any(e => e.Key == item.Key) || Shown?.Events.Any(e => e.Key == item.Key) == true) return false;

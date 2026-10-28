@@ -21,6 +21,8 @@ internal sealed partial class DrawerWindow
             return;
         }
         if (!DrawerStore.Shared.SpeechBubbles || !_shown || !bot.Visible) return;
+        // A turn that ended on this trouble says so per session; only that line speaks.
+        if (bot.Speech.Holds(SessionEventKind.Error)) return;
         if (now < SpeechQuietAtStartSeconds || now - bot.LastSpoke < SpeechGapSeconds) return;
         if (_card.IsOpen && (_cardBot is null || _cardBot == bot)) return;
         var pixel = _theme == CharacterTheme.Pixel;
@@ -110,6 +112,8 @@ internal sealed partial class DrawerWindow
                 cue = CueOf(item.Kind);
             }
         }
+        // A session's error takes the place of the network line that just played the same cue.
+        var cued = bot.PhaseLine && bot.Bubble is { IsOpen: true } && bot.Phase == AgentPhase.NetworkTrouble && cue == "error";
         bot.PhaseLine = false;
         // Pixel: 5.5 s (4.5 s and a second for the heading), a summary 7 s.
         // Classic: by length, and a request at least eight seconds.
@@ -122,7 +126,7 @@ internal sealed partial class DrawerWindow
         {
             if (kind != LineKind.Error && now - bot.PhaseSince >= 1.5) HopCharacter(bot);
         }
-        else
+        else if (!cued)
         {
             PlayCue(bot, cue);
         }

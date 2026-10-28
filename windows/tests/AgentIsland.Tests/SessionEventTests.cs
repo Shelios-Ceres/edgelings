@@ -34,6 +34,8 @@ public static class SessionEventTests
             ("the queue leaves half a second between bubbles", TestQueueGap),
             ("the queue drops what a session has moved on from", TestQueueReconcile),
             ("a bubble is taken back when its session moves on", TestQueueTakesBack),
+            ("a phase line stays quiet while a session's error speaks", TestQueueErrorSilencesPhaseLine),
+            ("a session's error after a phase line takes its bubble", TestQueueErrorAfterPhaseLine),
             ("the card's list is ordered, capped and counts the rest", TestWaitingList),
             ("overall-phase lines no longer cover per-session events", TestPhaseLinesStepAside),
             ("classic merges from two status events", TestClassicMergesFromTwo),
@@ -287,6 +289,34 @@ public static class SessionEventTests
         queue.Add(skipped);
         queue.Next(4);
         Expect(!queue.Reconcile(Keys()), "a skipped task has no session to move on");
+    }
+
+    // The drawer's whole-agent line for network trouble, a limit or a sign-in
+    // asks Holds(Error) first: the per-session line is the one that speaks.
+    private static void TestQueueErrorSilencesPhaseLine()
+    {
+        var queue = new SpeechQueue();
+        Expect(!queue.Holds(SessionEventKind.Error), "nothing to say: the phase line speaks");
+        queue.Add(Item("a", SessionEventKind.Done));
+        queue.Next(0);
+        queue.Add(Item("b", SessionEventKind.Error));
+        Expect(queue.Holds(SessionEventKind.Error), "an error waiting its turn keeps the phase line quiet");
+        queue.Dismissed(1);
+        queue.Next(2);
+        Expect(queue.Holds(SessionEventKind.Error), "an error on screen keeps the phase line quiet");
+        queue.Dismissed(7);
+        Expect(!queue.Holds(SessionEventKind.Error), "once it is gone, a later phase line speaks again");
+        queue.Add(Item("c", SessionEventKind.Done));
+        queue.Next(8);
+        Expect(!queue.Holds(SessionEventKind.Error), "a done line leaves the phase line alone");
+    }
+
+    private static void TestQueueErrorAfterPhaseLine()
+    {
+        var queue = new SpeechQueue();
+        // A phase line is on screen; the queue does not know about it.
+        queue.Add(Item("a", SessionEventKind.Error));
+        Expect(queue.Next(0)?.First.Kind == SessionEventKind.Error, "the error is said at once, in the phase line's bubble");
     }
 
     private static void TestWaitingList()
