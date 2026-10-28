@@ -51,7 +51,7 @@ public static class TokenDisplayTextTests
         var summary = CostSummarizer.Summarize(new[]
         {
             new TokenEvent(TriggerTool.Codex, morning, "synthetic", 100, 20, 30, 40),
-        }, started);
+        }, started, NewYork);
         Expect(summary.AsOf, (DateTimeOffset?)started);
         Expect(summary.TodayTokens, 190L);
         Expect(summary.TodayBillableTokens, 150L);
