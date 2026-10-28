@@ -476,20 +476,20 @@ internal sealed class HoverCardPreview : Window
         var card = new Rect(Area.Right - 92 - 10 - 300, Area.Top, 380, Area.Height);
         var few = new[]
         {
-            Waiting("Windows Builder", SessionEventKind.Approval),
-            Waiting("Main", SessionEventKind.Done, 3),
-            Waiting("Review", SessionEventKind.Mail) with { Count = 2 },
+            Waiting("Refactor login", SessionEventKind.Approval),
+            Waiting("Fix flaky test", SessionEventKind.Done, 3),
+            Waiting("Review notes", SessionEventKind.Mail) with { Count = 2 },
             Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
         };
         var many = new[]
         {
-            Waiting("Windows Builder", SessionEventKind.Approval),
-            Waiting("Main", SessionEventKind.Question),
+            Waiting("Refactor login", SessionEventKind.Approval),
+            Waiting("Fix flaky test", SessionEventKind.Question),
             Waiting("A very long session title that has to wrap onto a second line and then trim", SessionEventKind.Error),
             Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
-            Waiting("Classic style design", SessionEventKind.Done, 4),
-            Waiting("Pixel-Art design", SessionEventKind.Done, 6),
-            Waiting("Context length", SessionEventKind.Done, 8),
+            Waiting("Update docs", SessionEventKind.Done, 4),
+            Waiting("Add tests", SessionEventKind.Done, 6),
+            Waiting("Clean up scripts", SessionEventKind.Done, 8),
         };
         StatusWaitingList List(SessionEvent[] events) =>
             _pixel ? StatusWaitingList.Of(events) : StatusWaitingList.ForClassic(events, FilmNow);
