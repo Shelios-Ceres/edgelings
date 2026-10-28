@@ -44,7 +44,7 @@ public static class KimiLogReader
     }
 
     private static string ReadConfig() =>
-        File.ReadAllText(Path.Combine(IslandPaths.Home, ".kimi-code", "config.toml"));
+        File.ReadAllText(Path.Combine(IslandPaths.KimiHome, "config.toml"));
 
     /// Kimi's own provider; any other [models] table points at a provider the
     /// user connected, whose price list is the model's own.

@@ -39,7 +39,7 @@ public static class KimiUsageFetcher
     private static readonly TimeSpan HeartbeatFresh = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(8);
 
-    private static string Home => Path.Combine(IslandPaths.Home, ".kimi-code");
+    private static string Home => IslandPaths.KimiHome;
 
     public static async Task<Outcome> Fetch()
     {

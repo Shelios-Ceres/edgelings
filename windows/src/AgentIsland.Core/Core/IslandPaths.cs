@@ -90,7 +90,19 @@ public static class IslandPaths
 
     /// Kimi Code (CLI and desktop app share it): one folder per working
     /// directory, one per session, the live event log at agents/main/wire.jsonl.
-    public static string KimiSessionsRoot => Path.Combine(Home, ".kimi-code", "sessions");
+    public static string KimiSessionsRoot => Path.Combine(KimiHome, "sessions");
+
+    /// Kimi Code's data folder: KIMI_CODE_HOME, else ~/.kimi-code. Sessions,
+    /// config.toml, credentials, the memory plugin's folder and the mailbox
+    /// all live under it.
+    public static string KimiHome
+    {
+        get
+        {
+            var env = Environment.GetEnvironmentVariable("KIMI_CODE_HOME");
+            return string.IsNullOrWhiteSpace(env) ? Path.Combine(Home, ".kimi-code") : env.Trim();
+        }
+    }
 
     /// DeepSeek Harness: one folder per workspace, one per session, the event
     /// log appended as zstd frames to session.v4.jsonl.zstd.
