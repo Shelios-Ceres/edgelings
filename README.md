@@ -74,7 +74,7 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 
 The last command publishes a self-contained build and zips it as `windows\dist\AgentIsland-<version>-win-x64.zip`. Unzip it and run `AgentIsland.WinUI.exe`.
 
-Every push also builds a test package in GitHub Actions: open the run and download `AgentIsland-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
+Every push that changes the Windows code also builds a test package in GitHub Actions, and the workflow can be run by hand from the Actions tab: open the run and download `AgentIsland-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
 
 The app's own name is still "Agent Island" for now. Its code lives under `windows/`: `AgentIsland.Core` holds everything below the UI (scanning, usage, cost) and `AgentIsland.WinUI` the app. [windows/README.md](windows/README.md) has the layout and [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md) the design notes for the drawer.
 
@@ -107,7 +107,7 @@ Kimi Code's desktop app server and Antigravity's language server are asked over 
 
 `Sources/` is Agent Island 2.1.2 as upstream shipped it, plus a few small fixes. None of the Windows features above (the drawer, the characters, the per-session bubbles, the Kimi, DeepSeek and Grok Bot support, the Usage & cost page) are in the macOS app yet. A port is planned.
 
-Every push builds an unsigned test package, `AgentIsland-macos-test`, under the run's Artifacts. Because it is not signed, the first launch needs a right-click and **Open**. To build it yourself on a Mac, run `./scripts/verify.sh`, which runs the unit suites, builds and smoke-launches `build/AgentIsland.app`. A source build has the update feed switched off unless you set `SU_FEED_URL`.
+Every push that changes the macOS code builds an unsigned test package, `AgentIsland-macos-test`, under the run's Artifacts (this workflow can be run by hand too). Because it is not signed, the first launch needs a right-click and **Open**. To build it yourself on a Mac, run `./scripts/verify.sh`, which runs the unit suites, builds and smoke-launches `build/AgentIsland.app`. A source build has the update feed switched off unless you set `SU_FEED_URL`.
 
 Upstream's notes on how it works are still in [docs/how-agent-island-detects-session-state.md](docs/how-agent-island-detects-session-state.md). CONTRIBUTING, SECURITY, ROADMAP, CHANGELOG and the other docs here still speak for Agent Island.
 

@@ -74,7 +74,7 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 
 最后一条命令发布一个自包含的版本,并打成 `windows\dist\AgentIsland-<version>-win-x64.zip`。解压后运行 `AgentIsland.WinUI.exe`。
 
-每次推送也会在 GitHub Actions 里构建一个测试包:打开对应的运行记录,在 Artifacts 下下载 `AgentIsland-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
+每次改到 Windows 代码的推送,都会在 GitHub Actions 里构建一个测试包,也可以在 Actions 页面手动运行:打开对应的运行记录,在 Artifacts 下下载 `AgentIsland-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
 
 应用本身目前仍叫 Agent Island。代码在 `windows/` 下:`AgentIsland.Core` 是界面以下的全部逻辑(扫描、用量、费用),`AgentIsland.WinUI` 是应用本体。目录说明见 [windows/README.md](windows/README.md),抽屉的设计笔记见 [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md)。
 
@@ -107,7 +107,7 @@ Kimi Code 桌面端的服务和 Antigravity 的语言服务只通过本机回环
 
 `Sources/` 是上游发布的 Agent Island 2.1.2,外加少量小修复。上面这些 Windows 功能(抽屉、角色、按会话的气泡、对 Kimi、DeepSeek、Grok Bot 的支持、用量与费用页)macOS 版还都没有,计划之后移植。
 
-每次推送也会构建一个未签名的测试包 `AgentIsland-macos-test`,在对应运行记录的 Artifacts 下。因为没有签名,第一次打开需要右键并选择"打开"。想在 Mac 上自己构建,运行 `./scripts/verify.sh`:它会跑单元测试、构建,并冒烟启动 `build/AgentIsland.app`。源码构建默认关闭更新源,除非你设置了 `SU_FEED_URL`。
+每次改到 macOS 代码的推送,都会构建一个未签名的测试包 `AgentIsland-macos-test`,在对应运行记录的 Artifacts 下(这个工作流也能手动运行)。因为没有签名,第一次打开需要右键并选择"打开"。想在 Mac 上自己构建,运行 `./scripts/verify.sh`:它会跑单元测试、构建,并冒烟启动 `build/AgentIsland.app`。源码构建默认关闭更新源,除非你设置了 `SU_FEED_URL`。
 
 上游关于工作原理的说明仍在 [docs/how-agent-island-detects-session-state.md](docs/how-agent-island-detects-session-state.md)。CONTRIBUTING、SECURITY、ROADMAP、CHANGELOG 和这里的其他文档仍然是 Agent Island 的内容。
 
