@@ -289,6 +289,7 @@ public static class L10n
         ["active {0}"] = "{0}活跃",
         ["5-hour window"] = "5 小时额度",
         ["Weekly window"] = "每周额度",
+        ["Daily window"] = "每日额度",
         ["Billing cycle"] = "计费周期",
         ["Resets {0}"] = "{0}重置",
         ["Account"] = "账户",

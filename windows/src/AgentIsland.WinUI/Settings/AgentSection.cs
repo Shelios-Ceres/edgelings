@@ -450,6 +450,7 @@ internal sealed class AgentSection
     {
         _ when label == L10n.Tr("5h") => L10n.Tr("5-hour window"),
         _ when label == L10n.Tr("Week") => L10n.Tr("Weekly window"),
+        _ when label == L10n.Tr("24h") => L10n.Tr("Daily window"),
         _ when label == L10n.Tr("30d") => L10n.Tr("Billing cycle"),
         _ when label == L10n.Tr("Month") => L10n.Tr("Monthly window"),
         _ => label,
