@@ -328,6 +328,10 @@ public static class AntigravityLanguageServer
     }
 
     /// `lsof -Fpn` prints "p<pid>" and then one "n<address>:<port>" per socket.
+    /// Only sockets that 127.0.0.1 reaches are kept (that address and the
+    /// wildcard): the language server is called there, with its token, so a
+    /// listener on ::1 or on a network address must not make another local
+    /// process's port on 127.0.0.1 look like Antigravity's.
     internal static List<(int Pid, int Port)> ParseLsof(string output)
     {
         var listeners = new List<(int, int)>();
@@ -337,7 +341,8 @@ public static class AntigravityLanguageServer
             var line = raw.Trim();
             if (line.Length < 2) continue;
             if (line[0] == 'p') int.TryParse(line.AsSpan(1), out pid);
-            else if (line[0] == 'n' && pid > 0 && line.LastIndexOf(':') is var colon and > 0
+            else if (line[0] == 'n' && pid > 0 && line.LastIndexOf(':') is var colon and > 1
+                && line[1..colon] is "127.0.0.1" or "*"
                 && int.TryParse(line.AsSpan(colon + 1), out var port) && port > 0)
             {
                 listeners.Add((pid, port));
