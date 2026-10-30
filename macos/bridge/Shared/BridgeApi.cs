@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using AgentIsland.Core;
 using AgentIsland.Cost;
+using AgentIsland.Usage;
 
 namespace AgentIsland.Bridge;
 
@@ -23,6 +24,8 @@ public static class BridgeApi
                 "configure" => Configure(request.RootElement),
                 "windows" => Windows(request.RootElement),
                 "presence" => Presence(),
+                "systemEvent" => SystemEvent(request.RootElement),
+                "diagnose" => Diagnose(request.RootElement),
                 "scan" => Scan(request.RootElement),
                 _ => Error($"unknown method '{method}'"),
             };
@@ -50,6 +53,8 @@ public static class BridgeApi
     {
         var root = request.TryGetProperty("root", out var r) ? r.GetString() : null;
         IslandPaths.RootOverride = root;
+        // "cache" keeps the caches elsewhere while the home stays real (the diagnostic).
+        if (request.TryGetProperty("cache", out var c)) IslandPaths.CacheDirOverride = c.GetString() is { Length: > 0 } cache ? cache : null;
         return Write(json => json.WriteBoolean("rooted", IslandPaths.RootOverride is not null));
     }
 
@@ -71,6 +76,134 @@ public static class BridgeApi
         }
         MacWindowReport.Report(windows);
         return Write(json => json.WriteNumber("windows", windows.Count));
+    }
+
+    /// The Mac's sleep, wake and unlock notifications, forwarded by Swift:
+    /// {"method":"systemEvent","kind":"wake"} or "unlock". Usage refreshes as on Windows.
+    private static string SystemEvent(JsonElement request)
+    {
+        var kind = request.TryGetProperty("kind", out var k) ? k.GetString() : null;
+        switch (kind)
+        {
+            case "wake": UsageStore.Shared.HandleWake(); break;
+            case "unlock": UsageStore.Shared.HandleUnlock(); break;
+            case "sleep": break;
+            default: return Error($"unknown system event '{kind}'");
+        }
+        return Write(json => json.WriteString("handled", kind));
+    }
+
+    /// What Core sees on this machine, as ids, counts and states only: no
+    /// titles, paths, e-mail addresses or tokens. Sessions and token totals
+    /// come from the agents' local files; "fetch":true also asks Claude's and
+    /// Codex's usage endpoints for their quota windows, which uses (and may
+    /// rotate) the stored login the way the app does.
+    private static string Diagnose(JsonElement request)
+    {
+        var fetch = request.TryGetProperty("fetch", out var f) && f.ValueKind == JsonValueKind.True;
+        var now = DateTimeOffset.UtcNow;
+        var presence = AgentPresences.Now();
+        var sessions = Safe(() => SessionScanner.MonitoringScan(now, new Dictionary<string, DateTimeOffset>()), new List<ScannedSession>());
+        var gone = AgentPresences.ProcessesGone();
+        return Write(json =>
+        {
+            json.WriteString("os", System.Runtime.InteropServices.RuntimeInformation.OSDescription);
+            json.WriteString("arch", System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString());
+            json.WriteNumber("windowsReported", MacWindowReport.ReportedCount());
+            json.WriteStartObject("agents");
+            foreach (var tool in Enum.GetValues<TriggerTool>())
+            {
+                json.WriteStartObject(tool.ToString().ToLowerInvariant());
+                json.WriteString("presence", (presence.TryGetValue(tool, out var p) ? p.ToString() : "unknown").ToLowerInvariant());
+                json.WriteBoolean("processRunning", !gone.Contains(tool));
+                var mine = sessions.Where(s => s.Tool == tool).ToList();
+                json.WriteNumber("sessions", mine.Count);
+                json.WriteStartObject("phases");
+                foreach (var group in mine.GroupBy(s => s.Status).OrderBy(g => (int)g.Key))
+                {
+                    json.WriteNumber(group.Key.ToString().ToLowerInvariant(), group.Count());
+                }
+                json.WriteEndObject();
+                json.WriteEndObject();
+            }
+            json.WriteEndObject();
+
+            var login = ClaudeCredentials.Describe();
+            json.WriteStartObject("credentials");
+            json.WriteString("claudeLoginSource", login.Source);
+            if (login.Plan is { } plan) json.WriteString("claudePlan", plan);
+            if (login.MinutesLeft is { } left) json.WriteNumber("claudeAccessTokenMinutesLeft", left);
+            json.WriteBoolean("codexAuthFile", File.Exists(IslandPaths.CodexAuthFile));
+            json.WriteBoolean("grokAuthFile", GrokAuthFile.Exists());
+            json.WriteBoolean("cursorDatabase", File.Exists(IslandPaths.CursorStateDb));
+            json.WriteEndObject();
+
+            json.WriteStartObject("tokens30d");
+            foreach (var (name, scan) in Readers())
+            {
+                var events = Safe(() => scan(30), new List<TokenEvent>());
+                json.WriteStartObject(name);
+                json.WriteNumber("events", events.Count);
+                json.WriteNumber("wireTokens", events.Sum(e => e.WireTokens));
+                json.WriteNumber("models", events.Select(e => e.Model).Distinct(StringComparer.Ordinal).Count());
+                json.WriteEndObject();
+            }
+            json.WriteEndObject();
+
+            if (fetch)
+            {
+                json.WriteStartObject("quota");
+                WriteQuota(json, "claude", () => UsageFetcher.FetchClaude());
+                WriteQuota(json, "codex", () => UsageFetcher.FetchCodex());
+                json.WriteEndObject();
+            }
+        });
+    }
+
+    private static IEnumerable<(string Name, Func<int, List<TokenEvent>> Scan)> Readers()
+    {
+        yield return ("claude", ClaudeLogReader.Scan);
+        yield return ("codex", CodexLogReader.Scan);
+        yield return ("antigravity", AntigravityLogReader.Scan);
+        yield return ("grok", GrokLogReader.Scan);
+        yield return ("cursor", CursorLogReader.Scan);
+        yield return ("kimi", KimiLogReader.Scan);
+        yield return ("deepseek", DeepSeekLogReader.Scan);
+    }
+
+    private static void WriteQuota(Utf8JsonWriter json, string name, Func<Task<AppUsage>> fetch)
+    {
+        json.WriteStartObject(name);
+        try
+        {
+            var usage = fetch().GetAwaiter().GetResult();
+            WriteWindow(json, "fiveHour", usage.FiveHour);
+            WriteWindow(json, "weekly", usage.Weekly);
+        }
+        catch (Exception error)
+        {
+            json.WriteString("error", error.GetType().Name);
+        }
+        json.WriteEndObject();
+    }
+
+    private static void WriteWindow(Utf8JsonWriter json, string name, WindowUsage window)
+    {
+        json.WriteStartObject(name);
+        json.WriteNumber("usedPercent", Math.Round(window.UsedPercent * 100, 1));
+        if (window.ResetAt is { } reset) json.WriteNumber("resetsInMinutes", Math.Round((reset - DateTimeOffset.UtcNow).TotalMinutes));
+        // Only the fixed captions the app itself shows; anything else (it could name a path) is not repeated.
+        if (window.Error is { } error) json.WriteString("error", SafeCaption(error));
+        json.WriteEndObject();
+    }
+
+    private static string SafeCaption(string error) =>
+        error.Length <= 40 && error.All(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or ':') ? error : "(other)";
+
+    private static T Safe<T>(Func<T> read, T fallback)
+    {
+        try { return read(); }
+        catch { return fallback; }
     }
 
     /// Every agent's presence as Core reads it now: open, minimized, hidden or closed.

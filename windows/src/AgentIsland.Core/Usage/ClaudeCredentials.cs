@@ -370,6 +370,30 @@ public static class ClaudeCredentials
         }
     }
 
+    /// Where Claude's login is kept and when its access token runs out: a
+    /// description for a diagnostic, never a token. Source is "keychain",
+    /// "file" or "none".
+    public sealed record LoginStatus(string Source, string? Plan, double? MinutesLeft);
+
+    public static LoginStatus Describe()
+    {
+        double? MinutesLeft(double expiresAtMs) =>
+            expiresAtMs > 0 ? Math.Round((DateTimeOffset.FromUnixTimeMilliseconds((long)expiresAtMs) - DateTimeOffset.UtcNow).TotalMinutes) : null;
+        if (Keychain is { } keychain && keychain.Read() is { } item) return new LoginStatus("keychain", item.SubscriptionType, MinutesLeft(item.ExpiresAt));
+        try
+        {
+            if (!File.Exists(CredentialsFile)) return new LoginStatus("none", null, null);
+            using var stream = SharedFile.Open(CredentialsFile);
+            using var doc = JsonDocument.Parse(stream);
+            if (Jsonl.GetObject(doc.RootElement, "claudeAiOauth") is not { } oauth) return new LoginStatus("none", null, null);
+            return new LoginStatus("file", Jsonl.GetString(oauth, "subscriptionType"), MinutesLeft(Jsonl.GetDouble(oauth, "expiresAt") ?? 0));
+        }
+        catch
+        {
+            return new LoginStatus("none", null, null);
+        }
+    }
+
     /// Cheap local change signal used by the re-auth poll — file mtime here,
     /// keychain `mdat` on macOS.
     public static string? CredentialsModificationStamp()

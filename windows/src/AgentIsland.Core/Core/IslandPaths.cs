@@ -147,9 +147,13 @@ public static class IslandPaths
     public static string SettingsFile => Path.Combine(AppSupportDir, "settings.json");
 
     /// Caches: %LOCALAPPDATA%\Edgelings\cache, ~/Library/Caches/Edgelings on macOS.
-    public static string CacheDir => OperatingSystem.IsMacOS()
+    public static string CacheDir => CacheDirOverride ?? (OperatingSystem.IsMacOS()
         ? Path.Combine(Home, "Library", "Caches", "Edgelings")
-        : Path.Combine(LocalAppData, "Edgelings", "cache");
+        : Path.Combine(LocalAppData, "Edgelings", "cache"));
+
+    /// Another cache folder while the real home is read: the diagnostic reads
+    /// the user's agent data but must not write into the app's own caches.
+    public static string? CacheDirOverride { get; set; }
 
     /// Cursor's conversation and account store (VS Code's globalStorage).
     public static string CursorStateDb => Path.Combine(RoamingAppData, "Cursor", "User", "globalStorage", "state.vscdb");
