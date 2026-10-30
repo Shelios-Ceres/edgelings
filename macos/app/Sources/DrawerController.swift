@@ -329,7 +329,7 @@ final class DrawerController {
         pointerNear = anyNear
         // The pointer resting on a character opens its card even where the
         // window server sent no mouse-moved event (a non-activating panel).
-        if pressed == nil, panel.frame.contains(pointer) { pointerMoved(pointerInView()) }
+        if pressed == nil { pollHover(pointer) }
         let frames = engine.tick(dts, size: Double(Metrics.botSize))
         for index in due where index < frames.count {
             guard let produced = frames[index] else { continue }
@@ -405,6 +405,15 @@ final class DrawerController {
             if hoverBot != slot.id { openCard(slot.id) }
         } else if cardIntent == nil || !(cardIntent!.isValid) {
             cardIntent = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { [weak self] _ in self?.openCardIfStillHovered() }
+        }
+    }
+
+    private func pollHover(_ pointer: NSPoint) {
+        if panel.frame.contains(pointer), slot(at: pointerInView()) != nil {
+            pointerMoved(pointerInView())
+        } else if cards.isOpen, hoverBot != nil, cardClose == nil || !(cardClose!.isValid) {
+            cardIntent?.invalidate()
+            cardClose = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in self?.closeCardUnlessHovered() }
         }
     }
 
