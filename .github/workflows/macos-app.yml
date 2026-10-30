@@ -63,6 +63,7 @@ jobs:
       - name: Diagnostic from the bundle (the whole path, SQLite included)
         timeout-minutes: 3
         run: |
+          set -o pipefail
           export EDGELINGS_ROOT="$RUNNER_TEMP/diag-root"
           mkdir -p "$EDGELINGS_ROOT"
           out/app/Edgelings.app/Contents/MacOS/Edgelings --diagnose | tee out/diagnose.txt
@@ -71,6 +72,7 @@ jobs:
       - name: Self test (everything the UI reads from Core decodes in Swift)
         timeout-minutes: 3
         run: |
+          set -o pipefail
           export EDGELINGS_ROOT="$RUNNER_TEMP/selftest-root"
           mkdir -p "$EDGELINGS_ROOT"
           out/app/Edgelings.app/Contents/MacOS/Edgelings --self-test | tee out/selftest.txt

@@ -86,7 +86,7 @@ enum SelfTest {
         let looks = LooksModel.from(bridge.request("looks", ["id": "claude", "theme": "pixel"]))
         check("looks decode", (looks?.looks.count ?? 0) > 0)
         let table = bridge.request("tr", ["keys": UIStrings.keys, "english": true])["strings"] as? [String: String]
-        check("strings", (table?.count ?? 0) == UIStrings.keys.count, "\(table?.count ?? 0) of \(UIStrings.keys.count)")
+        check("strings", (table?.count ?? 0) == Set(UIStrings.keys).count, "\(table?.count ?? 0) of \(Set(UIStrings.keys).count)")
         for theme in ["pixel", "classic"] {
             do {
                 let engine = try CharacterEngine(theme: theme, directory: AppController.enginesDirectory())
