@@ -11,10 +11,10 @@ This small tool shows what the Edgelings core sees on your Mac: which AI coding 
 
    ```sh
    cd <the folder>
-   xattr -dr com.apple.quarantine . && ./edgelings-diagnose | tee edgelings-report.txt
+   chmod +x edgelings-diagnose && xattr -dr com.apple.quarantine . && ./edgelings-diagnose | tee edgelings-report.txt
    ```
 
-   The first command removes the "downloaded from the internet" mark that would otherwise stop macOS from opening an unsigned tool.
+   `chmod +x` gives the tool back its "may run" flag (the download drops it). `xattr` removes the "downloaded from the internet" mark that would otherwise stop macOS from opening an unsigned tool.
 3. Send `edgelings-report.txt` back. Read it first if you like: every line is a name of an agent, a yes/no, or a number.
 
 If macOS asks whether `security` may access "Claude Code-credentials" in your keychain, that is Edgelings checking that your Claude login exists; "Allow" is fine, "Always Allow" avoids asking again. The tool never prints what it reads.
