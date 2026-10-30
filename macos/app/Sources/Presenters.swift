@@ -40,12 +40,21 @@ struct BubbleView: View {
 
     private var pixel: Bool { palette.skin == .pixel }
     static func reach(_ pixel: Bool) -> CGFloat { pixel ? 4 : 7 }
+
+    /// A long Pixel line breaks between its phrases ("Can I run this?" / "Needs your OK."), not before a lone word.
+    static func phrased(_ line: String, pixel: Bool) -> String {
+        guard pixel, line.count > 24, !line.contains("\n") else { return line }
+        for mark in ["? ", ". ", "! "] where line.contains(mark) {
+            return line.replacingOccurrences(of: mark, with: String(mark.first!) + "\n")
+        }
+        return line
+    }
     static func inset(_ pixel: Bool) -> CGFloat { pixel ? 4 : 20 }
 
     var body: some View {
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let reach = BubbleView.reach(pixel)
-        SkinText(pixel: pixel, text: line, pixelSize: 13, size: 13, color: palette.color("Text"))
+        SkinText(pixel: pixel, text: BubbleView.phrased(line, pixel: pixel), pixelSize: 13, size: 13, color: palette.color("Text"), maxWidth: 240 - 28)
             .lineSpacing(pixel ? 0 : 2)
             .frame(minHeight: pixel ? 0 : 18)
             .multilineTextAlignment(.leading)

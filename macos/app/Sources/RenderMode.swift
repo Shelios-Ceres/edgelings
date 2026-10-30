@@ -110,10 +110,10 @@ enum RenderMode {
     @MainActor
     private static func placedScene(palette: Palette, cards: CardsModel, bubble: String?) -> some View {
         let pixel = palette.skin == .pixel
-        let area = NSRect(x: 0, y: 0, width: 800, height: 380)
+        let area = NSRect(x: 0, y: 0, width: 800, height: cards.cards.count > 1 ? 700 : 380)
         let count = 4
         let panelHeight = 24 + CGFloat(count) * 44 + CGFloat(count - 1) * 10
-        let panelTop: CGFloat = 70
+        let panelTop: CGFloat = cards.cards.count > 1 ? 230 : 70
         let panelX = area.maxX - 56
         func anchor(_ index: Int) -> NSRect {
             NSRect(x: panelX + 6, y: area.maxY - (panelTop + 12 + CGFloat(index) * 54) - 44, width: 44, height: 44)

@@ -42,6 +42,7 @@ struct UsagePage: View {
                             }
                             Rectangle().fill(period == option ? palette.color("Accent") : Color.clear).frame(height: 2)
                         }
+                        .fixedSize()
                     } else {
                         Text(store.t(option.key)).font(kit.body())
                             .foregroundColor(period == option ? palette.color("OnAccent") : palette.color("Text"))
@@ -110,6 +111,7 @@ struct UsagePage: View {
             stat(store.t("Busiest agent"), busiestTokens > 0 ? (busiest?.name ?? "—") : "—",
                  busiestTokens > 0 ? store.t("{0} tokens", compact(busiestTokens)) : store.t(scanned ? "No activity yet" : "Not scanned yet"), kit: kit, palette: palette)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func stat(_ label: String, _ value: String, _ caption: String, kit: Kit, palette: Palette) -> some View {
@@ -118,7 +120,7 @@ struct UsagePage: View {
             SkinText(pixel: store.skin == .pixel, text: value, pixelSize: 22, size: 22, weight: .semibold, color: palette.color("Text"))
             SkinText(pixel: store.skin == .pixel, text: caption, pixelSize: 11, size: 11, weight: .regular, color: palette.color("Text3")).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .modifier(CardSurface(store: store))
     }
 
@@ -178,6 +180,7 @@ struct UsageAgentCard: View {
                 AgentFace(id: agent.id, look: agent.look, swatch: agent.swatch, skin: kit.pixel ? .pixel : .classic, size: kit.pixel ? 20 : 22)
                 SkinText(pixel: store.skin == .pixel, text: agent.name, pixelSize: 14, size: 14, weight: .semibold, color: palette.color("Text"))
                 Spacer()
+                if agent.parts.count == 1, let part = agent.parts.first, part.scanned { hero(part, kit: kit, palette: palette) }
             }
             ForEach(agent.parts) { part in
                 partView(part, identity: identity, kit: kit, palette: palette)
@@ -209,6 +212,17 @@ struct UsageAgentCard: View {
         return cumulative.map { value in defer { previous = value }; return max(0, value - previous) }
     }
 
+    /// The cost, with the tokens under it.
+    private func hero(_ part: UsagePart, kit: Kit, palette: Palette) -> some View {
+        let data = slice(part)
+        return VStack(alignment: .trailing, spacing: 1) {
+            SkinText(pixel: kit.pixel, text: part.dollars ? money(data.dollars) : compact(data.tokens), pixelSize: 20, size: 22,
+                     weight: .semibold, color: palette.color("Text"))
+            SkinText(pixel: kit.pixel, text: part.dollars ? store.t("{0} tokens", compact(data.tokens)) : "\(compact(data.tokens)) tokens · billed by Cursor's own plan",
+                     pixelSize: 13, size: 12, color: palette.color("Text2"))
+        }
+    }
+
     @ViewBuilder private func partView(_ part: UsagePart, identity: Color, kit: Kit, palette: Palette) -> some View {
         let data = slice(part)
         VStack(alignment: .leading, spacing: 8) {
@@ -216,13 +230,7 @@ struct UsageAgentCard: View {
             if !part.scanned {
                 SkinText(pixel: store.skin == .pixel, text: store.t("Not scanned yet"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text3"))
             } else {
-                VStack(alignment: .trailing, spacing: 1) {
-                    SkinText(pixel: kit.pixel, text: part.dollars ? money(data.dollars) : compact(data.tokens), pixelSize: 20, size: 22,
-                             weight: .semibold, color: palette.color("Text"))
-                    SkinText(pixel: kit.pixel, text: part.dollars ? store.t("{0} tokens", compact(data.tokens)) : "\(compact(data.tokens)) tokens · billed by Cursor's own plan",
-                             pixelSize: 13, size: 12, color: palette.color("Text2"))
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                if agent.parts.count > 1 { hero(part, kit: kit, palette: palette).frame(maxWidth: .infinity, alignment: .trailing) }
                 let values = series(part)
                 if values.contains(where: { $0 > 0 }) {
                     if kit.pixel {

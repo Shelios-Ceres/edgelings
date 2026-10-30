@@ -66,11 +66,14 @@ struct PixelTextLayout: Layout {
     let runs: [PixelRun]
     let dip: CGFloat
     let limit: Int?
+    var maxWidth: CGFloat?
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let size = PixelFace.size(dip)
         let text = PixelTypeset.attributed(runs, size: size)
-        let lines = PixelTypeset.lines(text, width: proposal.width, limit: limit)
+        // An unconstrained proposal still wraps at maxWidth.
+        let width: CGFloat? = [proposal.width, maxWidth].compactMap { $0 }.filter { $0.isFinite }.min()
+        let lines = PixelTypeset.lines(text, width: width, limit: limit)
         let widest = lines.map { PixelTypeset.width(of: $0) }.max() ?? 0
         let scale = PixelFace.scale
         return CGSize(width: (widest * scale).rounded(.up) / scale, height: CGFloat(max(lines.count, 1)) * PixelTypeset.lineHeight(size))
@@ -85,11 +88,13 @@ struct PixelText: View {
     let runs: [PixelRun]
     var dip: CGFloat = 13
     var limit: Int?
+    var maxWidth: CGFloat?
 
-    init(_ text: String, dip: CGFloat = 13, color: Color, lines: Int? = nil) {
+    init(_ text: String, dip: CGFloat = 13, color: Color, lines: Int? = nil, maxWidth: CGFloat? = nil) {
         runs = [PixelRun(text: text, color: color)]
         self.dip = dip
         limit = lines
+        self.maxWidth = maxWidth
     }
 
     init(runs: [PixelRun], dip: CGFloat = 13, lines: Int? = nil) {
@@ -99,7 +104,7 @@ struct PixelText: View {
     }
 
     var body: some View {
-        PixelTextLayout(runs: runs, dip: dip, limit: limit) {
+        PixelTextLayout(runs: runs, dip: dip, limit: limit, maxWidth: maxWidth) {
             Canvas { context, size in
                 let fontSize = PixelFace.size(dip)
                 let text = PixelTypeset.attributed(runs, size: fontSize)
@@ -139,10 +144,11 @@ struct SkinText: View {
     var weight: Font.Weight = .regular
     let color: Color
     var lines: Int?
+    var maxWidth: CGFloat?
 
     var body: some View {
         if pixel {
-            PixelText(text, dip: pixelSize, color: color, lines: lines)
+            PixelText(text, dip: pixelSize, color: color, lines: lines, maxWidth: maxWidth)
         } else {
             Text(text).font(.system(size: size, weight: weight)).foregroundColor(color).lineLimit(lines)
         }
