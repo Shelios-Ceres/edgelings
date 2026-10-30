@@ -1,59 +1,64 @@
-# Contributing to AgentIsland
+# Contributing to Edgelings
 
-Thanks for being here. AgentIsland is small enough that any contribution moves the project meaningfully — bug reports especially. Here's how to keep things smooth.
+Thanks for being here. The project is small, so a good bug report or a small fix helps a lot.
 
 ## Reporting bugs
 
-Open an issue. Useful things to include:
+Open an issue at <https://github.com/Shelios-Ceres/edgelings/issues>. Useful things to include:
 
-- macOS version (`sw_vers`) — particularly if the notch detection or window placement is off.
-- Output of `defaults read dev.agentisland.AgentIsland` if it's a settings-related bug.
-- A short description of what you expected vs. what happened.
-- Whether Claude / Codex actually has data populated in the panel — `auth required` errors usually mean the upstream creds aren't where we expect them.
+- Your OS and build: the Windows version (`winver`), or the macOS version (`sw_vers`).
+- Which build you ran: the commit, or the Actions run a test package came from.
+- Which agent is involved (Claude Code, Codex, Kimi Code, and so on), and whether its bot, quota or Usage & cost page shows data at all. An "auth required" or sign-in message usually means the agent's own sign-in isn't where Edgelings looks for it.
+- A short description of what you expected and what happened. A screenshot helps; blur project paths and session titles first.
+- On macOS, for a settings bug: the output of `defaults read dev.agentisland.AgentIsland`.
 
-If `/api/oauth/usage` or `/wham/usage` starts returning unexpected fields, both endpoints are undocumented and may have changed; please grab a `curl` of the response (with the token redacted) so we can update the parser.
+Some of the usage endpoints Edgelings reads are undocumented (Claude's `/api/oauth/usage`, Codex's `/wham/usage`, and others) and can change without notice. If one starts returning something unexpected, a `curl` of the response with the token removed lets us update the parser.
 
 ## Building locally
 
-### macOS
-
-```sh
-./build.sh
-open build/AgentIsland.app
-```
-
-`./scripts/verify.sh` builds and smoke-launches the binary for one second — useful in pre-commit hooks since the app runs forever and a normal `./build.sh && ./build/.../AgentIsland` would block.
-
-No Xcode project, no SwiftPM. Just `swiftc Sources/**/*.swift`.
-
 ### Windows
 
-Install [Git](https://git-scm.com/download/win) and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run these commands from the repository root in PowerShell:
+Install [Git](https://git-scm.com/download/win) and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run these from the repository root in PowerShell:
 
 ```powershell
 dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -p:Platform=x64
 dotnet run --project windows/tests/AgentIsland.Tests -c Release
 ```
 
-The built app is at `windows\src\AgentIsland.WinUI\bin\x64\Release\net10.0-windows10.0.22621.0\win-x64\AgentIsland.WinUI.exe`.
+The test runner ends with `ALL GREEN`. `windows\build.ps1` publishes a self-contained build and zips it as `windows\dist\AgentIsland-<version>-win-x64.zip`; unzip it and run `AgentIsland.WinUI.exe`. The app is still called Agent Island inside the code. [windows/README.md](windows/README.md) has the layout.
 
-To produce the zip that a release ships, run `windows\build.ps1`. It writes `windows\dist\AgentIsland-<version>-win-x64.zip`.
+Tests must pass on any machine. The CI runner is en-US and UTC, and yours probably isn't:
+
+- Sort and compare strings with `StringComparer.Ordinal`. A bare `.Order()` follows the machine's culture.
+- Pass a time zone (for example `CostSummarizer.Summarize(…, zone)`) instead of relying on `TimeZoneInfo.Local`.
+- Use temp folders; never read or write your real agent folders or settings.
+- A quick local check: run the suite once more with the environment variable `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
+
+### macOS
+
+`Sources/` is Agent Island 2.1.2 plus small fixes (see the [README](README.md#macos)).
+
+```sh
+./build.sh
+open build/AgentIsland.app
+```
+
+`./scripts/verify.sh` runs the unit suites, builds, and smoke-launches the binary for one second. The app runs forever, so a plain `./build.sh && ./build/…/AgentIsland` would block. There is no Xcode project and no SwiftPM; `build.sh` calls `swiftc` on `Sources/`.
 
 ## Code style
 
-- **Lowercase Conventional Commits.** `feat(scope): summary`, `fix(scope): summary`, `chore: summary`. Body explains the *why*, not the *what*. The diff is the what. See git log for examples.
-- **Atomic commits.** One logical change per commit; each commit must build and run via `./scripts/verify.sh`.
-- **No AI vocabulary** — words like *comprehensive*, *delve*, *crucial*, *robust*, *seamless* are banned in commit messages, code comments, and docs. Direct words are better.
-- **No `Co-Authored-By` lines** — including Claude / Copilot / etc. tags. Keep authorship clean.
-- **Comments only when the WHY is non-obvious.** A hidden constraint, a workaround for a specific bug, behavior that would surprise a reader. If removing the comment wouldn't confuse the next person, don't write it.
-- **Match existing style.** This codebase favors small files, named extensions on `Animation` / `Color`, and explicit `@MainActor` where AppKit insists.
+- **Lowercase Conventional Commits.** `feat(scope): summary`, `fix(scope): summary`, `docs: summary`. The body explains the why; the diff is the what. See `git log` for examples.
+- **No `Co-Authored-By` lines**, including tags for Claude, Copilot and the like.
+- **Atomic commits.** One logical change per commit. Each commit must build, and the Windows tests (or `./scripts/verify.sh` for `Sources/`) must pass.
+- **No AI vocabulary.** Words like *comprehensive*, *delve*, *crucial*, *robust* and *seamless* stay out of commit messages, comments and docs. Direct words are better.
+- **Comments only when the why is non-obvious:** a hidden constraint, a workaround for a specific bug, behaviour that would surprise a reader.
+- **Match the style of the file you are editing**, even if you would do it differently.
 
 ## Things that need work
 
-- Multi-monitor support. Right now the app chooses one target screen: the first notched display, otherwise `NSScreen.main`. Users with multiple notched displays should ideally see one panel per screen (or at least an option).
-- Real history for the SparkChart. The synthesized noise is honestly decorative. If either Anthropic or OpenAI exposes a usage time-series, we should switch.
-- Accessibility. VoiceOver labels exist, but a high-contrast variant and a full keyboard/focus pass still need work.
-- An Apple Developer ID. Builds are ad-hoc signed today; a Developer ID would let us ship notarized builds without the Gatekeeper caveats.
+- The macOS port of the Windows features: the drawer and its characters, per-session bubbles, Kimi, DeepSeek and Grok Bot support, and the Usage & cost page.
+- Accessibility: a keyboard and screen-reader pass, and a high-contrast variant.
+- Code signing. Windows and macOS builds are unsigned today.
 
 ## Code of conduct
 
