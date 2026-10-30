@@ -9,7 +9,7 @@ namespace AgentIsland.Core;
 /// like a long-running tool. An opt-in Notification hook in Claude Code's
 /// settings.json fills that gap: on a permission prompt or an MCP
 /// input dialog it records the session id, transcript path, prompt type and
-/// time — never the prompt text — in AppSupportDir/claude-hooks. A
+/// time — never the prompt text — in the AgentIsland app folder's claude-hooks. A
 /// Notification hook has no say over permissions; it only observes.
 public static class ClaudeHooks
 {
@@ -39,7 +39,7 @@ public static class ClaudeHooks
     internal static string? SettingsFileOverride { get; set; }
 
     /// Where the hook drops its markers; tests point it elsewhere.
-    internal static string SignalDirectory { get; set; } = Path.Combine(IslandPaths.AppSupportDir, "claude-hooks");
+    internal static string SignalDirectory { get; set; } = Path.Combine(IslandPaths.LegacyAppSupportDir, "claude-hooks");
 
     // A switch flipped on and straight back off must not read the file
     // before the first change has landed.

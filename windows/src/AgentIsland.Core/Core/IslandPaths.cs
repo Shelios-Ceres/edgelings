@@ -108,9 +108,18 @@ public static class IslandPaths
     /// log appended as zstd frames to session.v4.jsonl.zstd.
     public static string DeepSeekSessionsRoot => Path.Combine(Home, ".dsh", "sessions");
 
-    public static string AppSupportDir => Path.Combine(RoamingAppData, "AgentIsland");
+    /// Settings and the crash log. Before the rename to Edgelings these were
+    /// under "AgentIsland"; AppDataMigration copies them across once.
+    public static string AppSupportDir => Path.Combine(RoamingAppData, "Edgelings");
     public static string SettingsFile => Path.Combine(AppSupportDir, "settings.json");
-    public static string CacheDir => Path.Combine(LocalAppData, "AgentIsland", "cache");
+    public static string CacheDir => Path.Combine(LocalAppData, "Edgelings", "cache");
+
+    /// Agent Island's folders, left in place by the migration. The Claude and
+    /// Grok hooks' signal folders and Grok's hook script stay in the first:
+    /// installs made before the rename point at them, and the rename edits
+    /// neither agent's config.
+    public static string LegacyAppSupportDir => Path.Combine(RoamingAppData, "AgentIsland");
+    public static string LegacyCacheDir => Path.Combine(LocalAppData, "AgentIsland", "cache");
 
     private static IReadOnlyList<string> ResolveClaudeConfigRoots()
     {

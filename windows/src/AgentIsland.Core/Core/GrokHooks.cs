@@ -8,12 +8,12 @@ namespace AgentIsland.Core;
 /// open, so a session waiting for one looks like a long-running tool. An
 /// opt-in Notification hook fills the gap, as ClaudeHooks does for Claude
 /// Code: on a permission prompt it records the session id, the prompt type
-/// and the time (never the prompt's text) in AppSupportDir/grok-hooks.
+/// and the time (never the prompt's text) in the AgentIsland app folder's grok-hooks.
 ///
 /// The hook is one file of ours, ~/.grok/hooks/agentisland-notify.json
 /// (Grok's global hooks are always trusted, and nothing else in ~/.grok is
 /// touched), which runs a small PowerShell script of ours kept in
-/// AppSupportDir. A file by that name that isn't ours is left alone.
+/// the AgentIsland app folder. A file by that name that isn't ours is left alone.
 /// A Notification hook has no say over permissions; it only observes.
 public static class GrokHooks
 {
@@ -33,8 +33,8 @@ public static class GrokHooks
     internal static string SignalDirectory { get; set; } = "";
 
     private static string Hooks => HooksDirectory.Length > 0 ? HooksDirectory : Path.Combine(IslandPaths.GrokHome, "hooks");
-    private static string Scripts => ScriptDirectory.Length > 0 ? ScriptDirectory : IslandPaths.AppSupportDir;
-    internal static string Signals => SignalDirectory.Length > 0 ? SignalDirectory : Path.Combine(IslandPaths.AppSupportDir, "grok-hooks");
+    internal static string Scripts => ScriptDirectory.Length > 0 ? ScriptDirectory : IslandPaths.LegacyAppSupportDir;
+    internal static string Signals => SignalDirectory.Length > 0 ? SignalDirectory : Path.Combine(IslandPaths.LegacyAppSupportDir, "grok-hooks");
 
     public static string HookPath => Path.Combine(Hooks, HookFileName);
     private static string ScriptPath => Path.Combine(Scripts, ScriptFileName);

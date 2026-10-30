@@ -1,3 +1,4 @@
+using AgentIsland.Core;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
@@ -17,6 +18,9 @@ public static class Program
             e.SetObserved();
         };
         if (!ClaimSingleInstance()) return 0;
+        // Only the copy that stays: a second launch that bows out must not
+        // make the new folder from settings the running copy is still changing.
+        AppDataMigration.Run();
 
         WinRT.ComWrappersSupport.InitializeComWrappers();
         Application.Start(p =>

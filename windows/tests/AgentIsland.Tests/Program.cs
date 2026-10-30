@@ -105,6 +105,7 @@ public static class Program
                 ("DrawerPlacementTests", DrawerPlacementTests.RunAll, null),
                 ("SecurityGuardTests", SecurityGuardTests.RunAll, "starts cmd.exe"),
                 ("FormattingTests", FormattingTests.RunAll, null),
+                ("AppDataMigrationTests", AppDataMigrationTests.RunAll, null),
                 ("LaunchAtLoginTests", LaunchAtLoginTests.RunAll, "Registry Run key"),
                 ("ScannerCwdTests", ScannerCwdTests.RunAll, null),
                 ("AgentPresenceTests", AgentPresenceTests.RunAll, "built from Windows-format path strings"),
