@@ -76,7 +76,7 @@ The last command publishes a self-contained build and zips it as `windows\dist\E
 
 Every push that changes the Windows code also builds a test package in GitHub Actions, and the workflow can be run by hand from the Actions tab: open the run and download `Edgelings-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
 
-The app's own name is still "Agent Island" for now. Its code lives under `windows/`: `AgentIsland.Core` holds everything below the UI (scanning, usage, cost) and `AgentIsland.WinUI` the app. [windows/README.md](windows/README.md) has the layout and [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md) the design notes for the drawer.
+The app is called Edgelings since the rename (its exe, settings folder and startup entry too); the code projects keep their old names. They live under `windows/`: `AgentIsland.Core` holds everything below the UI (scanning, usage, cost) and `AgentIsland.WinUI` the app. [windows/README.md](windows/README.md) has the layout and [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md) the design notes for the drawer.
 
 ## Privacy
 

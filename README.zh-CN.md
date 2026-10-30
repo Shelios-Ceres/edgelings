@@ -76,7 +76,7 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 
 每次改到 Windows 代码的推送,都会在 GitHub Actions 里构建一个测试包,也可以在 Actions 页面手动运行:打开对应的运行记录,在 Artifacts 下下载 `Edgelings-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
 
-应用本身目前仍叫 Agent Island。代码在 `windows/` 下:`AgentIsland.Core` 是界面以下的全部逻辑(扫描、用量、费用),`AgentIsland.WinUI` 是应用本体。目录说明见 [windows/README.md](windows/README.md),抽屉的设计笔记见 [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md)。
+应用已改名为 Edgelings(exe、设置目录和开机启动项也都改了),代码工程沿用旧名。代码在 `windows/` 下:`AgentIsland.Core` 是界面以下的全部逻辑(扫描、用量、费用),`AgentIsland.WinUI` 是应用本体。目录说明见 [windows/README.md](windows/README.md),抽屉的设计笔记见 [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md)。
 
 ## 隐私
 

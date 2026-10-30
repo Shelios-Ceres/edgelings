@@ -1,6 +1,6 @@
 # Edgelings for Windows
 
-The Windows app: a drawer of agent characters at the edge of your screen, a hover card per agent, a Settings window, a Usage & cost page and a tray icon. The app, its folders and its exe are still called Agent Island for now. For what it does, see the [root README](../README.md).
+The Windows app: a drawer of agent characters at the edge of your screen, a hover card per agent, a Settings window, a Usage & cost page and a tray icon. The app, its exe, its settings folder and its startup entry are called Edgelings since the rename; the code projects keep their Agent Island names. For what it does, see the [root README](../README.md).
 
 ## Layout
 
