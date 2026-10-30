@@ -18,6 +18,13 @@ func emphasised(_ phrase: String, numbers: [String], strong: Color, bold: Bool) 
     return result + Text(String(rest))
 }
 
+enum CardMetrics {
+    /// How far the pointer or tail reaches past the plate.
+    static func reach(_ pixel: Bool) -> CGFloat { pixel ? 4 : 9 }
+    /// Room around the plate for the shadow (Classic) or a margin (Pixel).
+    static func inset(_ pixel: Bool) -> CGFloat { pixel ? 4 : 20 }
+}
+
 struct CardSection: View {
     let card: CardModel
     let palette: Palette
@@ -27,44 +34,58 @@ struct CardSection: View {
     private var labelWidth: CGFloat { pixel ? 52 : 40 }
     private var valueWidth: CGFloat { pixel ? 72 : 58 }
 
-    private func face(_ size: CGFloat = 12) -> Font { pixel ? PixelFace.font(size == 12 ? 13 : size) : .system(size: size) }
+    /// Pixel sets every line in one body size; Classic's rows are 12/16 and its phase line 13/18.
+    private func row() -> Font { pixel ? PixelFace.font(13) : .system(size: 12) }
+    private func head() -> Font { pixel ? PixelFace.font(13) : .system(size: 13) }
     private var secondary: Color { palette.color("Text2") }
     private var tertiary: Color { palette.color("Text3") }
     private var primary: Color { palette.color("Text") }
-    private var identity: Color { palette.readable(card.swatch) }
+    private var identity: Color { palette.agentInk(id: card.id, swatch: card.swatch, defaultLook: card.defaultLook) }
+
+    private var who: some View {
+        HStack(spacing: 8) {
+            if pixel {
+                Rectangle().fill(Color(hex: card.swatch)).frame(width: 6, height: 6).padding(.top, 1)
+            } else {
+                FaceChip(swatch: card.swatch, size: 16)
+            }
+            Text(card.name).font(pixel ? PixelFace.font(13) : .system(size: 13, weight: .semibold)).foregroundColor(primary)
+            if let plan = card.plan, !plan.isEmpty {
+                Text(pixel ? plan : plan)
+                    .font(pixel ? PixelFace.font(13) : .system(size: 10, weight: .semibold))
+                    .foregroundColor(pixel ? identity : primary)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(pixel ? AnyView(Rectangle().fill(palette.tint(card.swatch))) : AnyView(Capsule().fill(palette.tint(card.swatch))))
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                if pixel {
-                    Rectangle().fill(Color(hex: card.swatch)).frame(width: 6, height: 6).padding(.top, 1)
-                } else {
-                    Circle().fill(Color(hex: card.swatch)).frame(width: 16, height: 16)
-                }
-                Text(card.name).font(pixel ? PixelFace.font(13) : .system(size: 13, weight: .semibold)).foregroundColor(primary)
-                if let plan = card.plan, !plan.isEmpty {
-                    Text(plan.uppercased())
-                        .font(pixel ? PixelFace.font(10) : .system(size: 10, weight: .semibold))
-                        .foregroundColor(identity)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: pixel ? 0 : 4).fill(palette.tint(card.swatch)))
-                }
-                if pixel {
-                    Text(card.phase).font(face()).foregroundColor(secondary).lineLimit(2)
-                }
-            }
             if pixel {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        who
+                        Text("·").font(head()).foregroundColor(secondary)
+                        Text(card.phase).font(head()).foregroundColor(secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        who
+                        Text(card.phase).font(head()).foregroundColor(secondary).padding(.leading, indent)
+                    }
+                }
                 if let detail = card.detail {
-                    Text(detail).font(face()).foregroundColor(tertiary).padding(.leading, indent).padding(.top, 1)
+                    Text(detail).font(row()).foregroundColor(tertiary).padding(.leading, indent).padding(.top, 1)
                 }
             } else {
-                let status = ([card.phase] + (card.detail.map { [$0] } ?? [])).joined(separator: " · ")
-                Text(status).font(face()).foregroundColor(secondary).padding(.leading, indent).padding(.top, 1)
+                who
+                (Text(card.phase).foregroundColor(primary) + Text(card.detail.map { " · " + $0 } ?? "").foregroundColor(secondary))
+                    .font(head()).padding(.leading, indent).padding(.top, 1)
             }
             if let tasks = card.tasks {
                 HStack(alignment: .top, spacing: 8) {
-                    Text(tasks.label).font(face()).foregroundColor(secondary).frame(width: labelWidth, alignment: .leading)
-                    emphasised(tasks.text, numbers: [tasks.number], strong: primary, bold: !pixel).font(face()).foregroundColor(tertiary)
+                    Text(tasks.label).font(row()).foregroundColor(secondary).frame(width: labelWidth, alignment: .leading)
+                    emphasised(tasks.text, numbers: [tasks.number], strong: primary, bold: !pixel).font(row()).foregroundColor(secondary)
                 }
                 .padding(.leading, indent).padding(.top, 7)
             }
@@ -80,8 +101,8 @@ struct CardSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(card.note.enumerated()), id: \.offset) { _, note in
                         VStack(alignment: .leading, spacing: 0) {
-                            if let lead = note.lead { Text(lead).font(face()).foregroundColor(tertiary) }
-                            emphasised(note.text, numbers: note.numbers, strong: primary, bold: !pixel).font(face()).foregroundColor(tertiary)
+                            if let lead = note.lead { Text(lead).font(row()).foregroundColor(tertiary) }
+                            emphasised(note.text, numbers: note.numbers, strong: primary, bold: !pixel).font(row()).foregroundColor(tertiary)
                         }
                     }
                 }
@@ -96,13 +117,13 @@ struct CardSection: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(card.waiting.rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: 8) {
-                    Text(row.title).font(face()).foregroundColor(pixel ? secondary : primary).lineLimit(2)
+                    Text(row.title).font(self.row()).foregroundColor(pixel ? secondary : primary).lineLimit(2)
                     Spacer(minLength: 0)
-                    Text(row.word).font(face()).foregroundColor(wordColor(row))
+                    Text(row.word).font(self.row()).foregroundColor(wordColor(row))
                 }
             }
             if card.waiting.more > 0 {
-                Text("+\(card.waiting.more) more").font(face()).foregroundColor(pixel ? secondary : tertiary)
+                Text("+\(card.waiting.more) more").font(row()).foregroundColor(pixel ? secondary : tertiary)
             }
         }
     }
@@ -120,16 +141,16 @@ struct CardSection: View {
     private func meterRow(_ meter: MeterModel) -> some View {
         let warn = (meter.used ?? 0) >= 0.9
         return HStack(spacing: 8) {
-            Text(meter.label).font(face()).foregroundColor(secondary).lineLimit(1).frame(width: labelWidth, alignment: .leading)
+            Text(meter.label).font(row()).foregroundColor(secondary).lineLimit(1).frame(width: labelWidth, alignment: .leading)
             Group {
                 if pixel {
                     PixelBar(share: meter.shown, color: warn ? palette.color("Critical") : identity, blocks: 14)
                 } else {
-                    ClassicBar(share: meter.shown, color: warn ? palette.color("Critical") : identity, track: identity.opacity(0.2))
+                    ClassicBar(share: meter.shown, color: warn ? palette.color("Critical") : identity, track: palette.tint(card.swatch))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(meter.value).font(face()).fontWeight(warn && !pixel ? .semibold : .regular)
+            Text(meter.value).font(row()).fontWeight(warn && !pixel ? .semibold : .regular)
                 .foregroundColor(warn ? palette.color("Critical") : secondary)
                 .frame(width: valueWidth, alignment: .trailing)
         }
@@ -137,20 +158,22 @@ struct CardSection: View {
 
     private func tokensRow(_ tokens: TokensModel) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Text(tokens.label).font(face()).foregroundColor(secondary).frame(width: labelWidth, alignment: .leading)
+            Text(tokens.label).font(row()).foregroundColor(secondary).frame(width: labelWidth, alignment: .leading)
             if tokens.todayNumber.isEmpty {
-                Text(tokens.today).font(face()).foregroundColor(tertiary)
+                Text(tokens.today).font(row()).foregroundColor(tertiary)
             } else {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack { Text("Today").font(face()).foregroundColor(secondary); Spacer(); Text(tokens.todayNumber).font(face()).foregroundColor(primary) }
-                    HStack { Text("This month").font(face()).foregroundColor(secondary); Spacer(); Text(tokens.monthNumber).font(face()).foregroundColor(primary) }
+                    HStack { Text("Today").font(row()).foregroundColor(secondary); Spacer(); emphasised(tokens.todayNumber, numbers: [tokens.todayNumber], strong: primary, bold: !pixel).font(row()).foregroundColor(primary) }
+                    HStack { Text("This month").font(row()).foregroundColor(secondary); Spacer(); emphasised(tokens.monthNumber, numbers: [tokens.monthNumber], strong: primary, bold: !pixel).font(row()).foregroundColor(primary) }
                 }
             }
         }
     }
 }
 
-/// The card: sections in columns that fit the room, in the skin's panel.
+/// The card: sections in columns that fit the room, in the skin's panel. A
+/// one-character card has a pointer or tail aimed at its character; the
+/// all-agents card has none.
 struct CardView: View {
     let model: CardsModel
     let palette: Palette
@@ -160,15 +183,17 @@ struct CardView: View {
     var rightEdge = true
 
     private var pixel: Bool { palette.skin == .pixel }
-    static let reach: CGFloat = 9
+    private var pointed: Bool { model.cards.count == 1 }
 
     var column: CGFloat { (pixel ? 272 : 264) - 32 }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        let reach = CardMetrics.reach(pixel)
+        let inset = CardMetrics.inset(pixel)
+        let content = HStack(alignment: .top, spacing: 0) {
             ForEach(Array(columns.enumerated()), id: \.offset) { position, indexes in
                 if position > 0 {
-                    divider.frame(maxHeight: .infinity).padding(.horizontal, 16)
+                    verticalRule.padding(.horizontal, 16)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(indexes.enumerated()), id: \.offset) { row, index in
@@ -179,78 +204,83 @@ struct CardView: View {
                 .frame(width: column, alignment: .topLeading)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, pixel ? 14 : 13)
-        .background(plate)
-        .padding(.leading, rightEdge ? 0 : CardView.reach).padding(.trailing, rightEdge ? CardView.reach : 0)
-        .padding(pixel ? 4 : 20)
-        .overlay(alignment: .topLeading) { tail }
+        .padding(.leading, 16).padding(.trailing, 16).padding(.top, pixel ? 14 : 13).padding(.bottom, 14)
+        return content
+            .background(plate)
+            .padding(.leading, rightEdge ? 0 : reach).padding(.trailing, rightEdge ? reach : 0)
+            .padding(inset)
     }
 
     @ViewBuilder private var plate: some View {
         if pixel {
-            PixelPlateBackground(palette: palette)
+            PixelPlateBackground(palette: palette, pointerY: pointed ? tailY : nil, pointLeft: !rightEdge)
         } else {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(palette.color("Paper"))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(palette.dark ? 0.45 : 0.18), radius: 10, x: 0, y: 4)
+            ClassicPlate(palette: palette, radius: 16, tailY: pointed ? tailY : nil, pointsRight: rightEdge)
         }
     }
 
-    private var rule: some View {
-        Rectangle().fill(palette.color(pixel ? "LineSoft" : "LineSoft")).frame(height: pixel ? 2 : 1)
+    @ViewBuilder private var rule: some View {
+        if pixel {
+            DottedRule(color: palette.color("LineSoft"), vertical: false)
+        } else {
+            Rectangle().fill(palette.color("LineSoft")).frame(height: 1)
+        }
     }
 
-    private var divider: some View {
-        Rectangle().fill(palette.color("LineSoft")).frame(width: pixel ? 2 : 1)
-    }
-
-    /// The pointer toward the character the card belongs to.
-    @ViewBuilder private var tail: some View {
-        if let tailY {
-            let inset: CGFloat = pixel ? 4 : 20
-            GeometryReader { proxy in
-                let x = rightEdge ? proxy.size.width - inset - CardView.reach : inset
-                let y = tailY + inset
-                if pixel {
-                    PixelPointer(palette: palette, rightEdge: rightEdge).position(x: x + (rightEdge ? 4 : 5), y: y)
-                } else {
-                    Triangle(rightEdge: rightEdge).fill(palette.color("Paper"))
-                        .frame(width: 9, height: 14).position(x: x + (rightEdge ? 4.5 : 4.5), y: y)
-                }
-            }
+    @ViewBuilder private var verticalRule: some View {
+        if pixel {
+            DottedRule(color: palette.color("LineSoft"), vertical: true)
+        } else {
+            Rectangle().fill(palette.color("LineSoft")).frame(width: 1)
         }
     }
 }
 
-struct Triangle: Shape {
-    let rightEdge: Bool
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        if rightEdge {
-            path.move(to: CGPoint(x: rect.minX - 0.5, y: rect.minY)); path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-            path.addLine(to: CGPoint(x: rect.minX - 0.5, y: rect.maxY))
-        } else {
-            path.move(to: CGPoint(x: rect.maxX + 0.5, y: rect.minY)); path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-            path.addLine(to: CGPoint(x: rect.maxX + 0.5, y: rect.maxY))
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// Three cells against the edge, one beyond them: a pixel arrowhead.
-struct PixelPointer: View {
-    let palette: Palette
-    let rightEdge: Bool
+/// A faint dotted divider: one-cell dots, one cell apart.
+struct DottedRule: View {
+    let color: Color
+    let vertical: Bool
 
     var body: some View {
-        let c: CGFloat = 2
-        ZStack {
-            Rectangle().fill(palette.color("Line")).frame(width: c, height: 4 * c)
-            Rectangle().fill(palette.color("Line")).frame(width: c, height: 2 * c).offset(x: rightEdge ? c : -c)
-            Rectangle().fill(palette.color("Paper")).frame(width: c, height: 2 * c).offset(x: rightEdge ? -c / 2 : c / 2).opacity(0)
+        Canvas { context, size in
+            var path = Path()
+            if vertical {
+                path.move(to: CGPoint(x: 1, y: 0)); path.addLine(to: CGPoint(x: 1, y: size.height))
+            } else {
+                path.move(to: CGPoint(x: 0, y: 1)); path.addLine(to: CGPoint(x: size.width, y: 1))
+            }
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, dash: [2, 2]))
         }
-        .frame(width: 3 * c, height: 4 * c)
+        .frame(width: vertical ? 2 : nil, height: vertical ? nil : 2)
+    }
+}
+
+/// Classic's paper plate: a rounded card with a hairline, the soft tail where
+/// there is one, and the two shadows Windows gives it.
+struct ClassicPlate: View {
+    let palette: Palette
+    var radius: CGFloat
+    var tailY: CGFloat?
+    var pointsRight: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                RoundedRectangle(cornerRadius: min(radius, proxy.size.height / 2)).fill(palette.color("Paper"))
+                if let tailY {
+                    let half: CGFloat = radius > 12 ? 10 : 6
+                    let reach: CGFloat = radius > 12 ? 9 : 7
+                    let y = min(max(tailY, radius + half), max(radius + half, proxy.size.height - radius - half))
+                    let rect = pointsRight
+                        ? CGRect(x: proxy.size.width - 0.5, y: y - half, width: reach, height: half * 2)
+                        : CGRect(x: -reach + 0.5, y: y - half, width: reach, height: half * 2)
+                    SoftTail(pointsRight: pointsRight, halfBase: half, reach: reach).path(in: rect).fill(palette.color("Paper"))
+                }
+            }
+            .compositingGroup()
+            .shadow(color: .black.opacity(palette.dark ? 0.45 : 0.13), radius: palette.dark ? 8 : 7, x: 0, y: 8)
+            .shadow(color: .black.opacity(palette.dark ? 0.35 : 0.10), radius: 1, x: 0, y: 1)
+            RoundedRectangle(cornerRadius: min(radius, proxy.size.height / 2)).stroke(palette.hairline, lineWidth: 1)
+        }
     }
 }

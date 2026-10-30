@@ -31,8 +31,8 @@ enum RenderMode {
             for dark in [false, true] {
                 let tag = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")"
                 let palette = Palette(skin: skin, dark: dark)
-                save(snapshot(scene(palette: palette, cards: Sample.cards(Array(Sample.all.prefix(1))), columns: [[0]], bubble: "Done — your turn!"), dark: dark), "scene-one-\(tag).png")
-                save(snapshot(scene(palette: palette, cards: Sample.cards(Sample.all), columns: [[0, 1], [2, 3]], bubble: nil), dark: dark), "scene-all-\(tag).png")
+                save(snapshot(scene(palette: palette, cards: Sample.cards([Sample.claude(skin)]), columns: [[0]], bubble: "Done — your turn!"), dark: dark), "scene-one-\(tag).png")
+                save(snapshot(scene(palette: palette, cards: Sample.cards(Sample.all(skin)), columns: [[0, 1], [2, 3]], bubble: nil), dark: dark), "scene-all-\(tag).png")
                 save(snapshot(bubbles(palette: palette), dark: dark), "bubbles-\(tag).png")
             }
         }
@@ -155,41 +155,66 @@ struct DrawerColumn: View {
     }
 }
 
+/// The worn look's id and colour for each agent, as Core's LookCatalog has them (the defaults).
+enum SampleLooks {
+    static func look(_ id: String, _ skin: Skin) -> (id: String, swatch: UInt32) {
+        let pixel: [String: (String, UInt32)] = ["claude": ("clawd", 0xD77757), "codex": ("notebook", 0x9EA1AB), "antigravity": ("balloon", 0x3D7BF5),
+                                                  "kimi": ("blob", 0x2B8BFF), "grok": ("ring", 0x0B0B0C), "deepseek": ("whale", 0x4D6BFE)]
+        let classic: [String: (String, UInt32)] = ["claude": ("succulent", 0xD97757), "codex": ("desk-computer", 0x2D8CFF), "antigravity": ("flying-saucer", 0x8E63F5),
+                                                    "kimi": ("astronaut-helmet", 0x1D4E9E), "grok": ("ringed-planet", 0x6E7480), "deepseek": ("submarine", 0x4D6BFE)]
+        let pair = (skin == .pixel ? pixel : classic)[id] ?? ("", 0x888888)
+        return (pair.0, pair.1)
+    }
+}
+
 /// Synthetic cards, as Core would send them.
 enum Sample {
     static func cards(_ list: [CardModel]) -> CardsModel { CardsModel(pixel: false, cards: list) }
 
-    static let claude = CardModel(
-        id: "claude", name: "Claude", swatch: 0xD97757, phase: "Running commands", detail: "Bash", plan: "MAX",
-        tasks: TasksModel(label: "Tasks", text: "2 running", number: "2"),
-        meters: [MeterModel(label: "5h", value: "38%", shown: 0.38, used: 0.38, resets: "Resets in 2h 10m"),
-                 MeterModel(label: "Week", value: "12%", shown: 0.12, used: 0.12, resets: nil)],
-        tokens: TokensModel(label: "Tokens", today: "today 1.2M", todayNumber: "1.2M", month: "48M this month", monthNumber: "48M"),
-        note: [], waiting: WaitingModel(more: 0, rows: []))
+    static func claude(_ skin: Skin) -> CardModel {
+        let look = SampleLooks.look("claude", skin)
+        return CardModel(
+            id: "claude", name: "Claude", swatch: look.swatch, look: look.id, defaultLook: true, phase: "Running commands", detail: "Bash", plan: "MAX",
+            tasks: TasksModel(label: "Tasks", text: "2 running", number: "2"),
+            meters: [MeterModel(label: "5h", value: "38%", shown: 0.38, used: 0.38, resets: "Resets in 2h 10m"),
+                     MeterModel(label: "Week", value: "12%", shown: 0.12, used: 0.12, resets: nil)],
+            tokens: TokensModel(label: "Tokens", today: "today 1.2M", todayNumber: "1.2M", month: "48M this month", monthNumber: "48M"),
+            note: [], waiting: WaitingModel(more: 0, rows: []))
+    }
 
-    static let codex = CardModel(
-        id: "codex", name: "Codex", swatch: 0x9EA3B0, phase: "Waiting for your approval", detail: nil, plan: nil, tasks: nil,
-        meters: [MeterModel(label: "5h", value: "93%", shown: 0.93, used: 0.93, resets: nil),
-                 MeterModel(label: "Week", value: "61%", shown: 0.61, used: 0.61, resets: nil)],
-        tokens: TokensModel(label: "Tokens", today: "today 310K", todayNumber: "310K", month: "9.8M this month", monthNumber: "9.8M"),
-        note: [PhraseModel(text: "2 reset cards", lead: nil, numbers: ["2"])],
-        waiting: WaitingModel(more: 1, rows: [WaitingRowModel(title: "A session", word: "Approval", kind: "approval"),
-                                              WaitingRowModel(title: "Another session", word: "Question", kind: "question")]))
+    static func codex(_ skin: Skin) -> CardModel {
+        let look = SampleLooks.look("codex", skin)
+        let pixel = skin == .pixel
+        return CardModel(
+            id: "codex", name: "Codex", swatch: look.swatch, look: look.id, defaultLook: true, phase: "Waiting for your approval", detail: nil, plan: nil, tasks: nil,
+            meters: [MeterModel(label: "5h", value: "93%", shown: 0.93, used: 0.93, resets: nil),
+                     MeterModel(label: "Week", value: "61%", shown: 0.61, used: 0.61, resets: nil)],
+            tokens: TokensModel(label: "Tokens", today: "today 310K", todayNumber: "310K", month: "9.8M this month", monthNumber: "9.8M"),
+            note: [PhraseModel(text: "2 reset cards", lead: nil, numbers: ["2"])],
+            waiting: WaitingModel(more: 1, rows: [WaitingRowModel(title: "A session", word: pixel ? "Approval" : "Needs OK", kind: "approval"),
+                                                  WaitingRowModel(title: "Another session", word: pixel ? "Question" : "Asking", kind: "question")]))
+    }
 
-    static let antigravity = CardModel(
-        id: "antigravity", name: "Antigravity", swatch: 0x4285F4, phase: "Idle", detail: nil, plan: nil, tasks: nil,
-        meters: [MeterModel(label: "5h", value: "20%", shown: 0.2, used: 0.2, resets: nil),
-                 MeterModel(label: "Week", value: "—", shown: nil, used: nil, resets: "Awaiting sync"),
-                 MeterModel(label: "Argon", value: "7%", shown: 0.07, used: 0.07, resets: nil)],
-        tokens: TokensModel(label: "Tokens", today: "Not scanned yet", todayNumber: "", month: "—", monthNumber: ""),
-        note: [PhraseModel(text: "Quota updated 12 min ago", lead: nil, numbers: ["12"])], waiting: WaitingModel(more: 0, rows: []))
+    static func antigravity(_ skin: Skin) -> CardModel {
+        let look = SampleLooks.look("antigravity", skin)
+        return CardModel(
+            id: "antigravity", name: "Antigravity", swatch: look.swatch, look: look.id, defaultLook: true, phase: "Idle", detail: nil, plan: nil, tasks: nil,
+            meters: [MeterModel(label: "5h", value: "20%", shown: 0.2, used: 0.2, resets: nil),
+                     MeterModel(label: "Week", value: "—", shown: nil, used: nil, resets: "Awaiting sync"),
+                     MeterModel(label: "Argon", value: "7%", shown: 0.07, used: 0.07, resets: nil)],
+            tokens: TokensModel(label: "Tokens", today: "Not scanned yet", todayNumber: "", month: "—", monthNumber: ""),
+            note: [PhraseModel(text: "Quota updated 12 min ago", lead: nil, numbers: ["12"])], waiting: WaitingModel(more: 0, rows: []))
+    }
 
-    static let kimi = CardModel(
-        id: "kimi", name: "Kimi Code", swatch: 0x2E8FF7, phase: "Sleeping", detail: "In the tray", plan: nil, tasks: nil,
-        meters: [MeterModel(label: "Month", value: "44%", shown: 0.44, used: 0.44, resets: nil)],
-        tokens: TokensModel(label: "Tokens", today: "today 0", todayNumber: "0", month: "3.1M this month", monthNumber: "3.1M"),
-        note: [PhraseModel(text: "Kimi Code 30% · Kimi app 14%", lead: "Month:", numbers: ["30%", "14%"])],
-        waiting: WaitingModel(more: 0, rows: []))
+    static func kimi(_ skin: Skin) -> CardModel {
+        let look = SampleLooks.look("kimi", skin)
+        return CardModel(
+            id: "kimi", name: "Kimi Code", swatch: look.swatch, look: look.id, defaultLook: true, phase: skin == .pixel ? "Sleeping" : "Resting", detail: "In the tray", plan: nil, tasks: nil,
+            meters: [MeterModel(label: "Month", value: "44%", shown: 0.44, used: 0.44, resets: nil)],
+            tokens: TokensModel(label: "Tokens", today: "today 0", todayNumber: "0", month: "3.1M this month", monthNumber: "3.1M"),
+            note: [PhraseModel(text: "Kimi Code 30% · Kimi app 14%", lead: "Month:", numbers: ["30%", "14%"])],
+            waiting: WaitingModel(more: 0, rows: []))
+    }
 
-    static let all = [claude, codex, antigravity, kimi]
+    static func all(_ skin: Skin) -> [CardModel] { [claude(skin), codex(skin), antigravity(skin), kimi(skin)] }
 }

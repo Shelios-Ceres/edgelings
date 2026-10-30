@@ -442,6 +442,8 @@ public static class AppModel
         json.WriteString("id", bot.Provider.RawValue());
         json.WriteString("name", card.Name);
         json.WriteNumber("swatch", look.Swatch);
+        json.WriteString("look", look.Id);
+        json.WriteBoolean("defaultLook", look == LookCatalog.For(theme, bot.Provider)[0]);
         json.WriteString("phase", card.Phase);
         if (card.Detail is { } detail) json.WriteString("detail", detail);
         if (card.Plan is { } plan) json.WriteString("plan", plan);

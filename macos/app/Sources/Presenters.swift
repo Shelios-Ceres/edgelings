@@ -23,6 +23,10 @@ final class FloatingPanel: NSPanel {
 
 // MARK: Speech bubble
 
+/// A character's line beside it. It hugs its text (240 at most), its pointer
+/// or soft tail aims at the speaker, and it pops by kind: done hops, waiting
+/// knocks twice, an error shakes, a plain line just pops. Reduced motion
+/// fades only.
 struct BubbleView: View {
     let line: String
     let kind: String
@@ -31,47 +35,63 @@ struct BubbleView: View {
     let rightEdge: Bool
     let tailY: CGFloat
     @State private var appeared = false
+    @State private var dx: CGFloat = 0
+    @State private var dy: CGFloat = 0
 
     private var pixel: Bool { palette.skin == .pixel }
-    static let reach: CGFloat = 7
-    static let room: EdgeInsets = EdgeInsets(top: 12, leading: 16, bottom: 24, trailing: 16)
+    static func reach(_ pixel: Bool) -> CGFloat { pixel ? 4 : 7 }
+    static func inset(_ pixel: Bool) -> CGFloat { pixel ? 4 : 20 }
 
     var body: some View {
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let reach = BubbleView.reach(pixel)
         Text(line)
             .font(pixel ? PixelFace.font(13) : .system(size: 13))
             .foregroundColor(palette.color("Text"))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: 240 - 30, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize(horizontal: true, vertical: true)
             .padding(.horizontal, pixel ? 14 : 15).padding(.top, 9).padding(.bottom, 10)
             .background(plate)
-            .padding(.leading, rightEdge ? 0 : BubbleView.reach).padding(.trailing, rightEdge ? BubbleView.reach : 0)
-            .padding(BubbleView.room)
-            .overlay(alignment: .topLeading) { tail }
-            .scaleEffect(appeared || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0.86, anchor: rightEdge ? .trailing : .leading)
+            .padding(.leading, rightEdge ? 0 : reach).padding(.trailing, rightEdge ? reach : 0)
+            .padding(BubbleView.inset(pixel))
+            .offset(x: dx, y: dy)
+            .scaleEffect(appeared || reduced ? 1 : 0.86, anchor: rightEdge ? .trailing : .leading)
             .opacity(appeared ? 1 : 0)
-            .onAppear { withAnimation(.spring(response: 0.28, dampingFraction: 0.62)) { appeared = true } }
+            .onAppear {
+                withAnimation(reduced ? .easeOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.62)) { appeared = true }
+                if !reduced { play() }
+            }
     }
 
     @ViewBuilder private var plate: some View {
         if pixel {
-            PixelPlateBackground(palette: palette, outline: palette.readable(swatch), fill: palette.color("Paper"))
+            PixelPlateBackground(palette: palette, outline: palette.readable(swatch), fill: palette.color("Paper"),
+                                 pointerY: tailY, pointLeft: !rightEdge)
         } else {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(palette.color("Paper"))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(palette.dark ? 0.45 : 0.18), radius: 8, x: 0, y: 3)
+            ClassicPlate(palette: palette, radius: 12, tailY: tailY, pointsRight: rightEdge)
         }
     }
 
-    @ViewBuilder private var tail: some View {
-        GeometryReader { proxy in
-            let x = rightEdge ? proxy.size.width - BubbleView.room.trailing - BubbleView.reach / 2 : BubbleView.room.leading + BubbleView.reach / 2
-            if pixel {
-                PixelPointer(palette: palette, rightEdge: rightEdge).position(x: x, y: tailY + BubbleView.room.top)
-            } else {
-                Triangle(rightEdge: rightEdge).fill(palette.color("Paper")).frame(width: 8, height: 12).position(x: x, y: tailY + BubbleView.room.top)
+    /// The pop each kind of line gets.
+    private func play() {
+        func after(_ seconds: Double, _ change: @escaping () -> Void) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { withAnimation(.easeOut(duration: 0.07)) { change() } }
+        }
+        switch kind {
+        case "done":
+            after(0.05) { dy = -6 }
+            after(0.16) { dy = 0 }
+        case "waiting":
+            for (index, offset) in [4.0, -3.0, 4.0, -2.0, 0.0].enumerated() {
+                after(0.12 + Double(index) * 0.07) { dx = CGFloat(offset) * (rightEdge ? -1 : 1) }
             }
+        case "error":
+            for (index, offset) in [5.0, -5.0, 4.0, -4.0, 2.0, 0.0].enumerated() {
+                after(0.05 + Double(index) * 0.05) { dx = CGFloat(offset) }
+            }
+        default:
+            break
         }
     }
 }
@@ -92,17 +112,16 @@ final class BubblePresenter {
         // Measure with the tail at the middle, then place it on the character.
         let probe = NSHostingView(rootView: BubbleView(line: line, kind: kind, swatch: swatch, palette: palette, rightEdge: rightEdge, tailY: 0))
         let size = probe.fittingSize
-        let inner = NSRect(x: BubbleView.room.leading, y: BubbleView.room.bottom,
-                           width: size.width - BubbleView.room.leading - BubbleView.room.trailing - BubbleView.reach,
-                           height: size.height - BubbleView.room.top - BubbleView.room.bottom)
+        let inset = BubbleView.inset(pixel)
         let gap: CGFloat = 10
-        var x = rightEdge ? anchor.minX - gap - size.width + BubbleView.room.trailing : anchor.maxX + gap - BubbleView.room.leading
-        var y = anchor.midY - size.height / 2 - (BubbleView.room.bottom - BubbleView.room.top) / 2
-        x = min(max(x, area.minX - BubbleView.room.leading), area.maxX - size.width + BubbleView.room.trailing)
-        y = min(max(y, area.minY - BubbleView.room.bottom), area.maxY - size.height + BubbleView.room.top)
+        let bodyHeight = size.height - 2 * inset
+        var x = rightEdge ? anchor.minX - gap - size.width + inset : anchor.maxX + gap - inset
+        var y = anchor.midY - size.height / 2
+        x = min(max(x, area.minX - inset), area.maxX - size.width + inset)
+        y = min(max(y, area.minY - inset), area.maxY - size.height + inset)
         // The tail points at the character's centre, measured from the bubble body's top.
-        let centreFromTop = (y + size.height) - anchor.midY - BubbleView.room.top
-        let tailY = min(max(centreFromTop, 14), max(14, inner.height - 14))
+        let centreFromTop = (y + size.height - inset) - anchor.midY
+        let tailY = min(max(centreFromTop, 14), max(14, bodyHeight - 14))
         let view = NSHostingView(rootView: BubbleView(line: line, kind: kind, swatch: swatch, palette: palette, rightEdge: rightEdge, tailY: tailY))
         let panel = FloatingPanel(size: size)
         panel.contentView = view
@@ -188,7 +207,7 @@ final class CardPresenter {
         let columns = CardPresenter.columns(model, pixel: pixel, area: area, anchor: anchor, rightEdge: rightEdge)
         let probe = NSHostingView(rootView: CardView(model: model, palette: palette, columns: columns, tailY: nil, rightEdge: rightEdge))
         let size = probe.fittingSize
-        let inset: CGFloat = pixel ? 4 : 20
+        let inset = CardMetrics.inset(pixel)
         let gap: CGFloat = 10
         var x = rightEdge ? anchor.minX - gap - size.width + inset : anchor.maxX + gap - inset
         var y = anchor.midY - size.height / 2

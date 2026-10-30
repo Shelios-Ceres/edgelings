@@ -60,6 +60,19 @@ struct Palette {
         return Color(red: mix(16), green: mix(8), blue: mix(0))
     }
 
+    /// An agent's colour as a bar, a chip or a chart wears it: Pixel's
+    /// hand-tuned pair for a default look, else (and for Classic) the look's
+    /// swatch pulled into the readable band (PixelTokens.Agent, LookCatalog.OnPaper).
+    func agentInk(id: String, swatch: UInt32, defaultLook: Bool) -> Color {
+        guard skin == .pixel, defaultLook else { return readable(swatch) }
+        let pairs: [String: (UInt32, UInt32)] = [
+            "claude": (0xC2603F, 0xE8916E), "codex": (0x6E717C, 0xB9BCC6), "antigravity": (0x2F6BE0, 0x7FA6FF),
+            "grok": (0x2B2B33, 0xD9D9E0), "kimi": (0x1F72E0, 0x6FB2FF),
+        ]
+        let pair = pairs[id] ?? (0x4058E8, 0x8EA0FF)
+        return Color(hex: dark ? pair.1 : pair.0)
+    }
+
     /// Brand.Readable: the character's colour made readable on this surface.
     func readable(_ swatch: UInt32) -> Color {
         var r = Double((swatch >> 16) & 0xFF), g = Double((swatch >> 8) & 0xFF), b = Double(swatch & 0xFF)
@@ -100,10 +113,23 @@ enum PixelFace {
         }
     }
 
-    static func font(_ size: CGFloat = 13) -> Font {
+    /// The screen's scale (the offscreen renders draw at 2).
+    static var scale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
+
+    /// A size that keeps the face's pixels whole (PixelPlate.FontSize): each
+    /// of its 10-pixel design's pixels covers a whole number of screen
+    /// pixels, as near to `dip` as that allows. Every line of a pixel panel
+    /// that is body-sized or smaller sets in the body size, as on Windows.
+    static func size(_ dip: CGFloat = 13) -> CGFloat {
+        let target = max(dip, 13)
+        let perPixel = max(1, (target * scale / 10).rounded())
+        return 10 * perPixel / scale
+    }
+
+    static func font(_ dip: CGFloat = 13) -> Font {
         register()
-        if let family { return Font.custom(family, size: size) }
-        return Font.system(size: size, design: .monospaced)
+        if let family { return Font.custom(family, size: size(dip)) }
+        return Font.system(size: size(dip), design: .monospaced)
     }
 }
 
@@ -143,17 +169,142 @@ struct SteppedRect: Shape {
     }
 }
 
-/// The pixel plate: a one-cell outline around a flat fill, corners stepped.
+/// The pixel plate: a one-cell outline around a flat fill, corners stepped,
+/// and optionally a pointer in the outline colour, flush with one edge: three
+/// cells against it, then one cell beyond (PixelPlate.Pointer). pointerY is
+/// the pointer's centre measured from the plate's top; the pointer sits on the
+/// right edge unless pointLeft.
 struct PixelPlateBackground: View {
     let palette: Palette
     var outline: Color?
     var fill: Color?
+    var pointerY: CGFloat?
+    var pointLeft = false
 
     var body: some View {
+        let line = outline ?? palette.color("Line")
         ZStack {
-            SteppedRect(steps: 2).fill(outline ?? palette.color("Line"))
+            PlateOutline(pointerY: pointerY, pointLeft: pointLeft).fill(line)
             SteppedRect(steps: 1).fill(fill ?? palette.color("Paper")).padding(2)
         }
+    }
+}
+
+struct PlateOutline: Shape {
+    var pointerY: CGFloat?
+    var pointLeft: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = SteppedRect(steps: 2).path(in: rect)
+        guard let centre = pointerY else { return path }
+        let c: CGFloat = 2
+        let row = min(max((centre / c - 0.5).rounded() * c, 3 * c), max(3 * c, rect.height - 5 * c)) + rect.minY
+        let edge = pointLeft ? rect.minX : rect.maxX
+        let one = pointLeft ? -c : c
+        let two = pointLeft ? -2 * c : 2 * c
+        let points = [CGPoint(x: edge, y: row - c), CGPoint(x: edge + one, y: row - c), CGPoint(x: edge + one, y: row),
+                      CGPoint(x: edge + two, y: row), CGPoint(x: edge + two, y: row + c), CGPoint(x: edge + one, y: row + c),
+                      CGPoint(x: edge + one, y: row + 2 * c), CGPoint(x: edge, y: row + 2 * c)]
+        path.addLines(points)
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// A pixel drawing: each character of a row is a cell, `.` is empty.
+struct PixelGridView: View {
+    let rows: [String]
+    let colors: [Character: UInt32]
+    var cell: CGFloat = 2
+    /// One ink for every filled cell (the icons), when set.
+    var ink: Color?
+
+    var body: some View {
+        Canvas { context, _ in
+            for (y, row) in rows.enumerated() {
+                for (x, key) in row.enumerated() where key != "." && key != " " {
+                    let color: Color
+                    if let ink { color = ink } else if let value = colors[key] { color = Color(hex: value) } else { continue }
+                    context.fill(Path(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell, height: cell)), with: .color(color))
+                }
+            }
+        }
+        .frame(width: CGFloat(rows.map { $0.count }.max() ?? 10) * cell, height: CGFloat(rows.count) * cell)
+    }
+}
+
+/// A Pixel kit icon by name, in one ink.
+struct PixelIcon: View {
+    let name: String
+    let ink: Color
+    var cell: CGFloat = 2
+
+    var body: some View {
+        PixelGridView(rows: PixelArt.icons[name] ?? [], colors: [:], cell: cell, ink: ink)
+            .frame(width: 10 * cell, height: 10 * cell, alignment: .topLeading)
+    }
+}
+
+/// An agent's face: Pixel's 10 x 10 art for the look it wears, or Classic's
+/// disc in the look's colour with the app's two dot eyes (FaceChip).
+struct AgentFace: View {
+    let id: String
+    let look: String
+    let swatch: UInt32
+    let skin: Skin
+    var size: CGFloat = 20
+
+    var body: some View {
+        if skin == .pixel {
+            let grid = PixelArt.lookFaces[id + "/" + look] ?? PixelArt.faces[id] ?? PixelArt.logo
+            PixelGridView(rows: grid.rows, colors: grid.colors, cell: size / 10)
+        } else {
+            FaceChip(swatch: swatch, size: size)
+        }
+    }
+}
+
+/// Classic's face: a disc in the agent's colour with two eyes, white or, on a
+/// disc too light for white, ink.
+struct FaceChip: View {
+    let swatch: UInt32
+    var size: CGFloat = 16
+
+    var body: some View {
+        let r = Double((swatch >> 16) & 0xFF), g = Double((swatch >> 8) & 0xFF), b = Double(swatch & 0xFF)
+        let eyes = (0.2126 * r + 0.7152 * g + 0.0722 * b) > 170 ? Color(hex: 0x17191F) : Color.white
+        ZStack {
+            Circle().fill(Color(hex: swatch))
+            HStack(spacing: size * 0.22) {
+                Capsule().fill(eyes).frame(width: size * 0.15, height: size * 0.26)
+                Capsule().fill(eyes).frame(width: size * 0.15, height: size * 0.26)
+            }
+            .offset(y: -size * 0.04)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// Classic's soft tail (PaperPlate): a rounded triangle, half-base 10 and
+/// reach 9, in the card's own fill so the two read as one shape. rect is the
+/// strip beside the plate's edge; the tip is on the outer side.
+struct SoftTail: Shape {
+    var pointsRight: Bool
+    var halfBase: CGFloat = 10
+    var reach: CGFloat = 9
+
+    func path(in rect: CGRect) -> Path {
+        let edgeX = pointsRight ? rect.minX : rect.maxX
+        let tipX = pointsRight ? edgeX + reach : edgeX - reach
+        let sign: CGFloat = pointsRight ? 1 : -1
+        let mid = rect.midY
+        var path = Path()
+        path.move(to: CGPoint(x: edgeX, y: mid - halfBase))
+        path.addQuadCurve(to: CGPoint(x: tipX, y: mid - 1.2), control: CGPoint(x: edgeX + 3 * sign, y: mid - 2))
+        path.addQuadCurve(to: CGPoint(x: tipX, y: mid + 1.2), control: CGPoint(x: tipX + 1.5 * sign, y: mid))
+        path.addQuadCurve(to: CGPoint(x: edgeX, y: mid + halfBase), control: CGPoint(x: edgeX + 3 * sign, y: mid + 2))
+        path.closeSubpath()
+        return path
     }
 }
 

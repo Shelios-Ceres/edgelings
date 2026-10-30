@@ -13,7 +13,7 @@ ARM="$1"; X64="$2"; OUT="$3"
 VERSION="${EDGELINGS_VERSION:-0.1.0}"
 APP="$OUT/Edgelings.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources/Characters" "$APP/Contents/Resources/Fonts" "$OUT/obj"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources/Characters" "$APP/Contents/Resources/Fonts" "$APP/Contents/Resources/Marks" "$OUT/obj"
 
 SOURCES=("$HERE"/Sources/*.swift "$REPO"/macos/platform/*.swift "$REPO"/macos/engine/*.swift "$REPO"/macos/golden/SvgCanvas.swift)
 for arch in arm64 x86_64; do
@@ -34,6 +34,7 @@ ENGINES="$REPO/windows/src/AgentIsland.WinUI/Drawer/Characters"
 cp "$ENGINES/characters.mjs" "$ENGINES/classic.mjs" "$APP/Contents/Resources/Characters/"
 FONTS="$REPO/windows/src/AgentIsland.WinUI/Assets/Fonts"
 cp "$FONTS"/*.ttf "$FONTS"/*.txt "$APP/Contents/Resources/Fonts/"
+cp "$REPO"/windows/src/AgentIsland.WinUI/Assets/mark-*.png "$APP/Contents/Resources/Marks/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

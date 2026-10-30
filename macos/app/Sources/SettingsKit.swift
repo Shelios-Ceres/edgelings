@@ -38,20 +38,31 @@ struct SectionLabel: View {
     @ObservedObject var store: SettingsStore
     let text: String
     var body: some View {
-        Text(text).font(Kit(store: store).strong(14)).foregroundColor(store.palette.color("Text")).padding(.top, 12)
+        if store.skin == .pixel {
+            HStack(spacing: 8) {
+                Rectangle().fill(store.palette.color("Accent")).frame(width: 6, height: 6)
+                Text(text).font(PixelFace.font(13)).foregroundColor(store.palette.color("Accent"))
+            }
+            .padding(.top, 12)
+        } else {
+            Text(text).font(.system(size: 14, weight: .semibold)).foregroundColor(store.palette.color("Text")).padding(.top, 12)
+        }
     }
 }
 
 /// A setting: a title, what it does, and its control on the right.
 struct SettingRow<Control: View>: View {
     @ObservedObject var store: SettingsStore
+    var glyph = ""
+    var symbol = ""
     let title: String
     var subtitle: String?
     @ViewBuilder var control: Control
 
     var body: some View {
         let kit = Kit(store: store)
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: 12) {
+            if !glyph.isEmpty { RowIcon(store: store, glyph: glyph, symbol: symbol) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(kit.body()).foregroundColor(kit.palette.color("Text"))
                 if let subtitle {
@@ -74,8 +85,8 @@ struct CardSurface: ViewModifier {
                 .padding(2)
         } else {
             content.background(
-                RoundedRectangle(cornerRadius: 8).fill(store.palette.color("Paper"))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(store.palette.hairline, lineWidth: 1)))
+                RoundedRectangle(cornerRadius: 14).fill(store.palette.color("Paper"))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(store.palette.hairline, lineWidth: 1)))
         }
     }
 }
@@ -83,19 +94,24 @@ struct CardSurface: ViewModifier {
 struct KitToggle: View {
     @ObservedObject var store: SettingsStore
     let isOn: Bool
+    var showsLabel = true
+    var onLabel: String?
+    var offLabel: String?
     let change: (Bool) -> Void
 
     var body: some View {
         if store.skin == .pixel {
             Button(action: { change(!isOn) }) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    if showsLabel {
+                        Text(isOn ? (onLabel ?? store.t("On")) : (offLabel ?? store.t("Off"))).font(PixelFace.font(13)).foregroundColor(store.palette.color("Text2"))
+                    }
                     ZStack(alignment: isOn ? .trailing : .leading) {
                         Rectangle().fill(isOn ? store.palette.color("Accent") : store.palette.color("DisabledFill"))
                             .frame(width: 36, height: 16)
                             .overlay(Rectangle().stroke(store.palette.color("LineControl"), lineWidth: 2))
                         Rectangle().fill(isOn ? store.palette.color("KnobOn") : store.palette.color("Text2")).frame(width: 10, height: 10).padding(.horizontal, 3)
                     }
-                    Text(store.t(isOn ? "On" : "Off")).font(PixelFace.font(12)).foregroundColor(store.palette.color("Text2"))
                 }
             }
             .buttonStyle(.plain)
@@ -198,5 +214,31 @@ struct BarChart: View {
             }
         }
         .frame(height: height)
+    }
+}
+
+/// Pixel's chart: each hour or day a stack of blocks, over a dotted baseline.
+struct BlockChart: View {
+    let values: [Double]
+    let color: Color
+    let baseline: Color
+    var rows = 14
+
+    var body: some View {
+        let peak = max(values.max() ?? 0, 0.0001)
+        VStack(spacing: 2) {
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    let blocks = value > 0 ? max(1, Int((value / peak * Double(rows)).rounded())) : 0
+                    VStack(spacing: 2) {
+                        ForEach(0..<rows, id: \.self) { row in
+                            Rectangle().fill(row >= rows - blocks ? color : Color.clear).frame(height: 3)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            DottedRule(color: baseline, vertical: false)
+        }
     }
 }

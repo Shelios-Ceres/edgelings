@@ -26,21 +26,34 @@ struct UsagePage: View {
         HStack(spacing: 8) {
             ForEach(UsagePeriod.allCases) { option in
                 Button(action: { period = option }) {
-                    Text(store.t(option.key)).font(kit.body())
-                        .foregroundColor(period == option ? palette.color("OnAccent") : palette.color("Text"))
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: kit.pixel ? 0 : 6).fill(period == option ? palette.color("Accent") : palette.color("Field")))
+                    if kit.pixel {
+                        VStack(spacing: 3) {
+                            Text(store.t(option.key)).font(kit.body())
+                                .foregroundColor(period == option ? palette.color("Text") : palette.color("Text2"))
+                            Rectangle().fill(period == option ? palette.color("Accent") : Color.clear).frame(height: 2)
+                        }
+                        .padding(.horizontal, 10)
+                    } else {
+                        Text(store.t(option.key)).font(kit.body())
+                            .foregroundColor(period == option ? palette.color("OnAccent") : palette.color("Text"))
+                            .padding(.horizontal, 12).padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(period == option ? palette.color("Accent") : palette.color("Field")))
+                    }
                 }
                 .buttonStyle(.plain)
             }
             Spacer()
-            Text(store.usage?.scannedAgo.map { "\($0)" } ?? store.t("Not scanned yet")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
-            KitButton(store: store, title: store.t("Scan now")) { store.send("rescan", [:]) }
+            VStack(alignment: .trailing, spacing: 2) {
+                KitButton(store: store, title: store.t("Scan now")) { store.send("rescan", [:]) }
+                Text(store.usage?.scannedAgo ?? store.t("Not scanned yet")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
+            }
         }
         if let usage = store.usage {
             totals(usage, kit: kit, palette: palette)
-            ForEach(usage.agents.filter { $0.shown }) { agent in
-                UsageAgentCard(store: store, agent: agent, period: period)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)], spacing: 12) {
+                ForEach(usage.agents.filter { $0.shown }) { agent in
+                    UsageAgentCard(store: store, agent: agent, period: period)
+                }
             }
             Text(usage.zone).font(kit.body(11)).foregroundColor(palette.color("Text3"))
         }
@@ -85,18 +98,18 @@ struct UsagePage: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(store: store, text: store.t("Quota"))
             if let quota = store.settings?.quota {
-                SettingRow(store: store, title: store.t("Refresh interval"), subtitle: store.t("Providers rate-limit their usage endpoints, so nothing shorter than five minutes is offered")) {
+                SettingRow(store: store, glyph: "E895", symbol: "clock.arrow.circlepath", title: store.t("Refresh interval"), subtitle: store.t("Providers rate-limit their usage endpoints, so nothing shorter than five minutes is offered")) {
                     KitMenu(store: store, options: quota.presets.map { store.t("Every {0} minutes", $0 / 60) }, selected: quota.presets.firstIndex(of: quota.interval) ?? 0) { index in
                         store.send("set", ["interval": quota.presets[index]])
                     }
                 }
-                SettingRow(store: store, title: store.t("Quota shows"), subtitle: store.t("How the bars and percentages read on the drawer's cards and in Settings")) {
+                SettingRow(store: store, glyph: "E9D2", symbol: "percent", title: store.t("Quota shows"), subtitle: store.t("How the bars and percentages read on the drawer's cards and in Settings")) {
                     KitMenu(store: store, options: [store.t("Used"), store.t("Remaining")], selected: quota.showsRemaining ? 1 : 0) { index in
                         store.send("set", ["showsRemaining": index == 1])
                     }
                 }
                 SectionLabel(store: store, text: store.t("Tokens"))
-                SettingRow(store: store, title: store.t("Token counting"), subtitle: store.t("Excludes cache reads; new input written to cache still counts. History is kept.")) {
+                SettingRow(store: store, glyph: "E8EF", symbol: "number", title: store.t("Token counting"), subtitle: store.t("Excludes cache reads; new input written to cache still counts. History is kept.")) {
                     KitMenu(store: store, options: [store.t("All tokens (including cache)"), store.t("Input + output (excluding cache reads)")], selected: quota.tokenMode == "all" ? 0 : 1) { index in
                         store.send("set", ["tokenMode": index == 0 ? "all" : "billable"])
                     }
@@ -131,11 +144,10 @@ struct UsageAgentCard: View {
     var body: some View {
         let kit = Kit(store: store)
         let palette = store.palette
-        let identity = palette.readable(agent.accent)
+        let identity = palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook)
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                if kit.pixel { Rectangle().fill(Color(hex: agent.accent)).frame(width: 8, height: 8) }
-                else { Circle().fill(Color(hex: agent.accent)).frame(width: 16, height: 16) }
+                AgentFace(id: agent.id, look: agent.look, swatch: agent.swatch, skin: kit.pixel ? .pixel : .classic, size: kit.pixel ? 20 : 22)
                 Text(agent.name).font(kit.strong(14)).foregroundColor(palette.color("Text"))
                 Spacer()
             }
@@ -185,7 +197,11 @@ struct UsageAgentCard: View {
                 }
                 let values = series(part)
                 if values.contains(where: { $0 > 0 }) {
-                    BarChart(values: values, color: identity, track: identity.opacity(0.15), pixel: kit.pixel)
+                    if kit.pixel {
+                        BlockChart(values: values, color: identity, baseline: palette.color("LineSoft"))
+                    } else {
+                        BarChart(values: values, color: identity, track: palette.tint(agent.swatch), pixel: false)
+                    }
                 }
                 if data.models.isEmpty {
                     Text(store.t("No sessions in this period")).font(kit.body(12)).foregroundColor(palette.color("Text3"))

@@ -89,11 +89,15 @@ public static class SettingsApi
                 json.WriteString("signIn", report.SignIn.ToString().ToLowerInvariant());
                 json.WriteString("signInHint", report.SignInHint);
                 json.WriteNumber("accent", ProviderIdentity.Accent(provider));
+                var worn = LookCatalog.Of(store.Theme, provider);
+                json.WriteNumber("swatch", worn.Swatch);
+                json.WriteBoolean("defaultLook", worn == LookCatalog.For(store.Theme, provider)[0]);
                 json.WriteStartArray("meters");
                 foreach (var meter in report.Meters)
                 {
                     json.WriteStartObject();
                     json.WriteString("label", meter.Label);
+                    json.WriteString("title", MeterTitle(meter.Label));
                     json.WriteString("value", meter.Value);
                     if (meter.Shown is { } fraction) json.WriteNumber("shown", fraction);
                     if (meter.Used is { } used) json.WriteNumber("used", used);
@@ -141,6 +145,17 @@ public static class SettingsApi
             json.WriteBoolean("kimiMail", true);
         });
     }
+
+    /// What a window is called on the Agents page (AgentSection.MeterTitle).
+    private static string MeterTitle(string label) => label switch
+    {
+        _ when label == L10n.Tr("5h") => L10n.Tr("5-hour window"),
+        _ when label == L10n.Tr("Week") => L10n.Tr("Weekly window"),
+        _ when label == L10n.Tr("24h") => L10n.Tr("Daily window"),
+        _ when label == L10n.Tr("30d") => L10n.Tr("Billing cycle"),
+        _ when label == L10n.Tr("Month") => L10n.Tr("Monthly window"),
+        _ => label,
+    };
 
     /// One change: {"method":"set", …}. Each present field is applied.
     ///   language: "auto" | "en" | "zh"; interval: 300 | 900 | 1800; showsRemaining: bool;
@@ -245,6 +260,10 @@ public static class SettingsApi
                 json.WriteString("name", ProviderIdentity.DisplayName(provider));
                 json.WriteBoolean("shown", visibility.IsShown(provider));
                 json.WriteNumber("accent", ProviderIdentity.Accent(provider));
+                var wornLook = LookCatalog.Of(DrawerStore.Shared.Theme, provider);
+                json.WriteNumber("swatch", wornLook.Swatch);
+                json.WriteBoolean("defaultLook", wornLook == LookCatalog.For(DrawerStore.Shared.Theme, provider)[0]);
+                json.WriteString("look", wornLook.Id);
                 json.WriteStartArray("parts");
                 foreach (var member in members)
                 {

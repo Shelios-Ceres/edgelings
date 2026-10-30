@@ -41,6 +41,8 @@ struct AgentModel: Decodable, Identifiable {
     let signIn: String
     let signInHint: String
     let accent: UInt32
+    let swatch: UInt32
+    let defaultLook: Bool
     let meters: [MeterModel]
     let tokens: TokensModel?
     let look: AgentLook
@@ -112,6 +114,9 @@ struct UsageAgent: Decodable, Identifiable {
     let name: String
     let shown: Bool
     let accent: UInt32
+    let swatch: UInt32
+    let defaultLook: Bool
+    let look: String
     let parts: [UsagePart]
 }
 
@@ -230,10 +235,18 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: return "General"
         }
     }
+    var pixelIcon: String {
+        switch self {
+        case .agents: return "agents"
+        case .drawer: return "drawer"
+        case .usage: return "usage"
+        case .general: return "general"
+        }
+    }
     var symbol: String {
         switch self {
         case .agents: return "person.2"
-        case .drawer: return "rectangle.righthalf.inset.filled"
+        case .drawer: return "sidebar.right"
         case .usage: return "chart.bar"
         case .general: return "gearshape"
         }
@@ -267,6 +280,11 @@ enum UIStrings {
         "Account", "Look", "Save current account…", "Auto-switch when exhausted", "No saved accounts yet", "Remove saved account",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",
         "Permission hook", "Not detected",
+        "Shown", "Hidden", "Move up", "Move down", "Right now", "Account", "Not saved yet",
+        "5-hour window", "Weekly window", "Daily window", "Billing cycle", "Monthly window", "Permission prompts",
+        "Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up.",
+        "Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up.",
+        "A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Edgelings', so this stays off.",
     ]
 }
 

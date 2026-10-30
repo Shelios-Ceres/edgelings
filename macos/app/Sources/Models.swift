@@ -57,6 +57,7 @@ struct FrameModel: Decodable {
 }
 
 struct MeterModel: Decodable {
+    var title: String? = nil
     let label: String
     let value: String
     let shown: Double?
@@ -99,6 +100,8 @@ struct CardModel: Decodable, Identifiable {
     let id: String
     let name: String
     let swatch: UInt32
+    let look: String
+    let defaultLook: Bool
     let phase: String
     let detail: String?
     let plan: String?
