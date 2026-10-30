@@ -64,16 +64,15 @@ enum MenuBarIcon {
         return image
     }
 
+    /// A filled head, about 16 x 15 on whole points, with the two pill eyes knocked out 42 % of the way down.
     private static func classicHead() -> NSImage {
         let size = NSSize(width: 18, height: 18)
         return NSImage(size: size, flipped: false) { _ in
-            NSColor.black.setStroke()
             NSColor.black.setFill()
-            let head = NSBezierPath(roundedRect: NSRect(x: 2.75, y: 3.75, width: 12.5, height: 10.5), xRadius: 4, yRadius: 4)
-            head.lineWidth = 1.5
-            head.stroke()
-            for x in [5.6, 10.4] as [CGFloat] {
-                NSBezierPath(roundedRect: NSRect(x: x, y: 7.0, width: 2.0, height: 4.0), xRadius: 1, yRadius: 1).fill()
+            NSBezierPath(roundedRect: NSRect(x: 1, y: 2, width: 16, height: 15), xRadius: 5, yRadius: 5).fill()
+            NSGraphicsContext.current?.compositingOperation = .clear
+            for x in [5, 11] as [CGFloat] {
+                NSBezierPath(roundedRect: NSRect(x: x, y: 8, width: 2, height: 5), xRadius: 1, yRadius: 1).fill()
             }
             return true
         }

@@ -15,6 +15,8 @@ enum RenderFilm {
             images.append(image)
         }
         _ = theme
+        // M20 is filmed with a real change: Claude's Succulent turns edge-on and comes back as the Clay timer.
+        let changed = name == "flip" ? DrawerColumn.bot(kind: "claude", pixel: pixel, index: 0, look: "clay-timer") : nil
         // The slots as the drawer lays them out: 6 in, 12 down, 54 apart.
         let bounds = (0..<3).map { CGRect(x: 6, y: 12 + CGFloat($0) * 54, width: 44, height: 44) }
         let moment = DrawerMoment(start: 0, pixel: pixel, edge: 1)
@@ -70,7 +72,8 @@ enum RenderFilm {
                 } else {
                     pose = moment.pose(index, ms)
                 }
-                BotPainter.paint(ctx, image: images[index], bounds: bounds[index].offsetBy(dx: CGFloat(cellW - 64 + 8), dy: 0), pose: pose, pixel: pixel, edge: 1, dark: dark, scale: CGFloat(scale))
+                let swapped = index == 0 && changed != nil && ms >= 120
+                BotPainter.paint(ctx, image: swapped ? changed! : images[index], bounds: bounds[index].offsetBy(dx: CGFloat(cellW - 64 + 8), dy: 0), pose: pose, pixel: pixel, edge: 1, dark: dark, scale: CGFloat(scale))
             }
             if let bubble = lockedBubble, frame >= 1 {
                 // Beside the pressed character (the first), its pointer on the character's centre.

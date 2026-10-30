@@ -254,6 +254,46 @@ struct DottedRule: View {
     }
 }
 
+/// The plate and its soft tail as one outline, so the hairline runs round the tail and not across its base.
+struct ClassicPlateShape: Shape {
+    var radius: CGFloat
+    var tailY: CGFloat?
+    var pointsRight: Bool
+    var half: CGFloat
+    var reach: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, rect.height / 2)
+        var p = Path()
+        let l = rect.minX, t = rect.minY, rr = rect.maxX, b = rect.maxY
+        // The tail's centre, clamped at the radius and half the base from the corners.
+        let centre = tailY.map { min(max($0, r + half), max(r + half, rect.height - r - half)) + t }
+        p.move(to: CGPoint(x: l + r, y: t))
+        p.addLine(to: CGPoint(x: rr - r, y: t))
+        p.addArc(tangent1End: CGPoint(x: rr, y: t), tangent2End: CGPoint(x: rr, y: t + r), radius: r)
+        if pointsRight, let c = centre {
+            p.addLine(to: CGPoint(x: rr, y: c - half))
+            p.addQuadCurve(to: CGPoint(x: rr + reach, y: c - 1.2), control: CGPoint(x: rr + 3, y: c - 2))
+            p.addQuadCurve(to: CGPoint(x: rr + reach, y: c + 1.2), control: CGPoint(x: rr + reach + 1.5, y: c))
+            p.addQuadCurve(to: CGPoint(x: rr, y: c + half), control: CGPoint(x: rr + 3, y: c + 2))
+        }
+        p.addLine(to: CGPoint(x: rr, y: b - r))
+        p.addArc(tangent1End: CGPoint(x: rr, y: b), tangent2End: CGPoint(x: rr - r, y: b), radius: r)
+        p.addLine(to: CGPoint(x: l + r, y: b))
+        p.addArc(tangent1End: CGPoint(x: l, y: b), tangent2End: CGPoint(x: l, y: b - r), radius: r)
+        if !pointsRight, let c = centre {
+            p.addLine(to: CGPoint(x: l, y: c + half))
+            p.addQuadCurve(to: CGPoint(x: l - reach, y: c + 1.2), control: CGPoint(x: l - 3, y: c + 2))
+            p.addQuadCurve(to: CGPoint(x: l - reach, y: c - 1.2), control: CGPoint(x: l - reach - 1.5, y: c))
+            p.addQuadCurve(to: CGPoint(x: l, y: c - half), control: CGPoint(x: l - 3, y: c - 2))
+        }
+        p.addLine(to: CGPoint(x: l, y: t + r))
+        p.addArc(tangent1End: CGPoint(x: l, y: t), tangent2End: CGPoint(x: l + r, y: t), radius: r)
+        p.closeSubpath()
+        return p
+    }
+}
+
 /// Classic's paper plate: a rounded card with a hairline, the soft tail where
 /// there is one, and the two shadows Windows gives it.
 struct ClassicPlate: View {
@@ -263,23 +303,12 @@ struct ClassicPlate: View {
     var pointsRight: Bool
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                RoundedRectangle(cornerRadius: min(radius, proxy.size.height / 2)).fill(palette.color("Paper"))
-                if let tailY {
-                    let half: CGFloat = radius > 12 ? 10 : 6
-                    let reach: CGFloat = radius > 12 ? 9 : 7
-                    let y = min(max(tailY, radius + half), max(radius + half, proxy.size.height - radius - half))
-                    let rect = pointsRight
-                        ? CGRect(x: proxy.size.width - 0.5, y: y - half, width: reach, height: half * 2)
-                        : CGRect(x: -reach + 0.5, y: y - half, width: reach, height: half * 2)
-                    SoftTail(pointsRight: pointsRight, halfBase: half, reach: reach).path(in: rect).fill(palette.color("Paper"))
-                }
-            }
-            .compositingGroup()
-            .shadow(color: .black.opacity(palette.dark ? 0.45 : 0.13), radius: palette.dark ? 8 : 7, x: 0, y: 8)
-            .shadow(color: .black.opacity(palette.dark ? 0.35 : 0.10), radius: 1, x: 0, y: 1)
-            RoundedRectangle(cornerRadius: min(radius, proxy.size.height / 2)).stroke(palette.hairline, lineWidth: 1)
+        let shape = ClassicPlateShape(radius: radius, tailY: tailY, pointsRight: pointsRight, half: radius > 12 ? 10 : 6, reach: radius > 12 ? 9 : 7)
+        ZStack {
+            shape.fill(palette.color("Paper"))
+                .shadow(color: .black.opacity(palette.dark ? 0.45 : 0.13), radius: palette.dark ? 8 : 7, x: 0, y: 8)
+                .shadow(color: .black.opacity(palette.dark ? 0.35 : 0.10), radius: 1, x: 0, y: 1)
+            shape.stroke(palette.hairline, lineWidth: 1)
         }
     }
 }

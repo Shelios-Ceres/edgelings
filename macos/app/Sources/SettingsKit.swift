@@ -116,11 +116,19 @@ struct KitToggle: View {
             }
             .buttonStyle(.plain)
         } else if RenderFlags.offscreen {
-            Capsule().fill(isOn ? store.palette.color("Accent") : store.palette.color("Field"))
-                .frame(width: 38, height: 22)
-                .overlay(Circle().fill(Color.white).padding(2), alignment: isOn ? .trailing : .leading)
+            HStack(spacing: 8) {
+                if let label = isOn ? onLabel : offLabel { Text(label).font(.system(size: 12)).foregroundColor(store.palette.color("Text2")) }
+                Capsule().fill(isOn ? store.palette.color("Accent") : store.palette.color("Field"))
+                    .frame(width: 38, height: 22)
+                    .overlay(Circle().fill(Color.white).padding(2), alignment: isOn ? .trailing : .leading)
+            }
         } else {
-            Toggle("", isOn: Binding(get: { isOn }, set: { change($0) })).toggleStyle(.switch).labelsHidden().tint(store.palette.color("Accent"))
+            HStack(spacing: 8) {
+                if let label = isOn ? onLabel : offLabel {
+                    Text(label).font(.system(size: 12)).foregroundColor(store.palette.color("Text2"))
+                }
+                Toggle("", isOn: Binding(get: { isOn }, set: { change($0) })).toggleStyle(.switch).labelsHidden().tint(store.palette.color("Accent"))
+            }
         }
     }
 }

@@ -64,13 +64,22 @@ struct Palette {
     /// hand-tuned pair for a default look, else (and for Classic) the look's
     /// swatch pulled into the readable band (PixelTokens.Agent, LookCatalog.OnPaper).
     func agentInk(id: String, swatch: UInt32, defaultLook: Bool) -> Color {
-        guard skin == .pixel, defaultLook else { return readable(swatch) }
+        if skin == .classic { return classicInk(swatch) }
+        guard defaultLook else { return readable(swatch) }
         let pairs: [String: (UInt32, UInt32)] = [
             "claude": (0xC2603F, 0xE8916E), "codex": (0x6E717C, 0xB9BCC6), "antigravity": (0x2F6BE0, 0x7FA6FF),
             "grok": (0x2B2B33, 0xD9D9E0), "kimi": (0x1F72E0, 0x6FB2FF),
         ]
         let pair = pairs[id] ?? (0x4058E8, 0x8EA0FF)
         return Color(hex: dark ? pair.1 : pair.0)
+    }
+
+    /// Classic wears a look's swatch as it is; only a near-black one is lifted, and only on a dark surface.
+    func classicInk(_ swatch: UInt32) -> Color {
+        let r = Double((swatch >> 16) & 0xFF), g = Double((swatch >> 8) & 0xFF), b = Double(swatch & 0xFF)
+        let luma: Double = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        guard dark, luma < 60 else { return Color(hex: swatch) }
+        return readable(swatch)
     }
 
     /// Brand.Readable: the character's colour made readable on this surface.

@@ -45,10 +45,11 @@ struct IconRow<Control: View>: View {
         let palette = store.palette
         VStack(spacing: 0) {
             if divider {
-                if kit.pixel { DottedRule(color: palette.color("LineSoft"), vertical: false) } else { Rectangle().fill(palette.color("LineSoft")).frame(height: 1) }
+                if kit.pixel { DottedRule(color: palette.color("LineSoft"), vertical: false) }
+                else { Rectangle().fill(palette.color("LineSoft")).frame(height: 1).padding(.leading, 44) }
             }
             HStack(alignment: .center, spacing: 12) {
-                RowIcon(store: store, glyph: glyph, symbol: symbol)
+                RowIcon(store: store, glyph: glyph, symbol: symbol, bare: true)
                 VStack(alignment: .leading, spacing: 1) {
                     SkinText(pixel: store.skin == .pixel, text: title, pixelSize: 13, size: 13, weight: .regular, color: palette.color("Text"))
                     if let subtitle, !subtitle.isEmpty {
@@ -68,6 +69,8 @@ struct RowIcon: View {
     @ObservedObject var store: SettingsStore
     let glyph: String
     let symbol: String
+    /// Inside an agent's card Classic's icon is a bare symbol in a 32-pt slot, so titles line up under the name.
+    var bare = false
 
     var body: some View {
         if store.skin == .pixel {
@@ -76,6 +79,8 @@ struct RowIcon: View {
                 else { Color.clear }
             }
             .frame(width: 20, height: 20)
+        } else if bare {
+            Image(systemName: symbol).font(.system(size: 16)).foregroundColor(store.palette.color("Text2")).frame(width: 32, height: 32)
         } else {
             ZStack {
                 Circle().fill(store.palette.color("Hover")).frame(width: 32, height: 32)
@@ -126,10 +131,10 @@ struct AgentCard: View {
                     }
                 }
             }
-            if agent.signIn != "none" {
+            if agent.id == "claude" || agent.id == "codex" {
                 IconRow(store: store, glyph: "E8D7", symbol: "key", title: store.t("Sign in"), subtitle: agent.signInHint) {
-                    KitButton(store: store, title: agent.signIn == "waiting" ? store.t("Waiting for sign-in") : store.t("Sign in"),
-                              prominent: store.skin != .pixel, enabled: agent.signIn == "available") {
+                    KitButton(store: store, title: store.t(agent.signIn == "waiting" ? "Waiting for login…" : agent.signIn == "available" ? "Sign in" : "Sign in again"),
+                              prominent: false, enabled: agent.signIn != "waiting") {
                         store.send("agent", ["action": "signIn", "id": agent.id])
                     }
                 }
@@ -149,7 +154,7 @@ struct AgentCard: View {
             AgentMark(store: store, agent: agent)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
-                    SkinText(pixel: store.skin == .pixel, text: agent.name, pixelSize: 13, size: 14, weight: .regular, color: palette.color("Text"))
+                    SkinText(pixel: store.skin == .pixel, text: agent.name, pixelSize: 13, size: 14, weight: .regular, color: agent.shown ? palette.color("Text") : palette.color("Text3"))
                     if let plan = agent.plan, !plan.isEmpty {
                         SkinText(pixel: kit.pixel, text: plan, pixelSize: 13, size: 10, weight: .semibold,
                                  color: kit.pixel ? palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook) : palette.color("Text"))
@@ -213,7 +218,7 @@ struct AgentCard: View {
 
     private func lookLabel(_ description: String) -> some View {
         HStack(spacing: 12) {
-            RowIcon(store: store, glyph: "E771", symbol: "paintpalette")
+            RowIcon(store: store, glyph: "E771", symbol: "paintpalette", bare: true)
             VStack(alignment: .leading, spacing: 1) {
                 SkinText(pixel: store.skin == .pixel, text: store.t("Look"), pixelSize: 13, size: 13, color: store.palette.color("Text"))
                 SkinText(pixel: store.skin == .pixel, text: description, pixelSize: 13, size: 12, color: store.palette.color("Text2"))
@@ -223,7 +228,7 @@ struct AgentCard: View {
     }
 
     private func tiles(_ choices: [LookChoice]) -> some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             ForEach(choices) { choice in
                 LookTile(store: store, agent: agent, choice: choice, worn: choice.id == worn) {
                     store.setDrawer(["look": ["id": agent.id, "theme": theme, "look": choice.id]])
@@ -327,7 +332,8 @@ struct AgentMark: View {
             ZStack {
                 Circle().fill(store.palette.tint(agent.swatch)).frame(width: 32, height: 32)
                 if let image = BrandMarks.image(agent.id) {
-                    Image(nsImage: image).resizable().interpolation(.high).scaledToFit().frame(width: 18, height: 18)
+                    Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().frame(width: 18, height: 18)
+                        .foregroundColor(store.palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook))
                 } else {
                     FaceChip(swatch: agent.swatch, size: 18)
                 }
@@ -376,17 +382,23 @@ struct LookTile: View {
                         }
                     }
             } else {
-                VStack(spacing: 4) {
+                VStack(spacing: 2) {
                     if let image = BotPreview.image(theme: "classic", kind: agent.id, look: choice.id) {
                         Image(decorative: image, scale: 2).interpolation(.high).frame(width: 44, height: 44)
                     } else {
                         FaceChip(swatch: choice.swatch, size: 30).frame(width: 44, height: 44)
                     }
-                    SkinText(pixel: store.skin == .pixel, text: choice.name, pixelSize: 11, size: 11, weight: .regular, color: palette.color("Text"), lines: 1)
+                    Text(choice.name)
+                        .font(.system(size: 11, weight: worn ? .semibold : .regular))
+                        .foregroundColor(worn ? palette.color("AccentText") : palette.color("Text"))
+                        .multilineTextAlignment(.center).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 6)
                 }
-                .frame(width: 80, height: 76)
-                .background(RoundedRectangle(cornerRadius: 10).fill(worn ? palette.color("AccentTint") : palette.color("Field")))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(worn ? palette.color("Accent") : Color.clear, lineWidth: 2))
+                .padding(.top, 6).padding(.bottom, 6)
+                .frame(width: 80, alignment: .top)
+                .frame(minHeight: 76, alignment: .top)
+                .background(RoundedRectangle(cornerRadius: 10).fill(worn ? palette.color("AccentTint") : palette.color("Paper")))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(worn ? palette.color("Accent") : palette.hairline, lineWidth: worn ? 2 : 1))
             }
         }
         .buttonStyle(.plain)

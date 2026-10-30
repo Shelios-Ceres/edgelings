@@ -6,7 +6,7 @@ import AppKit
 
 enum RenderSettings {
     private static let settingsTemplate = """
-    {"drawer":{"theme":"pixel","speech":true,"side":"right","offset":0.5,"locked":false,"fps":60,"saveBattery":true,"display":"auto"},
+    {"drawer":{"theme":"@theme@","speech":true,"side":"right","offset":0.5,"locked":false,"fps":60,"saveBattery":true,"display":"auto"},
      "quota":{"interval":300,"presets":[300,900,1800],"showsRemaining":false,"tokenMode":"all","tokenModeLabel":"All tokens (including cache)"},
      "language":"auto","chinese":false,
      "agents":[
@@ -54,7 +54,7 @@ enum RenderSettings {
     /// renders read as the app does. Relative times and unit words are the only invented parts.
     private static func localize(_ json: String, _ store: SettingsStore, chinese: Bool) -> String {
         func t(_ key: String, _ args: String...) -> String { args.enumerated().reduce(store.t(key)) { $0.replacingOccurrences(of: "{\($1.offset)}", with: $1.element) } }
-        var text = json
+        var text = json.replacingOccurrences(of: "@theme@", with: store.skin == .pixel ? "pixel" : "classic")
         let agoShort = chinese ? "2分钟前" : "2m ago"
         let table: [(String, String)] = [
             ("\"synced 2m ago\"", "\"" + t("synced {0}", agoShort) + "\""),
@@ -71,6 +71,8 @@ enum RenderSettings {
             ("\"9.8M this month\"", "\"" + t("{0} this month", "9.8M") + "\""),
             ("\"scannedAgo\":\"3 min ago\"", "\"scannedAgo\":\"" + (chinese ? "3分钟前" : "3 min ago") + "\""),
             ("Memory (background)", t("Memory (background)")),
+            ("\"tokenModeLabel\":\"All tokens (including cache)\"", "\"tokenModeLabel\":\"" + t("All tokens (including cache)") + "\""),
+            ("Opens a terminal running codex login", t("Opens a terminal running codex login")),
         ]
         for (from, to) in table { text = text.replacingOccurrences(of: from, with: to) }
         return text

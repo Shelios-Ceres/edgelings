@@ -87,6 +87,16 @@ enum RenderMode {
         }
         let s = CGFloat(scale)
         tinted.draw(in: NSRect(x: 50 * s, y: (24 * s - icon.size.height * s) / 2, width: icon.size.width * s, height: icon.size.height * s))
+        // A system icon beside it, for scale.
+        if let system = NSImage(systemSymbolName: "wifi", accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 13, weight: .regular)) {
+            let beside = NSImage(size: system.size, flipped: false) { rect in
+                system.draw(in: rect)
+                tint.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+            beside.draw(in: NSRect(x: 76 * s, y: (24 * s - beside.size.height * s) / 2, width: beside.size.width * s, height: beside.size.height * s))
+        }
         NSGraphicsContext.restoreGraphicsState()
         let image = NSImage(size: NSSize(width: width, height: height))
         image.addRepresentation(rep)
@@ -216,9 +226,9 @@ struct DrawerColumn: View {
         .padding(.vertical, 12).padding(.horizontal, 6)
     }
 
-    static func bot(kind: String, pixel: Bool, index: Int, scale: Int = 2) -> CGImage? {
+    static func bot(kind: String, pixel: Bool, index: Int, scale: Int = 2, look: String = "") -> CGImage? {
         guard let engine = try? CharacterEngine(theme: pixel ? "pixel" : "classic", directory: AppController.enginesDirectory()) else { return nil }
-        let bot = engine.addBot(kind: kind, tempo: 1, seed: 7 + index * 13, look: "")
+        let bot = engine.addBot(kind: kind, tempo: 1, seed: 7 + index * 13, look: look)
         var svg: String?
         for _ in 0..<6 { svg = engine.tick([Double?](repeating: 0.1, count: 1), size: 44).first.flatMap { $0 }?.svg }
         guard let svg else { return nil }
