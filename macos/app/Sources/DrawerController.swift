@@ -257,7 +257,7 @@ final class DrawerController {
         guard let frame, panel.isVisible, !away, engine != nil else { stopLoop(); return }
         let pixel = frame.isPixel
         var cap = Double(frame.fps)
-        if frame.saveBattery && ProcessInfo.processInfo.isLowPowerModeEnabled { cap = cap == 0 ? 30 : min(cap, 30) }
+        if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 30 : min(cap, 30) }
         let active = pixel ? (cap == 0 ? 30 : min(cap, 30)) : (cap == 0 ? 60 : cap)
         let busy = slots.contains { $0.visible && !calmStates.contains($0.engineState) }
         let near = !reducedMotion && pointerNear
@@ -294,7 +294,7 @@ final class DrawerController {
         var anyNear = false
         var dts = [Double?](repeating: nil, count: slots.count)
         var cap = Double(frame.fps)
-        if frame.saveBattery && ProcessInfo.processInfo.isLowPowerModeEnabled { cap = cap == 0 ? 30 : min(cap, 30) }
+        if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 30 : min(cap, 30) }
         let activeFps = reduced ? 12 : pixel ? (cap == 0 ? 30 : min(cap, 30)) : (cap == 0 ? 60 : cap)
         let gazeFps: Double = reduced ? 12 : pixel ? 30 : 60
         let calmFps: Double = reduced ? 6 : 30
@@ -474,6 +474,11 @@ final class DrawerController {
             self.cards.show(model, pixel: pixel, rightEdge: frame.side == "right", anchor: anchorScreen, area: screen.visibleFrame,
                             dark: DrawerController.isDark)
         }
+    }
+
+    /// Low Power Mode, or (for the runner's saver measurement) EDGELINGS_ASSUME_BATTERY=1.
+    static var onBattery: Bool {
+        ProcessInfo.processInfo.isLowPowerModeEnabled || ProcessInfo.processInfo.environment["EDGELINGS_ASSUME_BATTERY"] == "1"
     }
 
     static var isDark: Bool {

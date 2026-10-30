@@ -81,6 +81,17 @@ jobs:
           EDGELINGS_ROOT="$RUNNER_TEMP/render-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --render out/renders 2>&1 | tee out/render.log
           ls -l out/renders
 
+      - name: Real-screen check (launch the app, drive it with real input, measure CPU)
+        timeout-minutes: 15
+        run: |
+          swiftc -O macos/app/uitest/main.swift -o out/edgelings-uitest
+          ROOT="$RUNNER_TEMP/uitest-root"
+          mkdir -p "$ROOT/home"
+          python3 macos/bridge/make-fixture.py "$ROOT/home/.kimi-code" 12 120
+          mkdir -p out/uitest
+          system_profiler SPDisplaysDataType > out/uitest/displays.txt 2>&1 || true
+          out/edgelings-uitest out/app/Edgelings.app out/uitest "$ROOT" --seconds 60 | tee out/uitest/uitest.txt
+
       - name: Friend's package
         run: |
           mkdir -p out/package
@@ -93,6 +104,12 @@ jobs:
           name: Edgelings-macos-test
           path: out/package
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Edgelings-real-screen
+          path: out/uitest
 
       - uses: actions/upload-artifact@v4
         if: always()
