@@ -5,8 +5,14 @@ import SwiftUI
 
 @main
 struct EdgelingsMain {
+    @MainActor
     static func main() {
         let app = NSApplication.shared
+        let arguments = CommandLine.arguments
+        if let at = arguments.firstIndex(of: "--render"), at + 1 < arguments.count {
+            RenderMode.run(into: arguments[at + 1])
+            exit(0)
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)

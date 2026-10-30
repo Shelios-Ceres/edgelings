@@ -56,6 +56,12 @@ jobs:
           if kill -0 "$pid" 2>/dev/null; then echo "still running after 20 s"; kill "$pid"; else echo "::error::the app exited early"; cat out/smoke.log; exit 1; fi
           cat out/smoke.log | head -50
 
+      - name: Render every screen offscreen (synthetic data)
+        run: |
+          mkdir -p out/renders
+          EDGELINGS_ROOT="$RUNNER_TEMP/render-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --render out/renders 2>&1 | tee out/render.log
+          ls -l out/renders
+
       - name: Friend's package
         run: |
           mkdir -p out/package
@@ -72,7 +78,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: Edgelings-renders
+          path: out/renders
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
           name: app-build-logs
           path: |
             aot-arm64.log
             out/smoke.log
+            out/render.log
