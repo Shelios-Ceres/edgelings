@@ -157,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let frame = AppController.shared.frame else { return }
         let theme = frame.isPixel ? "pixel" : "classic"
         // The looks of the character that was clicked, for the Look submenu.
-        AppController.shared.request("looks", ["id": id, "theme": theme]) { [weak self] reply in
+        AppController.shared.request("looks", ["id": id, "theme": theme, "english": frame.isPixel]) { [weak self] reply in
             let looks = LooksModel.from(reply)?.looks ?? []
             self?.popUpDrawerMenu(for: id, frame: frame, looks: looks)
         }

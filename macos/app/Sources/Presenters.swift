@@ -45,9 +45,7 @@ struct BubbleView: View {
     var body: some View {
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let reach = BubbleView.reach(pixel)
-        Text(line)
-            .font(pixel ? PixelFace.font(13) : .system(size: 13))
-            .foregroundColor(palette.color("Text"))
+        SkinText(pixel: pixel, text: line, pixelSize: 13, size: 13, color: palette.color("Text"))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: 240 - 30, alignment: .leading)
             .fixedSize(horizontal: true, vertical: true)

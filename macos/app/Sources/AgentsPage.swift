@@ -50,9 +50,9 @@ struct IconRow<Control: View>: View {
             HStack(alignment: .center, spacing: 12) {
                 RowIcon(store: store, glyph: glyph, symbol: symbol)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(kit.body()).foregroundColor(palette.color("Text"))
+                    SkinText(pixel: store.skin == .pixel, text: title, pixelSize: 13, size: 13, weight: .regular, color: palette.color("Text"))
                     if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle).font(kit.body(12)).foregroundColor(palette.color("Text2")).fixedSize(horizontal: false, vertical: true)
+                        SkinText(pixel: store.skin == .pixel, text: subtitle, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2")).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 8)
@@ -108,7 +108,7 @@ struct AgentCard: View {
                 }
                 if let tokens = agent.tokens {
                     IconRow(store: store, glyph: "E8EF", symbol: "number", title: store.t("Tokens"), subtitle: store.quota.tokenModeLabel) {
-                        Text("\(tokens.today)  ·  \(tokens.month)").font(kit.body(12)).foregroundColor(palette.color("Text2"))
+                        SkinText(pixel: store.skin == .pixel, text: "\(tokens.today)  ·  \(tokens.month)", pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
                     }
                 }
                 if let note = agent.note, !note.isEmpty {
@@ -121,7 +121,7 @@ struct AgentCard: View {
             if agent.id == "codex" || agent.account != nil {
                 IconRow(store: store, glyph: "E77B", symbol: "person.crop.circle", title: store.t("Account")) {
                     HStack(spacing: 10) {
-                        Text(agent.account ?? store.t("Not saved yet")).font(kit.body(12)).foregroundColor(palette.color("Text2"))
+                        SkinText(pixel: store.skin == .pixel, text: agent.account ?? store.t("Not saved yet"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
                         if agent.id == "codex" { codexMenu }
                     }
                 }
@@ -129,7 +129,7 @@ struct AgentCard: View {
             if agent.signIn != "none" {
                 IconRow(store: store, glyph: "E8D7", symbol: "key", title: store.t("Sign in"), subtitle: agent.signInHint) {
                     KitButton(store: store, title: agent.signIn == "waiting" ? store.t("Waiting for sign-in") : store.t("Sign in"),
-                              prominent: true, enabled: agent.signIn == "available") {
+                              prominent: store.skin != .pixel, enabled: agent.signIn == "available") {
                         store.send("agent", ["action": "signIn", "id": agent.id])
                     }
                 }
@@ -149,22 +149,22 @@ struct AgentCard: View {
             AgentMark(store: store, agent: agent)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
-                    Text(agent.name).font(kit.pixel ? PixelFace.font(13) : .system(size: 14)).foregroundColor(palette.color("Text"))
+                    SkinText(pixel: store.skin == .pixel, text: agent.name, pixelSize: 13, size: 14, weight: .regular, color: palette.color("Text"))
                     if let plan = agent.plan, !plan.isEmpty {
-                        Text(plan).font(kit.pixel ? PixelFace.font(13) : .system(size: 10, weight: .semibold))
-                            .foregroundColor(kit.pixel ? palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook) : palette.color("Text"))
+                        SkinText(pixel: kit.pixel, text: plan, pixelSize: 13, size: 10, weight: .semibold,
+                                 color: kit.pixel ? palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook) : palette.color("Text"))
                             .padding(.horizontal, 6).padding(.vertical, 1)
                             .background(kit.pixel ? AnyView(Rectangle().fill(palette.tint(agent.swatch))) : AnyView(Capsule().fill(palette.tint(agent.swatch))))
                     }
                 }
-                Text(agent.status).font(kit.body(12)).foregroundColor(palette.color("Text2"))
+                SkinText(pixel: store.skin == .pixel, text: agent.status, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
             }
             Spacer(minLength: 8)
             if let index {
                 arrow("chevron.up", enabled: index > 0) { move(-1) }
                 arrow("chevron.down", enabled: index < count - 1) { move(1) }
             }
-            Text(store.t(agent.shown ? "Shown" : "Hidden")).font(kit.body(12)).foregroundColor(palette.color("Text2"))
+            SkinText(pixel: store.skin == .pixel, text: store.t(agent.shown ? "Shown" : "Hidden"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
             KitToggle(store: store, isOn: agent.shown, showsLabel: false) { on in store.setDrawer(["shown": ["id": agent.id, "on": on]]) }
         }
         .padding(.vertical, 10)
@@ -172,26 +172,52 @@ struct AgentCard: View {
 
     private func arrow(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundColor(store.palette.color("Text"))
-                .frame(width: 24, height: 24)
-                .background(store.skin == .pixel
-                    ? AnyView(PixelPlateBackground(palette: store.palette, outline: store.palette.color("LineControl"), fill: store.palette.color("Field")))
-                    : AnyView(RoundedRectangle(cornerRadius: 6).fill(store.palette.color("Field"))))
+            Group {
+                if store.skin == .pixel {
+                    PixelIcon(name: symbol == "chevron.up" ? "up" : "down", ink: enabled ? store.palette.color("Text") : store.palette.color("Disabled"), cell: 2)
+                } else {
+                    Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundColor(store.palette.color("Text"))
+                }
+            }
+            .frame(width: 28, height: 28)
+            .background(store.skin == .pixel
+                ? AnyView(PixelPlateBackground(palette: store.palette, outline: enabled ? store.palette.color("LineControl") : store.palette.color("Disabled"),
+                                               fill: enabled ? store.palette.color("Field") : store.palette.color("DisabledFill")))
+                : AnyView(RoundedRectangle(cornerRadius: 6).fill(store.palette.color("Field"))))
         }
-        .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.35)
+        .buttonStyle(.plain).disabled(!enabled).opacity(enabled || store.skin == .pixel ? 1 : 0.35)
     }
 
     // MARK: Rows
 
     private func lookRow(kit: Kit, palette: Palette) -> some View {
         let choices = store.looks["\(agent.id)-\(theme)"] ?? []
+        let name = choices.first { $0.id == worn }?.name ?? ""
+        let description = kit.pixel ? store.t("{0}. What {1} wears in the drawer, on its card and in menus", name, agent.name) : name
         return VStack(spacing: 0) {
-            IconRow(store: store, glyph: "E771", symbol: "paintpalette", title: store.t("Look")) { EmptyView() }
-            if !choices.isEmpty {
-                if RenderFlags.offscreen { tiles(choices).padding(.bottom, 10).padding(.leading, kit.pixel ? 32 : 44).frame(maxWidth: .infinity, alignment: .leading) }
-                else {
-                    ScrollView(.horizontal, showsIndicators: false) { tiles(choices).padding(.bottom, 10).padding(.leading, kit.pixel ? 32 : 44) }
+            if kit.pixel { DottedRule(color: palette.color("LineSoft"), vertical: false) } else { Rectangle().fill(palette.color("LineSoft")).frame(height: 1) }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    lookLabel(description)
+                    Spacer(minLength: 8)
+                    if !choices.isEmpty { tiles(choices) }
                 }
+                VStack(alignment: .leading, spacing: 8) {
+                    lookLabel(description)
+                    if !choices.isEmpty { tiles(choices).padding(.leading, kit.pixel ? 32 : 44) }
+                }
+            }
+            .padding(.vertical, 10)
+        }
+    }
+
+    private func lookLabel(_ description: String) -> some View {
+        HStack(spacing: 12) {
+            RowIcon(store: store, glyph: "E771", symbol: "paintpalette")
+            VStack(alignment: .leading, spacing: 1) {
+                SkinText(pixel: store.skin == .pixel, text: store.t("Look"), pixelSize: 13, size: 13, color: store.palette.color("Text"))
+                SkinText(pixel: store.skin == .pixel, text: description, pixelSize: 13, size: 12, color: store.palette.color("Text2"))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -214,8 +240,8 @@ struct AgentCard: View {
                     if kit.pixel { PixelBar(share: meter.shown, color: warn ? palette.color("Critical") : ink, blocks: 30) }
                     else { ClassicBar(share: meter.shown, color: warn ? palette.color("Critical") : ink, track: palette.tint(agent.swatch)).frame(width: 180) }
                 }
-                Text(meter.value).font(kit.body(12)).fontWeight(warn && !kit.pixel ? .semibold : .regular)
-                    .foregroundColor(warn ? palette.color("Critical") : palette.color("Text2"))
+                SkinText(pixel: kit.pixel, text: meter.value, pixelSize: 13, size: 12, weight: warn && !kit.pixel ? .semibold : .regular,
+                         color: warn ? palette.color("Critical") : palette.color("Text2"))
                     .frame(minWidth: kit.pixel ? 64 : 40, alignment: .trailing)
             }
         }
@@ -225,7 +251,7 @@ struct AgentCard: View {
         let codex = store.settings?.codex
         return Group {
             if RenderFlags.offscreen {
-                Text(store.t("Switch") + " ⌄").font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
+                KitMenu(store: store, options: [store.t("Switch")], selected: 0) { _ in }
             } else {
                 Menu {
                     if codex?.accounts.isEmpty ?? true { Text(store.t("No saved accounts yet")) }
@@ -247,9 +273,13 @@ struct AgentCard: View {
                         }
                     }
                 } label: {
-                    Text(store.t("Switch")).font(Kit(store: store).body())
+                    HStack(spacing: 6) {
+                        SkinText(pixel: store.skin == .pixel, text: store.t("Switch"), pixelSize: 13, size: 13, color: store.palette.color("Text"))
+                        if store.skin == .pixel { PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20) }
+                    }
                 }
-                .menuStyle(.borderlessButton).fixedSize()
+                .menuStyle(.borderlessButton).menuIndicator(store.skin == .pixel ? .hidden : .visible).fixedSize()
+                .padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
             }
         }
     }
@@ -335,9 +365,15 @@ struct LookTile: View {
             if store.skin == .pixel {
                 AgentFace(id: agent.id, look: choice.id, swatch: choice.swatch, skin: .pixel, size: 30)
                     .frame(width: 44, height: 44)
-                    .background(PixelPlateBackground(palette: palette, outline: worn ? palette.color("Accent") : palette.color("LineSoft"), fill: worn ? palette.color("AccentTint") : palette.color("Field")))
-                    .overlay(alignment: .topTrailing) {
-                        if worn { Text("✓").font(PixelFace.font(13)).foregroundColor(palette.color("Accent")).padding(3) }
+                    .background(PixelPlateBackground(palette: palette, outline: worn ? palette.color("Accent") : palette.color("Line"), fill: palette.color("Paper")))
+                    .overlay(alignment: .bottomTrailing) {
+                        if worn {
+                            PixelIcon(name: "check", ink: palette.color("OnAccent"), cell: 1)
+                                .frame(width: 10, height: 10)
+                                .padding(2)
+                                .background(Rectangle().fill(palette.color("Accent")))
+                                .padding(2)
+                        }
                     }
             } else {
                 VStack(spacing: 4) {
@@ -346,7 +382,7 @@ struct LookTile: View {
                     } else {
                         FaceChip(swatch: choice.swatch, size: 30).frame(width: 44, height: 44)
                     }
-                    Text(choice.name).font(.system(size: 11)).foregroundColor(palette.color("Text")).lineLimit(1)
+                    SkinText(pixel: store.skin == .pixel, text: choice.name, pixelSize: 11, size: 11, weight: .regular, color: palette.color("Text"), lines: 1)
                 }
                 .frame(width: 80, height: 76)
                 .background(RoundedRectangle(cornerRadius: 10).fill(worn ? palette.color("AccentTint") : palette.color("Field")))

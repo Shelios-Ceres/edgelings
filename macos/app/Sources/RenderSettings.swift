@@ -99,7 +99,7 @@ enum RenderSettings {
                     store.launchAtLogin = false
                     for id in ["claude", "codex", "kimi"] {
                         for theme in ["pixel", "classic"] {
-                            if let model = LooksModel.from(AppController.shared.bridge?.request("looks", ["id": id, "theme": theme]) ?? [:]) {
+                            if let model = LooksModel.from(AppController.shared.bridge?.request("looks", ["id": id, "theme": theme, "english": theme == "pixel"]) ?? [:]) {
                                 store.looks["\(id)-\(theme)"] = model.looks
                             }
                         }

@@ -518,6 +518,7 @@ public static class AppModel
     {
         var provider = request.TryGetProperty("id", out var id) ? DisplayProviders.Parse(id.GetString()) : null;
         var theme = request.TryGetProperty("theme", out var t) && t.GetString() == "classic" ? CharacterTheme.Classic : CharacterTheme.Pixel;
+        using var english = request.TryGetProperty("english", out var e) && e.ValueKind == JsonValueKind.True ? L10n.English() : null;
         return Json.Write(json =>
         {
             json.WriteStartArray("looks");
@@ -525,7 +526,7 @@ public static class AppModel
             {
                 json.WriteStartObject();
                 json.WriteString("id", look.Id);
-                json.WriteString("name", look.Name);
+                json.WriteString("name", L10n.Tr(look.Name));
                 json.WriteNumber("swatch", look.Swatch);
                 json.WriteEndObject();
             }

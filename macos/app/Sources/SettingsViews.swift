@@ -52,7 +52,7 @@ struct SettingsSidebar: View {
                         } else {
                             Image(systemName: page.symbol).frame(width: 18).foregroundColor(selected ? palette.color("Accent") : palette.color("Text2"))
                         }
-                        Text(store.t(page.key)).font(kit.body()).foregroundColor(selected ? palette.color("Text") : palette.color("Text2"))
+                        SkinText(pixel: store.skin == .pixel, text: store.t(page.key), pixelSize: 13, size: 13, weight: .regular, color: selected ? palette.color("Text") : palette.color("Text2"))
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10).padding(.vertical, 7)
@@ -224,18 +224,18 @@ struct GeneralPage: View {
         }
         SectionLabel(store: store, text: store.t("About"))
         VStack(alignment: .leading, spacing: 8) {
-            Text("Edgelings").font(Kit(store: store).strong(15)).foregroundColor(store.palette.color("Text"))
-            Text("Mac test build").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text2"))
-            Text(store.t("Thanks")).font(Kit(store: store).strong(12)).foregroundColor(store.palette.color("Text")).padding(.top, 6)
-            Text("Agent Island").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text"))
-            Text(store.t("The original app, by {0} · MIT License", "Tristan Tang")).font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text2"))
+            SkinText(pixel: store.skin == .pixel, text: "Edgelings", pixelSize: 15, size: 15, weight: .semibold, color: store.palette.color("Text"))
+            SkinText(pixel: store.skin == .pixel, text: "Mac test build", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
+            SkinText(pixel: store.skin == .pixel, text: store.t("Thanks"), pixelSize: 12, size: 12, weight: .semibold, color: store.palette.color("Text")).padding(.top, 6)
+            SkinText(pixel: store.skin == .pixel, text: "Agent Island", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text"))
+            SkinText(pixel: store.skin == .pixel, text: store.t("The original app, by {0} · MIT License", "Tristan Tang"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
             if RenderFlags.offscreen {
-                Text("github.com/tristan666666/agent-island").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Accent"))
+                SkinText(pixel: store.skin == .pixel, text: "github.com/tristan666666/agent-island", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Accent"))
             } else {
                 Link("github.com/tristan666666/agent-island", destination: URL(string: "https://github.com/tristan666666/agent-island")!).font(Kit(store: store).body(12))
             }
-            Text("Ark Pixel").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text")).padding(.top, 4)
-            Text(store.t("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf")).font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text2"))
+            SkinText(pixel: store.skin == .pixel, text: "Ark Pixel", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text")).padding(.top, 4)
+            SkinText(pixel: store.skin == .pixel, text: store.t("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
             HStack(spacing: 8) {
                 KitButton(store: store, title: store.t("Copy diagnostic")) { DiagnosticReport.copy() }
                 KitButton(store: store, title: store.t("Open folder")) {
@@ -244,7 +244,7 @@ struct GeneralPage: View {
                 }
                 KitButton(store: store, title: store.t("Quit")) { NSApp.terminate(nil) }
             }.padding(.top, 8)
-            Text(store.t("Ids, counts and states only: no titles or message text")).font(Kit(store: store).body(11)).foregroundColor(store.palette.color("Text3"))
+            SkinText(pixel: store.skin == .pixel, text: store.t("Ids, counts and states only: no titles or message text"), pixelSize: 11, size: 11, weight: .regular, color: store.palette.color("Text3"))
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .modifier(CardSurface(store: store))

@@ -49,11 +49,9 @@ struct CardSection: View {
             } else {
                 FaceChip(swatch: card.swatch, size: 16)
             }
-            Text(card.name).font(pixel ? PixelFace.font(13) : .system(size: 13, weight: .semibold)).foregroundColor(primary)
+            SkinText(pixel: pixel, text: card.name, pixelSize: 13, size: 13, weight: .semibold, color: primary)
             if let plan = card.plan, !plan.isEmpty {
-                Text(pixel ? plan : plan)
-                    .font(pixel ? PixelFace.font(13) : .system(size: 10, weight: .semibold))
-                    .foregroundColor(pixel ? identity : primary)
+                SkinText(pixel: pixel, text: plan, pixelSize: 13, size: 10, weight: .semibold, color: pixel ? identity : primary)
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(pixel ? AnyView(Rectangle().fill(palette.tint(card.swatch))) : AnyView(Capsule().fill(palette.tint(card.swatch))))
             }
@@ -66,16 +64,16 @@ struct CardSection: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 4) {
                         who
-                        Text("·").font(head()).foregroundColor(secondary)
-                        Text(card.phase).font(head()).foregroundColor(secondary)
+                        SkinText(pixel: pixel, text: "·", pixelSize: 13, size: 13, weight: .regular, color: secondary)
+                        SkinText(pixel: pixel, text: card.phase, pixelSize: 13, size: 13, weight: .regular, color: secondary)
                     }
                     VStack(alignment: .leading, spacing: 1) {
                         who
-                        Text(card.phase).font(head()).foregroundColor(secondary).padding(.leading, indent)
+                        SkinText(pixel: pixel, text: card.phase, pixelSize: 13, size: 13, weight: .regular, color: secondary).padding(.leading, indent)
                     }
                 }
                 if let detail = card.detail {
-                    Text(detail).font(row()).foregroundColor(tertiary).padding(.leading, indent).padding(.top, 1)
+                    SkinText(pixel: pixel, text: detail, pixelSize: 13, size: 12, weight: .regular, color: tertiary).padding(.leading, indent).padding(.top, 1)
                 }
             } else {
                 who
@@ -84,8 +82,8 @@ struct CardSection: View {
             }
             if let tasks = card.tasks {
                 HStack(alignment: .top, spacing: 8) {
-                    Text(tasks.label).font(row()).foregroundColor(secondary).frame(width: labelWidth, alignment: .leading)
-                    emphasised(tasks.text, numbers: [tasks.number], strong: primary, bold: !pixel).font(row()).foregroundColor(secondary)
+                    SkinText(pixel: pixel, text: tasks.label, pixelSize: 13, size: 12, weight: .regular, color: secondary).frame(width: labelWidth, alignment: .leading)
+                    EmphasisedText(pixel: pixel, phrase: tasks.text, numbers: [tasks.number], strong: primary, base: secondary, pixelSize: 13, size: 12)
                 }
                 .padding(.leading, indent).padding(.top, 7)
             }
@@ -101,8 +99,8 @@ struct CardSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(card.note.enumerated()), id: \.offset) { _, note in
                         VStack(alignment: .leading, spacing: 0) {
-                            if let lead = note.lead { Text(lead).font(row()).foregroundColor(tertiary) }
-                            emphasised(note.text, numbers: note.numbers, strong: primary, bold: !pixel).font(row()).foregroundColor(tertiary)
+                            if let lead = note.lead { SkinText(pixel: pixel, text: lead, pixelSize: 13, size: 12, weight: .regular, color: tertiary) }
+                            EmphasisedText(pixel: pixel, phrase: note.text, numbers: note.numbers, strong: primary, base: tertiary, pixelSize: 13, size: 12)
                         }
                     }
                 }
@@ -117,13 +115,13 @@ struct CardSection: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(card.waiting.rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: 8) {
-                    Text(row.title).font(self.row()).foregroundColor(pixel ? secondary : primary).lineLimit(2)
+                    SkinText(pixel: pixel, text: row.title, pixelSize: 13, size: 12, weight: .regular, color: pixel ? secondary : primary, lines: 2)
                     Spacer(minLength: 0)
-                    Text(row.word).font(self.row()).foregroundColor(wordColor(row))
+                    SkinText(pixel: pixel, text: row.word, pixelSize: 13, size: 12, weight: .regular, color: wordColor(row))
                 }
             }
             if card.waiting.more > 0 {
-                Text("+\(card.waiting.more) more").font(row()).foregroundColor(pixel ? secondary : tertiary)
+                SkinText(pixel: pixel, text: "+\(card.waiting.more) more", pixelSize: 13, size: 12, weight: .regular, color: pixel ? secondary : tertiary)
             }
         }
     }
@@ -141,7 +139,7 @@ struct CardSection: View {
     private func meterRow(_ meter: MeterModel) -> some View {
         let warn = (meter.used ?? 0) >= 0.9
         return HStack(spacing: 8) {
-            Text(meter.label).font(row()).foregroundColor(secondary).lineLimit(1).frame(width: labelWidth, alignment: .leading)
+            SkinText(pixel: pixel, text: meter.label, pixelSize: 13, size: 12, weight: .regular, color: secondary, lines: 1).frame(width: labelWidth, alignment: .leading)
             Group {
                 if pixel {
                     PixelBar(share: meter.shown, color: warn ? palette.color("Critical") : identity, blocks: 14)
@@ -150,21 +148,21 @@ struct CardSection: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(meter.value).font(row()).fontWeight(warn && !pixel ? .semibold : .regular)
-                .foregroundColor(warn ? palette.color("Critical") : secondary)
+            SkinText(pixel: pixel, text: meter.value, pixelSize: 13, size: 12, weight: warn && !pixel ? .semibold : .regular,
+                     color: warn ? palette.color("Critical") : secondary)
                 .frame(width: valueWidth, alignment: .trailing)
         }
     }
 
     private func tokensRow(_ tokens: TokensModel) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Text(tokens.label).font(row()).foregroundColor(secondary).frame(width: labelWidth, alignment: .leading)
+            SkinText(pixel: pixel, text: tokens.label, pixelSize: 13, size: 12, weight: .regular, color: secondary).frame(width: labelWidth, alignment: .leading)
             if tokens.todayNumber.isEmpty {
-                Text(tokens.today).font(row()).foregroundColor(tertiary)
+                SkinText(pixel: pixel, text: tokens.today, pixelSize: 13, size: 12, weight: .regular, color: tertiary)
             } else {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack { Text("Today").font(row()).foregroundColor(secondary); Spacer(); emphasised(tokens.todayNumber, numbers: [tokens.todayNumber], strong: primary, bold: !pixel).font(row()).foregroundColor(primary) }
-                    HStack { Text("This month").font(row()).foregroundColor(secondary); Spacer(); emphasised(tokens.monthNumber, numbers: [tokens.monthNumber], strong: primary, bold: !pixel).font(row()).foregroundColor(primary) }
+                    HStack { SkinText(pixel: pixel, text: "Today", pixelSize: 13, size: 12, weight: .regular, color: secondary); Spacer(); EmphasisedText(pixel: pixel, phrase: tokens.todayNumber, numbers: [tokens.todayNumber], strong: primary, base: primary, pixelSize: 13, size: 12) }
+                    HStack { SkinText(pixel: pixel, text: "This month", pixelSize: 13, size: 12, weight: .regular, color: secondary); Spacer(); EmphasisedText(pixel: pixel, phrase: tokens.monthNumber, numbers: [tokens.monthNumber], strong: primary, base: primary, pixelSize: 13, size: 12) }
                 }
             }
         }
@@ -240,6 +238,7 @@ struct CardView: View {
 struct DottedRule: View {
     let color: Color
     let vertical: Bool
+    var dash: [CGFloat] = [2, 2]
 
     var body: some View {
         Canvas { context, size in
@@ -249,7 +248,7 @@ struct DottedRule: View {
             } else {
                 path.move(to: CGPoint(x: 0, y: 1)); path.addLine(to: CGPoint(x: size.width, y: 1))
             }
-            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, dash: [2, 2]))
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, dash: dash))
         }
         .frame(width: vertical ? 2 : nil, height: vertical ? nil : 2)
     }

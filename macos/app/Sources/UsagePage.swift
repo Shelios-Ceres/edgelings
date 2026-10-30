@@ -5,6 +5,13 @@ import SwiftUI
 enum UsagePeriod: String, CaseIterable, Identifiable {
     case today, week, month
     var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .today: return "clock"
+        case .week: return "week"
+        case .month: return "month"
+        }
+    }
     var key: String {
         switch self {
         case .today: return "Today"
@@ -23,16 +30,18 @@ struct UsagePage: View {
         let palette = store.palette
         PageTitle(store: store, key: "Usage & cost")
         PageIntro(store: store, text: store.t("Estimated at API list prices from this computer's session logs — not a bill."))
-        HStack(spacing: 8) {
+        HStack(alignment: .bottom, spacing: 14) {
             ForEach(UsagePeriod.allCases) { option in
                 Button(action: { period = option }) {
                     if kit.pixel {
-                        VStack(spacing: 3) {
-                            Text(store.t(option.key)).font(kit.body())
-                                .foregroundColor(period == option ? palette.color("Text") : palette.color("Text2"))
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                PixelIcon(name: option.icon, ink: period == option ? palette.color("Text") : palette.color("Text2"), cell: 2)
+                                SkinText(pixel: true, text: store.t(option.key), pixelSize: 13, size: 13,
+                                         color: period == option ? palette.color("Text") : palette.color("Text2"))
+                            }
                             Rectangle().fill(period == option ? palette.color("Accent") : Color.clear).frame(height: 2)
                         }
-                        .padding(.horizontal, 10)
                     } else {
                         Text(store.t(option.key)).font(kit.body())
                             .foregroundColor(period == option ? palette.color("OnAccent") : palette.color("Text"))
@@ -43,9 +52,16 @@ struct UsagePage: View {
                 .buttonStyle(.plain)
             }
             Spacer()
+        }
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                SkinText(pixel: kit.pixel, text: store.t("{0} · Local time zone: {1}", dateLine(), store.usage?.zone ?? ""), pixelSize: 13, size: 12, color: palette.color("Text2"))
+                SkinText(pixel: kit.pixel, text: store.t("Today starts at this computer's midnight. Previous days stay in history."), pixelSize: 13, size: 12, color: palette.color("Text3"))
+            }
+            Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 KitButton(store: store, title: store.t("Scan now")) { store.send("rescan", [:]) }
-                Text(store.usage?.scannedAgo.map { store.t("Last scanned {0}", $0) } ?? store.t("Not scanned yet")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
+                SkinText(pixel: kit.pixel, text: store.usage?.scannedAgo.map { store.t("Last scanned {0}", $0) } ?? store.t("Not scanned yet"), pixelSize: 13, size: 12, color: palette.color("Text3"))
             }
         }
         if let usage = store.usage {
@@ -55,9 +71,21 @@ struct UsagePage: View {
                     UsageAgentCard(store: store, agent: agent, period: period)
                 }
             }
-            Text(usage.zone).font(kit.body(11)).foregroundColor(palette.color("Text3"))
         }
         quotaSection
+    }
+
+    private func dateLine() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let end = Date()
+        let start: Date
+        switch period {
+        case .today: return formatter.string(from: end)
+        case .week: start = Calendar.current.date(byAdding: .day, value: -6, to: end) ?? end
+        case .month: start = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: end)) ?? end
+        }
+        return formatter.string(from: start) + " – " + formatter.string(from: end)
     }
 
     private func slice(_ part: UsagePart) -> PeriodUsage {
@@ -86,9 +114,9 @@ struct UsagePage: View {
 
     private func stat(_ label: String, _ value: String, _ caption: String, kit: Kit, palette: Palette) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label).font(kit.body(12)).foregroundColor(palette.color("Text2"))
-            Text(value).font(kit.pixel ? PixelFace.font(22) : .system(size: 22, weight: .semibold)).foregroundColor(palette.color("Text"))
-            Text(caption).font(kit.body(11)).foregroundColor(palette.color("Text3")).fixedSize(horizontal: false, vertical: true)
+            SkinText(pixel: store.skin == .pixel, text: label, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
+            SkinText(pixel: store.skin == .pixel, text: value, pixelSize: 22, size: 22, weight: .semibold, color: palette.color("Text"))
+            SkinText(pixel: store.skin == .pixel, text: caption, pixelSize: 11, size: 11, weight: .regular, color: palette.color("Text3")).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
         .modifier(CardSurface(store: store))
@@ -148,7 +176,7 @@ struct UsageAgentCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 AgentFace(id: agent.id, look: agent.look, swatch: agent.swatch, skin: kit.pixel ? .pixel : .classic, size: kit.pixel ? 20 : 22)
-                Text(agent.name).font(kit.strong(14)).foregroundColor(palette.color("Text"))
+                SkinText(pixel: store.skin == .pixel, text: agent.name, pixelSize: 14, size: 14, weight: .semibold, color: palette.color("Text"))
                 Spacer()
             }
             ForEach(agent.parts) { part in
@@ -184,34 +212,37 @@ struct UsageAgentCard: View {
     @ViewBuilder private func partView(_ part: UsagePart, identity: Color, kit: Kit, palette: Palette) -> some View {
         let data = slice(part)
         VStack(alignment: .leading, spacing: 8) {
-            if agent.parts.count > 1 { Text(part.name).font(kit.body(12)).foregroundColor(palette.color("Text2")) }
+            if agent.parts.count > 1 { SkinText(pixel: store.skin == .pixel, text: part.name, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2")) }
             if !part.scanned {
-                Text(store.t("Not scanned yet")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
+                SkinText(pixel: store.skin == .pixel, text: store.t("Not scanned yet"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text3"))
             } else {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(part.dollars ? money(data.dollars) : compact(data.tokens))
-                        .font(kit.pixel ? PixelFace.font(22) : .system(size: 22, weight: .semibold)).foregroundColor(palette.color("Text"))
-                    Spacer()
-                    Text(part.dollars ? store.t("{0} tokens", compact(data.tokens)) : "\(compact(data.tokens)) tokens · billed by Cursor's own plan")
-                        .font(kit.body(12)).foregroundColor(palette.color("Text2"))
+                VStack(alignment: .trailing, spacing: 1) {
+                    SkinText(pixel: kit.pixel, text: part.dollars ? money(data.dollars) : compact(data.tokens), pixelSize: 20, size: 22,
+                             weight: .semibold, color: palette.color("Text"))
+                    SkinText(pixel: kit.pixel, text: part.dollars ? store.t("{0} tokens", compact(data.tokens)) : "\(compact(data.tokens)) tokens · billed by Cursor's own plan",
+                             pixelSize: 13, size: 12, color: palette.color("Text2"))
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 let values = series(part)
                 if values.contains(where: { $0 > 0 }) {
                     if kit.pixel {
-                        BlockChart(values: values, color: identity, baseline: palette.color("LineSoft"))
+                        BlockChart(values: values, color: identity, baseline: palette.color("Disabled"))
                     } else {
                         BarChart(values: values, color: identity, track: palette.tint(agent.swatch), pixel: false)
                     }
                 }
+                if period == .today && !data.models.isEmpty {
+                    SkinText(pixel: kit.pixel, text: store.t("Models, last 5 hours"), pixelSize: 13, size: 12, color: palette.color("Text2"))
+                }
                 if data.models.isEmpty {
-                    Text(store.t("No sessions in this period")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
+                    SkinText(pixel: store.skin == .pixel, text: store.t("No sessions in this period"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text3"))
                 } else {
                     ForEach(Array(data.models.enumerated()), id: \.offset) { _, model in
                         HStack {
-                            Text(model.name).font(kit.body(12)).foregroundColor(palette.color("Text")).lineLimit(1)
+                            SkinText(pixel: store.skin == .pixel, text: model.name, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text"), lines: 1)
                             Spacer()
                             let price = !part.dollars ? "" : model.unpriced ? "  ·  " + store.t("no price") : "  ·  " + money(model.dollars)
-                            Text(compact(model.tokens) + price).font(kit.body(12)).foregroundColor(palette.color("Text2"))
+                            SkinText(pixel: store.skin == .pixel, text: compact(model.tokens) + price, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
                         }
                     }
                 }

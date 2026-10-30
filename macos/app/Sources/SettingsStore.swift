@@ -209,7 +209,7 @@ final class SettingsStore: ObservableObject {
     func loadLooks(for id: String) {
         let key = "\(id)-\(skin == .pixel ? "pixel" : "classic")"
         guard looks[key] == nil else { return }
-        AppController.shared.request("looks", ["id": id, "theme": skin == .pixel ? "pixel" : "classic"]) { [weak self] reply in
+        AppController.shared.request("looks", ["id": id, "theme": skin == .pixel ? "pixel" : "classic", "english": skin == .pixel]) { [weak self] reply in
             if let model = LooksModel.from(reply) { self?.looks[key] = model.looks }
         }
     }
@@ -279,7 +279,7 @@ enum UIStrings {
         "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
         "Account", "Look", "Save current account…", "Auto-switch when exhausted", "No saved accounts yet", "Remove saved account",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",
-        "Permission hook", "Not detected",
+        "Permission hook", "Not detected", "{0}. What {1} wears in the drawer, on its card and in menus", "Models, last 5 hours", "{0} · Local time zone: {1}", "Today starts at this computer's midnight. Previous days stay in history.", "Switch",
         "Last scanned {0}", "Memory (background)", "synced {0}", "Quota updated {0}", "Waiting for the first sync", "Resets {0}",
         "5h", "Week", "today", "{0} this month", "Look",
         "Shown", "Hidden", "Move up", "Move down", "Right now", "Account", "Not saved yet",

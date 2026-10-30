@@ -22,7 +22,7 @@ struct PageTitle: View {
     let key: String
     var body: some View {
         let kit = Kit(store: store)
-        Text(store.t(key)).font(kit.pixel ? PixelFace.font(26) : .system(size: 26, weight: .semibold)).foregroundColor(kit.palette.color("Text"))
+        SkinText(pixel: store.skin == .pixel, text: store.t(key), pixelSize: 26, size: 26, weight: .semibold, color: kit.palette.color("Text"))
     }
 }
 
@@ -30,7 +30,7 @@ struct PageIntro: View {
     @ObservedObject var store: SettingsStore
     let text: String
     var body: some View {
-        Text(text).font(Kit(store: store).body()).foregroundColor(store.palette.color("Text2")).fixedSize(horizontal: false, vertical: true)
+        SkinText(pixel: store.skin == .pixel, text: text, pixelSize: 13, size: 13, weight: .regular, color: store.palette.color("Text2")).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -41,7 +41,7 @@ struct SectionLabel: View {
         if store.skin == .pixel {
             HStack(spacing: 8) {
                 Rectangle().fill(store.palette.color("Accent")).frame(width: 6, height: 6)
-                Text(text).font(PixelFace.font(13)).foregroundColor(store.palette.color("Accent"))
+                SkinText(pixel: store.skin == .pixel, text: text, pixelSize: 13, size: 13, weight: .regular, color: store.palette.color("Accent"))
             }
             .padding(.top, 12)
         } else {
@@ -64,9 +64,9 @@ struct SettingRow<Control: View>: View {
         HStack(alignment: .center, spacing: 12) {
             if !glyph.isEmpty { RowIcon(store: store, glyph: glyph, symbol: symbol) }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(kit.body()).foregroundColor(kit.palette.color("Text"))
+                SkinText(pixel: store.skin == .pixel, text: title, pixelSize: 13, size: 13, weight: .regular, color: kit.palette.color("Text"))
                 if let subtitle {
-                    Text(subtitle).font(kit.body(12)).foregroundColor(kit.palette.color("Text2")).fixedSize(horizontal: false, vertical: true)
+                    SkinText(pixel: store.skin == .pixel, text: subtitle, pixelSize: 12, size: 12, weight: .regular, color: kit.palette.color("Text2")).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
@@ -104,7 +104,7 @@ struct KitToggle: View {
             Button(action: { change(!isOn) }) {
                 HStack(spacing: 8) {
                     if showsLabel {
-                        Text(isOn ? (onLabel ?? store.t("On")) : (offLabel ?? store.t("Off"))).font(PixelFace.font(13)).foregroundColor(store.palette.color("Text2"))
+                        SkinText(pixel: store.skin == .pixel, text: isOn ? (onLabel ?? store.t("On")) : (offLabel ?? store.t("Off")), pixelSize: 13, size: 13, weight: .regular, color: store.palette.color("Text2"))
                     }
                     ZStack(alignment: isOn ? .trailing : .leading) {
                         Rectangle().fill(isOn ? store.palette.color("Accent") : store.palette.color("DisabledFill"))
@@ -134,10 +134,10 @@ struct KitMenu: View {
     private var label: some View {
         let text = options.indices.contains(selected) ? options[selected] : (options.first ?? "")
         return HStack(spacing: 6) {
-            Text(text).font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
+            SkinText(pixel: store.skin == .pixel, text: text, pixelSize: 13, size: 13, weight: .regular, color: store.palette.color("Text"))
             // Pixel draws its own chevron; Classic keeps the system's.
             if store.skin == .pixel {
-                Text("⌄").font(PixelFace.font(13)).foregroundColor(store.palette.color("Text2"))
+                PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20)
             } else if RenderFlags.offscreen {
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundColor(store.palette.color("Text2"))
             }
@@ -183,8 +183,7 @@ struct KitButton: View {
     var body: some View {
         let palette = store.palette
         Button(action: action) {
-            Text(title).font(Kit(store: store).body())
-                .foregroundColor(prominent ? palette.color("OnAccent") : palette.color("Text"))
+            SkinText(pixel: store.skin == .pixel, text: title, pixelSize: 13, size: 13, color: prominent ? palette.color("OnAccent") : palette.color("Text"))
                 .padding(.horizontal, 12).padding(.vertical, 5)
                 .background(
                     store.skin == .pixel
@@ -247,7 +246,7 @@ struct BlockChart: View {
                     .frame(maxWidth: .infinity)
                 }
             }
-            DottedRule(color: baseline, vertical: false)
+            DottedRule(color: baseline, vertical: false, dash: [6, 4])
         }
     }
 }
