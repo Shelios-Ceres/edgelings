@@ -11,6 +11,9 @@ namespace AgentIsland.Core;
 ///
 /// Every call degrades to "nothing read" when a process is gone or off
 /// limits: another user's process answers EPERM, and that is not an error.
+/// One process: id, parent, name, image path.
+internal sealed record MacProcessEntry(int Id, int ParentId, string Name, string? Path);
+
 [SupportedOSPlatform("macos")]
 internal static class MacProcesses
 {
@@ -40,12 +43,10 @@ internal static class MacProcesses
     [DllImport(LibSystem)]
     private static extern int sysctl(int[] name, uint nameLength, byte[]? old, ref nuint oldLength, IntPtr replacement, nuint replacementLength);
 
-    internal sealed record Entry(int Id, int ParentId, string Name, string? Path);
-
     /// Every process the user may inspect. Empty if the table can't be read.
-    internal static List<Entry> Snapshot()
+    internal static List<MacProcessEntry> Snapshot()
     {
-        var list = new List<Entry>();
+        var list = new List<MacProcessEntry>();
         var count = proc_listallpids(null, 0);
         if (count <= 0) return list;
         var ids = new int[count + 64];
@@ -62,7 +63,7 @@ internal static class MacProcesses
             if (name.Length == 0) name = CString(info, CommOffset, 16);
             var length = proc_pidpath(id, path, (uint)path.Length);
             var image = length > 0 ? Encoding.UTF8.GetString(path, 0, Math.Min(length, path.Length)) : null;
-            list.Add(new Entry(id, parent, name, image));
+            list.Add(new MacProcessEntry(id, parent, name, image));
         }
         return list;
     }

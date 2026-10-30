@@ -87,7 +87,8 @@ public static class CursorDatabaseTests
         // database while it is held, but the header bytes the stamp reads stay free.
         using (var holder = new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
         {
-            holder.Lock(0x40000002, 510);
+            // Byte-range locks are Windows' (a Mac's FileStream refuses them).
+            if (OperatingSystem.IsWindows()) holder.Lock(0x40000002, 510);
             Expect(CursorLogReader.ReadDatabase(fixture.Path, 1).Count == 1, "an unchanged ledger must be served without opening it");
         }
         fixture.Connection.Open();
