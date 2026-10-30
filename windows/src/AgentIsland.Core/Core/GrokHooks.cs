@@ -19,11 +19,15 @@ public static class GrokHooks
 {
     public const string PermissionPrompt = "permission_prompt";
     public const string HookFileName = "agentisland-notify.json";
-    private const string ScriptFileName = "grok-hook.ps1";
+    /// The Mac app writes an `sh` script (plutil reads the JSON); Windows
+    /// keeps its PowerShell one. Off unless the host turns it on.
+    public static bool UseShell { get; set; }
+
+    private static string ScriptFileName => UseShell ? "grok-hook.sh" : "grok-hook.ps1";
     private static readonly TimeSpan PromptLifetime = TimeSpan.FromHours(2);
 
     /// What the hook's command holds, which tells our file from another's.
-    private const string Marker = ScriptFileName;
+    private static string Marker => ScriptFileName;
 
     /// Where the hook file goes; tests point it elsewhere.
     internal static string HooksDirectory { get; set; } = "";
@@ -51,12 +55,33 @@ public static class GrokHooks
         "$type = if ($e.notificationType) { $e.notificationType } else { $e.notification_type }\r\n" +
         "if ($id) { [ordered]@{ session_id = $id; type = $type; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 -Path (Join-Path $d ($id + '.json')) }\r\n";
 
+    /// The Mac script: the same marker, read with plutil (part of macOS). It
+    /// keeps ids and a type, never text. The signal folder is the app's, or
+    /// EDGELINGS_GROK_SIGNALS where a host sets one.
+    internal const string ShellScript = """
+        #!/bin/sh
+        d="${EDGELINGS_GROK_SIGNALS:-$HOME/Library/Application Support/Edgelings/grok-hooks}"
+        mkdir -p "$d"
+        i=$(cat)
+        sid=$(printf '%s' "$i" | plutil -extract sessionId raw -o - - 2>/dev/null)
+        [ -n "$sid" ] || sid=$(printf '%s' "$i" | plutil -extract session_id raw -o - - 2>/dev/null)
+        id=$(printf '%s' "$sid" | tr -cd 'A-Za-z0-9-')
+        [ -n "$id" ] || exit 0
+        ty=$(printf '%s' "$i" | plutil -extract notificationType raw -o - - 2>/dev/null)
+        [ -n "$ty" ] || ty=$(printf '%s' "$i" | plutil -extract notification_type raw -o - - 2>/dev/null)
+        ty=$(printf '%s' "$ty" | tr -cd 'a-z_')
+        printf '{"session_id":"%s","type":"%s","at":%s}\n' "$id" "$ty" "$(( $(date +%s) * 1000 ))" > "$d/$id.json"
+
+        """;
+
     /// The hook file's JSON: Grok reads only type, command and timeout from
     /// a handler, and PowerShell is called by name so the command means the
     /// same under pwsh, Windows PowerShell and Git Bash.
     internal static string HookJson()
     {
-        var command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + ScriptPath.Replace('\\', '/') + "\"";
+        var command = UseShell
+            ? "sh \"" + ScriptPath + "\""
+            : "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + ScriptPath.Replace('\\', '/') + "\"";
         // JsonNode-typed, so the AOT-safe Add(JsonNode) is chosen over Add<T>.
         JsonNode handler = new JsonObject { ["type"] = "command", ["command"] = command, ["timeout"] = 10 };
         JsonNode group = new JsonObject { ["matcher"] = PermissionPrompt, ["hooks"] = new JsonArray(handler) };
@@ -108,7 +133,7 @@ public static class GrokHooks
                 }
                 Directory.CreateDirectory(Scripts);
                 Directory.CreateDirectory(Hooks);
-                Write(ScriptPath, Script);
+                Write(ScriptPath, UseShell ? ShellScript : Script);
                 Write(HookPath, HookJson());
                 return null;
             }

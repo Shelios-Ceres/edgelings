@@ -17,7 +17,13 @@ public static class ClaudeHooks
     public const string ElicitationDialog = "elicitation_dialog";
 
     /// The marker that identifies our matcher group in settings.json.
-    private const string Marker = "AgentIsland\\claude-hooks";
+    private const string WindowsMarker = "AgentIsland\\claude-hooks";
+
+    /// The Mac app writes `sh` hooks (plutil reads the JSON); Windows keeps
+    /// its PowerShell ones. Off unless the host turns it on.
+    public static bool UseShell { get; set; }
+
+    private static string Marker => UseShell ? "Edgelings/claude-hooks" : WindowsMarker;
     private const string Matcher = PermissionPrompt + "|" + ElicitationDialog;
     private static readonly TimeSpan PromptLifetime = TimeSpan.FromHours(2);
 
@@ -25,12 +31,21 @@ public static class ClaudeHooks
     /// machines without Git Bash.
     internal const string Command =
         "$e = [Console]::In.ReadToEnd() | ConvertFrom-Json; " +
-        "$d = Join-Path $env:APPDATA '" + Marker + "'; " +
+        "$d = Join-Path $env:APPDATA '" + WindowsMarker + "'; " +
         "New-Item -ItemType Directory -Force -Path $d | Out-Null; " +
         "$id = ($e.session_id -replace '[^A-Za-z0-9-]', ''); " +
         "if ($id) { [ordered]@{ session_id = $id; transcript_path = $e.transcript_path; type = $e.notification_type; " +
         "at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress | " +
         "Set-Content -Encoding UTF8 -Path (Join-Path $d ($id + '.json')) }";
+
+    /// The Mac hook: `sh`, with plutil (part of macOS) to read the event's
+    /// JSON. It keeps the session id (letters, digits and dashes only), the
+    /// transcript path and the prompt type, never the prompt's text.
+    internal static string ShellCommand(string signalDirectory) => ShellTemplate.Replace("@DIR@", signalDirectory.Replace("'", "'\\''"));
+
+    private const string ShellTemplate = """
+        d='@DIR@'; mkdir -p "$d"; i=$(cat); id=$(printf '%s' "$i" | plutil -extract session_id raw -o - - 2>/dev/null | tr -cd 'A-Za-z0-9-'); [ -n "$id" ] || exit 0; tp=$(printf '%s' "$i" | plutil -extract transcript_path raw -o - - 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g'); ty=$(printf '%s' "$i" | plutil -extract notification_type raw -o - - 2>/dev/null | tr -cd 'a-z_'); printf '{"session_id":"%s","transcript_path":"%s","type":"%s","at":%s}\n' "$id" "$tp" "$ty" "$(( $(date +%s) * 1000 ))" > "$d/$id.json"
+        """;
 
     /// Claude Code's user settings, in the config folder it reads
     /// (CLAUDE_CONFIG_DIR, else ~/.claude); tests point it elsewhere.
@@ -123,14 +138,12 @@ public static class ClaudeHooks
             hooks["Notification"] = groups;
         }
         // JsonNode-typed, so the AOT-safe Add(JsonNode) is chosen over Add<T>.
-        JsonNode handler = new JsonObject
-        {
-            ["type"] = "command",
-            ["shell"] = "powershell",
-            ["command"] = Command,
-            ["async"] = true,
-            ["timeout"] = 30,
-        };
+        var handlerObject = new JsonObject { ["type"] = "command" };
+        if (!UseShell) handlerObject["shell"] = "powershell";
+        handlerObject["command"] = UseShell ? ShellCommand(SignalDirectory) : Command;
+        handlerObject["async"] = true;
+        handlerObject["timeout"] = 30;
+        JsonNode handler = handlerObject;
         JsonNode group = new JsonObject
         {
             ["matcher"] = Matcher,

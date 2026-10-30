@@ -32,6 +32,13 @@ public static class BridgeApi
                 "card" => AppModel.Card(request.RootElement),
                 "looks" => AppModel.Looks(request.RootElement),
                 "setDrawer" => AppModel.SetDrawer(request.RootElement),
+                "tr" => SettingsApi.Tr(request.RootElement),
+                "settings" => SettingsApi.Settings(request.RootElement),
+                "set" => SettingsApi.Set(request.RootElement),
+                "agent" => SettingsApi.Agent(request.RootElement),
+                "usage" => SettingsApi.Usage(request.RootElement),
+                "format" => SettingsApi.Format(request.RootElement),
+                "rescan" => SettingsApi.Rescan(),
                 _ => Error($"unknown method '{method}'"),
             };
         }

@@ -121,6 +121,7 @@ public static class Program
                 ("AgentPresenceTests", AgentPresenceTests.RunAll, null),
                 ("SessionEventTests", SessionEventTests.RunAll, null),
                 ("GrokHooksTests", GrokHooksTests.RunAll, "starts powershell.exe"),
+                ("ShellHooksTests", ShellHooksTests.RunAll, null),
                 ("GrokAuthFileTests", GrokAuthFileTests.RunAll, null),
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),

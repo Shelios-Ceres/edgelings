@@ -59,6 +59,9 @@ public static class AppModel
             if (_started) return Ok();
             _started = true;
         }
+        // The Mac app's hooks are `sh` (nothing is installed until the user flips a switch).
+        ClaudeHooks.UseShell = true;
+        GrokHooks.UseShell = true;
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();
         ActivityMonitor.Shared.SessionEventsRaised += events =>
