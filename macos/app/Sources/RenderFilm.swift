@@ -39,9 +39,9 @@ enum RenderFilm {
         let count = min(24, max(2, Int((duration / step).rounded(.up)) + 1))
         // The refusal speaks: "Locked in place." pops beside the pressed character, so its cells are wide.
         let speaks = name == "refuse"
-        let columns = speaks ? 5 : 12
+        let columns = speaks ? 4 : 12
         let rows = (count + columns - 1) / columns
-        let cellW = speaks ? 250 : 64, cellH = 180
+        let cellW = speaks ? 380 : 64, cellH = 180
         var lockedBubble: (image: CGImage, size: CGSize)?
         if speaks {
             let palette = Palette(skin: pixel ? .pixel : .classic, dark: dark)

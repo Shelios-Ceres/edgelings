@@ -106,7 +106,7 @@ enum RenderMode {
     // MARK: Scenes
 
     /// The drawer, its card and a bubble placed by the same functions the real drawer uses: a screen
-    /// 800 x 380 with the column on its right edge, the card at the first character, the bubble at the second.
+    /// 800 x 380 with the column on its right edge, the card at the first character, the bubble at the last.
     @MainActor
     private static func placedScene(palette: Palette, cards: CardsModel, bubble: String?) -> some View {
         let pixel = palette.skin == .pixel
@@ -128,7 +128,7 @@ enum RenderMode {
         if let bubble {
             let probe = BubbleView(line: bubble, kind: "done", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: 0)
             let size = NSHostingView(rootView: probe).fittingSize
-            let place = BubblePresenter.placement(size: size, anchor: anchor(1), area: area, rightEdge: true, pixel: pixel)
+            let place = BubblePresenter.placement(size: size, anchor: anchor(3), area: area, rightEdge: true, pixel: pixel)
             bubbleView = AnyView(BubbleView(line: bubble, kind: "done", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: place.tailY)
                 .offset(x: place.origin.x, y: area.height - (place.origin.y + size.height)))
         }

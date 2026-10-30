@@ -269,7 +269,9 @@ if !eventsBlocked {
     pause(0.8)
 
     // Right-click: the menu.
-    click(first, right: true)
+    // The second character: Claude has one look, so only the others have a Look submenu.
+    let second = CGPoint(x: first.x, y: first.y + 54)
+    click(second, right: true)
     pause(0.6)
     screenshot("right-click-menu")
     let menu = windows().first { $0.pid == pid && $0.layer >= 100 && $0.onScreen }
