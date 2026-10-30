@@ -500,13 +500,24 @@ public sealed class UsageStore : INotifyPropertyChanged
         ArmResetEdgeTimer();
         RefreshIntervalStore.Shared.PropertyChanged += OnIntervalChanged;
         StartNetworkMonitor();
-        // Wake and unlock refreshes come from the macOS platform layer later.
-        if (OperatingSystem.IsWindows())
-        {
-            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
-            Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
-            _powerMonitorArmed = true;
-        }
+        // On a Mac the Swift side reports wake and unlock through HandleWake and HandleUnlock.
+        if (OperatingSystem.IsWindows()) ArmSystemEvents();
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void ArmSystemEvents()
+    {
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
+        _powerMonitorArmed = true;
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void DisarmSystemEvents()
+    {
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch -= OnSessionSwitch;
+        _powerMonitorArmed = false;
     }
 
     public void StopAutoRefresh()
@@ -521,12 +532,7 @@ public sealed class UsageStore : INotifyPropertyChanged
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _networkMonitorArmed = false;
         }
-        if (_powerMonitorArmed)
-        {
-            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
-            Microsoft.Win32.SystemEvents.SessionSwitch -= OnSessionSwitch;
-            _powerMonitorArmed = false;
-        }
+        if (_powerMonitorArmed && OperatingSystem.IsWindows()) DisarmSystemEvents();
     }
 
     /// Refresh on unlock, the macOS screenIsUnlocked mirror: the timers keep
@@ -534,19 +540,30 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// have dozed midway — a stale-gated refresh at unlock is cheap insurance
     /// that a reset which landed during the lock is caught the moment you're
     /// back, not up to a poll interval later.
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void OnSessionSwitch(object? sender, Microsoft.Win32.SessionSwitchEventArgs e)
     {
         if (e.Reason != Microsoft.Win32.SessionSwitchReason.SessionUnlock) return;
-        UiThread.Post(RefreshIfStale);
+        HandleUnlock();
     }
+
+    /// The screen unlocked (the Mac's session-active notification calls this).
+    public void HandleUnlock() => UiThread.Post(RefreshIfStale);
 
     /// Refresh right after waking from sleep — the poll timer's schedule
     /// slid while suspended, and any in-flight request died with the network
     /// stack. Without this, a machine that slept through a reset boundary
     /// shows the expired countdown until the next poll (up to 30 minutes).
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+        HandleWake();
+    }
+
+    /// The computer woke from sleep (the Mac's didWake notification calls this).
+    public void HandleWake()
+    {
         UiThread.Post(() =>
         {
             // The dead in-flight request would block Refresh's early-return

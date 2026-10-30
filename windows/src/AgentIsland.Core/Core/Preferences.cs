@@ -1,4 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using AgentIsland.Cost;
+using AgentIsland.Usage;
 
 namespace AgentIsland.Core;
 
@@ -26,10 +30,12 @@ public static class Preferences
 
     private static string SettingsPath => FileOverride ?? IslandPaths.SettingsFile;
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        WriteIndented = true,
-    };
+    /// The source-generated type info for a stored type. A type that is stored
+    /// must be listed in PreferencesJson, or NativeAOT (the macOS bridge)
+    /// could not serialise it; the settings tests store every listed type.
+    private static JsonTypeInfo<T> Info<T>() =>
+        PreferencesJson.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
+        ?? throw new InvalidOperationException($"{typeof(T)} is not listed in PreferencesJson");
 
     public static T? Get<T>(string key)
     {
@@ -37,7 +43,7 @@ public static class Preferences
         {
             if (Values().TryGetValue(key, out var element))
             {
-                try { return element.Deserialize<T>(); }
+                try { return element.Deserialize(Info<T>()); }
                 catch { return default; }
             }
             return default;
@@ -57,7 +63,7 @@ public static class Preferences
         lock (Gate)
         {
             _values = Reload();
-            _values[key] = JsonSerializer.SerializeToElement(value);
+            _values[key] = JsonSerializer.SerializeToElement(value, Info<T>());
             Save();
         }
     }
@@ -124,7 +130,7 @@ public static class Preferences
             try
             {
                 if (!File.Exists(path)) return new Dictionary<string, JsonElement>();
-                return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(path))
+                return JsonSerializer.Deserialize(File.ReadAllText(path), PreferencesJson.Default.Values)
                     ?? new Dictionary<string, JsonElement>();
             }
             catch (JsonException error)
@@ -171,7 +177,7 @@ public static class Preferences
             // settings.json renamed onto bytes that were never written.
             using (var stream = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                JsonSerializer.Serialize(stream, _values, SerializerOptions);
+                JsonSerializer.Serialize(stream, _values, PreferencesJson.Default.Values);
                 stream.Flush(flushToDisk: true);
             }
             File.Move(tmp, path, overwrite: true);
@@ -186,3 +192,23 @@ public static class Preferences
         }
     }
 }
+
+/// Every type Preferences stores, for source-generated (AOT-safe) JSON. The
+/// file stays indented, as it always was.
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(Dictionary<string, JsonElement>), TypeInfoPropertyName = "Values")]
+[JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(bool))]
+[JsonSerializable(typeof(bool?))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(int?))]
+[JsonSerializable(typeof(double))]
+[JsonSerializable(typeof(double?))]
+[JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(Dictionary<string, TokenTotals>))]
+[JsonSerializable(typeof(UsageCacheSnapshot))]
+[JsonSerializable(typeof(CursorUsageStore.Cached))]
+[JsonSerializable(typeof(AntigravityUsageStore.CachedSnapshot))]
+[JsonSerializable(typeof(GrokCachedSnapshot))]
+[JsonSerializable(typeof(KimiCachedSnapshot))]
+internal sealed partial class PreferencesJson : JsonSerializerContext;
