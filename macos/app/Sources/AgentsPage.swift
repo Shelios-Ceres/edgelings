@@ -210,7 +210,7 @@ struct AgentCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 8) {
                     lookLabel(description)
-                    if !choices.isEmpty { tiles(choices) }
+                    if !choices.isEmpty { tiles(choices).padding(.leading, kit.pixel ? 32 : 44) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

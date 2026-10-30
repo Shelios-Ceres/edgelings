@@ -190,9 +190,6 @@ struct CardView: View {
         let inset = CardMetrics.inset(pixel)
         let content = HStack(alignment: .top, spacing: 0) {
             ForEach(Array(columns.enumerated()), id: \.offset) { position, indexes in
-                if position > 0 {
-                    verticalRule.padding(.horizontal, 16)
-                }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(indexes.enumerated()), id: \.offset) { row, index in
                         if row > 0 { rule.padding(.vertical, pixel ? 9 : 10) }
@@ -200,6 +197,12 @@ struct CardView: View {
                     }
                 }
                 .frame(width: column, alignment: .topLeading)
+                // The divider between columns is an overlay, so it takes the column's height and never stretches the plate.
+                .padding(.leading, position > 0 ? 16 : 0)
+                .padding(.trailing, position < columns.count - 1 ? 16 : 0)
+                .overlay(alignment: .trailing) {
+                    if position < columns.count - 1 { verticalRule }
+                }
             }
         }
         .padding(.leading, 16).padding(.trailing, 16).padding(.top, pixel ? 14 : 13).padding(.bottom, 14)
