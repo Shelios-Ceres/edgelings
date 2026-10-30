@@ -271,8 +271,11 @@ struct FaceChip: View {
     var size: CGFloat = 16
 
     var body: some View {
-        let r = Double((swatch >> 16) & 0xFF), g = Double((swatch >> 8) & 0xFF), b = Double(swatch & 0xFF)
-        let eyes = (0.2126 * r + 0.7152 * g + 0.0722 * b) > 170 ? Color(hex: 0x17191F) : Color.white
+        let r: Double = Double((swatch >> 16) & 0xFF)
+        let g: Double = Double((swatch >> 8) & 0xFF)
+        let b: Double = Double(swatch & 0xFF)
+        let luma: Double = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let eyes: Color = luma > 170 ? Color(hex: 0x17191F) : Color.white
         ZStack {
             Circle().fill(Color(hex: swatch))
             HStack(spacing: size * 0.22) {
