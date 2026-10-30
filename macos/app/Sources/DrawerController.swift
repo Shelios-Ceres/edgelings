@@ -772,44 +772,50 @@ final class DrawerView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let controller, let ctx = NSGraphicsContext.current?.cgContext else { return }
         let scale = window?.backingScaleFactor ?? 2
-        let pixel = controller.isPixel
-        let edge = CGFloat(controller.edge)
         let dark = DrawerController.isDark
-        ctx.setShouldAntialias(true)
         for slot in controller.drawSlots {
             guard let image = controller.image(for: slot, scale: scale) else { continue }
-            let pose = controller.pose(of: slot)
-            if pose.opacity <= 0 { continue }
-            var x = slot.bounds.minX + CGFloat(pose.x) * edge
-            var y = slot.bounds.minY + CGFloat(pose.y)
-            let size = slot.bounds.size
-            if pixel {
-                // Pixel bots move in whole screen pixels, with a hard shadow.
-                x = (x * scale).rounded() / scale
-                y = (y * scale).rounded() / scale
-                ctx.interpolationQuality = .none
-                if pose.shadow > 0 {
-                    let tone = rgb(dark ? 0x0B0B0F : 0xD6CDB9)
-                    drawSilhouette(ctx, image, CGRect(x: x + 2 * edge, y: y + 2, width: size.width, height: size.height), tone)
-                }
-                drawImage(ctx, image, CGRect(x: x, y: y, width: size.width, height: size.height), alpha: 1)
-            } else {
-                ctx.interpolationQuality = .high
-                if pose.shadow > 0 { floorShadow(ctx, centre: CGPoint(x: x + size.width / 2, y: y + 41 + CGFloat(pose.shadowY)), opacity: CGFloat(pose.shadow), dark: dark) }
-                ctx.saveGState()
-                let base = CGPoint(x: x + size.width / 2, y: y + size.height * 0.88)
-                ctx.translateBy(x: base.x, y: base.y)
-                ctx.rotate(by: CGFloat(pose.lean) * edge * .pi / 180)
-                ctx.scaleBy(x: CGFloat(pose.scaleX), y: CGFloat(pose.scaleY))
-                ctx.translateBy(x: -base.x, y: -base.y)
-                drawImage(ctx, image, CGRect(x: x, y: y, width: size.width, height: size.height), alpha: CGFloat(pose.opacity))
-                ctx.restoreGState()
+            BotPainter.paint(ctx, image: image, bounds: slot.bounds, pose: controller.pose(of: slot),
+                             pixel: controller.isPixel, edge: CGFloat(controller.edge), dark: dark, scale: scale)
+        }
+    }
+}
+
+/// Draws one bot in its pose, for the drawer and the motion films alike. Pixel
+/// bots move in whole screen pixels with a hard shadow; Classic bots lean and
+/// squash about their base over a soft floor shadow.
+enum BotPainter {
+    static func paint(_ ctx: CGContext, image: CGImage, bounds: CGRect, pose: BotPose, pixel: Bool, edge: CGFloat, dark: Bool, scale: CGFloat) {
+        if pose.opacity <= 0 { return }
+        var x = bounds.minX + CGFloat(pose.x) * edge
+        var y = bounds.minY + CGFloat(pose.y)
+        let size = bounds.size
+        ctx.setShouldAntialias(true)
+        if pixel {
+            x = (x * scale).rounded() / scale
+            y = (y * scale).rounded() / scale
+            ctx.interpolationQuality = .none
+            if pose.shadow > 0 {
+                let tone = rgb(dark ? 0x0B0B0F : 0xD6CDB9)
+                silhouette(ctx, image, CGRect(x: x + 2 * edge, y: y + 2, width: size.width, height: size.height), tone)
             }
+            draw(ctx, image, CGRect(x: x, y: y, width: size.width, height: size.height), alpha: 1)
+        } else {
+            ctx.interpolationQuality = .high
+            if pose.shadow > 0 { floorShadow(ctx, centre: CGPoint(x: x + size.width / 2, y: y + 41 + CGFloat(pose.shadowY)), opacity: CGFloat(pose.shadow), dark: dark) }
+            ctx.saveGState()
+            let base = CGPoint(x: x + size.width / 2, y: y + size.height * 0.88)
+            ctx.translateBy(x: base.x, y: base.y)
+            ctx.rotate(by: CGFloat(pose.lean) * edge * .pi / 180)
+            ctx.scaleBy(x: CGFloat(pose.scaleX), y: CGFloat(pose.scaleY))
+            ctx.translateBy(x: -base.x, y: -base.y)
+            draw(ctx, image, CGRect(x: x, y: y, width: size.width, height: size.height), alpha: CGFloat(pose.opacity))
+            ctx.restoreGState()
         }
     }
 
-    /// The view is flipped; CGContext.draw expects an upright image.
-    private func drawImage(_ ctx: CGContext, _ image: CGImage, _ rect: CGRect, alpha: CGFloat) {
+    /// The context is flipped (y down); CGContext.draw expects an upright image.
+    private static func draw(_ ctx: CGContext, _ image: CGImage, _ rect: CGRect, alpha: CGFloat) {
         ctx.saveGState()
         ctx.setAlpha(alpha)
         ctx.translateBy(x: rect.minX, y: rect.maxY)
@@ -819,7 +825,7 @@ final class DrawerView: NSView {
     }
 
     /// The frame's silhouette in one colour, keeping its alpha.
-    private func drawSilhouette(_ ctx: CGContext, _ image: CGImage, _ rect: CGRect, _ color: CGColor) {
+    private static func silhouette(_ ctx: CGContext, _ image: CGImage, _ rect: CGRect, _ color: CGColor) {
         ctx.saveGState()
         ctx.translateBy(x: rect.minX, y: rect.maxY)
         ctx.scaleBy(x: 1, y: -1)
@@ -831,7 +837,7 @@ final class DrawerView: NSView {
     }
 
     /// Classic's floor shadow: a soft ellipse, 30 x 8 pt, fading out from its centre.
-    private func floorShadow(_ ctx: CGContext, centre: CGPoint, opacity: CGFloat, dark: Bool) {
+    private static func floorShadow(_ ctx: CGContext, centre: CGPoint, opacity: CGFloat, dark: Bool) {
         let ink: CGColor = dark ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.6 * opacity) : CGColor(srgbRed: 0x17 / 255.0, green: 0x19 / 255.0, blue: 0x1F / 255.0, alpha: 0.32 * opacity)
         let clear: CGColor = ink.copy(alpha: 0) ?? ink
         guard let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [ink, clear] as CFArray, locations: [0, 1]) else { return }

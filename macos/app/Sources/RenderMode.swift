@@ -43,6 +43,13 @@ enum RenderMode {
                 }
             }
         }
+        for pixel in [true, false] {
+            for dark in [false, true] {
+                for film in ["reveal", "hide", "lift-drop", "refuse", "flip"] where !(pixel && film == "flip") {
+                    save(RenderFilm.sheet(film, pixel: pixel, dark: dark), "film-\(film)-\(pixel ? "pixel" : "classic")-\(dark ? "dark" : "light").png")
+                }
+            }
+        }
         RenderSettings.run(into: url, save: save)
         NSLog("render: wrote \(written) images to \(folder)")
     }
@@ -171,7 +178,7 @@ struct DrawerColumn: View {
         .padding(.vertical, 12).padding(.horizontal, 6)
     }
 
-    static func bot(kind: String, pixel: Bool, index: Int) -> CGImage? {
+    static func bot(kind: String, pixel: Bool, index: Int, scale: Int = 2) -> CGImage? {
         guard let engine = try? CharacterEngine(theme: pixel ? "pixel" : "classic", directory: AppController.enginesDirectory()) else { return nil }
         let bot = engine.addBot(kind: kind, tempo: 1, seed: 7 + index * 13, look: "")
         var svg: String?
