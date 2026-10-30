@@ -1,5 +1,7 @@
 # Sparkle auto-update
 
+> **Upstream history.** This is how Agent Island, the project Edgelings grew out of, ships and updates the macOS app: its feed URL, its signing key and its release workflow. Edgelings has no releases and no update feed yet. A source build has the feed switched off, because `build.sh` leaves `SU_FEED_URL` empty unless you set it. The links below point at Agent Island's repository.
+
 AgentIsland ships with [Sparkle 2](https://sparkle-project.org). On launch and
 on a daily cadence the app fetches the appcast (an XML file attached to the
 **latest** GitHub Release), compares versions, and prompts the user to
