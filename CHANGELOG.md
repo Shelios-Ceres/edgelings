@@ -1,12 +1,26 @@
 # Changelog
 
-User-facing changes per release. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); dates are when the
-tag was cut.
+User-facing changes. Format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Edgelings has no
+releases yet, so its changes are collected under Unreleased. Below them is
+Agent Island's own release history, kept as it was.
 
-## [Unreleased]
+## [Unreleased] (Edgelings)
 
-_Nothing yet._
+### Added
+- A rebuilt Windows app: a drawer of bots at the screen edge, one per agent, in two styles (Pixel and Classic) with several looks per agent. The bots act out what each agent is doing and rest when the agent's app is closed.
+- Per-session speech bubbles with fixed lines (finished, needs approval, has a question, hit an error, new Kimi mail), and a hover card per agent with its quotas, token use and the sessions waiting on you.
+- Support for Claude Code and Claude Desktop, Codex, Kimi Code, Antigravity, Cursor, Grok and Grok Bot, and DeepSeek Harness.
+- A Usage & cost page in Settings: tokens and estimated cost at API list prices from the agents' local logs, Kimi Code's other providers priced by their own price lists, and a separate "Memory (background)" row for the Kimi memory plugin.
+- Kimi Code mailbox mail shown as a "Mail" row on the card; only the number of unread files is counted.
+- Optional, observe-only hooks for Claude and Grok that let Edgelings tell a permission prompt is open.
+
+### Changed
+- The macOS app is still Agent Island 2.1.2 with a few small fixes. None of the above is on macOS yet.
+
+## Agent Island release history
+
+Everything below is the release history of Agent Island, the upstream project Edgelings grew out of. The versions are Agent Island's.
 
 ## [2.1.2] - 2026-08-09
 
