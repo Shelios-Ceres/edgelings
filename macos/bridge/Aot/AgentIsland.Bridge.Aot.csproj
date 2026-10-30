@@ -20,7 +20,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\Shared\BridgeApi.cs" Link="BridgeApi.cs" />
+    <Compile Include="..\Shared\*.cs" LinkBase="Shared" />
     <ProjectReference Include="..\..\..\windows\src\AgentIsland.Core\AgentIsland.Core.csproj" />
   </ItemGroup>
 

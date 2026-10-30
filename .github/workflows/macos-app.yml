@@ -1,0 +1,78 @@
+# Mac port, stages 2-4: the Edgelings app (macos/app). Builds the NativeAOT
+# Core dylibs and the Swift app (universal, ad-hoc signed), starts it for a few
+# seconds on the runner as a smoke test, and uploads the friend's test zip.
+name: macOS app
+
+on:
+  push:
+    branches: ["mac/**"]
+    paths:
+      - "macos/app/**"
+      - "macos/engine/**"
+      - "macos/platform/**"
+      - "macos/golden/SvgCanvas.swift"
+      - "macos/bridge/**"
+      - "windows/src/AgentIsland.Core/**"
+      - "windows/src/AgentIsland.WinUI/Drawer/Characters/**"
+      - ".github/workflows/macos-app.yml"
+  workflow_dispatch:
+
+jobs:
+  app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Swift type check (arm64 and x64)
+        run: |
+          for arch in arm64 x86_64; do
+            swiftc -typecheck -target "$arch-apple-macos13.0" macos/app/Sources/*.swift macos/platform/*.swift macos/engine/*.swift macos/golden/SvgCanvas.swift
+          done
+
+      - name: Core dylib (arm64), with no IL or platform warnings allowed
+        run: |
+          dotnet publish macos/bridge/Aot -c Release -r osx-arm64 -o out/aot-arm64 2>&1 | tee aot-arm64.log
+          if grep -E "warning (IL|CA1416)" aot-arm64.log; then echo "::error::the NativeAOT build has IL or platform warnings"; exit 1; fi
+
+      - name: Core dylib (x64)
+        run: dotnet publish macos/bridge/Aot -c Release -r osx-x64 -o out/aot-x64
+
+      - name: Build Edgelings.app
+        run: |
+          ls -l out/aot-arm64 | head -20
+          macos/app/build-app.sh out/aot-arm64 out/aot-x64 out/app
+
+      - name: Smoke test (the app starts, polls Core and stays up)
+        run: |
+          export EDGELINGS_ROOT="$RUNNER_TEMP/edgelings-root"
+          mkdir -p "$EDGELINGS_ROOT"
+          out/app/Edgelings.app/Contents/MacOS/Edgelings > out/smoke.log 2>&1 &
+          pid=$!
+          sleep 20
+          if kill -0 "$pid" 2>/dev/null; then echo "still running after 20 s"; kill "$pid"; else echo "::error::the app exited early"; cat out/smoke.log; exit 1; fi
+          cat out/smoke.log | head -50
+
+      - name: Friend's package
+        run: |
+          mkdir -p out/package
+          ditto -c -k --keepParent out/app/Edgelings.app out/package/Edgelings-macos-test.zip
+          cp macos/app/HOW-TO-TEST.md out/package/HOW-TO-TEST.md
+          ls -l out/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Edgelings-macos-test
+          path: out/package
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-build-logs
+          path: |
+            aot-arm64.log
+            out/smoke.log

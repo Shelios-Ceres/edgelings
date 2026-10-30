@@ -27,6 +27,11 @@ public static class BridgeApi
                 "systemEvent" => SystemEvent(request.RootElement),
                 "diagnose" => Diagnose(request.RootElement),
                 "scan" => Scan(request.RootElement),
+                "appStart" => AppModel.Start(),
+                "frame" => AppModel.Frame(request.RootElement),
+                "card" => AppModel.Card(request.RootElement),
+                "looks" => AppModel.Looks(request.RootElement),
+                "setDrawer" => AppModel.SetDrawer(request.RootElement),
                 _ => Error($"unknown method '{method}'"),
             };
         }
