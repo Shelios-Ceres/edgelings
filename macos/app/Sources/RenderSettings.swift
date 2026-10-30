@@ -25,7 +25,7 @@ enum RenderSettings {
     """
 
     private static let usageTemplate = """
-    {"billable":false,"scannedAgo":"Last scanned 3 min ago","zone":"Eastern Daylight Time (UTC−04:00)","agents":[
+    {"billable":false,"scannedAgo":"3 min ago","zone":"Eastern Daylight Time (UTC−04:00)","agents":[
      {"id":"claude","name":"Claude","shown":true,"accent":14120791,"swatch":@claude@,"defaultLook":true,"look":"@claudeLook@","parts":[{"id":"claude","name":"Claude","dollars":true,"scanned":true,
        "today":{"dollars":4.21,"tokens":1200000,"models":[{"name":"claude-opus-5-5","tokens":900000,"dollars":3.9,"unpriced":false},{"name":"claude-haiku-5-5","tokens":300000,"dollars":0.31,"unpriced":false}]},
        "week":{"dollars":22.5,"tokens":9100000,"models":[{"name":"claude-opus-5-5","tokens":7000000,"dollars":20.1,"unpriced":false}]},
@@ -50,6 +50,32 @@ enum RenderSettings {
         return text
     }
 
+    /// The fixtures are written in English; the words Core owns go through its table, so the Chinese
+    /// renders read as the app does. Relative times and unit words are the only invented parts.
+    private static func localize(_ json: String, _ store: SettingsStore, chinese: Bool) -> String {
+        func t(_ key: String, _ args: String...) -> String { args.enumerated().reduce(store.t(key)) { $0.replacingOccurrences(of: "{\($1.offset)}", with: $1.element) } }
+        var text = json
+        let agoShort = chinese ? "2分钟前" : "2m ago"
+        let table: [(String, String)] = [
+            ("\"synced 2m ago\"", "\"" + t("synced {0}", agoShort) + "\""),
+            ("\"synced 4m ago\"", "\"" + t("synced {0}", chinese ? "4分钟前" : "4m ago") + "\""),
+            ("\"Quota updated 12 min ago\"", "\"" + t("Quota updated {0}", chinese ? "12分钟前" : "12 min ago") + "\""),
+            ("\"Waiting for the first sync\"", "\"" + t("Waiting for the first sync") + "\""),
+            ("\"Resets in 2h 10m\"", "\"" + t("Resets {0}", chinese ? "2小时10分钟后" : "in 2h 10m") + "\""),
+            ("\"label\":\"5h\"", "\"label\":\"" + t("5h") + "\",\"title\":\"" + t("5-hour window") + "\""),
+            ("\"label\":\"Week\"", "\"label\":\"" + t("Week") + "\",\"title\":\"" + t("Weekly window") + "\""),
+            ("\"Tokens\"", "\"" + t("Tokens") + "\""),
+            ("\"today 1.2M\"", "\"" + t("today") + " 1.2M\""),
+            ("\"today 310K\"", "\"" + t("today") + " 310K\""),
+            ("\"48M this month\"", "\"" + t("{0} this month", "48M") + "\""),
+            ("\"9.8M this month\"", "\"" + t("{0} this month", "9.8M") + "\""),
+            ("\"scannedAgo\":\"3 min ago\"", "\"scannedAgo\":\"" + (chinese ? "3分钟前" : "3 min ago") + "\""),
+            ("Memory (background)", t("Memory (background)")),
+        ]
+        for (from, to) in table { text = text.replacingOccurrences(of: from, with: to) }
+        return text
+    }
+
     @MainActor
     static func run(into url: URL, save: (NSImage?, String) -> Void) {
         for (language, tag) in [("en", "en"), ("zh", "zh")] {
@@ -65,10 +91,11 @@ enum RenderSettings {
                        let table = bridge.request("tr", ["keys": UIStrings.keys, "english": english])["strings"] as? [String: String] {
                         store.strings = table
                     }
-                    var settings = SettingsModel.from(parse(fill(settingsTemplate, skin)))
-                    if language == "zh", !english { settings = SettingsModel.from(parse(fill(settingsTemplate, skin).replacingOccurrences(of: "\"chinese\":false", with: "\"chinese\":true"))) }
-                    store.settings = settings
-                    store.usage = UsageModel.from(parse(fill(usageTemplate, skin)))
+                    let chinese = language == "zh" && !english
+                    var settingsText = localize(fill(settingsTemplate, skin), store, chinese: chinese)
+                    if chinese { settingsText = settingsText.replacingOccurrences(of: "\"chinese\":false", with: "\"chinese\":true") }
+                    store.settings = SettingsModel.from(parse(settingsText))
+                    store.usage = UsageModel.from(parse(localize(fill(usageTemplate, skin), store, chinese: chinese)))
                     store.launchAtLogin = false
                     for id in ["claude", "codex", "kimi"] {
                         for theme in ["pixel", "classic"] {

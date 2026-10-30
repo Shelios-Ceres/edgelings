@@ -280,6 +280,8 @@ enum UIStrings {
         "Account", "Look", "Save current account…", "Auto-switch when exhausted", "No saved accounts yet", "Remove saved account",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",
         "Permission hook", "Not detected",
+        "Last scanned {0}", "Memory (background)", "synced {0}", "Quota updated {0}", "Waiting for the first sync", "Resets {0}",
+        "5h", "Week", "today", "{0} this month", "Look",
         "Shown", "Hidden", "Move up", "Move down", "Right now", "Account", "Not saved yet",
         "5-hour window", "Weekly window", "Daily window", "Billing cycle", "Monthly window", "Permission prompts",
         "Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up.",

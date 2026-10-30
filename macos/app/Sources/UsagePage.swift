@@ -45,7 +45,7 @@ struct UsagePage: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 KitButton(store: store, title: store.t("Scan now")) { store.send("rescan", [:]) }
-                Text(store.usage?.scannedAgo ?? store.t("Not scanned yet")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
+                Text(store.usage?.scannedAgo.map { store.t("Last scanned {0}", $0) } ?? store.t("Not scanned yet")).font(kit.body(12)).foregroundColor(palette.color("Text3"))
             }
         }
         if let usage = store.usage {
