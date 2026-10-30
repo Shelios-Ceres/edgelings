@@ -37,6 +37,7 @@ public static class CLILocator
 
     public static string? Locate(string name)
     {
+        if (!OperatingSystem.IsWindows()) return null;
         var now = DateTimeOffset.UtcNow;
         lock (MemoGate)
         {

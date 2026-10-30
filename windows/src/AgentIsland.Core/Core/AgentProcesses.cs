@@ -47,6 +47,8 @@ internal static class AgentProcesses
 
     public static IReadOnlySet<TriggerTool> Gone()
     {
+        // Until the macOS platform layer reads processes, nothing is declared gone.
+        if (!OperatingSystem.IsWindows()) return new HashSet<TriggerTool>();
         try
         {
             var running = new List<(string Name, string? Path)>();
@@ -183,6 +185,7 @@ internal static class AgentProcesses
     /// when it can't be read.
     internal static string? CommandLineOf(int id)
     {
+        if (!OperatingSystem.IsWindows()) return null;
         var process = OpenProcess(QueryLimitedInformation, false, (uint)id);
         if (process == IntPtr.Zero) return null;
         var buffer = IntPtr.Zero;

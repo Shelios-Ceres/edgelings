@@ -500,9 +500,13 @@ public sealed class UsageStore : INotifyPropertyChanged
         ArmResetEdgeTimer();
         RefreshIntervalStore.Shared.PropertyChanged += OnIntervalChanged;
         StartNetworkMonitor();
-        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
-        Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
-        _powerMonitorArmed = true;
+        // Wake and unlock refreshes come from the macOS platform layer later.
+        if (OperatingSystem.IsWindows())
+        {
+            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
+            _powerMonitorArmed = true;
+        }
     }
 
     public void StopAutoRefresh()

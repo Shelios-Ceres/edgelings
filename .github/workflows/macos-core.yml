@@ -1,0 +1,29 @@
+# The shared C# Core and its test suite on macOS. Part of the Mac port: the
+# Windows suite runs here too, with the Windows-only suites skipped by name.
+name: macOS Core
+
+on:
+  push:
+    branches: ["mac/**"]
+    paths:
+      - "windows/src/AgentIsland.Core/**"
+      - "windows/tests/**"
+      - "windows/src/AgentIsland.WinUI/Drawer/**"
+      - "macos/**"
+      - ".github/workflows/macos-core.yml"
+  workflow_dispatch:
+
+jobs:
+  suite:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Core suite
+        env:
+          AGENTISLAND_TEST_KEEP_GOING: "1"
+        run: dotnet run --project windows/tests/AgentIsland.Tests -c Release

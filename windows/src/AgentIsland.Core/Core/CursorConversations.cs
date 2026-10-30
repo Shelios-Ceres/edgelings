@@ -57,6 +57,8 @@ internal static class CursorConversations
     /// immutable, which would skip the journal, but left for the next scan.
     internal static List<(string ComposerId, string Json)>? NewestBubblePerConversation(string dbPath)
     {
+        // winsqlite3.dll is Windows' own; the macOS reader comes with its platform layer.
+        if (!OperatingSystem.IsWindows()) return null;
         if (Read(dbPath, "?mode=ro", out var busy) is { } rows) return rows;
         return busy ? null : Read(dbPath, "?mode=ro&immutable=1", out _);
     }

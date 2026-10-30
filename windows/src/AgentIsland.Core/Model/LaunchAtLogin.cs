@@ -17,6 +17,7 @@ public static class LaunchAtLogin
     {
         get
         {
+            if (!OperatingSystem.IsWindows()) return false;
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RunKey);
@@ -40,6 +41,7 @@ public static class LaunchAtLogin
     /// kept this build from starting at sign-in.
     public static void SetEnabled(bool enabled)
     {
+        if (!OperatingSystem.IsWindows()) return;
         try
         {
             if (enabled)
@@ -64,6 +66,7 @@ public static class LaunchAtLogin
     /// own switch is left as the user set it.
     public static void Repoint()
     {
+        if (!OperatingSystem.IsWindows()) return;
         if (Environment.ProcessPath is not { Length: > 0 } exe) return;
         try
         {

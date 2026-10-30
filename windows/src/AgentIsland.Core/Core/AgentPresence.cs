@@ -47,6 +47,8 @@ public static class AgentPresences
     /// processes can't be read counts as open: it never rests on a guess.
     public static IReadOnlyDictionary<TriggerTool, AgentPresence> Now()
     {
+        // Until the macOS platform layer reads processes and windows, every agent counts as open.
+        if (!OperatingSystem.IsWindows()) return AgentProcesses.Known.Select(k => k.Tool).Distinct().ToDictionary(tool => tool, _ => AgentPresence.Open);
         try
         {
             var processes = Processes();

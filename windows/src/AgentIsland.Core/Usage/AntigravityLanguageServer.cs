@@ -81,6 +81,7 @@ public static class AntigravityLanguageServer
     /// refresh tick would fork twice a minute for the life of the app.
     public static async Task<int?> Discover()
     {
+        if (!OperatingSystem.IsWindows()) return null;
         var cached = _cachedPort;
         var cachedPid = _cachedPid;
         // Still the same server's port: one Antigravity let go of can be taken
@@ -140,6 +141,7 @@ public static class AntigravityLanguageServer
 
     public static List<int> AntigravityProcessIds()
     {
+        if (!OperatingSystem.IsWindows()) return new List<int>();
         var ids = new List<int>();
         var processes = Processes();
         var names = new Dictionary<int, string>();
@@ -158,6 +160,7 @@ public static class AntigravityLanguageServer
     /// the system won't give a snapshot.
     internal static List<(int Id, int ParentId, string Name)> Processes()
     {
+        if (!OperatingSystem.IsWindows()) return new List<(int Id, int ParentId, string Name)>();
         var list = new List<(int, int, string)>();
         var snapshot = CreateToolhelp32Snapshot(SnapProcess, 0);
         if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1)) return list;
@@ -256,6 +259,7 @@ public static class AntigravityLanguageServer
 
     public static List<int> ListeningPorts(int pid)
     {
+        if (!OperatingSystem.IsWindows()) return new List<int>();
         var ports = new List<int>();
         foreach (var (owner, port) in Listeners())
         {
@@ -267,6 +271,7 @@ public static class AntigravityLanguageServer
     /// The process listening on a loopback port, if any.
     internal static int? PortOwner(int port)
     {
+        if (!OperatingSystem.IsWindows()) return null;
         foreach (var (owner, listening) in Listeners())
         {
             if (listening == port) return owner;
@@ -332,6 +337,7 @@ public static class AntigravityLanguageServer
     /// starts PowerShell, so it is read once per process.
     public static string? CsrfToken(int pid)
     {
+        if (!OperatingSystem.IsWindows()) return null;
         var started = StartTime(pid);
         var now = DateTimeOffset.Now;
         lock (TokenGate)

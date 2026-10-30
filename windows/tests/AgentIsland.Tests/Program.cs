@@ -57,61 +57,90 @@ public static class Program
         try
         {
             SettingsIsolation();
-            SessionTurnStateTests.RunAll();
-            CodexStallTests.RunAll();
-            ClaudeStallTests.RunAll();
-            RunningTasksTests.RunAll();
-            EvidenceTests.RunAll();
-            PersonalityTests.RunAll();
-            AgentPhaseTests.RunAll();
-            KimiDeepSeekTests.RunAll();
-            AntigravityCursorTests.RunAll();
-            AntigravityQuotaTests.RunAll();
-            SubagentFilterTests.RunAll();
-            GrokTurnStateTests.RunAll();
-            GrokStallTests.RunAll();
-            GrokPhaseTests.RunAll();
-            KimiUsageTests.RunAll();
-            KimiPluginsTests.RunAll();
-            ClaudeHooksTests.RunAll();
-            CodexReplayGuardTests.RunAll();
-            CodexSwitchRefreshTests.RunAll();
-            UsageRetryTests.RunAll();
-            CodexAutoSwitchReadingTests.RunAll();
-            CodexArchiveTests.RunAll();
-            CursorReplyClockTests.RunAll();
-            UsageCachePolicyTests.RunAll();
-            UsageFreshnessTests.RunAll();
-            CostPeriodTests.RunAll();
-            TokenDisplayTextTests.RunAll();
-            TokenAccountingTests.RunAll();
-            OtherTokenAccountingTests.RunAll();
-            PricingTests.RunAll();
-            AntigravityCostTests.RunAll();
-            CursorDatabaseTests.RunAll();
-            CursorQuotaStateTests.RunAll();
-            CodexAccountSwitcherTests.RunAll();
-            DrawerPresentationTests.RunAll();
-            QuotaRetentionTests.RunAll();
-            PixelThemeTests.RunAll();
-            ClassicThemeTests.RunAll();
-            SharedSubscriptionTests.RunAll();
-            DrawerPlacementTests.RunAll();
-            SecurityGuardTests.RunAll();
-            FormattingTests.RunAll();
-            LaunchAtLoginTests.RunAll();
-            ScannerCwdTests.RunAll();
-            AgentPresenceTests.RunAll();
-            SessionEventTests.RunAll();
-            GrokHooksTests.RunAll();
-            GrokAuthFileTests.RunAll();
-            LookCatalogTests.RunAll();
-            CharacterHostTests.RunAll();
-            ClaudeCredentialsTests.RunAll();
-            ActivityMonitorScanTests.RunAll();
-            LogParseCacheTests.RunAll();
-            PreferencesTests.RunAll();
-            CrashLogTests.RunAll();
+            // A suite that needs Windows is skipped by name elsewhere, with a visible line.
+            // AGENTISLAND_TEST_KEEP_GOING=1 runs every suite and lists the red ones at the end.
+            var keepGoing = Environment.GetEnvironmentVariable("AGENTISLAND_TEST_KEEP_GOING") == "1";
+            var red = new List<string>();
+            var suites = new (string Name, Action Run, string? WindowsOnly)[]
+            {
+                ("SessionTurnStateTests", SessionTurnStateTests.RunAll, null),
+                ("CodexStallTests", CodexStallTests.RunAll, null),
+                ("ClaudeStallTests", ClaudeStallTests.RunAll, null),
+                ("RunningTasksTests", RunningTasksTests.RunAll, null),
+                ("EvidenceTests", EvidenceTests.RunAll, null),
+                ("PersonalityTests", PersonalityTests.RunAll, null),
+                ("AgentPhaseTests", AgentPhaseTests.RunAll, null),
+                ("KimiDeepSeekTests", KimiDeepSeekTests.RunAll, null),
+                ("AntigravityCursorTests", AntigravityCursorTests.RunAll, null),
+                ("AntigravityQuotaTests", AntigravityQuotaTests.RunAll, null),
+                ("SubagentFilterTests", SubagentFilterTests.RunAll, null),
+                ("GrokTurnStateTests", GrokTurnStateTests.RunAll, null),
+                ("GrokStallTests", GrokStallTests.RunAll, null),
+                ("GrokPhaseTests", GrokPhaseTests.RunAll, null),
+                ("KimiUsageTests", KimiUsageTests.RunAll, null),
+                ("KimiPluginsTests", KimiPluginsTests.RunAll, null),
+                ("ClaudeHooksTests", ClaudeHooksTests.RunAll, null),
+                ("CodexReplayGuardTests", CodexReplayGuardTests.RunAll, null),
+                ("CodexSwitchRefreshTests", CodexSwitchRefreshTests.RunAll, null),
+                ("UsageRetryTests", UsageRetryTests.RunAll, null),
+                ("CodexAutoSwitchReadingTests", CodexAutoSwitchReadingTests.RunAll, null),
+                ("CodexArchiveTests", CodexArchiveTests.RunAll, null),
+                ("CursorReplyClockTests", CursorReplyClockTests.RunAll, null),
+                ("UsageCachePolicyTests", UsageCachePolicyTests.RunAll, null),
+                ("UsageFreshnessTests", UsageFreshnessTests.RunAll, null),
+                ("CostPeriodTests", CostPeriodTests.RunAll, null),
+                ("TokenDisplayTextTests", TokenDisplayTextTests.RunAll, null),
+                ("TokenAccountingTests", TokenAccountingTests.RunAll, null),
+                ("OtherTokenAccountingTests", OtherTokenAccountingTests.RunAll, null),
+                ("PricingTests", PricingTests.RunAll, null),
+                ("AntigravityCostTests", AntigravityCostTests.RunAll, null),
+                ("CursorDatabaseTests", CursorDatabaseTests.RunAll, "reads Cursor's database through winsqlite3.dll"),
+                ("CursorQuotaStateTests", CursorQuotaStateTests.RunAll, null),
+                ("CodexAccountSwitcherTests", CodexAccountSwitcherTests.RunAll, null),
+                ("DrawerPresentationTests", DrawerPresentationTests.RunAll, null),
+                ("QuotaRetentionTests", QuotaRetentionTests.RunAll, null),
+                ("PixelThemeTests", PixelThemeTests.RunAll, null),
+                ("ClassicThemeTests", ClassicThemeTests.RunAll, null),
+                ("SharedSubscriptionTests", SharedSubscriptionTests.RunAll, null),
+                ("DrawerPlacementTests", DrawerPlacementTests.RunAll, null),
+                ("SecurityGuardTests", SecurityGuardTests.RunAll, null),
+                ("FormattingTests", FormattingTests.RunAll, null),
+                ("LaunchAtLoginTests", LaunchAtLoginTests.RunAll, "Registry Run key"),
+                ("ScannerCwdTests", ScannerCwdTests.RunAll, null),
+                ("AgentPresenceTests", AgentPresenceTests.RunAll, null),
+                ("SessionEventTests", SessionEventTests.RunAll, null),
+                ("GrokHooksTests", GrokHooksTests.RunAll, null),
+                ("GrokAuthFileTests", GrokAuthFileTests.RunAll, null),
+                ("LookCatalogTests", LookCatalogTests.RunAll, null),
+                ("CharacterHostTests", CharacterHostTests.RunAll, null),
+                ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),
+                ("ActivityMonitorScanTests", ActivityMonitorScanTests.RunAll, null),
+                ("LogParseCacheTests", LogParseCacheTests.RunAll, null),
+                ("PreferencesTests", PreferencesTests.RunAll, null),
+                ("CrashLogTests", CrashLogTests.RunAll, null),
+            };
+            foreach (var (name, run, windowsOnly) in suites)
+            {
+                if (windowsOnly is not null && !OperatingSystem.IsWindows())
+                {
+                    Console.WriteLine($"SKIP {name}: needs Windows ({windowsOnly})");
+                    continue;
+                }
+                try
+                {
+                    run();
+                }
+                catch (Exception error) when (keepGoing)
+                {
+                    Console.Error.WriteLine($"RED {name}: {error.Message}");
+                    red.Add(name);
+                }
+            }
+            if (red.Count > 0)
+            {
+                Console.Error.WriteLine($"RED suites: {string.Join(", ", red)}");
+                return 1;
+            }
             Console.WriteLine("ALL GREEN");
             return 0;
         }
