@@ -44,7 +44,7 @@ jobs:
       - name: Build Edgelings.app
         run: |
           ls -l out/aot-arm64 | head -20
-          macos/app/build-app.sh out/aot-arm64 out/aot-x64 out/app
+          bash macos/app/build-app.sh out/aot-arm64 out/aot-x64 out/app
 
       - name: Smoke test (the app starts, polls Core and stays up)
         run: |
