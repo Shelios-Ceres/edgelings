@@ -16,6 +16,8 @@ public static class AppDataMigration
     /// Copies settings and the crash log, then the caches. Safe to call on every start.
     public static void Run()
     {
+        // The Mac app is new: it has no Agent Island folders to bring across.
+        if (OperatingSystem.IsMacOS()) return;
         Migrate(IslandPaths.LegacyAppSupportDir, IslandPaths.AppSupportDir, IsAppFile);
         Migrate(IslandPaths.LegacyCacheDir, IslandPaths.CacheDir, _ => true);
     }

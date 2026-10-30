@@ -9,8 +9,7 @@ public static class CursorCredentials
     public sealed record Session(string AccessToken, string UserId);
     internal sealed record Snapshot(Session? Session, string? Plan, string? Email);
 
-    public static string StateDbPath => Path.Combine(
-        IslandPaths.RoamingAppData, "Cursor", "User", "globalStorage", "state.vscdb");
+    public static string StateDbPath => IslandPaths.CursorStateDb;
 
     public static bool Exists() => File.Exists(StateDbPath);
 

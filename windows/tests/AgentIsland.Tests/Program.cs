@@ -54,6 +54,15 @@ public static class Program
         var settings = Path.Combine(Path.GetTempPath(), "agentisland-test-settings-" + Guid.NewGuid().ToString("N"));
         Preferences.FileOverride = Path.Combine(settings, "settings.json");
         Preferences.Forget();
+        // Nor do they read or write any agent's or the app's real folders: the
+        // whole home moves under a temp root, and the agents' own overrides
+        // (which a suite sets for itself when it needs one) start cleared.
+        var world = Path.Combine(Path.GetTempPath(), "edgelings-test-root-" + Guid.NewGuid().ToString("N"));
+        IslandPaths.RootOverride = world;
+        foreach (var variable in new[] { "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME", "CLAUDE_CONFIG_DIR" })
+        {
+            Environment.SetEnvironmentVariable(variable, null);
+        }
         try
         {
             SettingsIsolation();
@@ -106,6 +115,7 @@ public static class Program
                 ("SecurityGuardTests", SecurityGuardTests.RunAll, "starts cmd.exe"),
                 ("FormattingTests", FormattingTests.RunAll, null),
                 ("AppDataMigrationTests", AppDataMigrationTests.RunAll, null),
+                ("IslandPathsTests", IslandPathsTests.RunAll, null),
                 ("LaunchAtLoginTests", LaunchAtLoginTests.RunAll, "Registry Run key"),
                 ("ScannerCwdTests", ScannerCwdTests.RunAll, null),
                 ("AgentPresenceTests", AgentPresenceTests.RunAll, "built from Windows-format path strings"),
@@ -154,7 +164,9 @@ public static class Program
         {
             Preferences.FileOverride = null;
             Preferences.Forget();
+            IslandPaths.RootOverride = null;
             try { Directory.Delete(settings, recursive: true); } catch { }
+            try { Directory.Delete(world, recursive: true); } catch { }
         }
     }
 

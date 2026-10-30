@@ -6,9 +6,7 @@ namespace AgentIsland.Cost;
 
 public static class CursorLogReader
 {
-    private static string DatabasePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Cursor", "User", "globalStorage", "state.vscdb");
+    private static string DatabasePath => AgentIsland.Core.IslandPaths.CursorStateDb;
 
     public static List<TokenEvent> Scan(int lookbackDays) => ReadDatabase(DatabasePath, lookbackDays);
 

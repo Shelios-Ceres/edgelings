@@ -9,15 +9,46 @@ namespace AgentIsland.Core;
 ///   macOS Keychain "Claude Code-credentials"    -> %USERPROFILE%\.claude\.credentials.json
 ///   ~/Library/Application Support/AgentIsland   -> %APPDATA%\AgentIsland
 ///   ~/Library/Caches/dev.agentisland...         -> %LOCALAPPDATA%\AgentIsland\cache
+///
+/// On macOS the same names resolve to the Mac's own folders: Edgelings keeps
+/// settings in ~/Library/Application Support/Edgelings and caches in
+/// ~/Library/Caches/Edgelings, and Application Support stands in for both
+/// AppData roots (.NET would answer ~/.config and ~/.local/share).
+///
+/// RootOverride (EDGELINGS_ROOT in the environment) moves the whole home to
+/// <root>/home, with every app and agent folder beneath it. The agents' own
+/// overrides (CODEX_HOME, GROK_HOME, KIMI_CODE_HOME, CLAUDE_CONFIG_DIR) still
+/// win when set, so a test or bench that sets the root clears them first.
+/// Tests and benches set the root so they never touch the real folders; the
+/// macOS app can pass it through the bridge.
 public static class IslandPaths
 {
-    public static string Home => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    public static string RoamingAppData => Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-    public static string LocalAppData => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    private static string? _root = NormalizeRoot(Environment.GetEnvironmentVariable("EDGELINGS_ROOT"));
+
+    /// Where a test or a bench keeps its whole world; null means the real one.
+    public static string? RootOverride
+    {
+        get => _root;
+        set => _root = NormalizeRoot(value);
+    }
+
+    private static string? NormalizeRoot(string? value) => string.IsNullOrWhiteSpace(value) ? null : Path.GetFullPath(value.Trim());
+
+    public static string Home => _root is { } root ? Path.Combine(root, "home") : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    public static string RoamingAppData =>
+        OperatingSystem.IsMacOS() ? Path.Combine(Home, "Library", "Application Support")
+        : _root is not null ? Path.Combine(Home, "AppData", "Roaming")
+        : Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+    public static string LocalAppData =>
+        OperatingSystem.IsMacOS() ? Path.Combine(Home, "Library", "Application Support")
+        : _root is not null ? Path.Combine(Home, "AppData", "Local")
+        : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
     /// Claude Code config roots, in priority order. CLAUDE_CONFIG_DIR
     /// (comma-separated) overrides, matching Claude Code's own behavior.
-    public static IReadOnlyList<string> ClaudeConfigRoots { get; } = ResolveClaudeConfigRoots();
+    public static IReadOnlyList<string> ClaudeConfigRoots => ResolveClaudeConfigRoots();
 
     public static IEnumerable<string> ClaudeProjectRoots =>
         ClaudeConfigRoots.Select(root => Path.Combine(root, "projects"));
@@ -35,6 +66,8 @@ public static class IslandPaths
     internal static IReadOnlyList<string> ClaudeDesktopDataRootsUnder(string roaming, string local)
     {
         var roots = new List<string> { Path.Combine(roaming, "Claude") };
+        // The move to Claude-Data is Windows' (a packaged app); macOS keeps ~/Library/Application Support/Claude.
+        if (OperatingSystem.IsMacOS()) return roots;
         try
         {
             var moved = Path.Combine(local, "Claude-Data");
@@ -112,7 +145,19 @@ public static class IslandPaths
     /// under "AgentIsland"; AppDataMigration copies them across once.
     public static string AppSupportDir => Path.Combine(RoamingAppData, "Edgelings");
     public static string SettingsFile => Path.Combine(AppSupportDir, "settings.json");
-    public static string CacheDir => Path.Combine(LocalAppData, "Edgelings", "cache");
+
+    /// Caches: %LOCALAPPDATA%\Edgelings\cache, ~/Library/Caches/Edgelings on macOS.
+    public static string CacheDir => OperatingSystem.IsMacOS()
+        ? Path.Combine(Home, "Library", "Caches", "Edgelings")
+        : Path.Combine(LocalAppData, "Edgelings", "cache");
+
+    /// Cursor's conversation and account store (VS Code's globalStorage).
+    public static string CursorStateDb => Path.Combine(RoamingAppData, "Cursor", "User", "globalStorage", "state.vscdb");
+
+    /// Where the Claude and Grok hooks keep their signal folders. On Windows
+    /// that is the Agent Island folder, where installs made before the rename
+    /// point; the Mac app never had one, so it uses its own.
+    public static string HooksDir => OperatingSystem.IsMacOS() ? AppSupportDir : LegacyAppSupportDir;
 
     /// Agent Island's folders, left in place by the migration. The Claude and
     /// Grok hooks' signal folders and Grok's hook script stay in the first:
@@ -129,7 +174,7 @@ public static class IslandPaths
             var parts = env.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (parts.Length > 0) return parts;
         }
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var home = Home;
         return new[]
         {
             Path.Combine(home, ".claude"),
