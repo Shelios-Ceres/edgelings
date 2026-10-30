@@ -137,6 +137,9 @@ public static class MacWindowReport
         lock (Gate) return _latest is { } latest && now - latest.At <= MaxAge ? latest.Windows : null;
     }
 
+    /// How many windows the latest fresh report holds, or -1 when there is none.
+    public static int ReportedCount() => Current(DateTimeOffset.UtcNow)?.Count ?? -1;
+
     internal static void Forget()
     {
         lock (Gate) _latest = null;

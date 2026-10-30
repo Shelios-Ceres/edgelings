@@ -26,7 +26,9 @@ jobs:
         run: python3 macos/bridge/make-fixture.py "$RUNNER_TEMP/kimi" 200 400
 
       - name: A1, NativeAOT dylib (arm64)
-        run: dotnet publish macos/bridge/Aot -c Release -r osx-arm64 -o out/a1-arm64
+        run: |
+          dotnet publish macos/bridge/Aot -c Release -r osx-arm64 -o out/a1-arm64 2>&1 | tee a1-arm64.log
+          if grep -E "warning (IL|CA1416)" a1-arm64.log; then echo "::error::the NativeAOT build has IL or platform warnings"; exit 1; fi
 
       - name: A1, NativeAOT dylib (x64)
         id: a1x64

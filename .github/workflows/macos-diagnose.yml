@@ -1,0 +1,76 @@
+# Mac port, stage 1: the diagnostic for a first live check on a real Mac. A
+# command-line tool that loads the NativeAOT Core dylib and prints what Core
+# sees (ids, counts and states only). Built universal; the artifact is what the
+# user sends to a friend. Also compiles the Swift platform files (window
+# snapshot, launch at login, sleep/wake/unlock), which no test can run on CI.
+name: macOS diagnostic
+
+on:
+  push:
+    branches: ["mac/**"]
+    paths:
+      - "macos/platform/**"
+      - "macos/diagnose/**"
+      - "macos/bridge/**"
+      - "windows/src/AgentIsland.Core/**"
+      - ".github/workflows/macos-diagnose.yml"
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Core dylib (arm64), with no IL or platform warnings allowed
+        run: |
+          dotnet publish macos/bridge/Aot -c Release -r osx-arm64 -o out/aot-arm64 2>&1 | tee aot-arm64.log
+          if grep -E "warning (IL|CA1416)" aot-arm64.log; then echo "::error::the NativeAOT build has IL or platform warnings"; exit 1; fi
+
+      - name: Core dylib (x64)
+        run: dotnet publish macos/bridge/Aot -c Release -r osx-x64 -o out/aot-x64
+
+      - name: Swift platform files compile
+        run: |
+          swiftc -typecheck -target arm64-apple-macos13.0 macos/platform/*.swift
+          swiftc -typecheck -target x86_64-apple-macos13.0 macos/platform/*.swift
+
+      - name: Diagnostic tool (arm64 and x64)
+        run: |
+          for arch in arm64 x86_64; do
+            swiftc -O -target "$arch-apple-macos13.0" macos/platform/CoreBridge.swift macos/platform/WindowSnapshot.swift macos/diagnose/main.swift -o "out/diag-$arch"
+          done
+
+      - name: Assemble, universal and ad-hoc signed
+        run: |
+          mkdir -p out/Edgelings-diagnose
+          lipo -create out/diag-arm64 out/diag-x86_64 -output out/Edgelings-diagnose/edgelings-diagnose
+          lipo -create out/aot-arm64/AgentIslandBridge.dylib out/aot-x64/AgentIslandBridge.dylib -output out/Edgelings-diagnose/AgentIslandBridge.dylib
+          cp macos/diagnose/HOW-TO-RUN.md out/Edgelings-diagnose/HOW-TO-RUN.md
+          codesign --force -s - out/Edgelings-diagnose/AgentIslandBridge.dylib
+          codesign --force -s - out/Edgelings-diagnose/edgelings-diagnose
+          lipo -info out/Edgelings-diagnose/edgelings-diagnose out/Edgelings-diagnose/AgentIslandBridge.dylib
+          ls -l out/Edgelings-diagnose
+
+      - name: Run it here (a runner has no agents, but the whole path must work)
+        run: |
+          cd out/Edgelings-diagnose
+          ./edgelings-diagnose | tee ../diagnose-runner.txt
+          ./edgelings-diagnose --json > ../diagnose-runner.json
+          { echo '```'; cat ../diagnose-runner.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Edgelings-diagnose
+          path: out/Edgelings-diagnose
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diagnose-runner-output
+          path: |
+            out/diagnose-runner.txt
+            out/diagnose-runner.json

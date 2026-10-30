@@ -176,6 +176,9 @@ public static class AgentPresences
         return presence;
     }
 
+    /// The agents with no process running, as AgentProcesses reads it (for a diagnostic outside this assembly).
+    public static IReadOnlySet<TriggerTool> ProcessesGone() => AgentProcesses.Gone();
+
     /// The line for a character whose every app is closed. Grok's shared
     /// character names its apps, Grok Bot only where it is installed. A
     /// no-break space keeps Grok Bot's name whole where the line wraps.
