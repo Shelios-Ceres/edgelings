@@ -118,7 +118,7 @@ public static class Program
                 ("IslandPathsTests", IslandPathsTests.RunAll, null),
                 ("LaunchAtLoginTests", LaunchAtLoginTests.RunAll, "Registry Run key"),
                 ("ScannerCwdTests", ScannerCwdTests.RunAll, null),
-                ("AgentPresenceTests", AgentPresenceTests.RunAll, "built from Windows-format path strings"),
+                ("AgentPresenceTests", AgentPresenceTests.RunAll, null),
                 ("SessionEventTests", SessionEventTests.RunAll, null),
                 ("GrokHooksTests", GrokHooksTests.RunAll, "starts powershell.exe"),
                 ("GrokAuthFileTests", GrokAuthFileTests.RunAll, null),

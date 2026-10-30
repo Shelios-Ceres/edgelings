@@ -21,6 +21,8 @@ public static class BridgeApi
             {
                 "version" => Version(),
                 "configure" => Configure(request.RootElement),
+                "windows" => Windows(request.RootElement),
+                "presence" => Presence(),
                 "scan" => Scan(request.RootElement),
                 _ => Error($"unknown method '{method}'"),
             };
@@ -50,6 +52,35 @@ public static class BridgeApi
         IslandPaths.RootOverride = root;
         return Write(json => json.WriteBoolean("rooted", IslandPaths.RootOverride is not null));
     }
+
+    /// What Swift saw of the user's windows, owner and state only, never a
+    /// title: {"method":"windows","windows":[{"pid":123,"offscreen":false}]}.
+    /// Presence uses the latest report for 20 seconds.
+    private static string Windows(JsonElement request)
+    {
+        var windows = new List<AgentPresences.AppWindow>();
+        if (request.TryGetProperty("windows", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.TryGetProperty("pid", out var pid) && pid.TryGetInt32(out var id))
+                {
+                    windows.Add(new AgentPresences.AppWindow(id, item.TryGetProperty("offscreen", out var off) && off.ValueKind == JsonValueKind.True));
+                }
+            }
+        }
+        MacWindowReport.Report(windows);
+        return Write(json => json.WriteNumber("windows", windows.Count));
+    }
+
+    /// Every agent's presence as Core reads it now: open, minimized, hidden or closed.
+    private static string Presence() => Write(json =>
+    {
+        foreach (var (tool, presence) in AgentPresences.Now().OrderBy(p => p.Key.ToString(), StringComparer.Ordinal))
+        {
+            json.WriteString(tool.ToString().ToLowerInvariant(), presence.ToString().ToLowerInvariant());
+        }
+    });
 
     /// A scan and a summary over one Kimi Code data folder: the cost reader's
     /// token events (with its parse cache) priced and summarised, and the

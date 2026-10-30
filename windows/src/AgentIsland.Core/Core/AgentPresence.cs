@@ -27,8 +27,9 @@ public static class AgentPresences
         public bool Headless { get; init; }
     }
 
-    /// A top-level app window: whose it is, and whether it is minimized.
-    internal sealed record AppWindow(int ProcessId, bool Minimized);
+    /// A top-level app window: whose it is, and whether it is minimized (on a
+    /// Mac: off screen, whether minimized or its app hidden). Never a title.
+    public sealed record AppWindow(int ProcessId, bool Minimized);
 
     // Above these, a host chain has left the agent: the shell's own windows
     // (the desktop, the taskbar) say nothing about it.
@@ -36,6 +37,8 @@ public static class AgentPresences
     {
         "explorer", "sihost", "svchost", "services", "wininit", "winlogon", "userinit", "csrss", "smss",
         "System", "taskhostw", "RuntimeBroker", "ApplicationFrameHost", "dwm",
+        // macOS
+        "launchd", "kernel_task", "loginwindow", "WindowServer", "Finder", "Dock", "SystemUIServer",
     };
 
     // A console's window belongs to its host, a child of the shell it serves.
@@ -47,7 +50,7 @@ public static class AgentPresences
     /// processes can't be read counts as open: it never rests on a guess.
     public static IReadOnlyDictionary<TriggerTool, AgentPresence> Now()
     {
-        // Until the macOS platform layer reads processes and windows, every agent counts as open.
+        if (OperatingSystem.IsMacOS()) return NowOnMac();
         if (!OperatingSystem.IsWindows()) return AgentProcesses.Known.Select(k => k.Tool).Distinct().ToDictionary(tool => tool, _ => AgentPresence.Open);
         try
         {
@@ -59,6 +62,63 @@ public static class AgentPresences
         {
             return AgentProcesses.Known.Select(k => k.Tool).Distinct().ToDictionary(tool => tool, _ => AgentPresence.Open);
         }
+    }
+
+    /// On a Mac the processes are read here and the windows are Swift's
+    /// (MacWindowReport, refreshed by the app's loop). Without a recent report
+    /// a running agent counts as open: presence never rests on a guess.
+    private static Dictionary<TriggerTool, AgentPresence> NowOnMac()
+    {
+        try
+        {
+            var processes = MacProcessList();
+            if (processes.Any(p => string.Equals(p.Name, GrokBot.ProcessName, StringComparison.OrdinalIgnoreCase))) GrokBot.NoteRunning();
+            var windows = MacWindowReport.Current(DateTimeOffset.UtcNow)
+                ?? processes.Select(p => new AppWindow(p.Id, false)).ToList();
+            return Of(processes, windows);
+        }
+        catch
+        {
+            return AgentProcesses.Known.Select(k => k.Tool).Distinct().ToDictionary(tool => tool, _ => AgentPresence.Open);
+        }
+    }
+
+    /// The process table as presence reads it. An agent's process is named for
+    /// what matches: libproc's name, else the image's file name, and the
+    /// official installer's versioned claude binary (…/claude/versions/2.1.x)
+    /// by its folder. Only a script host or a name a path tells apart needs
+    /// its path or command line.
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static List<Running> MacProcessList()
+    {
+        var wanted = new HashSet<string>(AgentProcesses.Known.Select(k => k.Name).Concat(AgentProcesses.PresenceOnly.Select(k => k.Name)),
+            StringComparer.OrdinalIgnoreCase);
+        var list = new List<Running>();
+        foreach (var entry in MacProcesses.Snapshot())
+        {
+            var name = entry.Name;
+            if (!wanted.Contains(name))
+            {
+                var file = entry.Path is null ? null : Path.GetFileNameWithoutExtension(entry.Path);
+                if (file is not null && wanted.Contains(file)) name = file;
+                else if (entry.Path is not null && entry.Path.Contains("/claude/versions/", StringComparison.Ordinal)) name = "claude";
+            }
+            // Every process stays in the list: an agent's host chain (shell, login,
+            // terminal) is found through its parents.
+            if (!wanted.Contains(name))
+            {
+                list.Add(new Running(entry.Id, entry.ParentId, name));
+                continue;
+            }
+            var path = !AgentProcesses.Known.Any(k => k.PathHint is not null && string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase)) ? null
+                : AgentProcesses.Hosts.Contains(name) ? AgentProcesses.CommandLineOf(entry.Id)
+                : entry.Path;
+            list.Add(new Running(entry.Id, entry.ParentId, name, path)
+            {
+                Headless = AgentProcesses.KimiRunOf(entry.Id, name, path).Print,
+            });
+        }
+        return list;
     }
 
     /// isConsole says whether a process is a console program; without it no

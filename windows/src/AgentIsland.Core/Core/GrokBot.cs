@@ -21,6 +21,13 @@ public static class GrokBot
 
     private static IEnumerable<string> Executables()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            var bundle = Path.Combine(ProcessName + ".app", "Contents", "MacOS", ProcessName);
+            yield return Path.Combine("/Applications", bundle);
+            yield return Path.Combine(IslandPaths.Home, "Applications", bundle);
+            yield break;
+        }
         const string exe = "Grok Bot.exe";
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), ProcessName, exe);
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", ProcessName, exe);
