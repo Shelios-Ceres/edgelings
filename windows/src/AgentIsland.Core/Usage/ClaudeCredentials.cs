@@ -155,7 +155,7 @@ public static class ClaudeCredentials
             // next poll asks again.
             return (null, refresh is RefreshResult.Unavailable unavailable ? unavailable.Message : TokenRefreshFailedMessage);
         }
-        switch (WriteClaudeCreds(refreshed, current.RefreshToken))
+        switch (WriteClaudeCreds(refreshed, current))
         {
             // Anthropic rotates the refresh token, invalidating the pair we
             // just used. If we can't persist the rotated tokens, the on-disk
@@ -195,12 +195,34 @@ public static class ClaudeCredentials
 
     private static string CredentialsFile => CredentialsFileOverride ?? IslandPaths.ClaudeCredentialsFile;
 
+    /// KeychainService names the Keychain item the pair was read from (macOS);
+    /// null means the credentials file.
     private sealed record ClaudeCreds(
         string AccessToken,
         string RefreshToken,
-        string? SubscriptionType);
+        string? SubscriptionType,
+        string? KeychainService = null);
 
+    /// Test seam: the keychain to read, or null for the real one on a Mac.
+    /// The real login keychain is used only on macOS, with no file override
+    /// and no root override: a test or a bench never reaches it.
+    internal static ClaudeKeychain? KeychainOverride;
+
+    private static ClaudeKeychain? Keychain =>
+        KeychainOverride ?? (OperatingSystem.IsMacOS() && CredentialsFileOverride is null && IslandPaths.RootOverride is null ? ClaudeKeychain.Default : null);
+
+    /// The Keychain first on a Mac, where Claude Code keeps the login; the
+    /// credentials file when it holds none (Claude Code run with another config).
     private static ClaudeCreds? ReadClaudeCreds()
+    {
+        if (Keychain is { } keychain && keychain.Read() is { } item)
+        {
+            return new ClaudeCreds(item.AccessToken!, item.RefreshToken!, item.SubscriptionType, item.Service);
+        }
+        return ReadClaudeCredsFile();
+    }
+
+    private static ClaudeCreds? ReadClaudeCredsFile()
     {
         try
         {
@@ -249,8 +271,18 @@ public static class ClaudeCredentials
     /// %USERPROFILE%, and both the temp file and the destination inherit that
     /// tree's per-user DACL — the same protection Claude Code's own writer
     /// gets on Windows.
-    private static WriteBack WriteClaudeCreds(RefreshedTokens refreshed, string sentRefreshToken)
+    private static WriteBack WriteClaudeCreds(RefreshedTokens refreshed, ClaudeCreds from)
     {
+        if (from.KeychainService is { } service && Keychain is { } keychain)
+        {
+            return keychain.WriteBack(service, refreshed.AccessToken, refreshed.RefreshToken, refreshed.ExpiresAtMs, from.RefreshToken) switch
+            {
+                ClaudeKeychain.WriteResult.Written => WriteBack.Written,
+                ClaudeKeychain.WriteResult.Superseded => WriteBack.Superseded,
+                _ => WriteBack.Failed,
+            };
+        }
+        var sentRefreshToken = from.RefreshToken;
         var tmp = string.Empty;
         try
         {
@@ -342,6 +374,7 @@ public static class ClaudeCredentials
     /// keychain `mdat` on macOS.
     public static string? CredentialsModificationStamp()
     {
+        if (Keychain is { } keychain && keychain.ModificationStamp() is { } stamp) return stamp;
         try
         {
             var path = CredentialsFile;
