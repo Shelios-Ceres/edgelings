@@ -28,6 +28,7 @@ public static class BridgeApi
                 "diagnose" => Diagnose(request.RootElement),
                 "scan" => Scan(request.RootElement),
                 "appStart" => AppModel.Start(),
+                "log" => Log(request.RootElement),
                 "frame" => AppModel.Frame(request.RootElement),
                 "card" => AppModel.Card(request.RootElement),
                 "looks" => AppModel.Looks(request.RootElement),
@@ -270,6 +271,13 @@ public static class BridgeApi
             json.WriteNumber("sessions", sessions.Count);
             json.WriteNumber("sessionsWorking", sessions.Count(s => s.Status == ActivityState.Working));
         });
+    }
+
+    /// Swift's own failures, by name: {"method":"log","text":"engine pixel failed"}.
+    private static string Log(JsonElement request)
+    {
+        if (request.TryGetProperty("text", out var text) && text.GetString() is { Length: > 0 and < 200 } line) AppLog.Write(line);
+        return Write(json => json.WriteBoolean("ok", true));
     }
 
     private static string Error(string message) => Write(json => json.WriteString("error", message));

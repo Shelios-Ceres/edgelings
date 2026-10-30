@@ -157,6 +157,7 @@ final class DrawerController {
             for slot in slots { slot.look = ""; slot.seq = -1; slot.svg = nil; slot.image = nil; slot.engineState = "idle"; slot.hold = "idle" }
         } catch {
             NSLog("Edgelings: engine \(frame.theme) failed: \(error)")
+            AppController.shared.request("log", ["text": "engine \(frame.theme) did not load"])
             engineTheme = frame.theme
         }
     }

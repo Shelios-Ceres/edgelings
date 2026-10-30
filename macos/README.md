@@ -84,3 +84,28 @@ Upstream's Mac app has no hooks. The Windows ones are PowerShell commands:
 ### Not verified (needs the friend's Mac)
 
 Everything that needs a real desktop and real agents: that each agent's process is recognised by name, that `minimized`/`hidden` match what the user sees, the Keychain prompt and write-back against the real Claude Code item, `SMAppService`, the wake/unlock notifications, and the "not verified" paths above.
+
+## Stages 2-4: the Edgelings app (`macos/app`)
+
+The Mac app: an accessory app (menu-bar icon, no Dock icon), bundle id `dev.edgelings.Edgelings`, universal, macOS 13+, ad-hoc signed. `macos/app/build-app.sh <arm64-aot> <x64-aot> <out>` assembles `Edgelings.app` (the Core dylib and `libe_sqlite3.dylib` in `Frameworks`, the two character engines in `Resources/Characters`, Ark Pixel and its OFL licence in `Resources/Fonts`). CI workflow `macOS app` builds it, starts it for 20 s, runs `--diagnose` from the bundle (SQLite must load), renders every screen offscreen and uploads the friend's zip.
+
+| Part | Where |
+|---|---|
+| Core's side: the drawer's poll, dwell, rest and speech rules; hover cards; Settings and Usage & cost data; hooks and Codex accounts | `bridge/Shared/AppModel.cs`, `SettingsApi.cs` (calls `appStart`, `frame`, `card`, `looks`, `setDrawer`, `settings`, `set`, `agent`, `usage`, `tr`, `format`, `rescan`, `log`) |
+| Engines on JavaScriptCore | `engine/CharacterEngine.swift` (the same host module as `V8CharacterEngine.cs`) |
+| SVG drawing | `golden/SvgCanvas.swift` (compiled into the app too) |
+| Drawer panel, game loop, pointer, bubbles, hover card | `app/Sources/DrawerController.swift`, `Presenters.swift`, `CardView.swift` |
+| Kits and tokens | `Theme.swift`, `SettingsKit.swift` |
+| Settings and Usage & cost | `SettingsStore.swift`, `SettingsViews.swift`, `UsagePage.swift` |
+| Offscreen renders | `RenderMode.swift`, `RenderSettings.swift` (`Edgelings --render <folder>`) |
+| Diagnostic | `Diagnostic.swift` (`Edgelings --diagnose`, and Settings > General > Copy diagnostic) |
+
+Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English and Simplified Chinese; the few Mac-only strings are in `MacStrings`. The Pixel skin reads English, as on Windows.
+
+### Hooks
+
+`ClaudeHooks.UseShell` and `GrokHooks.UseShell` (off by default, turned on only by `appStart`) make the optional permission-prompt hooks `sh` commands that read the event with `plutil` and keep ids and a type, never text. Nothing is installed until the user flips the switch on the agent's card (a backup of `~/.claude/settings.json` is made first). `ShellHooksTests` runs the generated command on a Mac with temp folders only.
+
+### Not ported yet
+
+The drawer's choreography (slide in and out, lift on drag, drop, edge switch, roster change), the M-series control motions, count-up bars, the drawn Classic window frame, the pixel icon set, the app icon, Sparkle. The upstream Mac-only features (turn alarm, reminders, jump to terminal, report cards) and the notch island stay in `Sources/` for the user to decide after parity.

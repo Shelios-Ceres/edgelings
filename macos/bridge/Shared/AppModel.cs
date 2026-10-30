@@ -62,6 +62,7 @@ public static class AppModel
         // The Mac app's hooks are `sh` (nothing is installed until the user flips a switch).
         ClaudeHooks.UseShell = true;
         GrokHooks.UseShell = true;
+        CoreLog.Sink = (error, context) => AppLog.Write($"{context}: {error.GetType().Name}");
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();
         ActivityMonitor.Shared.SessionEventsRaised += events =>
@@ -544,5 +545,37 @@ internal static class Json
             json.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.ToArray());
+    }
+}
+
+/// The app's own log, `crash.log` in its support folder: what failed and
+/// where, by name only (a type, a context, a file name of the app's own),
+/// never a message that could carry a path or any text of the user's. A
+/// repeat of the same line is written once per launch; past 1 MB it starts again.
+internal static class AppLog
+{
+    private static readonly HashSet<string> Seen = new(StringComparer.Ordinal);
+    private static readonly object Gate = new();
+
+    public static void Write(string line)
+    {
+        lock (Gate)
+        {
+            if (!Seen.Add(line)) return;
+            try
+            {
+                var folder = IslandPaths.AppSupportDir;
+                Directory.CreateDirectory(folder);
+                var path = Path.Combine(folder, "crash.log");
+                if (File.Exists(path) && new FileInfo(path).Length > 1_000_000) File.Move(path, Path.Combine(folder, "crash.old.log"), overwrite: true);
+                File.AppendAllText(path, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}");
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 }
