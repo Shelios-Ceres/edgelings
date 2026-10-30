@@ -125,6 +125,7 @@ public static class Program
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
                 ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),
+                ("ClaudeKeychainTests", ClaudeKeychainTests.RunAll, null),
                 ("ActivityMonitorScanTests", ActivityMonitorScanTests.RunAll, null),
                 ("LogParseCacheTests", LogParseCacheTests.RunAll, null),
                 ("PreferencesTests", PreferencesTests.RunAll, null),
