@@ -9,6 +9,7 @@ struct EdgelingsMain {
     static func main() {
         let app = NSApplication.shared
         let arguments = CommandLine.arguments
+        if arguments.contains("--diagnose") { DiagnosticReport.printAndExit() }
         if let at = arguments.firstIndex(of: "--render"), at + 1 < arguments.count {
             RenderMode.run(into: arguments[at + 1])
             exit(0)
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PixelFace.register()
         let controller = AppController.shared
         drawer = DrawerController()
+        DrawerPlacementHelper.drawer = drawer
         drawer.openSettings = { id in SettingsController.shared.show(agent: id) }
         drawer.showMenu = { [weak self] id, point in self?.showDrawerMenu(for: id) }
         controller.onFrame = { [weak self] frame in
