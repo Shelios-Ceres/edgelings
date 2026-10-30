@@ -47,7 +47,7 @@ internal static class AgentProcesses
 
     public static IReadOnlySet<TriggerTool> Gone()
     {
-        // Until the macOS platform layer reads processes, nothing is declared gone.
+        if (OperatingSystem.IsMacOS()) return GoneOnMac();
         if (!OperatingSystem.IsWindows()) return new HashSet<TriggerTool>();
         try
         {
@@ -64,6 +64,36 @@ internal static class AgentProcesses
                     if (KimiRunOf(process.Id, name, path).MemoryRun) continue;
                     running.Add((name, path));
                 }
+            }
+            return Gone(running);
+        }
+        catch
+        {
+            return new HashSet<TriggerTool>();
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static IReadOnlySet<TriggerTool> GoneOnMac()
+    {
+        try
+        {
+            var running = new List<(string Name, string? Path)>();
+            foreach (var entry in MacProcesses.Snapshot())
+            {
+                var name = entry.Name;
+                if (Known.All(k => !string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var file = entry.Path is null ? null : System.IO.Path.GetFileNameWithoutExtension(entry.Path);
+                    if (file is not null && Known.Any(k => string.Equals(k.Name, file, StringComparison.OrdinalIgnoreCase))) name = file;
+                    else if (entry.Path is not null && entry.Path.Contains("/claude/versions/", StringComparison.Ordinal)) name = "claude";
+                    else continue;
+                }
+                var known = Known.First(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase));
+                var path = known.PathHint is null ? null : Hosts.Contains(name) ? CommandLineOf(entry.Id) : entry.Path;
+                // The memory plugin's headless runs are not Kimi being open.
+                if (KimiRunOf(entry.Id, name, path).MemoryRun) continue;
+                running.Add((name, path));
             }
             return Gone(running);
         }
@@ -185,6 +215,7 @@ internal static class AgentProcesses
     /// when it can't be read.
     internal static string? CommandLineOf(int id)
     {
+        if (OperatingSystem.IsMacOS()) return MacProcesses.CommandLine(id);
         if (!OperatingSystem.IsWindows()) return null;
         var process = OpenProcess(QueryLimitedInformation, false, (uint)id);
         if (process == IntPtr.Zero) return null;

@@ -95,7 +95,8 @@ public static class AgentPresenceTests
             {
                 if (GrokBot.IsInstalled(false, _ => false)) throw new Exception("nothing there");
                 if (!GrokBot.IsInstalled(true, _ => false)) throw new Exception("running");
-                if (!GrokBot.IsInstalled(false, path => path.EndsWith(@"Grok Bot\Grok Bot.exe", StringComparison.OrdinalIgnoreCase))) throw new Exception("exe");
+                var bundle = OperatingSystem.IsMacOS() ? "Grok Bot.app/Contents/MacOS/Grok Bot" : "Grok Bot/Grok Bot.exe";
+                if (!GrokBot.IsInstalled(false, path => path.Replace('\\', '/').EndsWith(bundle, StringComparison.OrdinalIgnoreCase))) throw new Exception("exe");
             }),
             ("Claude Code installed with npm runs as node and is not gone", () =>
             {
@@ -130,6 +131,57 @@ public static class AgentPresenceTests
                 Handoff("grok"), new[] { new AppWindow(61, true) }, ConsolePrograms)),
             ("a handed-off CLI with no terminal window is in the tray", () => Expect(TriggerTool.Grok, AgentPresence.Hidden,
                 Handoff("grok"), new AppWindow[0], ConsolePrograms)),
+            // The same trees, shaped as a Mac has them: launchd above everything, a terminal app, login and the shell.
+            ("on a Mac a CLI in Terminal shows through the terminal's window", () => Expect(TriggerTool.Claude, AgentPresence.Open,
+                MacTerminal("claude"), new[] { new AppWindow(200, false) })),
+            ("on a Mac a CLI in a terminal whose windows are all off screen is minimized", () => Expect(TriggerTool.Claude, AgentPresence.Minimized,
+                MacTerminal("claude"), new[] { new AppWindow(200, true) })),
+            ("on a Mac a CLI whose terminal shows no window is in the tray", () => Expect(TriggerTool.Claude, AgentPresence.Hidden,
+                MacTerminal("claude"), new AppWindow[0])),
+            ("on a Mac the system's own windows (launchd, the Dock) don't count", () => Expect(TriggerTool.Claude, AgentPresence.Hidden,
+                MacTerminal("claude"), new[] { new AppWindow(1, false), new AppWindow(150, false) })),
+            ("on a Mac the Claude app is a process named Claude", () => Expect(TriggerTool.Claude, AgentPresence.Open,
+                new[] { new Running(1, 0, "launchd"), new Running(300, 1, "Claude") }, new[] { new AppWindow(300, false) })),
+            ("on a Mac npm's Claude Code runs as node and is told by its argument path", () =>
+            {
+                var line = "node /Users/me/.nvm/versions/node/v22.1.0/lib/node_modules/@anthropic-ai/claude-code/cli.js";
+                if (AgentProcesses.Gone(new[] { ("node", (string?)line) }).Contains(TriggerTool.Claude)) throw new Exception("idled: " + line);
+            }),
+            ("on a Mac Kimi Code's CLI is told apart by its path", () => Expect(TriggerTool.Kimi, AgentPresence.Open,
+                new[] { new Running(1, 0, "launchd"), new Running(70, 1, "kimi", "/Users/me/.kimi-code/bin/kimi") }, new[] { new AppWindow(70, false) })),
+            ("the Kimi chat app on a Mac isn't Kimi Code", () => Expect(TriggerTool.Kimi, AgentPresence.Closed,
+                new[] { new Running(1, 0, "launchd"), new Running(70, 1, "Kimi", "/Applications/Kimi.app/Contents/MacOS/Kimi") }, new[] { new AppWindow(70, false) })),
+            ("KERN_PROCARGS2 reads as the arguments, and the environment is never touched", () =>
+            {
+                var bytes = new List<byte>(BitConverter.GetBytes(3));
+                bytes.AddRange(System.Text.Encoding.UTF8.GetBytes("/usr/local/bin/node\0\0\0"));
+                bytes.AddRange(System.Text.Encoding.UTF8.GetBytes("node\0/x/@anthropic-ai/claude-code/cli.js\0--flag\0"));
+                bytes.AddRange(System.Text.Encoding.UTF8.GetBytes("SECRET_TOKEN=abc\0HOME=/Users/me\0"));
+                var line = ProcessArguments.Parse(bytes.ToArray(), bytes.Count);
+                if (line != "node /x/@anthropic-ai/claude-code/cli.js --flag") throw new Exception("read " + line);
+                if (ProcessArguments.Parse(Array.Empty<byte>(), 0) is not null || ProcessArguments.Parse(BitConverter.GetBytes(0), 4) is not null) throw new Exception("empty");
+                var cut = bytes.Take(34).ToArray();
+                if (ProcessArguments.Parse(cut, cut.Length) is not { } partial || !partial.StartsWith("node", StringComparison.Ordinal)) throw new Exception("a cut-short buffer reads what it holds");
+            }),
+            ("a window report is used while fresh and ignored when stale", () =>
+            {
+                var now = DateTimeOffset.UtcNow;
+                MacWindowReport.Report(new[] { new AppWindow(5, true) }, now);
+                if (MacWindowReport.Current(now.AddSeconds(5)) is not { Count: 1 }) throw new Exception("fresh");
+                if (MacWindowReport.Current(now + MacWindowReport.MaxAge + TimeSpan.FromSeconds(1)) is not null) throw new Exception("stale");
+                MacWindowReport.Forget();
+                if (MacWindowReport.Current(now) is not null) throw new Exception("forgotten");
+            }),
+            ("on a Mac the live process table lists this process, with its arguments", () =>
+            {
+                if (!OperatingSystem.IsMacOS()) return;
+                var entries = MacProcesses.Snapshot();
+                var me = entries.FirstOrDefault(e => e.Id == Environment.ProcessId) ?? throw new Exception("this process is not in the table");
+                if (me.ParentId <= 0 || me.Name.Length == 0 || string.IsNullOrEmpty(me.Path)) throw new Exception($"incomplete: {me.ParentId} {me.Name}");
+                var arguments = MacProcesses.CommandLine(Environment.ProcessId);
+                if (arguments is null || !arguments.Contains("AgentIsland.Tests", StringComparison.Ordinal)) throw new Exception("arguments: " + arguments);
+                if (!AgentPresences.Now().ContainsKey(TriggerTool.Claude)) throw new Exception("presence reads every agent");
+            }),
             ("a CLI under a desktop app in the tray stays in the tray beside a terminal", () => Expect(TriggerTool.Claude, AgentPresence.Hidden,
                 new[] { Explorer, new Running(10, 1, "claude"), new Running(11, 10, "claude"), new Running(61, 1, "WindowsTerminal") },
                 new[] { new AppWindow(61, false) }, id => id == 11)),
@@ -138,6 +190,7 @@ public static class AgentPresenceTests
                 new[] { new AppWindow(61, false) }, ConsolePrograms)),
             ("the PE header tells a console program from a desktop one", () =>
             {
+                if (!OperatingSystem.IsWindows()) return;
                 var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
                 if (!IsConsoleImage(Path.Combine(system, "cmd.exe"))) throw new Exception("cmd.exe is a console program");
                 if (IsConsoleImage(Path.Combine(system, "notepad.exe"))) throw new Exception("notepad.exe is not");
@@ -159,6 +212,14 @@ public static class AgentPresenceTests
     /// A CLI in Windows Terminal: the shell is the terminal's child.
     private static Running[] Terminal(string cli) =>
         new[] { Explorer, new Running(18, 1, "WindowsTerminal"), new Running(19, 18, "pwsh"), new Running(20, 19, cli) };
+
+    /// A CLI in Terminal on a Mac: launchd, the Dock beside it, Terminal (which owns the windows), login and the shell.
+    private static Running[] MacTerminal(string cli) =>
+        new[]
+        {
+            new Running(1, 0, "launchd"), new Running(150, 1, "Dock"), new Running(200, 1, "Terminal"),
+            new Running(201, 200, "login"), new Running(202, 201, "zsh"), new Running(203, 202, cli),
+        };
 
     /// A CLI in a classic console: its window is conhost's, the shell's child.
     private static Running[] Console(string cli) =>
