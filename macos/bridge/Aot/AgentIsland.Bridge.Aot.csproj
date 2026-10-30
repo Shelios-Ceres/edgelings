@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A1: Core as a NativeAOT shared library (a .dylib on macOS). Swift calls
+       ai_call and ai_free. Publish once per architecture and join the
+       results with lipo. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>AgentIslandBridge</AssemblyName>
+    <RootNamespace>AgentIsland.Bridge.Aot</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StripSymbols>true</StripSymbols>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BridgeApi.cs" Link="BridgeApi.cs" />
+    <ProjectReference Include="..\..\..\windows\src\AgentIsland.Core\AgentIsland.Core.csproj" />
+  </ItemGroup>
+
+</Project>

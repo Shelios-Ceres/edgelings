@@ -1,0 +1,85 @@
+# Mac port, stage 0: the two ways Swift can call the shared C# Core, built small
+# and measured. A1 is a NativeAOT dylib called in process; A2 is a self-contained
+# helper process speaking JSON lines. The numbers go to the run's summary.
+name: macOS bridge
+
+on:
+  push:
+    branches: ["mac/**"]
+    paths:
+      - "macos/bridge/**"
+      - "windows/src/AgentIsland.Core/**"
+      - ".github/workflows/macos-bridge.yml"
+  workflow_dispatch:
+
+jobs:
+  bridge:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Fixture (synthetic Kimi sessions)
+        run: python3 macos/bridge/make-fixture.py "$RUNNER_TEMP/kimi" 200 400
+
+      - name: A1, NativeAOT dylib (arm64)
+        run: dotnet publish macos/bridge/Aot -c Release -r osx-arm64 -o out/a1-arm64
+
+      - name: A1, NativeAOT dylib (x64)
+        id: a1x64
+        continue-on-error: true
+        run: dotnet publish macos/bridge/Aot -c Release -r osx-x64 -o out/a1-x64
+
+      - name: A1, universal dylib
+        if: steps.a1x64.outcome == 'success'
+        run: |
+          mkdir -p out/a1
+          lipo -create out/a1-arm64/AgentIslandBridge.dylib out/a1-x64/AgentIslandBridge.dylib -output out/a1/AgentIslandBridge.dylib
+          lipo -info out/a1/AgentIslandBridge.dylib
+
+      - name: A2, helper (single file, arm64 and x64)
+        run: |
+          dotnet publish macos/bridge/Helper -c Release -r osx-arm64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o out/a2-arm64
+          dotnet publish macos/bridge/Helper -c Release -r osx-x64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o out/a2-x64
+
+      - name: A2, helper (trimmed single file, arm64)
+        id: a2trim
+        continue-on-error: true
+        run: dotnet publish macos/bridge/Helper -c Release -r osx-arm64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:PublishTrimmed=true -p:TrimMode=partial -o out/a2-arm64-trim
+
+      - name: Swift bench
+        run: swiftc -O macos/bridge/swift/bench.swift -o out/bench
+
+      - name: Measure
+        run: |
+          {
+            echo "## Sizes"
+            echo '```'
+            ls -l out/a1-arm64 | grep -E "dylib|\.so" || true
+            ls -l out/a1-x64 2>/dev/null | grep -E "dylib" || true
+            ls -l out/a1/*.dylib 2>/dev/null || true
+            ls -l out/a2-arm64/AgentIslandHelper out/a2-x64/AgentIslandHelper out/a2-arm64-trim/AgentIslandHelper 2>/dev/null || true
+            echo '```'
+            echo "## A1, NativeAOT dylib (arm64, in process)"
+            echo '```'
+            ./out/bench a1 out/a1-arm64/AgentIslandBridge.dylib "$RUNNER_TEMP/kimi"
+            echo '```'
+            echo "## A2, helper process (arm64, single file)"
+            echo '```'
+            ./out/bench a2 out/a2-arm64/AgentIslandHelper "$RUNNER_TEMP/kimi"
+            echo '```'
+            if [ -x out/a2-arm64-trim/AgentIslandHelper ]; then
+              echo "## A2, helper process (arm64, trimmed)"
+              echo '```'
+              ./out/bench a2 out/a2-arm64-trim/AgentIslandHelper "$RUNNER_TEMP/kimi"
+              echo '```'
+            fi
+          } | tee bridge-results.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bridge-results
+          path: bridge-results.md
