@@ -118,7 +118,7 @@ enum RenderSettings {
                     }
                     // The whole window, with its sidebar.
                     store.page = .agents
-                    let window = SettingsRoot(store: store).frame(width: 880, height: 1100, alignment: .topLeading)
+                    let window = SettingsRoot(store: store).frame(width: 880, alignment: .topLeading).fixedSize(horizontal: false, vertical: true)
                     let windowRenderer = ImageRenderer(content: window)
                     windowRenderer.scale = 2
                     save(windowRenderer.nsImage, "settings-window-\(name).png")

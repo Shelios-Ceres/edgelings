@@ -188,7 +188,7 @@ struct AgentCard: View {
         return VStack(spacing: 0) {
             IconRow(store: store, glyph: "E771", symbol: "paintpalette", title: store.t("Look")) { EmptyView() }
             if !choices.isEmpty {
-                if RenderFlags.offscreen { tiles(choices).padding(.bottom, 10).padding(.leading, kit.pixel ? 32 : 44) }
+                if RenderFlags.offscreen { tiles(choices).padding(.bottom, 10).padding(.leading, kit.pixel ? 32 : 44).frame(maxWidth: .infinity, alignment: .leading) }
                 else {
                     ScrollView(.horizontal, showsIndicators: false) { tiles(choices).padding(.bottom, 10).padding(.leading, kit.pixel ? 32 : 44) }
                 }
@@ -223,33 +223,35 @@ struct AgentCard: View {
 
     private var codexMenu: some View {
         let codex = store.settings?.codex
-        return Menu {
-            if codex?.accounts.isEmpty ?? true { Text(store.t("No saved accounts yet")) }
-            ForEach(codex?.accounts ?? []) { account in
-                Button((account.label == codex?.active ? "✓ " : "") + account.label + (account.email.map { "  (\($0))" } ?? "")) {
-                    store.send("agent", ["action": "codexSwitch", "id": "codex", "label": account.label])
-                }
-            }
-            Divider()
-            Button(store.t("Save current account…")) { saveAccount() }
-            Button((codex?.autoSwitch == true ? "✓ " : "") + store.t("Auto-switch when exhausted")) {
-                store.send("agent", ["action": "codexAuto", "id": "codex", "on": !(codex?.autoSwitch ?? false)])
-            }
-            if !(codex?.accounts.isEmpty ?? true) {
-                Menu(store.t("Remove saved account")) {
-                    ForEach(codex?.accounts ?? []) { account in
-                        Button(account.label) { store.send("agent", ["action": "codexForget", "id": "codex", "label": account.label]) }
-                    }
-                }
-            }
-        } label: {
+        return Group {
             if RenderFlags.offscreen {
                 Text(store.t("Switch") + " ⌄").font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
             } else {
-                Text(store.t("Switch")).font(Kit(store: store).body())
+                Menu {
+                    if codex?.accounts.isEmpty ?? true { Text(store.t("No saved accounts yet")) }
+                    ForEach(codex?.accounts ?? []) { account in
+                        Button((account.label == codex?.active ? "✓ " : "") + account.label + (account.email.map { "  (\($0))" } ?? "")) {
+                            store.send("agent", ["action": "codexSwitch", "id": "codex", "label": account.label])
+                        }
+                    }
+                    Divider()
+                    Button(store.t("Save current account…")) { saveAccount() }
+                    Button((codex?.autoSwitch == true ? "✓ " : "") + store.t("Auto-switch when exhausted")) {
+                        store.send("agent", ["action": "codexAuto", "id": "codex", "on": !(codex?.autoSwitch ?? false)])
+                    }
+                    if !(codex?.accounts.isEmpty ?? true) {
+                        Menu(store.t("Remove saved account")) {
+                            ForEach(codex?.accounts ?? []) { account in
+                                Button(account.label) { store.send("agent", ["action": "codexForget", "id": "codex", "label": account.label]) }
+                            }
+                        }
+                    }
+                } label: {
+                    Text(store.t("Switch")).font(Kit(store: store).body())
+                }
+                .menuStyle(.borderlessButton).fixedSize()
             }
         }
-        .menuStyle(.borderlessButton).fixedSize()
     }
 
     private func saveAccount() {
