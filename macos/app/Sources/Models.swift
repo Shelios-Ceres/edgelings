@@ -1,6 +1,7 @@
 // What Core's `frame` and `card` calls answer, as Swift values. All text is
 // already chosen and localised by Core (the Pixel set reads English).
 import Foundation
+import CoreGraphics
 
 struct SpeechModel: Decodable {
     let line: String
