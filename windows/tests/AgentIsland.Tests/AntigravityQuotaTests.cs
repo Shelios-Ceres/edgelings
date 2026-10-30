@@ -185,8 +185,8 @@ public static class AntigravityQuotaTests
     {
         var quick = AntigravityLanguageServer.Output(new System.Diagnostics.ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = "/c echo hello",
+            FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
+            Arguments = OperatingSystem.IsWindows() ? "/c echo hello" : "-c \"echo hello\"",
             RedirectStandardOutput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -195,8 +195,8 @@ public static class AntigravityQuotaTests
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var hung = AntigravityLanguageServer.Output(new System.Diagnostics.ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = "/c ping -n 30 127.0.0.1",
+            FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
+            Arguments = OperatingSystem.IsWindows() ? "/c ping -n 30 127.0.0.1" : "-c \"sleep 30\"",
             RedirectStandardOutput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
