@@ -93,7 +93,7 @@ enum SelfTest {
                 let index = engine.addBot(kind: "claude", tempo: 1, seed: 7, look: "")
                 engine.setState(index, "thinking", phase: 0)
                 let frames = engine.tick([0.1], size: 44)
-                check("engine \(theme)", frames.first??.svg.hasPrefix("<svg") == true)
+                check("engine \(theme)", frames.first.flatMap { $0 }?.svg.hasPrefix("<svg") == true)
             } catch {
                 check("engine \(theme)", false, "\(error)")
             }
