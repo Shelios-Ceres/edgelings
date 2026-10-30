@@ -32,8 +32,8 @@ enum RenderMode {
             for dark in [false, true] {
                 let tag = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")"
                 let palette = Palette(skin: skin, dark: dark)
-                save(snapshot(scene(palette: palette, cards: Sample.cards([Sample.claude(skin)]), columns: [[0]], bubble: "Done — your turn!"), dark: dark), "scene-one-\(tag).png")
-                save(snapshot(scene(palette: palette, cards: Sample.cards(Sample.all(skin)), columns: [[0, 1], [2, 3]], bubble: nil), dark: dark), "scene-all-\(tag).png")
+                save(snapshot(placedScene(palette: palette, cards: Sample.cards([Sample.claude(skin)]), bubble: "Done — your turn!"), dark: dark), "scene-one-\(tag).png")
+                save(snapshot(placedScene(palette: palette, cards: Sample.cards(Sample.all(skin)), bubble: nil), dark: dark), "scene-all-\(tag).png")
                 save(snapshot(bubbles(palette: palette), dark: dark), "bubbles-\(tag).png")
             }
         }
@@ -94,6 +94,43 @@ enum RenderMode {
     }
 
     // MARK: Scenes
+
+    /// The drawer, its card and a bubble placed by the same functions the real drawer uses: a screen
+    /// 800 x 380 with the column on its right edge, the card at the first character, the bubble at the second.
+    @MainActor
+    private static func placedScene(palette: Palette, cards: CardsModel, bubble: String?) -> some View {
+        let pixel = palette.skin == .pixel
+        let area = NSRect(x: 0, y: 0, width: 800, height: 380)
+        let count = 4
+        let panelHeight = 24 + CGFloat(count) * 44 + CGFloat(count - 1) * 10
+        let panelTop: CGFloat = 70
+        let panelX = area.maxX - 56
+        func anchor(_ index: Int) -> NSRect {
+            NSRect(x: panelX + 6, y: area.maxY - (panelTop + 12 + CGFloat(index) * 54) - 44, width: 44, height: 44)
+        }
+        let single = cards.cards.count == 1
+        let cardAnchor = single ? anchor(0) : NSRect(x: panelX + 6, y: area.maxY - panelTop - panelHeight / 2 - 22, width: 44, height: 44)
+        let columns = CardPresenter.columns(cards, pixel: pixel, area: area, anchor: cardAnchor, rightEdge: true)
+        let cardSize = NSHostingView(rootView: CardView(model: cards, palette: palette, columns: columns, tailY: nil, rightEdge: true)).fittingSize
+        let cardPlace = CardPresenter.placement(size: cardSize, anchor: cardAnchor, area: area, rightEdge: true, pixel: pixel)
+        let backdrop = palette.dark ? Color(hex: 0x1C1C20) : Color(hex: 0xC9CDD4)
+        var bubbleView: AnyView?
+        if let bubble {
+            let probe = BubbleView(line: bubble, kind: "done", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: 0)
+            let size = NSHostingView(rootView: probe).fittingSize
+            let place = BubblePresenter.placement(size: size, anchor: anchor(1), area: area, rightEdge: true, pixel: pixel)
+            bubbleView = AnyView(BubbleView(line: bubble, kind: "done", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: place.tailY)
+                .offset(x: place.origin.x, y: area.height - (place.origin.y + size.height)))
+        }
+        return ZStack(alignment: .topLeading) {
+            backdrop
+            DrawerColumn(pixel: pixel, count: count).offset(x: panelX, y: panelTop)
+            CardView(model: cards, palette: palette, columns: columns, tailY: single ? cardPlace.tailY : nil, rightEdge: true)
+                .offset(x: cardPlace.origin.x, y: area.height - (cardPlace.origin.y + cardSize.height))
+            if let bubbleView { bubbleView }
+        }
+        .frame(width: area.width, height: area.height, alignment: .topLeading)
+    }
 
     /// A bit of desktop: the card (or cards) beside the drawer column, a bubble beside the top character.
     private static func scene(palette: Palette, cards: CardsModel, columns: [[Int]], bubble: String?) -> some View {

@@ -34,9 +34,19 @@ enum RenderFilm {
         duration = moment.duration + (name == "lift-drop" ? drop.duration + 120 : 0)
         let step = pixel ? Motion.tickMs : 1000.0 / 30
         let count = min(24, max(2, Int((duration / step).rounded(.up)) + 1))
-        let columns = 12
+        // The refusal speaks: "Locked in place." pops beside the pressed character, so its cells are wide.
+        let speaks = name == "refuse"
+        let columns = speaks ? 5 : 12
         let rows = (count + columns - 1) / columns
-        let cellW = 64, cellH = 180
+        let cellW = speaks ? 250 : 64, cellH = 180
+        var lockedBubble: (image: CGImage, size: CGSize)?
+        if speaks {
+            let palette = Palette(skin: pixel ? .pixel : .classic, dark: dark)
+            let view = BubbleView(line: "Locked in place.\nRight-click to unlock.", kind: "plain", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: 30)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            if let image = renderer.cgImage { lockedBubble = (image, CGSize(width: CGFloat(image.width) / 2, height: CGFloat(image.height) / 2)) }
+        }
         let scale = 2
         let width = columns * cellW * scale, height = rows * cellH * scale
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -60,7 +70,18 @@ enum RenderFilm {
                 } else {
                     pose = moment.pose(index, ms)
                 }
-                BotPainter.paint(ctx, image: images[index], bounds: bounds[index].offsetBy(dx: 8, dy: 0), pose: pose, pixel: pixel, edge: 1, dark: dark, scale: CGFloat(scale))
+                BotPainter.paint(ctx, image: images[index], bounds: bounds[index].offsetBy(dx: CGFloat(cellW - 64 + 8), dy: 0), pose: pose, pixel: pixel, edge: 1, dark: dark, scale: CGFloat(scale))
+            }
+            if let bubble = lockedBubble, frame >= 1 {
+                // Beside the pressed character (the first), its pointer on the character's centre.
+                let inset = BubbleView.inset(pixel)
+                let x = CGFloat(cellW - 64 + 8) - 10 - bubble.size.width + inset
+                let y = 12 + 22 - bubble.size.height / 2
+                ctx.saveGState()
+                ctx.translateBy(x: x, y: y + bubble.size.height)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(bubble.image, in: CGRect(x: 0, y: 0, width: bubble.size.width, height: bubble.size.height))
+                ctx.restoreGState()
             }
             ctx.restoreGState()
         }

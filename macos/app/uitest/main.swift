@@ -127,6 +127,12 @@ func drag(from start: CGPoint, to end: CGPoint) {
     post(.leftMouseUp, end)
 }
 
+func pressKey(_ code: CGKeyCode) {
+    for down in [true, false] {
+        CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)?.post(tap: .cghidEventTap)
+    }
+}
+
 func pressEscape() {
     for down in [true, false] {
         let event = CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: down)
@@ -268,6 +274,16 @@ if !eventsBlocked {
     screenshot("right-click-menu")
     let menu = windows().first { $0.pid == pid && $0.layer >= 100 && $0.onScreen }
     record("right-click opens the menu", menu != nil, menu.map { "menu window \(Int($0.width))x\(Int($0.height))" } ?? "no menu window")
+    // The Look submenu: down to Settings, down to Look, right to open it.
+    pressKey(125)
+    pause(0.2)
+    pressKey(125)
+    pause(0.2)
+    pressKey(124)
+    pause(0.6)
+    screenshot("look-submenu")
+    pressEscape()
+    pause(0.2)
     pressEscape()
     pause(0.5)
     moveMouse(to: CGPoint(x: display.midX, y: display.midY))

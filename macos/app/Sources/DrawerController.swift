@@ -213,8 +213,13 @@ final class DrawerController {
         Metrics.verticalPadding * 2 + CGFloat(count) * Metrics.botSize + CGFloat(max(0, count - 1)) * Metrics.gap
     }
 
+    /// A roster moment (M2) is playing: the panel covers the old and the new column until it ends.
+    private var rosterBusy = false
+    private var layoutPending = false
+
     func layout() {
         guard let frame, let screen = chooseScreen() else { return }
+        if rosterBusy { layoutPending = true; return }
         self.screen = screen
         let shown = frame.shownBots
         let ids = Set(shown.map(\.id))
@@ -225,6 +230,12 @@ final class DrawerController {
         if frame.locked, let pin = frame.pinnedTop { topFromWork = min(max(CGFloat(pin), 0), travel) }
         let x = frame.side == "right" ? work.maxX - Metrics.width : work.minX
         let y = work.maxY - topFromWork - height
+        let visibleBefore = Set(slots.filter { $0.visible }.map(\.id))
+        if panel.isVisible, !reducedMotion, engine != nil, !visibleBefore.isEmpty, !ids.isEmpty, visibleBefore != ids,
+           moment?.holds != true, abs(panel.frame.minX - x) < 1 {
+            changeRoster(shown: shown, ids: ids, visibleBefore: visibleBefore, newFrame: NSRect(x: x, y: y, width: Metrics.width, height: height))
+            return
+        }
         for slot in slots { slot.visible = ids.contains(slot.id) }
         for (row, bot) in shown.enumerated() {
             if let slot = slots.first(where: { $0.id == bot.id }) {
@@ -241,6 +252,51 @@ final class DrawerController {
                 play(DrawerMoves.reveal(newMoment(), topDown))
             }
             panel.orderFrontRegardless()
+        }
+    }
+
+    /// M2: bots leave, the rest close the gap or make room, and newcomers slide in. The panel covers the
+    /// old and the new column meanwhile, so every bot starts where it was on screen; it settles on the new one after.
+    private func changeRoster(shown: [BotModel], ids: Set<String>, visibleBefore: Set<String>, newFrame: NSRect) {
+        let old = panel.frame
+        let union = old.union(newFrame)
+        let oldOffset = union.maxY - old.maxY
+        let newOffset = union.maxY - newFrame.maxY
+        var rest: [String: CGRect] = [:]
+        for (row, bot) in shown.enumerated() {
+            rest[bot.id] = CGRect(x: Metrics.innerInset, y: Metrics.verticalPadding + CGFloat(row) * (Metrics.botSize + Metrics.gap) + newOffset,
+                                  width: Metrics.botSize, height: Metrics.botSize)
+        }
+        var leaving: [Int] = [], entering: [Int] = []
+        var dy: [Int: Double] = [:]
+        for (index, slot) in slots.enumerated() {
+            let wasShown = visibleBefore.contains(slot.id), willShow = ids.contains(slot.id)
+            // Where the bot is drawn now, in the union's coordinates (a moment already moving it counts).
+            let drawnOld = slot.bounds.offsetBy(dx: 0, dy: wasShown ? oldOffset : 0)
+            if wasShown && !willShow {
+                slot.bounds = drawnOld
+                leaving.append(index)
+            } else if wasShown, let target = rest[slot.id] {
+                dy[index] = Double(drawnOld.minY - target.minY) + Double(onScreenNow?(index)?.y ?? 0)
+                slot.bounds = target
+            } else if willShow, let target = rest[slot.id] {
+                slot.bounds = target
+                entering.append(index)
+                slot.visible = true
+            }
+        }
+        rosterBusy = true
+        panel.setFrame(union, display: true)
+        let ordered = topDown.filter { entering.contains($0) }
+        let made = DrawerMoves.roster(newMoment(), leaving: leaving, dy: dy, entering: ordered, from: onScreenNow)
+        cards.hide(animated: false)
+        bubbles.hideAll(animated: false)
+        play(made) { [weak self] in
+            guard let self else { return }
+            self.rosterBusy = false
+            for index in leaving { self.slots[index].visible = false }
+            self.layoutPending = false
+            self.layout()
         }
     }
 
@@ -347,6 +403,9 @@ final class DrawerController {
     /// Plays a moment; one it interrupts finishes what it owes first.
     private func play(_ next: DrawerMoment, then: (() -> Void)? = nil) {
         moment?.runRest()
+        let owed = afterMoment
+        afterMoment = nil
+        owed?()
         moment = next
         afterMoment = then
         updatePace()

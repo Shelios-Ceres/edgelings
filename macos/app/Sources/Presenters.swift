@@ -110,6 +110,18 @@ final class BubblePresenter {
         // Measure with the tail at the middle, then place it on the character.
         let probe = NSHostingView(rootView: BubbleView(line: line, kind: kind, swatch: swatch, palette: palette, rightEdge: rightEdge, tailY: 0))
         let size = probe.fittingSize
+        let place = BubblePresenter.placement(size: size, anchor: anchor, area: area, rightEdge: rightEdge, pixel: pixel)
+        let view = NSHostingView(rootView: BubbleView(line: line, kind: kind, swatch: swatch, palette: palette, rightEdge: rightEdge, tailY: place.tailY))
+        let panel = FloatingPanel(size: size)
+        panel.contentView = view
+        panel.setFrame(NSRect(origin: place.origin, size: size), display: true)
+        panel.orderFrontRegardless()
+        let timer = Timer.scheduledTimer(withTimeInterval: linger ?? 4.5, repeats: false) { [weak self] _ in self?.hide(id, animated: true) }
+        open[id] = Open(panel: panel, timer: timer, closed: closed)
+    }
+
+    /// Where a bubble goes beside its character (AppKit screen coordinates), and where its pointer aims.
+    static func placement(size: NSSize, anchor: NSRect, area: NSRect, rightEdge: Bool, pixel: Bool) -> (origin: CGPoint, tailY: CGFloat) {
         let inset = BubbleView.inset(pixel)
         let gap: CGFloat = 10
         let bodyHeight = size.height - 2 * inset
@@ -119,14 +131,7 @@ final class BubblePresenter {
         y = min(max(y, area.minY - inset), area.maxY - size.height + inset)
         // The tail points at the character's centre, measured from the bubble body's top.
         let centreFromTop = (y + size.height - inset) - anchor.midY
-        let tailY = min(max(centreFromTop, 14), max(14, bodyHeight - 14))
-        let view = NSHostingView(rootView: BubbleView(line: line, kind: kind, swatch: swatch, palette: palette, rightEdge: rightEdge, tailY: tailY))
-        let panel = FloatingPanel(size: size)
-        panel.contentView = view
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
-        panel.orderFrontRegardless()
-        let timer = Timer.scheduledTimer(withTimeInterval: linger ?? 4.5, repeats: false) { [weak self] _ in self?.hide(id, animated: true) }
-        open[id] = Open(panel: panel, timer: timer, closed: closed)
+        return (CGPoint(x: x, y: y), min(max(centreFromTop, 14), max(14, bodyHeight - 14)))
     }
 
     func hide(_ id: String, animated: Bool) {
@@ -205,6 +210,18 @@ final class CardPresenter {
         let columns = CardPresenter.columns(model, pixel: pixel, area: area, anchor: anchor, rightEdge: rightEdge)
         let probe = NSHostingView(rootView: CardView(model: model, palette: palette, columns: columns, tailY: nil, rightEdge: rightEdge))
         let size = probe.fittingSize
+        let place = CardPresenter.placement(size: size, anchor: anchor, area: area, rightEdge: rightEdge, pixel: pixel)
+        let view = NSHostingView(rootView: CardView(model: model, palette: palette, columns: columns, tailY: place.tailY, rightEdge: rightEdge))
+        let panel = self.panel ?? FloatingPanel(size: size)
+        self.panel = panel
+        panel.contentView = view
+        panel.setFrame(NSRect(origin: place.origin, size: size), display: true)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+    }
+
+    /// Where a card goes beside its character (AppKit screen coordinates), and where its pointer aims.
+    static func placement(size: NSSize, anchor: NSRect, area: NSRect, rightEdge: Bool, pixel: Bool) -> (origin: CGPoint, tailY: CGFloat) {
         let inset = CardMetrics.inset(pixel)
         let gap: CGFloat = 10
         var x = rightEdge ? anchor.minX - gap - size.width + inset : anchor.maxX + gap - inset
@@ -213,14 +230,7 @@ final class CardPresenter {
         y = min(max(y, area.minY - inset), area.maxY - size.height + inset)
         let bodyHeight = size.height - 2 * inset
         let centreFromTop = (y + size.height - inset) - anchor.midY
-        let tailY = min(max(centreFromTop, 16), max(16, bodyHeight - 16))
-        let view = NSHostingView(rootView: CardView(model: model, palette: palette, columns: columns, tailY: tailY, rightEdge: rightEdge))
-        let panel = self.panel ?? FloatingPanel(size: size)
-        self.panel = panel
-        panel.contentView = view
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
-        panel.alphaValue = 1
-        panel.orderFrontRegardless()
+        return (CGPoint(x: x, y: y), min(max(centreFromTop, 16), max(16, bodyHeight - 16)))
     }
 
     func hide(animated: Bool) {

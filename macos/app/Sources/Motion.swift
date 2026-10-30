@@ -235,6 +235,38 @@ enum DrawerMoves {
         return moment
     }
 
+    /// M2: bots leave, the rest make room or close the gap, and newcomers enter. dy is how far each
+    /// staying bot is drawn from its new rest as the moment starts.
+    static func roster(_ moment: DrawerMoment, leaving: [Int], dy: [Int: Double], entering: [Int], from: OnScreen? = nil) -> DrawerMoment {
+        for index in leaving {
+            let now = from?(index) ?? .rest
+            if moment.pixel {
+                moment.set(index, .x, Steps(before: now.x, startTick: 0, frames: [now.x + Motion.cell((off - now.x) * 0.3), off]))
+            } else {
+                moment.set(index, .x, Tween(from: now.x, to: off, duration: 167, curve: Motion.in))
+                moment.set(index, .scaleX, Tween(from: now.scaleX, to: 0.8, duration: 167, curve: Motion.in))
+                moment.set(index, .scaleY, Tween(from: now.scaleY, to: 0.8, duration: 167, curve: Motion.in))
+            }
+        }
+        // Leaving first: the gap closes after the exit. Appearing: room is made first and the newcomer enters as it settles.
+        let appearOnly = !entering.isEmpty && leaving.isEmpty
+        let moveStart = leaving.isEmpty ? 0 : (moment.pixel ? 2 * Motion.tickMs : 100)
+        var anyMove = false
+        for (index, distance) in dy where abs(distance) >= 0.01 {
+            anyMove = true
+            if moment.pixel {
+                moment.set(index, .y, Steps(before: distance, startTick: Motion.tick(moveStart), frames: Motion.remaining(distance, 0, Motion.in3)))
+            } else {
+                moment.set(index, .y, Tween(from: distance, to: 0, delay: moveStart, duration: appearOnly ? 250 : 333, curve: appearOnly ? Motion.out : Motion.softPop))
+            }
+        }
+        if !entering.isEmpty {
+            let enterAt = moveStart + (anyMove ? (moment.pixel ? 2 * Motion.tickMs : 167) : 0)
+            _ = reveal(moment, entering, staggered: false, delay: enterAt)
+        }
+        return moment
+    }
+
     /// M6 lift: Pixel steps the bots 2, then 4 pt off the edge with a hard
     /// shadow; Classic swells them over a floor shadow.
     static func lift(_ moment: DrawerMoment, _ bots: [Int], from: OnScreen? = nil) -> DrawerMoment {
