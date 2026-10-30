@@ -4,8 +4,8 @@ using System.Text.Json;
 namespace AgentIsland.Core;
 
 /// Reads Cursor's conversation store — the same globalStorage/state.vscdb the
-/// cost reader opens, through the SQLite that Windows itself ships
-/// (winsqlite3.dll, present since Windows 10 1607). No NuGet dependency, and
+/// cost reader opens, through the SQLite that the system itself ships
+/// (winsqlite3.dll since Windows 10 1607, libsqlite3 on a Mac). No NuGet dependency, and
 /// real B-tree semantics rather than a byte scan that would surface rows from
 /// freed pages.
 ///
@@ -14,6 +14,24 @@ namespace AgentIsland.Core;
 /// user with nothing running. It can never take the app down.
 internal static class CursorConversations
 {
+    // Windows ships its own SQLite (winsqlite3.dll); a Mac ships one too, as
+    // libsqlite3, so the same entry points are bound to it there.
+    static CursorConversations()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        try
+        {
+            NativeLibrary.SetDllImportResolver(typeof(CursorConversations).Assembly, (name, _, _) =>
+                name == "winsqlite3.dll" && NativeLibrary.TryLoad(OperatingSystem.IsMacOS() ? "/usr/lib/libsqlite3.dylib" : "libsqlite3.so.0", out var handle)
+                    ? handle
+                    : IntPtr.Zero);
+        }
+        catch (InvalidOperationException)
+        {
+            // A resolver is already set for this assembly.
+        }
+    }
+
     private const int SqliteOk = 0;
     private const int SqliteBusy = 5;
     private const int SqliteLocked = 6;
@@ -57,8 +75,7 @@ internal static class CursorConversations
     /// immutable, which would skip the journal, but left for the next scan.
     internal static List<(string ComposerId, string Json)>? NewestBubblePerConversation(string dbPath)
     {
-        // winsqlite3.dll is Windows' own; the macOS reader comes with its platform layer.
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
         if (Read(dbPath, "?mode=ro", out var busy) is { } rows) return rows;
         return busy ? null : Read(dbPath, "?mode=ro&immutable=1", out _);
     }

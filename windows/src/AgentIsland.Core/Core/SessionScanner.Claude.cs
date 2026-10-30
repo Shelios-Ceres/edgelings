@@ -48,7 +48,8 @@ public static partial class SessionScanner
     /// files are always UUID-named.
     internal static bool IsClaudeSubagentTranscript(string path)
     {
-        var segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // Either separator, whatever the platform: the path may come from another one's index.
+        var segments = path.Split('/', '\\');
         if (segments.Contains("subagents", StringComparer.OrdinalIgnoreCase)) return true;
         return segments[^1].StartsWith("agent-", StringComparison.OrdinalIgnoreCase);
     }

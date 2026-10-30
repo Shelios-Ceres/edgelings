@@ -135,8 +135,9 @@ public static class AntigravityLanguageServer
         if (IsAntigravityName(name)) return true;
         if (!name.StartsWith("language_server", StringComparison.OrdinalIgnoreCase)) return false;
         if (parentName is not null && IsAntigravityName(parentName)) return true;
-        return Path.GetDirectoryName(path) is { } folder
-            && folder.Split('\\', '/').Any(segment => segment.StartsWith("antigravity", StringComparison.OrdinalIgnoreCase));
+        // The folders above the file, split on either separator whatever the platform.
+        return path is not null
+            && path.Split('\\', '/')[..^1].Any(segment => segment.StartsWith("antigravity", StringComparison.OrdinalIgnoreCase));
     }
 
     public static List<int> AntigravityProcessIds()
