@@ -125,7 +125,15 @@ final class DrawerController {
             }
             slot.swatch = bot.swatch
             if slot.look != bot.look {
-                if known, engine != nil { engine?.setLook(index, bot.look) }
+                if known, engine != nil {
+                    if !next.isPixel && !reducedMotion && panel.isVisible && !slot.look.isEmpty {
+                        // M20: the bot turns edge-on like a coin and its new look swaps in there.
+                        let target = bot.look
+                        play(DrawerMoves.flip(newMoment(), index, reduced: false) { [weak self] in self?.engine?.setLook(index, target) })
+                    } else {
+                        engine?.setLook(index, bot.look)
+                    }
+                }
                 slot.look = bot.look
                 slot.fidgets = engine?.fidgets(kind: bot.kind, look: bot.look) ?? []
                 slot.gazing = false
@@ -226,18 +234,44 @@ final class DrawerController {
         }
         panel.setFrame(NSRect(x: x, y: y, width: Metrics.width, height: height), display: true)
         view.needsDisplay = true
-        if shown.isEmpty { panel.orderOut(nil) } else if !panel.isVisible && AppController.shared.drawerShown { panel.orderFrontRegardless() }
+        if shown.isEmpty { panel.orderOut(nil) }
+        else if !panel.isVisible && AppController.shared.drawerShown {
+            if !reducedMotion && engine != nil && !hasRevealed {
+                hasRevealed = true
+                play(DrawerMoves.reveal(newMoment(), topDown))
+            }
+            panel.orderFrontRegardless()
+        }
     }
 
     func setShown(_ shown: Bool) {
         AppController.shared.drawerShown = shown
         if shown {
             layout()
-            if !(frame?.shownBots.isEmpty ?? true) { panel.orderFrontRegardless() }
+            if !(frame?.shownBots.isEmpty ?? true) {
+                if !panel.isVisible && !reducedMotion && engine != nil {
+                    // M1: the bots slide in from beyond the edge.
+                    moment = nil
+                    let entering = DrawerMoves.reveal(newMoment(), topDown)
+                    play(entering)
+                } else {
+                    moment = nil
+                }
+                panel.orderFrontRegardless()
+            }
         } else {
-            panel.orderOut(nil)
             cards.hide(animated: false)
             bubbles.hideAll(animated: false)
+            if panel.isVisible && !reducedMotion && engine != nil {
+                // M1: the bots leave toward the edge, then the panel goes.
+                play(DrawerMoves.hide(newMoment(holds: true), topDown, staggered: !(frame?.isPixel ?? true), from: onScreenNow)) { [weak self] in
+                    self?.panel.orderOut(nil)
+                    self?.moment = nil
+                    self?.updatePace()
+                }
+            } else {
+                panel.orderOut(nil)
+            }
         }
         updatePace()
     }
@@ -262,7 +296,8 @@ final class DrawerController {
         let active = pixel ? (cap == 0 ? 30 : min(cap, 30)) : (cap == 0 ? 60 : cap)
         let busy = slots.contains { $0.visible && !calmStates.contains($0.engineState) }
         let near = !reducedMotion && pointerNear
-        let fps = busy ? (reducedMotion ? 12 : active) : near ? (pixel ? 30 : 60) : (reducedMotion ? 6 : 30)
+        let moving = moment.map { $0.moving((clockSeconds - $0.start) * 1000) } ?? false
+        let fps = moving ? active : busy ? (reducedMotion ? 12 : active) : near ? (pixel ? 30 : 60) : (reducedMotion ? 6 : 30)
         if fps == paceFps, loopTimer != nil { return }
         paceFps = fps
         loopTimer?.invalidate()
@@ -278,13 +313,75 @@ final class DrawerController {
         paceFps = 0
     }
 
+    private var hasRevealed = false
     private var pointerNear = false
+
+    // MARK: Moments (M1, M6, M20)
+
+    /// The drawer moment playing, or held (bots lifted by a drag, gone while hidden).
+    private(set) var moment: DrawerMoment?
+    private var afterMoment: (() -> Void)?
+    /// Classic's locked-drag tug, in points.
+    private var tug = 0.0
+
+    var edge: Double { frame?.side == "left" ? -1 : 1 }
+    private var clockSeconds: Double { clock.timeIntervalSinceNow * -1 }
+
+    /// The slots a moment moves, top first.
+    private var topDown: [Int] {
+        slots.enumerated().filter { $0.element.visible }.sorted { $0.element.bounds.minY < $1.element.bounds.minY }.map { $0.offset }
+    }
+
+    private func newMoment(holds: Bool = false) -> DrawerMoment {
+        let made = DrawerMoment(start: clockSeconds, pixel: frame?.isPixel ?? true, edge: edge)
+        made.holds = holds
+        return made
+    }
+
+    /// The pose on screen now, for a moment that takes over from another.
+    private var onScreenNow: DrawerMoves.OnScreen? {
+        guard let current = moment else { return nil }
+        return current.onScreen(at: (clockSeconds - current.start) * 1000)
+    }
+
+    /// Plays a moment; one it interrupts finishes what it owes first.
+    private func play(_ next: DrawerMoment, then: (() -> Void)? = nil) {
+        moment?.runRest()
+        moment = next
+        afterMoment = then
+        updatePace()
+        view.needsDisplay = true
+    }
+
+    /// The pose a slot is drawn in now.
+    func pose(of slot: Slot) -> BotPose {
+        guard let current = moment, let index = slots.firstIndex(where: { $0 === slot }) else { return .rest }
+        var pose = current.pose(index, (clockSeconds - current.start) * 1000)
+        if current.tug { pose.y += tug }
+        return pose
+    }
+
+    private func runMoment(_ now: Double) {
+        guard let current = moment else { return }
+        let ms = (now - current.start) * 1000
+        current.runDue(ms)
+        if ms >= current.duration, !current.ended {
+            current.ended = true
+            if !current.holds { moment = nil }
+            let done = afterMoment
+            afterMoment = nil
+            done?()
+            updatePace()
+        }
+        view.needsDisplay = true
+    }
 
     private func tick() {
         guard let engine, let frame else { return }
         let now = clock.timeIntervalSinceNow * -1
         let pixel = frame.isPixel
         let reduced = reducedMotion
+        runMoment(now)
         var due: [Int] = []
         for (index, slot) in slots.enumerated() where slot.visible {
             if now >= slot.nextStep - 0.004 { due.append(index) }
@@ -512,11 +609,25 @@ final class DrawerController {
     private func drag() {
         let dy = pressY - NSEvent.mouseLocation.y
         guard let frame, let screen else { return }
-        if refused { return }
+        if refused {
+            if moment?.tug == true { tug = DrawerMoves.rubber(Double(dy), threshold: Double(Metrics.dragThreshold)); view.needsDisplay = true }
+            return
+        }
         if !dragging && abs(dy) < Metrics.dragThreshold { return }
         if frame.locked {
             refused = true
             if let id = pressed { sayLocked(id) }
+            if !reducedMotion {
+                if frame.isPixel {
+                    play(DrawerMoves.shake(newMoment(), topDown))
+                } else {
+                    let pull = DrawerMoves.rubber(Double(dy), threshold: Double(Metrics.dragThreshold))
+                    tug = pull
+                    let held = newMoment(holds: true)
+                    held.tug = true
+                    play(held)
+                }
+            }
             return
         }
         if !dragging {
@@ -524,6 +635,8 @@ final class DrawerController {
             cards.hide(animated: false)
             AppController.shared.cardOpen = false
             bubbles.hideAll(animated: false)
+            // M6: the column lifts off the edge while it is dragged.
+            if !reducedMotion && engine != nil { play(DrawerMoves.lift(newMoment(holds: true), topDown, from: onScreenNow)) }
         }
         let work = screen.visibleFrame
         let height = panel.frame.height
@@ -544,6 +657,17 @@ final class DrawerController {
                 let fromTop = work.maxY - panel.frame.maxY
                 let offset = travel > 0 ? Double(min(max(fromTop / travel, 0), 1)) : 0.5
                 AppController.shared.request("setDrawer", ["offset": offset])
+            }
+            if !reducedMotion && engine != nil {
+                if dragging {
+                    play(DrawerMoves.drop(newMoment(), topDown, from: onScreenNow))
+                } else if moment?.tug == true {
+                    let pulled = tug
+                    tug = 0
+                    play(DrawerMoves.spring(newMoment(), topDown, pulled: pulled))
+                }
+            } else {
+                moment = nil
             }
             dragging = false
             refused = false
@@ -649,16 +773,72 @@ final class DrawerView: NSView {
         guard let controller, let ctx = NSGraphicsContext.current?.cgContext else { return }
         let scale = window?.backingScaleFactor ?? 2
         let pixel = controller.isPixel
+        let edge = CGFloat(controller.edge)
+        let dark = DrawerController.isDark
         ctx.setShouldAntialias(true)
         for slot in controller.drawSlots {
             guard let image = controller.image(for: slot, scale: scale) else { continue }
-            ctx.saveGState()
-            // The view is flipped; CGContext.draw expects an upright image.
-            ctx.translateBy(x: slot.bounds.minX, y: slot.bounds.maxY)
-            ctx.scaleBy(x: 1, y: -1)
-            ctx.interpolationQuality = pixel ? .none : .high
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: slot.bounds.width, height: slot.bounds.height))
-            ctx.restoreGState()
+            let pose = controller.pose(of: slot)
+            if pose.opacity <= 0 { continue }
+            var x = slot.bounds.minX + CGFloat(pose.x) * edge
+            var y = slot.bounds.minY + CGFloat(pose.y)
+            let size = slot.bounds.size
+            if pixel {
+                // Pixel bots move in whole screen pixels, with a hard shadow.
+                x = (x * scale).rounded() / scale
+                y = (y * scale).rounded() / scale
+                ctx.interpolationQuality = .none
+                if pose.shadow > 0 {
+                    let tone = rgb(dark ? 0x0B0B0F : 0xD6CDB9)
+                    drawSilhouette(ctx, image, CGRect(x: x + 2 * edge, y: y + 2, width: size.width, height: size.height), tone)
+                }
+                drawImage(ctx, image, CGRect(x: x, y: y, width: size.width, height: size.height), alpha: 1)
+            } else {
+                ctx.interpolationQuality = .high
+                if pose.shadow > 0 { floorShadow(ctx, centre: CGPoint(x: x + size.width / 2, y: y + 41 + CGFloat(pose.shadowY)), opacity: CGFloat(pose.shadow), dark: dark) }
+                ctx.saveGState()
+                let base = CGPoint(x: x + size.width / 2, y: y + size.height * 0.88)
+                ctx.translateBy(x: base.x, y: base.y)
+                ctx.rotate(by: CGFloat(pose.lean) * edge * .pi / 180)
+                ctx.scaleBy(x: CGFloat(pose.scaleX), y: CGFloat(pose.scaleY))
+                ctx.translateBy(x: -base.x, y: -base.y)
+                drawImage(ctx, image, CGRect(x: x, y: y, width: size.width, height: size.height), alpha: CGFloat(pose.opacity))
+                ctx.restoreGState()
+            }
         }
+    }
+
+    /// The view is flipped; CGContext.draw expects an upright image.
+    private func drawImage(_ ctx: CGContext, _ image: CGImage, _ rect: CGRect, alpha: CGFloat) {
+        ctx.saveGState()
+        ctx.setAlpha(alpha)
+        ctx.translateBy(x: rect.minX, y: rect.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
+        ctx.restoreGState()
+    }
+
+    /// The frame's silhouette in one colour, keeping its alpha.
+    private func drawSilhouette(_ ctx: CGContext, _ image: CGImage, _ rect: CGRect, _ color: CGColor) {
+        ctx.saveGState()
+        ctx.translateBy(x: rect.minX, y: rect.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        let local = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
+        ctx.clip(to: local, mask: image)
+        ctx.setFillColor(color)
+        ctx.fill(local)
+        ctx.restoreGState()
+    }
+
+    /// Classic's floor shadow: a soft ellipse, 30 x 8 pt, fading out from its centre.
+    private func floorShadow(_ ctx: CGContext, centre: CGPoint, opacity: CGFloat, dark: Bool) {
+        let ink: CGColor = dark ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.6 * opacity) : CGColor(srgbRed: 0x17 / 255.0, green: 0x19 / 255.0, blue: 0x1F / 255.0, alpha: 0.32 * opacity)
+        let clear: CGColor = ink.copy(alpha: 0) ?? ink
+        guard let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [ink, clear] as CFArray, locations: [0, 1]) else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: centre.x, y: centre.y)
+        ctx.scaleBy(x: 15, y: 4)
+        ctx.drawRadialGradient(gradient, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: 1, options: [])
+        ctx.restoreGState()
     }
 }
