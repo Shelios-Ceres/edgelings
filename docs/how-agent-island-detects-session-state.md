@@ -1,5 +1,7 @@
 # How Agent Island Detects Claude Code and Codex Session State
 
+> Upstream note, written for Agent Island 2.1.2 on macOS and for Claude Code and Codex. The Windows app in this repository reads more agents; the [README](../README.md) lists them and what it reads.
+
 Agent Island is built around a small problem that becomes painful during long agentic coding runs: the task does not always fail loudly. A Claude Code or Codex session may still be working, may have finished and be waiting for your next instruction, or may have frozen mid-turn. If that happens while you are away from the keyboard, the only visible signal is usually buried in a terminal or transcript file.
 
 Agent Island turns that into a local macOS signal:
