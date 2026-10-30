@@ -67,6 +67,7 @@ public static class AgentPresences
     /// On a Mac the processes are read here and the windows are Swift's
     /// (MacWindowReport, refreshed by the app's loop). Without a recent report
     /// a running agent counts as open: presence never rests on a guess.
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
     private static Dictionary<TriggerTool, AgentPresence> NowOnMac()
     {
         try

@@ -10,8 +10,8 @@
          tests pick. Windows-only code sits behind OperatingSystem.IsWindows(). -->
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0;net10.0-windows</TargetFrameworks>
     <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
-    <!-- The Windows-only calls (Registry, P/Invoke) are guarded at run time. -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- The trim and AOT analyzers run in every build, so the NativeAOT dylib (Mac bridge A1) stays free of IL warnings. -->
+    <IsAotCompatible>true</IsAotCompatible>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AgentIsland</RootNamespace>

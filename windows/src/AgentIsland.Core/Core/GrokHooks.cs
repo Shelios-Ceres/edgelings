@@ -57,22 +57,12 @@ public static class GrokHooks
     internal static string HookJson()
     {
         var command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + ScriptPath.Replace('\\', '/') + "\"";
+        // JsonNode-typed, so the AOT-safe Add(JsonNode) is chosen over Add<T>.
+        JsonNode handler = new JsonObject { ["type"] = "command", ["command"] = command, ["timeout"] = 10 };
+        JsonNode group = new JsonObject { ["matcher"] = PermissionPrompt, ["hooks"] = new JsonArray(handler) };
         var root = new JsonObject
         {
-            ["hooks"] = new JsonObject
-            {
-                ["Notification"] = new JsonArray
-                {
-                    new JsonObject
-                    {
-                        ["matcher"] = PermissionPrompt,
-                        ["hooks"] = new JsonArray
-                        {
-                            new JsonObject { ["type"] = "command", ["command"] = command, ["timeout"] = 10 },
-                        },
-                    },
-                },
-            },
+            ["hooks"] = new JsonObject { ["Notification"] = new JsonArray(group) },
         };
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + Environment.NewLine;
     }

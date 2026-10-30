@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using Microsoft.Win32;
 
 namespace AgentIsland.Model;
 
-/// Registry Run-key registration — the Windows counterpart of SMAppService.
+/// Registry Run-key registration — the Windows counterpart of SMAppService,
+/// which the Mac app calls from Swift (Core does nothing here on a Mac).
 /// Windows keeps its own switch for each entry (Settings > Apps > Startup,
 /// Task Manager) under StartupApproved and skips a switched-off entry at
 /// sign-in even though the Run value is still there.
@@ -89,6 +91,7 @@ public static class LaunchAtLogin
     /// Run value is replaced by one that starts this executable, and Windows'
     /// own switch for it (StartupApproved) moves to the new name, so an entry
     /// the user had switched off stays off. Nothing happens without the old value.
+    [SupportedOSPlatform("windows")]
     internal static void MoveLegacyEntry(string exe, string runKey = RunKey, string approvedKey = ApprovedKey)
     {
         try
@@ -111,6 +114,7 @@ public static class LaunchAtLogin
         }
     }
 
+    [SupportedOSPlatform("windows")]
     private static void Register()
     {
         if (Environment.ProcessPath is not { Length: > 0 } exe) return;

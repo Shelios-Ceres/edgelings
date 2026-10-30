@@ -122,21 +122,21 @@ public static class ClaudeHooks
             groups = new JsonArray();
             hooks["Notification"] = groups;
         }
-        groups.Add(new JsonObject
+        // JsonNode-typed, so the AOT-safe Add(JsonNode) is chosen over Add<T>.
+        JsonNode handler = new JsonObject
+        {
+            ["type"] = "command",
+            ["shell"] = "powershell",
+            ["command"] = Command,
+            ["async"] = true,
+            ["timeout"] = 30,
+        };
+        JsonNode group = new JsonObject
         {
             ["matcher"] = Matcher,
-            ["hooks"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["type"] = "command",
-                    ["shell"] = "powershell",
-                    ["command"] = Command,
-                    ["async"] = true,
-                    ["timeout"] = 30,
-                },
-            },
-        });
+            ["hooks"] = new JsonArray(handler),
+        };
+        groups.Add(group);
         return true;
     }
 
