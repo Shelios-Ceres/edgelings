@@ -1,23 +1,19 @@
 # Roadmap
 
-What's planned for Agent Island. Dates are intentions, not promises — the
-tool stays small and reliable first.
+What is planned for Edgelings. Nothing here is a promise or a date.
 
-## Now
-- Turn-alarm and deep-link polish across all five providers
-- Re-verify the capability matrix on 2.1.2 and keep the site docs in step
-- First-run experience: permissions, login state, and clearer "why this state?" copy
+## Today
+
+- The Windows app (WinUI 3): a drawer of bots at the screen edge, per-session bubbles, hover cards, quotas, and Usage & cost. The [README](README.md) says what it does.
+- The macOS app is still Agent Island 2.1.2 plus small fixes. It doesn't have the Windows features yet.
+- There are no releases yet. Test packages come from GitHub Actions (see the README).
+- The app and its code are still named Agent Island.
 
 ## Next
-- **iOS companion** — Live Activity / Dynamic Island status (scaffold exists)
-- Raycast companion extension — quick usage/status check from the launcher
-- More UI languages — contributions welcome (see issues)
 
-## Later
-- Setapp distribution
-- Linux exploration (#19)
+- Bring the Windows features to macOS: the drawer and its characters, per-session bubbles, Kimi, DeepSeek and Grok Bot support, and the Usage & cost page.
 
-## Shipped
-- **2.1.2** — Windows reaches parity and ships from the same tag as macOS; Cursor gets live session state and turn alarms; Antigravity replaces Gemini as the fifth provider
+## Always
 
-Suggest something or vote in [Discussions](https://github.com/tristan666666/agent-island/discussions).
+- Local-first: the app reads the agents' local files, shows local state, and uses the sign-ins already on your machine. No account and no telemetry.
+- Ideas and bugs go in [issues](https://github.com/Shelios-Ceres/edgelings/issues).
