@@ -12,6 +12,7 @@ struct DrawerPrefs: Decodable {
     let locked: Bool
     let fps: Int
     let saveBattery: Bool
+    let display: String
 }
 
 struct QuotaPrefs: Decodable {
@@ -247,7 +248,7 @@ enum UIStrings {
         "The column of characters on the edge of your screen. Hover one for its status, click it for its settings, drag it to move the drawer, right-click it for options.",
         "Characters", "Character style", "Pixel bots drawn for each agent, or the classic shapes you can recolour", "Pixel", "Classic",
         "Character lines", "A character speaks up in a bubble when a session is done, asks you something, needs your approval or hits an error",
-        "Placement", "Right edge", "Left edge", "Edge", "Which side of the screen the drawer docks to",
+        "Placement", "Display", "Automatic (primary display)", "A pinned display falls back to automatic while it is unplugged", "Display {0}", "primary", "Right edge", "Left edge", "Edge", "Which side of the screen the drawer docks to",
         "Center on the edge", "Locked", "Unlocked", "Lock position", "Position",
         "Characters stay put: dragging won't move the drawer, and a character appearing or leaving won't shift the ones above it",
         "Drag any character up or down to move the drawer",

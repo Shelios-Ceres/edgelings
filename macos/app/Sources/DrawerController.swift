@@ -138,7 +138,7 @@ final class DrawerController {
         }
         if previous == nil || previous!.side != next.side || previous!.order != next.order
             || previous!.shownBots.map(\.id) != next.shownBots.map(\.id) || previous!.offset != next.offset
-            || previous!.locked != next.locked || previous!.pinnedTop != next.pinnedTop {
+            || previous!.locked != next.locked || previous!.pinnedTop != next.pinnedTop || previous!.display != next.display {
             layout()
         }
         updatePace()
@@ -188,8 +188,15 @@ final class DrawerController {
 
     // MARK: Layout
 
+    /// The chosen display (a CGDirectDisplayID as text), else the one with the menu bar.
     private func chooseScreen() -> NSScreen? {
-        NSScreen.screens.first ?? NSScreen.main
+        if let choice = frame?.display, choice != "auto",
+           let match = NSScreen.screens.first(where: { DrawerController.displayId($0) == choice }) { return match }
+        return NSScreen.screens.first ?? NSScreen.main
+    }
+
+    static func displayId(_ screen: NSScreen) -> String {
+        ((screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue) ?? ""
     }
 
     private func windowHeight(_ count: Int) -> CGFloat {
@@ -437,6 +444,14 @@ final class DrawerController {
         AppController.shared.cardBot = id
         if let id { bubbles.hide(id, animated: false) } else { bubbles.hideAll(animated: false) }
         showCard()
+    }
+
+    /// Closes the card the tray's click opened.
+    func closeAllCard() {
+        cards.hide(animated: true)
+        hoverBot = nil
+        AppController.shared.cardOpen = false
+        AppController.shared.cardBot = nil
     }
 
     func refreshCard() {

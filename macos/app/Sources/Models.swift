@@ -46,6 +46,7 @@ struct FrameModel: Decodable {
     let saveBattery: Bool
     let speechBubbles: Bool
     let chinese: Bool
+    let display: String
     let order: [String]
     let bots: [BotModel]
 

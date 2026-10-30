@@ -93,9 +93,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let quit = NSMenuItem(title: "Quit Edgelings", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
-        item.menu = menu
+        trayMenu = menu
+        item.button?.target = self
+        item.button?.action = #selector(trayClicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
         refreshTooltip()
+    }
+
+    private var trayMenu: NSMenu?
+    private var trayCardTimer: Timer?
+
+    /// A left click shows every agent in one card for a few seconds; a right
+    /// click (or control-click) opens the menu.
+    @objc private func trayClicked() {
+        guard let event = NSApp.currentEvent, let item = statusItem else { return }
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            item.menu = trayMenu
+            item.button?.performClick(nil)
+            item.menu = nil
+            return
+        }
+        drawer.setShown(true)
+        drawer.openCard(nil)
+        trayCardTimer?.invalidate()
+        trayCardTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+            self?.drawer.closeAllCard()
+        }
     }
 
     @objc private func toggleDrawer() {

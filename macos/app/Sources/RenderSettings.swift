@@ -6,7 +6,7 @@ import AppKit
 
 enum RenderSettings {
     private static let settingsJSON = """
-    {"drawer":{"theme":"pixel","speech":true,"side":"right","offset":0.5,"locked":false,"fps":60,"saveBattery":true},
+    {"drawer":{"theme":"pixel","speech":true,"side":"right","offset":0.5,"locked":false,"fps":60,"saveBattery":true,"display":"auto"},
      "quota":{"interval":300,"presets":[300,900,1800],"showsRemaining":false,"tokenMode":"all","tokenModeLabel":"All tokens (including cache)"},
      "language":"auto","chinese":false,
      "agents":[

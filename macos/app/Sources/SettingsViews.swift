@@ -27,9 +27,15 @@ struct SettingsRoot: View {
             }
             .padding(12).frame(width: 190)
             .background(palette.color("Layer"))
-            ScrollView {
-                SettingsPageBody(store: store)
-                    .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    SettingsPageBody(store: store)
+                        .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onChange(of: store.focus) { id in
+                    guard let id else { return }
+                    withAnimation { proxy.scrollTo(id, anchor: .top) }
+                }
             }
             .background(palette.color("Desk"))
         }
@@ -158,6 +164,7 @@ struct AgentCard: View {
         }
         .padding(16)
         .modifier(CardSurface(store: store))
+        .id(agent.id)
         .onAppear { store.loadLooks(for: agent.id) }
     }
 
@@ -252,6 +259,16 @@ struct DrawerPage: View {
             SettingRow(store: store, title: store.t("Edge"), subtitle: store.t("Which side of the screen the drawer docks to")) {
                 KitMenu(store: store, options: [store.t("Right edge"), store.t("Left edge")], selected: drawer.side == "right" ? 0 : 1) { index in
                     store.setDrawer(["side": index == 0 ? "right" : "left"])
+                }
+            }
+            let screens = NSScreen.screens
+            let labels = [store.t("Automatic (primary display)")] + screens.enumerated().map { index, screen in
+                store.t("Display {0}", index + 1) + "  \(Int(screen.frame.width))×\(Int(screen.frame.height))" + (index == 0 ? "  · " + store.t("primary") : "")
+            }
+            let chosen = drawer.display == "auto" ? 0 : (screens.firstIndex { DrawerController.displayId($0) == drawer.display }.map { $0 + 1 } ?? 0)
+            SettingRow(store: store, title: store.t("Display"), subtitle: store.t("A pinned display falls back to automatic while it is unplugged")) {
+                KitMenu(store: store, options: labels, selected: chosen) { index in
+                    store.setDrawer(["display": index == 0 ? "auto" : DrawerController.displayId(screens[index - 1])])
                 }
             }
             SettingRow(store: store, title: store.t("Position"), subtitle: store.t(drawer.locked

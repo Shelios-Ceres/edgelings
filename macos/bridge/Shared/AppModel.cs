@@ -91,6 +91,7 @@ public static class AppModel
                 case "locked": store.Locked = property.Value.GetBoolean(); break;
                 case "pinnedTop": store.PinnedTop = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetDouble(); break;
                 case "theme": store.Theme = property.Value.GetString() == "classic" ? CharacterTheme.Classic : CharacterTheme.Pixel; break;
+                case "display": IslandTargetDisplayStore.Shared.Choice = property.Value.GetString() ?? "auto"; break;
                 case "speech": store.SpeechBubbles = property.Value.GetBoolean(); break;
                 case "fps": store.FrameRate = property.Value.GetInt32(); break;
                 case "saveBattery": store.SaveBattery = property.Value.GetBoolean(); break;
@@ -158,6 +159,7 @@ public static class AppModel
                 json.WriteBoolean("saveBattery", store.SaveBattery);
                 json.WriteBoolean("speechBubbles", store.SpeechBubbles);
                 json.WriteBoolean("chinese", L10n.IsChinese);
+                json.WriteString("display", IslandTargetDisplayStore.Shared.Choice);
                 json.WriteStartArray("order");
                 foreach (var provider in order) json.WriteStringValue(provider.RawValue());
                 json.WriteEndArray();

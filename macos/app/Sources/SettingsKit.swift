@@ -3,6 +3,11 @@
 // pixel face; Classic as rounded paper with the system's own look.
 import SwiftUI
 
+/// ImageRenderer cannot draw AppKit-backed controls (Menu); offscreen renders show their label instead.
+enum RenderFlags {
+    static var offscreen = false
+}
+
 struct Kit {
     let store: SettingsStore
     var palette: Palette { store.palette }
@@ -108,6 +113,13 @@ struct KitMenu: View {
 
     var body: some View {
         let label = options.indices.contains(selected) ? options[selected] : (options.first ?? "")
+        if RenderFlags.offscreen {
+            HStack(spacing: 4) {
+                Text(label).font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundColor(store.palette.color("Text2"))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
+        } else {
         Menu {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                 Button(option) { change(index) }
@@ -118,7 +130,15 @@ struct KitMenu: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(store.skin == .pixel
+        .modifier(MenuPlate(store: store))
+        }
+    }
+}
+
+struct MenuPlate: ViewModifier {
+    @ObservedObject var store: SettingsStore
+    func body(content: Content) -> some View {
+        content.background(store.skin == .pixel
             ? AnyView(PixelPlateBackground(palette: store.palette, outline: store.palette.color("LineControl"), fill: store.palette.color("Field")))
             : AnyView(RoundedRectangle(cornerRadius: 6).fill(store.palette.color("Field"))))
     }

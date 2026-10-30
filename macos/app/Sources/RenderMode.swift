@@ -11,6 +11,7 @@ enum RenderMode {
         let url = URL(fileURLWithPath: folder)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         PixelFace.register()
+        RenderFlags.offscreen = true
         NSLog("render: pixel face \(PixelFace.family ?? "missing")")
         var written = 0
         func save(_ image: NSImage?, _ name: String) {
