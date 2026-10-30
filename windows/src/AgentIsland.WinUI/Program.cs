@@ -6,8 +6,6 @@ namespace AgentIsland.WinUI;
 
 public static class Program
 {
-    private static Mutex? _singleInstance;
-
     [STAThread]
     public static int Main(string[] args)
     {
@@ -32,7 +30,7 @@ public static class Program
         return 0;
     }
 
-    /// Two live copies sharing %APPDATA%\AgentIsland corrupt each other's
+    /// Two live copies sharing %APPDATA%\Edgelings corrupt each other's
     /// preferences, so a second launch bows out. The WPF app used the
     /// same mutex, so the two never ran together.
     private static bool ClaimSingleInstance()
@@ -42,52 +40,73 @@ public static class Program
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1"
             || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_FILM") is { Length: > 0 }
             || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_SPIKE") == "1") return true;
-        _singleInstance = new Mutex(initiallyOwned: false, @"Local\AgentIsland.SingleInstance");
-        try
+        // This copy holds both names. The first is what Agent Island's builds
+        // (this app before its rename) use: one of them that is still running
+        // makes this launch bow out, and one started later bows out against us.
+        foreach (var name in MutexNames)
         {
-            if (!_singleInstance.WaitOne(0))
+            var mutex = new Mutex(initiallyOwned: false, name);
+            try
             {
-                // The running copy brings its drawer back (it may be hidden
-                // from the tray), so the launch is not lost; a copy that is
-                // quitting hands over within the wait.
-                Knock();
-                if (!_singleInstance.WaitOne(TimeSpan.FromSeconds(10))) return false;
+                if (!mutex.WaitOne(0))
+                {
+                    // The running copy brings its drawer back (it may be hidden
+                    // from the tray), so the launch is not lost; a copy that is
+                    // quitting hands over within the wait.
+                    Knock();
+                    if (!mutex.WaitOne(TimeSpan.FromSeconds(10))) return false;
+                }
             }
+            catch (AbandonedMutexException)
+            {
+                // The previous holder died without releasing it.
+            }
+            _singleInstance.Add(mutex);
         }
-        catch (AbandonedMutexException)
-        {
-            // The previous holder died without releasing it.
-        }
-        // Made while the mutex is held, so a later launch finds it; a knock
+        // Made while the mutexes are held, so a later launch finds them; a knock
         // left for a copy that has since quit is not for this one.
-        _relaunch = new EventWaitHandle(false, EventResetMode.AutoReset, RelaunchName);
-        _relaunch.Reset();
+        foreach (var name in RelaunchNames)
+        {
+            var relaunch = new EventWaitHandle(false, EventResetMode.AutoReset, name);
+            relaunch.Reset();
+            _relaunch.Add(relaunch);
+        }
         return true;
     }
 
-    private const string RelaunchName = @"Local\AgentIsland.Relaunch";
-    private static EventWaitHandle? _relaunch;
-    // Held so the wait goes on for the life of the app.
-    private static RegisteredWaitHandle? _relaunchWait;
+    // Agent Island's names first, then Edgelings'.
+    private static readonly string[] MutexNames = { @"Local\AgentIsland.SingleInstance", @"Local\Edgelings.SingleInstance" };
+    private static readonly string[] RelaunchNames = { @"Local\AgentIsland.Relaunch", @"Local\Edgelings.Relaunch" };
+    private static readonly List<Mutex> _singleInstance = new();
+    private static readonly List<EventWaitHandle> _relaunch = new();
+    // Held so the waits go on for the life of the app.
+    private static readonly List<RegisteredWaitHandle> _relaunchWaits = new();
 
+    /// Knocks on every copy that listens: an Agent Island build on its old name, an Edgelings one on either.
     private static void Knock()
     {
-        try
+        foreach (var name in RelaunchNames)
         {
-            if (!EventWaitHandle.TryOpenExisting(RelaunchName, out var relaunch)) return;
-            using (relaunch) relaunch.Set();
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
+            try
+            {
+                if (!EventWaitHandle.TryOpenExisting(name, out var relaunch)) continue;
+                using (relaunch) relaunch.Set();
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 
     /// Answers a later launch's knock with reveal, on the UI thread.
     internal static void AnswerRelaunches(Action reveal)
     {
-        if (_relaunch is null) return;
+        if (_relaunch.Count == 0) return;
         var queue = DispatcherQueue.GetForCurrentThread();
-        _relaunchWait = ThreadPool.RegisterWaitForSingleObject(_relaunch, (_, _) => queue.TryEnqueue(() => reveal()),
-            null, Timeout.Infinite, executeOnlyOnce: false);
+        foreach (var relaunch in _relaunch)
+        {
+            _relaunchWaits.Add(ThreadPool.RegisterWaitForSingleObject(relaunch, (_, _) => queue.TryEnqueue(() => reveal()),
+                null, Timeout.Infinite, executeOnlyOnce: false));
+        }
     }
 }
