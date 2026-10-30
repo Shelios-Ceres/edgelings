@@ -4,7 +4,7 @@ name: macOS Core
 
 on:
   push:
-    branches: ["mac/**"]
+    branches: ["mac/**", "main"]
     paths:
       - "windows/src/AgentIsland.Core/**"
       - "windows/tests/**"

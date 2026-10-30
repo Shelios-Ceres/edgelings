@@ -23,7 +23,7 @@ jobs:
       - name: Compare
         run: |
           mkdir -p out
-          ./golden macos/golden/frames windows/src/AgentIsland.WinUI/Drawer/Characters out/golden | tee golden-summary.txt
+          ./golden macos/golden/frames windows/src/AgentIsland.WinUI/Drawer/Characters out/golden --strict | tee golden-summary.txt
           { echo '```'; cat golden-summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
