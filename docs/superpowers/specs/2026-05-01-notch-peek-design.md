@@ -3,6 +3,8 @@
 **Date:** 2026-05-01
 **Status:** Implemented, kept as design record
 
+_Upstream history: an Agent Island design note for its macOS notch bar._
+
 ## Problem
 
 Before this change, hovering anywhere on the compact island silhouette sprang

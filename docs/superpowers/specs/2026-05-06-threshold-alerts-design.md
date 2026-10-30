@@ -3,6 +3,8 @@
 Date: 2026-05-06
 Status: Approved (pending implementation plan)
 
+_Upstream history: an Agent Island design note from May 2026. It is not on the Edgelings roadmap._
+
 ## Goal
 
 Notify the user inside the island when Claude 5h or Codex 5h usage is
