@@ -10,7 +10,9 @@ public static class LaunchAtLogin
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ApprovedKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
-    private const string ValueName = "AgentIsland";
+    private const string ValueName = "Edgelings";
+    /// What Agent Island registered itself as, before the rename.
+    private const string LegacyValueName = "AgentIsland";
 
     /// Registered, and not switched off in Windows' startup settings.
     public static bool IsEnabled
@@ -68,6 +70,7 @@ public static class LaunchAtLogin
     {
         if (!OperatingSystem.IsWindows()) return;
         if (Environment.ProcessPath is not { Length: > 0 } exe) return;
+        MoveLegacyEntry(exe);
         try
         {
             using (var key = Registry.CurrentUser.OpenSubKey(RunKey))
@@ -76,6 +79,32 @@ public static class LaunchAtLogin
                 if (string.Equals(registered.Trim().Trim('"'), exe, StringComparison.OrdinalIgnoreCase)) return;
             }
             Register();
+        }
+        catch
+        {
+        }
+    }
+
+    /// An Agent Island registration becomes an Edgelings one, once: the old
+    /// Run value is replaced by one that starts this executable, and Windows'
+    /// own switch for it (StartupApproved) moves to the new name, so an entry
+    /// the user had switched off stays off. Nothing happens without the old value.
+    internal static void MoveLegacyEntry(string exe, string runKey = RunKey, string approvedKey = ApprovedKey)
+    {
+        try
+        {
+            using var run = Registry.CurrentUser.OpenSubKey(runKey, writable: true);
+            if (run?.GetValue(LegacyValueName) is not string) return;
+            run.SetValue(ValueName, $"\"{exe}\"");
+            using (var approved = Registry.CurrentUser.OpenSubKey(approvedKey, writable: true))
+            {
+                if (approved?.GetValue(LegacyValueName) is byte[] state)
+                {
+                    approved.SetValue(ValueName, state, RegistryValueKind.Binary);
+                    approved.DeleteValue(LegacyValueName, throwOnMissingValue: false);
+                }
+            }
+            run.DeleteValue(LegacyValueName, throwOnMissingValue: false);
         }
         catch
         {
