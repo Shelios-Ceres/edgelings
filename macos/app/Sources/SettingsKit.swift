@@ -120,7 +120,7 @@ struct KitToggle: View {
                 .frame(width: 38, height: 22)
                 .overlay(Circle().fill(Color.white).padding(2), alignment: isOn ? .trailing : .leading)
         } else {
-            Toggle("", isOn: Binding(get: { isOn }, set: { change($0) })).toggleStyle(.switch).labelsHidden()
+            Toggle("", isOn: Binding(get: { isOn }, set: { change($0) })).toggleStyle(.switch).labelsHidden().tint(store.palette.color("Accent"))
         }
     }
 }
@@ -131,26 +131,35 @@ struct KitMenu: View {
     let selected: Int
     let change: (Int) -> Void
 
-    var body: some View {
-        let label = options.indices.contains(selected) ? options[selected] : (options.first ?? "")
-        if RenderFlags.offscreen {
-            HStack(spacing: 4) {
-                Text(label).font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
+    private var label: some View {
+        let text = options.indices.contains(selected) ? options[selected] : (options.first ?? "")
+        return HStack(spacing: 6) {
+            Text(text).font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
+            // Pixel draws its own chevron; Classic keeps the system's.
+            if store.skin == .pixel {
+                Text("⌄").font(PixelFace.font(13)).foregroundColor(store.palette.color("Text2"))
+            } else if RenderFlags.offscreen {
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundColor(store.palette.color("Text2"))
             }
-            .padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
-        } else {
-        Menu {
-            ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                Button(option) { change(index) }
-            }
-        } label: {
-            Text(label).font(Kit(store: store).body()).foregroundColor(store.palette.color("Text"))
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .modifier(MenuPlate(store: store))
+    }
+
+    var body: some View {
+        if RenderFlags.offscreen {
+            label.padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
+        } else {
+            Menu {
+                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                    Button(option) { change(index) }
+                }
+            } label: {
+                label
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(store.skin == .pixel ? .hidden : .visible)
+            .fixedSize()
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .modifier(MenuPlate(store: store))
         }
     }
 }

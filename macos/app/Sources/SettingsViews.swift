@@ -28,6 +28,7 @@ struct SettingsRoot: View {
             .background(store.palette.color(store.skin == .pixel ? "Desk" : "Layer"))
         }
         .frame(minWidth: 760, minHeight: 560)
+        .tint(store.palette.color("Accent"))
     }
 }
 
