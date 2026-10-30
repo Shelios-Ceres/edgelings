@@ -84,7 +84,7 @@ public static class L10n
     private static readonly Dictionary<string, string> ChineseTable = new()
     {
         ["Settings…"] = "设置…",
-        ["Quit Agent Island"] = "退出 Agent Island",
+        ["Quit Edgelings"] = "退出 Edgelings",
         ["idle"] = "空闲",
         ["running"] = "正在跑",
         ["your turn"] = "该你回复",
@@ -363,7 +363,7 @@ public static class L10n
         ["Quota updated {0}"] = "额度更新于 {0}",
         ["Scan now"] = "立即扫描",
         ["Startup"] = "启动",
-        ["Start Agent Island when you sign in to Windows"] = "登录 Windows 时自动启动 Agent Island",
+        ["Start Edgelings when you sign in to Windows"] = "登录 Windows 时自动启动 Edgelings",
         ["App language"] = "应用语言",
         ["Same as Windows"] = "跟随 Windows",
         ["The pixel style shows Settings in English"] = "像素风格下，设置以英文显示",
@@ -393,7 +393,7 @@ public static class L10n
         ["Couldn't change Claude Code's settings"] = "无法修改 Claude Code 的设置",
         ["Couldn't change Grok's hooks"] = "无法修改 Grok 的 hook",
         ["Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up."] = "Grok 等你批准工具时，角色会显示出来。会在 ~/.grok/hooks 加一个 hook 文件 agentisland-notify.json，只记录会话和提示类型；之后新开的会话生效。",
-        ["A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Agent Island's, so this stays off."] = "~/.grok/hooks 里已有一个叫 agentisland-notify.json 的文件，不是 Agent Island 的，所以这个开关保持关闭。",
+        ["A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Edgelings', so this stays off."] = "~/.grok/hooks 里已有一个叫 agentisland-notify.json 的文件，不是 Edgelings 的，所以这个开关保持关闭。",
         ["Tasks"] = "任务",
         ["{0} running"] = "{0} 个运行中",
         ["Character lines"] = "角色台词",

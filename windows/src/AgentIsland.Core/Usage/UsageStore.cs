@@ -432,7 +432,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (ClaudeReauthInProgress) return true;
         if (Trigger.CLILocator.PathFor(TriggerTool.Claude) is not { } cli) return false;
         var initialStamp = ClaudeCredentials.CredentialsModificationStamp();
-        if (!TerminalLauncher.RunVisible(cli, "/login", "Agent Island — Claude login")) return false;
+        if (!TerminalLauncher.RunVisible(cli, "/login", "Edgelings — Claude login")) return false;
         ClaudeReauthInProgress = true;
         _ = Task.Run(async () =>
         {

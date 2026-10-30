@@ -56,6 +56,6 @@ public static class CodexCredentials
     public static bool SpawnReauth()
     {
         if (Trigger.CLILocator.Locate("codex") is not { } cli) return false;
-        return TerminalLauncher.RunVisible(cli, "login", "Agent Island — Codex login");
+        return TerminalLauncher.RunVisible(cli, "login", "Edgelings — Codex login");
     }
 }

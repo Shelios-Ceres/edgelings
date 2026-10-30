@@ -535,7 +535,7 @@ internal sealed class AgentSection
             Description = new TextBlock
             {
                 Text = conflict
-                    ? L10n.Tr("A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Agent Island's, so this stays off.")
+                    ? L10n.Tr("A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Edgelings', so this stays off.")
                     : L10n.Tr("Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up."),
                 TextWrapping = TextWrapping.Wrap,
             },

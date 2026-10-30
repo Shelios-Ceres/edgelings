@@ -182,7 +182,7 @@ internal sealed partial class DrawerWindow : Window
 
     public DrawerWindow()
     {
-        Title = "Agent Island";
+        Title = "Edgelings";
         _hwnd = WindowNative.GetWindowHandle(this);
         _queue = DispatcherQueue;
         _reducedMotion = Motion.ReducedMotion;
@@ -231,7 +231,7 @@ internal sealed partial class DrawerWindow : Window
         _presenter.IsAlwaysOnTop = true;
         AppWindow.SetPresenter(_presenter);
         AppWindow.IsShownInSwitchers = false;
-        AppWindow.Title = "Agent Island";
+        AppWindow.Title = "Edgelings";
         var style = (long)Win32.GetWindowLongPtr(_hwnd, Win32.GwlExStyle);
         Win32.SetWindowLongPtr(_hwnd, Win32.GwlExStyle, (IntPtr)(style | Win32.WsExToolWindow | Win32.WsExNoActivate));
         var noRounding = 1;

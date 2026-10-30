@@ -150,7 +150,7 @@ internal sealed partial class SettingsWindow : Window
     private void Build()
     {
         using var english = Shell.Looks.English();
-        var title = "Agent Island — " + L10n.Tr("Settings");
+        var title = "Edgelings — " + L10n.Tr("Settings");
         var root = Content is null
             ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520, Rescaled)
             : Shell.Chrome.Restyle(this, title);

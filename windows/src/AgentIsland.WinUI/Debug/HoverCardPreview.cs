@@ -46,7 +46,7 @@ internal sealed class HoverCardPreview : Window
 
     public HoverCardPreview()
     {
-        Title = "Agent Island — Hover card check";
+        Title = "Edgelings — Hover card check";
         var scale = Win32.GetDpiForWindow(WindowNative.GetWindowHandle(this)) / 96.0;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var width = Math.Min((int)(940 * scale), work.Width);

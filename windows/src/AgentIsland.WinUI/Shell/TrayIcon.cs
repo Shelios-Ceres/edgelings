@@ -28,7 +28,7 @@ internal sealed class TrayIcon : IDisposable
         _icon = new TaskbarIcon
         {
             Icon = _image,
-            ToolTipText = "Agent Island",
+            ToolTipText = "Edgelings",
             NoLeftClickDelay = true,
             LeftClickCommand = new Command(() => App.Current.RevealDrawer()),
             RightClickCommand = new Command(() => ShowMenu()),
@@ -98,7 +98,7 @@ internal sealed class TrayIcon : IDisposable
         menu.Items.Add(MenuHost.Item(L10n.Tr("Usage & cost…"), "\uE8C7", () => SettingsWindow.OpenUsage()));
         menu.Items.Add(MenuHost.Item(L10n.Tr("Settings…"), "\uE713", () => SettingsWindow.Open()));
         menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(MenuHost.Item(L10n.Tr("Quit Agent Island"), "\uE7E8", () => App.Current.Quit()));
+        menu.Items.Add(MenuHost.Item(L10n.Tr("Quit Edgelings"), "\uE7E8", () => App.Current.Quit()));
         MenuHost.Show(menu, keepOpen);
     }
 
@@ -132,7 +132,7 @@ internal sealed class TrayIcon : IDisposable
             ActivityState.Working => L10n.Tr("Running"),
             _ => null,
         };
-        var text = "Agent Island"
+        var text = "Edgelings"
             + (status is null ? "" : " · " + status)
             + (parts.Count == 0 ? "" : "\n" + string.Join(" · ", parts));
         // The shell caps tooltips at 127 characters.

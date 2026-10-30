@@ -108,7 +108,7 @@ public static class GrokHooks
         {
             try
             {
-                if (Conflicts()) return $"{HookFileName} in {Hooks} is not Agent Island's, so it was left alone.";
+                if (Conflicts()) return $"{HookFileName} in {Hooks} is not Edgelings', so it was left alone.";
                 if (!installed)
                 {
                     if (File.Exists(HookPath)) File.Delete(HookPath);

@@ -87,7 +87,7 @@ internal static class MenuHost
     {
         if (_window is not null) return;
         _root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        _window = new Window { Content = _root, SystemBackdrop = new TransparentBackdrop(), Title = "Agent Island menu" };
+        _window = new Window { Content = _root, SystemBackdrop = new TransparentBackdrop(), Title = "Edgelings menu" };
         _hwnd = WindowNative.GetWindowHandle(_window);
         var presenter = OverlappedPresenter.Create();
         presenter.SetBorderAndTitleBar(false, false);

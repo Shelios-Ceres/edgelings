@@ -196,7 +196,7 @@ internal sealed partial class SettingsWindow
     {
         body.Children.Add(PageTitle(L10n.Tr("General")));
         body.Children.Add(Section(L10n.Tr("Startup")));
-        body.Children.Add(Card(L10n.Tr("Launch at login"), L10n.Tr("Start Agent Island when you sign in to Windows"), "\uE7E8",
+        body.Children.Add(Card(L10n.Tr("Launch at login"), L10n.Tr("Start Edgelings when you sign in to Windows"), "\uE7E8",
             Toggle(LaunchAtLogin.IsEnabled, LaunchAtLogin.SetEnabled)));
 
         body.Children.Add(Section(L10n.Tr("Language")));
@@ -219,7 +219,7 @@ internal sealed partial class SettingsWindow
         body.Children.Add(Section(L10n.Tr("About")));
         var about = new SettingsExpander
         {
-            Header = "Agent Island",
+            Header = "Edgelings",
             Description = Edition,
             HeaderIcon = new ImageIcon
             {
@@ -245,7 +245,7 @@ internal sealed partial class SettingsWindow
         });
         about.Items.Add(new SettingsCard
         {
-            Header = L10n.Tr("Quit Agent Island"),
+            Header = L10n.Tr("Quit Edgelings"),
             Description = L10n.Tr("Closes the drawer and the tray icon"),
             Content = Button(L10n.Tr("Quit"), () => App.Current.Quit()),
         });
