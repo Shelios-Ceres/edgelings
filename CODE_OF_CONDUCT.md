@@ -1,6 +1,6 @@
 # Code of Conduct
 
-AgentIsland follows the [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). Short version:
+Edgelings follows the [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). Short version:
 
 - Be kind and respectful.
 - Assume good faith.
@@ -9,7 +9,7 @@ AgentIsland follows the [Contributor Covenant v2.1](https://www.contributor-cove
 
 ## Reporting
 
-Email `pbokdol@gmail.com` for anything that needs handling privately. Public issues and PRs are otherwise the right place to discuss the project itself.
+Open an issue at <https://github.com/Shelios-Ceres/edgelings/issues> for anything that can be discussed in public. For anything that needs handling privately, use the repository's private reporting form (<https://github.com/Shelios-Ceres/edgelings/security/advisories/new>) and say it is a conduct report. Public issues and PRs are otherwise the right place to discuss the project itself.
 
 ## Enforcement
 
