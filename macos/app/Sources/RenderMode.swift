@@ -36,6 +36,13 @@ enum RenderMode {
                 save(snapshot(bubbles(palette: palette), dark: dark), "bubbles-\(tag).png")
             }
         }
+        for pixel in [true, false] {
+            for dark in [false, true] {
+                for scale in [1, 2] {
+                    save(menuBarStrip(pixel: pixel, dark: dark, scale: scale), "menubar-\(pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")-\(scale)x.png")
+                }
+            }
+        }
         RenderSettings.run(into: url, save: save)
         NSLog("render: wrote \(written) images to \(folder)")
     }
@@ -49,6 +56,33 @@ enum RenderMode {
         let renderer = ImageRenderer(content: framed)
         renderer.scale = 2
         return renderer.nsImage
+    }
+
+    /// The menu-bar icon on a bar, at 1x or 2x, tinted as the system tints a template.
+    @MainActor
+    private static func menuBarStrip(pixel: Bool, dark: Bool, scale: Int) -> NSImage? {
+        let icon = MenuBarIcon.image(pixel: pixel)
+        let width = 120 * scale, height = 24 * scale
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        (dark ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.93, alpha: 1)).setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        let tint: NSColor = dark ? .white : .black
+        let tinted = NSImage(size: icon.size, flipped: false) { rect in
+            icon.draw(in: rect)
+            tint.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        let s = CGFloat(scale)
+        tinted.draw(in: NSRect(x: 50 * s, y: (24 * s - icon.size.height * s) / 2, width: icon.size.width * s, height: icon.size.height * s))
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.addRepresentation(rep)
+        return image
     }
 
     // MARK: Scenes

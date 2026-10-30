@@ -41,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.drawer.apply(frame)
             self.drawer.refreshCard()
             if self.statusItem == nil { self.installStatusItem() }
+            if self.iconPixel != frame.isPixel {
+                self.iconPixel = frame.isPixel
+                self.statusItem?.button?.image = MenuBarIcon.image(pixel: frame.isPixel)
+            }
         }
         controller.start()
         if let bridge = controller.bridge {
@@ -78,7 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installStatusItem() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = MenuBarIcon.image()
+        item.button?.image = MenuBarIcon.image(pixel: AppController.shared.frame?.isPixel ?? true)
+        iconPixel = AppController.shared.frame?.isPixel ?? true
         item.button?.toolTip = "Edgelings"
         let menu = NSMenu()
         menu.delegate = nil
@@ -102,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTooltip()
     }
 
+    private var iconPixel = true
     private var trayMenu: NSMenu?
     private var trayCardTimer: Timer?
 
@@ -149,46 +155,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showDrawerMenu(for id: String) {
         guard let frame = AppController.shared.frame else { return }
+        let theme = frame.isPixel ? "pixel" : "classic"
+        // The looks of the character that was clicked, for the Look submenu.
+        AppController.shared.request("looks", ["id": id, "theme": theme]) { [weak self] reply in
+            let looks = LooksModel.from(reply)?.looks ?? []
+            self?.popUpDrawerMenu(for: id, frame: frame, looks: looks)
+        }
+    }
+
+    private func popUpDrawerMenu(for id: String, frame: FrameModel, looks: [LookChoice]) {
+        guard let bot = frame.bots.first(where: { $0.id == id }) else { return }
+        let pixel = frame.isPixel
+        let dark = DrawerController.isDark
+        // Under Pixel the items carry the kit's icons (and faces), in the system font.
+        func icon(_ name: String) -> NSImage? { pixel ? MenuImages.pixelIcon(name, dark: dark) : nil }
+        func item(_ title: String, _ action: Selector, _ iconName: String? = nil) -> NSMenuItem {
+            let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            entry.target = self
+            if let iconName { entry.image = icon(iconName) }
+            return entry
+        }
+
         let menu = NSMenu()
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openAgentSettings(_:)), keyEquivalent: "")
-        settings.target = self
+        let settings = item("Settings…", #selector(openAgentSettings(_:)), "general")
         settings.representedObject = id
         menu.addItem(settings)
         menu.addItem(.separator())
 
+        if looks.count > 1 {
+            let submenu = NSMenu()
+            let worn = bot.look
+            for look in looks {
+                let entry = NSMenuItem(title: look.name, action: #selector(pickLook(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.representedObject = ["id": id, "theme": theme(pixel), "look": look.id]
+                entry.state = look.id == worn ? .on : .off
+                entry.image = MenuImages.face(agent: id, look: look.id, swatch: look.swatch, pixel: pixel)
+                submenu.addItem(entry)
+            }
+            let lookItem = NSMenuItem(title: "Look", action: nil, keyEquivalent: "")
+            lookItem.image = icon("palette")
+            lookItem.submenu = submenu
+            menu.addItem(lookItem)
+        }
+
         let shown = NSMenu()
-        for bot in frame.bots where bot.id != "cursor" {
-            let item = NSMenuItem(title: bot.name, action: #selector(toggleAgent(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = bot.id
-            item.state = bot.visible ? .on : .off
-            shown.addItem(item)
+        for other in frame.bots where other.id != "cursor" {
+            let entry = NSMenuItem(title: other.name, action: #selector(toggleAgent(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = other.id
+            entry.state = other.visible ? .on : .off
+            entry.image = MenuImages.face(agent: other.id, look: other.look, swatch: other.swatch, pixel: pixel)
+            shown.addItem(entry)
         }
         let shownItem = NSMenuItem(title: "Shown agents", action: nil, keyEquivalent: "")
+        shownItem.image = icon("agents")
         shownItem.submenu = shown
         menu.addItem(shownItem)
 
-        let lock = NSMenuItem(title: frame.locked ? "Unlock position" : "Lock position", action: #selector(toggleLock), keyEquivalent: "")
-        lock.target = self
-        menu.addItem(lock)
-        let side = NSMenuItem(title: frame.side == "right" ? "Move to left edge" : "Move to right edge", action: #selector(switchSide), keyEquivalent: "")
-        side.target = self
-        menu.addItem(side)
-        let style = NSMenuItem(title: frame.isPixel ? "Classic characters" : "Pixel characters", action: #selector(switchStyle), keyEquivalent: "")
-        style.target = self
-        menu.addItem(style)
-        let speech = NSMenuItem(title: "Character lines", action: #selector(toggleSpeech), keyEquivalent: "")
-        speech.target = self
+        menu.addItem(item(frame.locked ? "Unlock position" : "Lock position", #selector(toggleLock), "lock"))
+        menu.addItem(item(frame.side == "right" ? "Move to left edge" : "Move to right edge", #selector(switchSide), "edge"))
+        menu.addItem(item(frame.isPixel ? "Classic characters" : "Pixel characters", #selector(switchStyle), "shapes"))
+        let speech = item("Character lines", #selector(toggleSpeech), "bubble")
         speech.state = frame.speechBubbles ? .on : .off
         menu.addItem(speech)
         menu.addItem(.separator())
-        let hide = NSMenuItem(title: "Hide drawer", action: #selector(toggleDrawer), keyEquivalent: "")
-        hide.target = self
-        menu.addItem(hide)
-        let quit = NSMenuItem(title: "Quit Edgelings", action: #selector(quit), keyEquivalent: "")
-        quit.target = self
-        menu.addItem(quit)
+        menu.addItem(item("Hide drawer", #selector(toggleDrawer), "eye"))
+        menu.addItem(item("Quit Edgelings", #selector(quit), "power"))
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    private func theme(_ pixel: Bool) -> String { pixel ? "pixel" : "classic" }
+
+    @objc private func pickLook(_ sender: NSMenuItem) {
+        guard let choice = sender.representedObject as? [String: String], let id = choice["id"] else { return }
+        AppController.shared.request("setDrawer", ["look": choice])
+        _ = id
     }
 
     @objc private func openAgentSettings(_ sender: NSMenuItem) { SettingsController.shared.show(agent: sender.representedObject as? String) }
@@ -224,27 +266,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleSpeech() {
         guard let frame = AppController.shared.frame else { return }
         AppController.shared.request("setDrawer", ["speech": !frame.speechBubbles])
-    }
-}
-
-/// The menu-bar icon: a small robot head, drawn as a template image so the
-/// system tints it for light and dark bars.
-enum MenuBarIcon {
-    static func image() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: NSRect(x: 2, y: 3, width: 14, height: 11), xRadius: 3, yRadius: 3).fill()
-            NSBezierPath(rect: NSRect(x: 8, y: 14, width: 2, height: 3)).fill()
-            NSColor.clear.setFill()
-            let eyes = NSBezierPath()
-            eyes.append(NSBezierPath(rect: NSRect(x: 5, y: 7, width: 2, height: 3)))
-            eyes.append(NSBezierPath(rect: NSRect(x: 11, y: 7, width: 2, height: 3)))
-            NSGraphicsContext.current?.compositingOperation = .clear
-            eyes.fill()
-            return true
-        }
-        image.isTemplate = true
-        return image
     }
 }
