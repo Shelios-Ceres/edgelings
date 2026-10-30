@@ -137,6 +137,7 @@ struct KitMenu: View {
     @ObservedObject var store: SettingsStore
     let options: [String]
     let selected: Int
+    var singleChevron = false
     let change: (Int) -> Void
 
     private var label: some View {
@@ -146,6 +147,8 @@ struct KitMenu: View {
             // Pixel draws its own chevron; Classic keeps the system's.
             if store.skin == .pixel {
                 PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20)
+            } else if singleChevron {
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundColor(store.palette.color("Text2"))
             } else if RenderFlags.offscreen {
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundColor(store.palette.color("Text2"))
             }

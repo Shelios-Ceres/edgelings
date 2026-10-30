@@ -258,7 +258,7 @@ struct AgentCard: View {
         let codex = store.settings?.codex
         return Group {
             if RenderFlags.offscreen {
-                KitMenu(store: store, options: [store.t("Switch")], selected: 0) { _ in }
+                KitMenu(store: store, options: [store.t("Switch")], selected: 0, singleChevron: true) { _ in }
             } else {
                 Menu {
                     if codex?.accounts.isEmpty ?? true { Text(store.t("No saved accounts yet")) }
@@ -283,9 +283,10 @@ struct AgentCard: View {
                     HStack(spacing: 6) {
                         SkinText(pixel: store.skin == .pixel, text: store.t("Switch"), pixelSize: 13, size: 13, color: store.palette.color("Text"))
                         if store.skin == .pixel { PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20) }
+                        else { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundColor(store.palette.color("Text2")) }
                     }
                 }
-                .menuStyle(.borderlessButton).menuIndicator(store.skin == .pixel ? .hidden : .visible).fixedSize()
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
             }
         }
@@ -334,8 +335,12 @@ struct AgentMark: View {
             ZStack {
                 Circle().fill(store.palette.tint(agent.swatch)).frame(width: 32, height: 32)
                 if let image = BrandMarks.image(agent.id) {
-                    Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().frame(width: 18, height: 18)
-                        .foregroundColor(store.palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook))
+                    if ["antigravity", "kimi"].contains(agent.id) {
+                        Image(nsImage: image).resizable().interpolation(.high).scaledToFit().frame(width: 18, height: 18)
+                    } else {
+                        Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().frame(width: 18, height: 18)
+                            .foregroundColor(store.palette.agentInk(id: agent.id, swatch: agent.swatch, defaultLook: agent.defaultLook))
+                    }
                 } else {
                     FaceChip(swatch: agent.swatch, size: 18)
                 }
@@ -396,9 +401,8 @@ struct LookTile: View {
                         .multilineTextAlignment(.center).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 6)
                 }
-                .padding(.top, 6).padding(.bottom, 6)
+                .padding(.top, 6).padding(.bottom, 8)
                 .frame(width: 80, alignment: .top)
-                .frame(minHeight: 76, alignment: .top)
                 .background(RoundedRectangle(cornerRadius: 10).fill(worn ? palette.color("AccentTint") : palette.color("Paper")))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(worn ? palette.color("Accent") : palette.hairline, lineWidth: worn ? 2 : 1))
             }

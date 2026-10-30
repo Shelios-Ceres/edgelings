@@ -10,7 +10,7 @@ enum RenderSettings {
      "quota":{"interval":300,"presets":[300,900,1800],"showsRemaining":false,"tokenMode":"all","tokenModeLabel":"All tokens (including cache)"},
      "language":"auto","chinese":false,
      "agents":[
-      {"id":"claude","name":"Claude","shown":true,"detected":true,"plan":"MAX","account":"work","status":"synced 2m ago","signIn":"none","signInHint":"","accent":14120791,"swatch":@claude@,"defaultLook":true,
+      {"id":"claude","name":"Claude","shown":true,"detected":true,"plan":"MAX","account":"work","status":"synced 2m ago","signIn":"none","signInHint":"Opens a terminal running claude /login","accent":14120791,"swatch":@claude@,"defaultLook":true,
        "meters":[{"label":"5h","value":"38%","shown":0.38,"used":0.38,"resets":"Resets in 2h 10m"},{"label":"Week","value":"12%","shown":0.12,"used":0.12}],
        "tokens":{"label":"Tokens","today":"today 1.2M","todayNumber":"1.2M","month":"48M this month","monthNumber":"48M"},
        "look":{"pixel":"clawd","classic":"succulent"}},
@@ -73,6 +73,7 @@ enum RenderSettings {
             ("Memory (background)", t("Memory (background)")),
             ("\"tokenModeLabel\":\"All tokens (including cache)\"", "\"tokenModeLabel\":\"" + t("All tokens (including cache)") + "\""),
             ("Opens a terminal running codex login", t("Opens a terminal running codex login")),
+            ("Opens a terminal running claude /login", t("Opens a terminal running claude /login")),
         ]
         for (from, to) in table { text = text.replacingOccurrences(of: from, with: to) }
         return text
