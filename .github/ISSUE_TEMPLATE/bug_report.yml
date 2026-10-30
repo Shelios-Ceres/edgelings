@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a broken Agent Island behavior.
+description: Report a broken Edgelings behavior.
 title: "[Bug]: "
 labels: ["bug"]
 
@@ -7,27 +7,32 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. Please include enough detail to reproduce it on macOS or Windows.
+        Thanks for reporting a bug. Please include enough detail to reproduce it on Windows or macOS.
 
   - type: textarea
     id: summary
     attributes:
       label: What happened?
       description: Describe the visible behavior and what you expected instead.
-      placeholder: Agent Island showed an alarm for the wrong thread...
+      placeholder: A bot showed "needs approval" for the wrong session...
     validations:
       required: true
 
   - type: dropdown
-    id: provider
+    id: agent
     attributes:
-      label: Provider
+      label: Agent
       options:
+        - Claude Code
         - Claude Desktop
-        - Claude Code CLI
-        - Codex app
-        - Codex CLI
-        - Both Claude and Codex
+        - Codex
+        - Kimi Code
+        - Antigravity
+        - Cursor
+        - Grok
+        - Grok Bot
+        - DeepSeek Harness
+        - More than one
         - Not sure
     validations:
       required: true
@@ -35,8 +40,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: Agent Island version
-      placeholder: v1.6.1
+      label: Build
+      description: The commit, or the GitHub Actions run a test package came from.
+      placeholder: a commit hash, or "Windows CI run 12"
     validations:
       required: true
 
@@ -45,8 +51,8 @@ body:
     attributes:
       label: Operating System
       options:
-        - macOS
         - Windows
+        - macOS
     validations:
       required: true
 
@@ -54,7 +60,7 @@ body:
     id: os_build
     attributes:
       label: OS version / build and device
-      placeholder: macOS 15.5, MacBook Pro M3 Pro OR Windows 11 23H2 (Build 22631), ThinkPad X1
+      placeholder: Windows 11 23H2 (Build 22631), ThinkPad X1 OR macOS 15.5, MacBook Pro M3 Pro
     validations:
       required: true
 
@@ -63,11 +69,10 @@ body:
     attributes:
       label: Display setup
       options:
+        - One display
+        - Multiple displays
         - Notched MacBook screen
         - Non-notched Mac screen
-        - Windows top bar or floating widget
-        - External display
-        - Multiple displays
         - Not sure
     validations:
       required: true
@@ -79,7 +84,7 @@ body:
       placeholder: |
         1. Start a Claude Code run.
         2. Let it finish in the background.
-        3. Click Open thread.
+        3. Hover the bot.
     validations:
       required: true
 
@@ -89,4 +94,4 @@ body:
       label: Logs or screenshots
       description: |
         Screenshots help. Please remove private project paths,
-        API keys, tokens, or sensitive content before uploading.
+        session titles, API keys, tokens, or sensitive content before uploading.

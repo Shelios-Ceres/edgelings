@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a useful Agent Island improvement.
+description: Suggest a useful Edgelings improvement.
 title: "[Feature]: "
 labels: ["enhancement"]
 
@@ -8,7 +8,7 @@ body:
     id: problem
     attributes:
       label: What problem should this solve?
-      placeholder: I miss completed Claude or Codex notifications when...
+      placeholder: I miss it when an agent finishes while I am in another window...
     validations:
       required: true
 
@@ -16,7 +16,7 @@ body:
     id: proposal
     attributes:
       label: Proposed behavior
-      placeholder: Agent Island should...
+      placeholder: Edgelings should...
     validations:
       required: true
 
@@ -25,13 +25,13 @@ body:
     attributes:
       label: Area
       options:
-        - Turn alarms
-        - Live status
+        - Bots and bubbles
+        - Hover card
         - Usage and limits
-        - Report cards and ranks
-        - Non-notched Mac layout
-        - Windows app
-        - Install and updates
+        - Usage & cost page
+        - Settings and tray
+        - Another agent
+        - macOS port
         - Other
     validations:
       required: true
@@ -41,4 +41,4 @@ body:
     attributes:
       label: Extra context
       description: |
-        Include any links, screenshots, or examples from your macOS or Windows workflow that help explain the request.
+        Include any links, screenshots, or examples from your workflow that help explain the request.
