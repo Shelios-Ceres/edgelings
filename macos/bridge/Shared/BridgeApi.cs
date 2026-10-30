@@ -20,6 +20,7 @@ public static class BridgeApi
             return method switch
             {
                 "version" => Version(),
+                "configure" => Configure(request.RootElement),
                 "scan" => Scan(request.RootElement),
                 _ => Error($"unknown method '{method}'"),
             };
@@ -37,6 +38,18 @@ public static class BridgeApi
         json.WriteString("os", System.Runtime.InteropServices.RuntimeInformation.OSDescription);
         json.WriteString("arch", System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString());
     });
+
+    /// Points Core at a world of its own: {"method":"configure","root":"…"}
+    /// moves the home, the app's settings and caches and every agent's folder
+    /// under <root>/home (IslandPaths.RootOverride). Benches and tests send it
+    /// first so nothing reads or rewrites the real ones; an empty root goes
+    /// back to the real folders.
+    private static string Configure(JsonElement request)
+    {
+        var root = request.TryGetProperty("root", out var r) ? r.GetString() : null;
+        IslandPaths.RootOverride = root;
+        return Write(json => json.WriteBoolean("rooted", IslandPaths.RootOverride is not null));
+    }
 
     /// A scan and a summary over one Kimi Code data folder: the cost reader's
     /// token events (with its parse cache) priced and summarised, and the

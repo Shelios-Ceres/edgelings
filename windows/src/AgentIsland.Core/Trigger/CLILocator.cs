@@ -37,7 +37,7 @@ public static class CLILocator
 
     public static string? Locate(string name)
     {
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
         var now = DateTimeOffset.UtcNow;
         lock (MemoGate)
         {
@@ -58,6 +58,7 @@ public static class CLILocator
 
     private static string? Probe(string name)
     {
+        if (OperatingSystem.IsMacOS()) return ProbeMac(name);
         foreach (var candidate in Candidates(name).Where(File.Exists))
         {
             return candidate;
@@ -78,6 +79,46 @@ public static class CLILocator
                 catch
                 {
                 }
+            }
+        }
+        return null;
+    }
+
+    /// A GUI app's PATH on macOS is the bare system one, so the places the
+    /// usual installers put a CLI are probed first: Homebrew (Apple silicon
+    /// and Intel), the official installer's ~/.local/bin and ~/.claude/local,
+    /// bun and npm's prefixes, and the newest nvm and fnm versions. Then PATH.
+    private static string? ProbeMac(string name)
+    {
+        var home = IslandPaths.Home;
+        var folders = new List<string>
+        {
+            "/opt/homebrew/bin", "/usr/local/bin",
+            Path.Combine(home, ".local", "bin"), Path.Combine(home, ".claude", "local"),
+            Path.Combine(home, ".bun", "bin"), Path.Combine(home, ".npm-global", "bin"),
+            Path.Combine(home, ".volta", "bin"), Path.Combine(home, "Library", "pnpm"),
+        };
+        foreach (var variable in new[] { "npm_config_prefix", "NPM_CONFIG_PREFIX" })
+        {
+            if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } prefix) folders.Add(Path.Combine(prefix, "bin"));
+        }
+        folders.AddRange(VersionDirectories(Path.Combine(home, ".nvm", "versions", "node")).Select(v => Path.Combine(v, "bin")));
+        folders.AddRange(VersionDirectories(Path.Combine(home, ".fnm", "node-versions")).Select(v => Path.Combine(v, "installation", "bin")));
+        foreach (var folder in folders)
+        {
+            var candidate = Path.Combine(folder, name);
+            if (File.Exists(candidate)) return candidate;
+        }
+        if (name == "claude" && ManagedClaudeCli() is { } managed) return managed;
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(':', StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                var candidate = Path.Combine(dir.Trim(), name);
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch
+            {
             }
         }
         return null;
@@ -176,7 +217,7 @@ public static class CLILocator
                 .Where(Directory.Exists)
                 .SelectMany(root => Directory.EnumerateDirectories(root))
                 .OrderByDescending(dir => Path.GetFileName(dir), VersionAwareComparer.Instance)
-                .Select(dir => Path.Combine(dir, "claude.exe"))
+                .Select(dir => Path.Combine(dir, OperatingSystem.IsWindows() ? "claude.exe" : "claude"))
                 .FirstOrDefault(File.Exists);
         }
         catch

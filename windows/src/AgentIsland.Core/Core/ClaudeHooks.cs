@@ -39,7 +39,7 @@ public static class ClaudeHooks
     internal static string? SettingsFileOverride { get; set; }
 
     /// Where the hook drops its markers; tests point it elsewhere.
-    internal static string SignalDirectory { get; set; } = Path.Combine(IslandPaths.LegacyAppSupportDir, "claude-hooks");
+    internal static string SignalDirectory { get; set; } = Path.Combine(IslandPaths.HooksDir, "claude-hooks");
 
     // A switch flipped on and straight back off must not read the file
     // before the first change has landed.

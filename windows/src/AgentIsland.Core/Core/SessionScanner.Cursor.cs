@@ -105,9 +105,7 @@ public static partial class SessionScanner
             SessionLaunchTarget.Cli);
     }
 
-    private static string CursorGlobalDbPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Cursor", "User", "globalStorage", "state.vscdb");
+    private static string CursorGlobalDbPath => IslandPaths.CursorStateDb;
 
     /// Assistant-last plus a quiet gap means the turn finished; assistant-last
     /// while still streaming reads as working. A user bubble last means the
