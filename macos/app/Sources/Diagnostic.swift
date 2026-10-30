@@ -58,3 +58,46 @@ enum DiagnosticReport {
         exit(0)
     }
 }
+
+/// `Edgelings --self-test`: asks Core for everything the UI reads and decodes
+/// it into the Swift models, so a shape that drifted shows up here and not as
+/// a silently empty window. Prints names and counts only.
+enum SelfTest {
+    static func run() -> Never {
+        guard let bridge = AppController.shared.bridge else {
+            print("FAIL core library did not load")
+            exit(1)
+        }
+        var failed = false
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            print("\(ok ? "ok  " : "FAIL") \(name)\(detail.isEmpty ? "" : " (\(detail))")")
+            if !ok { failed = true }
+        }
+        bridge.request("windows", WindowSnapshot.request())
+        check("appStart", bridge.request("appStart")["ok"] as? Bool == true)
+        let frame = FrameModel.from(bridge.request("frame", ["now": 9.0, "shown": true]))
+        check("frame decodes", frame != nil, "\(frame?.bots.count ?? 0) characters, \(frame?.shownBots.count ?? 0) shown")
+        let cards = CardsModel.from(bridge.request("card", [:]))
+        check("cards decode", cards != nil, "\(cards?.cards.count ?? 0) sections")
+        let settings = SettingsModel.from(bridge.request("settings", ["english": true]))
+        check("settings decode", settings != nil, "\(settings?.agents.count ?? 0) agents")
+        let usage = UsageModel.from(bridge.request("usage", ["english": true]))
+        check("usage decode", usage != nil, "\(usage?.agents.count ?? 0) agents")
+        let looks = LooksModel.from(bridge.request("looks", ["id": "claude", "theme": "pixel"]))
+        check("looks decode", (looks?.looks.count ?? 0) > 0)
+        let table = bridge.request("tr", ["keys": UIStrings.keys, "english": true])["strings"] as? [String: String]
+        check("strings", (table?.count ?? 0) == UIStrings.keys.count, "\(table?.count ?? 0) of \(UIStrings.keys.count)")
+        for theme in ["pixel", "classic"] {
+            do {
+                let engine = try CharacterEngine(theme: theme, directory: AppController.enginesDirectory())
+                let index = engine.addBot(kind: "claude", tempo: 1, seed: 7, look: "")
+                engine.setState(index, "thinking", phase: 0)
+                let frames = engine.tick([0.1], size: 44)
+                check("engine \(theme)", frames.first??.svg.hasPrefix("<svg") == true)
+            } catch {
+                check("engine \(theme)", false, "\(error)")
+            }
+        }
+        exit(failed ? 1 : 0)
+    }
+}

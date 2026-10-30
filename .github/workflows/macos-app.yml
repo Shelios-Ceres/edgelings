@@ -68,6 +68,13 @@ jobs:
           out/app/Edgelings.app/Contents/MacOS/Edgelings --diagnose | tee out/diagnose.txt
           grep -q "SQLite: ok" out/diagnose.txt
 
+      - name: Self test (everything the UI reads from Core decodes in Swift)
+        timeout-minutes: 3
+        run: |
+          export EDGELINGS_ROOT="$RUNNER_TEMP/selftest-root"
+          mkdir -p "$EDGELINGS_ROOT"
+          out/app/Edgelings.app/Contents/MacOS/Edgelings --self-test | tee out/selftest.txt
+
       - name: Render every screen offscreen (synthetic data)
         run: |
           mkdir -p out/renders
@@ -102,3 +109,4 @@ jobs:
             out/smoke.log
             out/render.log
             out/diagnose.txt
+            out/selftest.txt

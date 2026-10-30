@@ -9,6 +9,7 @@ struct EdgelingsMain {
     static func main() {
         let app = NSApplication.shared
         let arguments = CommandLine.arguments
+        if arguments.contains("--self-test") { SelfTest.run() }
         if arguments.contains("--diagnose") { DiagnosticReport.printAndExit() }
         if let at = arguments.firstIndex(of: "--render"), at + 1 < arguments.count {
             RenderMode.run(into: arguments[at + 1])
