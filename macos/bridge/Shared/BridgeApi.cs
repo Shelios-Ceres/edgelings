@@ -63,8 +63,9 @@ public static class BridgeApi
     /// back to the real folders.
     private static string Configure(JsonElement request)
     {
-        var root = request.TryGetProperty("root", out var r) ? r.GetString() : null;
-        IslandPaths.RootOverride = root;
+        // "native" is the folder that holds libe_sqlite3.dylib (the bundle's Frameworks).
+        if (request.TryGetProperty("native", out var native) && native.GetString() is { Length: > 0 } nativeFolder) NativeResolver.Use(nativeFolder);
+        if (request.TryGetProperty("root", out var r)) IslandPaths.RootOverride = r.GetString();
         // "cache" keeps the caches elsewhere while the home stays real (the diagnostic).
         if (request.TryGetProperty("cache", out var c)) IslandPaths.CacheDirOverride = c.GetString() is { Length: > 0 } cache ? cache : null;
         return Write(json => json.WriteBoolean("rooted", IslandPaths.RootOverride is not null));
@@ -186,7 +187,8 @@ public static class BridgeApi
         }
         catch (Exception error)
         {
-            return "failed: " + error.GetType().Name;
+            var inner = error.InnerException;
+            return "failed: " + error.GetType().Name + (inner is null ? "" : " / " + inner.GetType().Name + ": " + inner.Message);
         }
     }
 

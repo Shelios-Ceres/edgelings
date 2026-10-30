@@ -28,6 +28,9 @@ final class AppController {
     private init() {
         bridge = CoreBridge(libraryPath: AppController.libraryPath())
         if bridge == nil { NSLog("Edgelings: Core library did not load") }
+        // The bundled SQLite lives beside the Core dylib; Core is told where.
+        let folder = URL(fileURLWithPath: AppController.libraryPath()).deletingLastPathComponent().path
+        bridge?.request("configure", ["native": folder])
     }
 
     /// Frameworks/ in the bundle, else next to the executable (a loose build).
