@@ -35,6 +35,7 @@ enum RenderMode {
                 save(snapshot(bubbles(palette: palette), dark: dark), "bubbles-\(tag).png")
             }
         }
+        RenderSettings.run(into: url, save: save)
         NSLog("render: wrote \(written) images to \(folder)")
     }
 

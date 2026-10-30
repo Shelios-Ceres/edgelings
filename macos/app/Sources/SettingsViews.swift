@@ -28,19 +28,27 @@ struct SettingsRoot: View {
             .padding(12).frame(width: 190)
             .background(palette.color("Layer"))
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    switch store.page {
-                    case .agents: AgentsPage(store: store)
-                    case .drawer: DrawerPage(store: store)
-                    case .usage: UsagePage(store: store)
-                    case .general: GeneralPage(store: store)
-                    }
-                }
-                .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                SettingsPageBody(store: store)
+                    .padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(palette.color("Desk"))
         }
         .frame(minWidth: 760, minHeight: 560)
+    }
+}
+
+struct SettingsPageBody: View {
+    @ObservedObject var store: SettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch store.page {
+            case .agents: AgentsPage(store: store)
+            case .drawer: DrawerPage(store: store)
+            case .usage: UsagePage(store: store)
+            case .general: GeneralPage(store: store)
+            }
+        }
     }
 }
 
