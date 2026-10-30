@@ -3,6 +3,7 @@
 // third of a tick-ish step and drawn with the drawer's own painter. Each row
 // is a frame of the film, left to right, three characters in a column.
 import AppKit
+import SwiftUI
 
 enum RenderFilm {
     @MainActor
