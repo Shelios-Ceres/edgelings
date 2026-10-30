@@ -60,6 +60,14 @@ jobs:
           head -60 out/smoke.log
           [ "$status" = ok ]
 
+      - name: Diagnostic from the bundle (the whole path, SQLite included)
+        timeout-minutes: 3
+        run: |
+          export EDGELINGS_ROOT="$RUNNER_TEMP/diag-root"
+          mkdir -p "$EDGELINGS_ROOT"
+          out/app/Edgelings.app/Contents/MacOS/Edgelings --diagnose | tee out/diagnose.txt
+          grep -q "SQLite: ok" out/diagnose.txt
+
       - name: Render every screen offscreen (synthetic data)
         run: |
           mkdir -p out/renders
@@ -93,3 +101,4 @@ jobs:
             aot-arm64.log
             out/smoke.log
             out/render.log
+            out/diagnose.txt

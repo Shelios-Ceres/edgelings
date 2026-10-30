@@ -122,6 +122,7 @@ public static class BridgeApi
             json.WriteString("os", System.Runtime.InteropServices.RuntimeInformation.OSDescription);
             json.WriteString("arch", System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString());
             json.WriteNumber("windowsReported", MacWindowReport.ReportedCount());
+            json.WriteString("sqlite", SqliteProbe());
             json.WriteStartObject("agents");
             foreach (var tool in Enum.GetValues<TriggerTool>())
             {
@@ -170,6 +171,23 @@ public static class BridgeApi
                 json.WriteEndObject();
             }
         });
+    }
+
+    /// Whether the bundled SQLite loads (Cursor's database needs it).
+    private static string SqliteProbe()
+    {
+        try
+        {
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "select sqlite_version()";
+            return command.ExecuteScalar() is string version ? "ok " + version : "no answer";
+        }
+        catch (Exception error)
+        {
+            return "failed: " + error.GetType().Name;
+        }
     }
 
     private static IEnumerable<(string Name, Func<int, List<TokenEvent>> Scan)> Readers()

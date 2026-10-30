@@ -17,6 +17,7 @@ enum DiagnosticReport {
         var lines = ["Edgelings diagnostic (ids, counts and states only)"]
         if let error = report["error"] { return lines.joined(separator: "\n") + "\nCore answered with an error: \(value(error))" }
         lines.append("System: \(value(report["os"])), \(value(report["arch"]))")
+        lines.append("SQLite: \(value(report["sqlite"]))")
         lines.append("Windows reported by Swift: \(value(report["windowsReported"])) app(s)")
         let agents = report["agents"] as? [String: Any] ?? [:]
         for name in agents.keys.sorted() {
