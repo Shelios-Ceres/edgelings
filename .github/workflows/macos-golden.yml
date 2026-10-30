@@ -1,0 +1,35 @@
+# Mac port, stage 0: the character engines on JavaScriptCore, drawn with Core
+# Graphics, against the frames Windows makes with V8 and Win2D (macos/golden/frames).
+name: macOS golden frames
+
+on:
+  push:
+    branches: ["mac/**"]
+    paths:
+      - "macos/golden/**"
+      - "windows/src/AgentIsland.WinUI/Drawer/Characters/**"
+      - ".github/workflows/macos-golden.yml"
+  workflow_dispatch:
+
+jobs:
+  golden:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: swiftc -O macos/golden/*.swift -o golden
+
+      - name: Compare
+        run: |
+          mkdir -p out
+          ./golden macos/golden/frames windows/src/AgentIsland.WinUI/Drawer/Characters out/golden | tee golden-summary.txt
+          { echo '```'; cat golden-summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: golden-frames
+          path: |
+            out/golden
+            golden-summary.txt

@@ -115,6 +115,8 @@ internal static class DebugHooks
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_MENU_FILM") is { Length: > 0 } menuFilm) drawer.DebugMenuFilm(menuFilm);
         // AGENTISLAND_DEBUG_DRAWER_MOMENTS=1: every drawer moment, live.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_DRAWER_MOMENTS") == "1") drawer.DebugMoments();
+        // AGENTISLAND_DEBUG_GOLDEN=<dir>: the Mac port's reference frames (GoldenFrames).
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_GOLDEN") is { Length: > 0 } golden) _ = GoldenFrames.WriteAsync(golden);
         // AGENTISLAND_DEBUG_BUBBLE=all|<n>: open the hover card.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_BUBBLE") is { Length: > 0 } bubble)
         {
