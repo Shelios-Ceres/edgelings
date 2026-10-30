@@ -99,6 +99,10 @@ struct KitToggle: View {
                 }
             }
             .buttonStyle(.plain)
+        } else if RenderFlags.offscreen {
+            Capsule().fill(isOn ? store.palette.color("Accent") : store.palette.color("Field"))
+                .frame(width: 38, height: 22)
+                .overlay(Circle().fill(Color.white).padding(2), alignment: isOn ? .trailing : .leading)
         } else {
             Toggle("", isOn: Binding(get: { isOn }, set: { change($0) })).toggleStyle(.switch).labelsHidden()
         }

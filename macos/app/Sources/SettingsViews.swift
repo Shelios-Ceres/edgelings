@@ -349,7 +349,11 @@ struct GeneralPage: View {
             Text(store.t("Thanks")).font(Kit(store: store).strong(12)).foregroundColor(store.palette.color("Text")).padding(.top, 6)
             Text("Agent Island").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text"))
             Text(store.t("The original app, by {0} · MIT License", "Tristan Tang")).font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text2"))
-            Link("github.com/tristan666666/agent-island", destination: URL(string: "https://github.com/tristan666666/agent-island")!).font(Kit(store: store).body(12))
+            if RenderFlags.offscreen {
+                Text("github.com/tristan666666/agent-island").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Accent"))
+            } else {
+                Link("github.com/tristan666666/agent-island", destination: URL(string: "https://github.com/tristan666666/agent-island")!).font(Kit(store: store).body(12))
+            }
             Text("Ark Pixel").font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text")).padding(.top, 4)
             Text(store.t("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf")).font(Kit(store: store).body(12)).foregroundColor(store.palette.color("Text2"))
             HStack(spacing: 8) {
