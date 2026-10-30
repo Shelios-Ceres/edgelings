@@ -84,6 +84,7 @@ jobs:
       - name: Real-screen check (launch the app, drive it with real input, measure CPU)
         timeout-minutes: 15
         run: |
+          set -o pipefail
           swiftc -O macos/app/uitest/main.swift -o out/edgelings-uitest
           ROOT="$RUNNER_TEMP/uitest-root"
           mkdir -p "$ROOT/home"

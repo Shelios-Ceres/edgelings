@@ -94,6 +94,7 @@ final class DrawerController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.isMovable = false
+        panel.acceptsMouseMovedEvents = true
         panel.isReleasedWhenClosed = false
         panel.title = "Edgelings"
         view.controller = self
@@ -326,6 +327,9 @@ final class DrawerController {
             slot.nextStep = now - slot.nextStep > interval ? now + interval : slot.nextStep + interval
         }
         pointerNear = anyNear
+        // The pointer resting on a character opens its card even where the
+        // window server sent no mouse-moved event (a non-activating panel).
+        if pressed == nil, panel.frame.contains(pointer) { pointerMoved(pointerInView()) }
         let frames = engine.tick(dts, size: Double(Metrics.botSize))
         for index in due where index < frames.count {
             guard let produced = frames[index] else { continue }
