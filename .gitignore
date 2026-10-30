@@ -11,6 +11,11 @@ xcuserdata/
 .swiftpm/
 .superpowers/
 
+# .NET build output anywhere in the tree. windows/.gitignore covers windows/;
+# the Mac bridge projects under macos/ build on Windows too.
+bin/
+obj/
+
 # Marketing landing page lives in its own git repo.
 landing/
 landing.zip
