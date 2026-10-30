@@ -72,9 +72,9 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 .\windows\build.ps1
 ```
 
-最后一条命令发布一个自包含的版本,并打成 `windows\dist\AgentIsland-<version>-win-x64.zip`。解压后运行 `AgentIsland.WinUI.exe`。
+最后一条命令发布一个自包含的版本,并打成 `windows\dist\Edgelings-<version>-win-x64.zip`。解压后运行 `Edgelings.exe`。
 
-每次改到 Windows 代码的推送,都会在 GitHub Actions 里构建一个测试包,也可以在 Actions 页面手动运行:打开对应的运行记录,在 Artifacts 下下载 `AgentIsland-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
+每次改到 Windows 代码的推送,都会在 GitHub Actions 里构建一个测试包,也可以在 Actions 页面手动运行:打开对应的运行记录,在 Artifacts 下下载 `Edgelings-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
 
 应用本身目前仍叫 Agent Island。代码在 `windows/` 下:`AgentIsland.Core` 是界面以下的全部逻辑(扫描、用量、费用),`AgentIsland.WinUI` 是应用本体。目录说明见 [windows/README.md](windows/README.md),抽屉的设计笔记见 [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md)。
 

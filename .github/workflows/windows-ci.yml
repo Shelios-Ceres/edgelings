@@ -53,6 +53,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AgentIsland-win-x64-test
-          path: windows/dist/AgentIsland-*.zip
+          name: Edgelings-win-x64-test
+          path: windows/dist/Edgelings-*.zip
           if-no-files-found: error

@@ -33,7 +33,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentIsland.Tests" />
-    <InternalsVisibleTo Include="AgentIsland.WinUI" />
+    <InternalsVisibleTo Include="Edgelings" />
   </ItemGroup>
 
 </Project>

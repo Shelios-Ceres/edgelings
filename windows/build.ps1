@@ -1,4 +1,4 @@
-# Agent Island for Windows — release build.
+# Edgelings for Windows — release build.
 # Publishes the WinUI app (self-contained, unpackaged, x64) and zips it under dist\.
 # -Version comes from the shared VERSION file at release time (CI passes it);
 # the csproj version is only a dev fallback.
@@ -24,10 +24,10 @@ if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
     -o $publishDir
 if ($LASTEXITCODE -ne 0) { throw "publish failed" }
 
-$exe = Join-Path $publishDir "AgentIsland.WinUI.exe"
+$exe = Join-Path $publishDir "Edgelings.exe"
 if (-not (Test-Path $exe)) { throw "publish did not produce $exe" }
 
-$zip = "dist\AgentIsland-$version-win-x64.zip"
+$zip = "dist\Edgelings-$version-win-x64.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$publishDir\*" -DestinationPath $zip
 

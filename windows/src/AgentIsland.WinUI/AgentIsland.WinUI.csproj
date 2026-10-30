@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Agent Island on WinUI 3 (Windows App SDK, unpackaged, self-contained).
+  <!-- Edgelings on WinUI 3 (Windows App SDK, unpackaged, self-contained).
        The drawer draws its characters with Win2D on its own vsync loop; the
        settings, cost and report windows are native WinUI. Everything below
        the UI comes from AgentIsland.Core. -->
@@ -9,7 +9,10 @@
     <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AgentIsland.WinUI</RootNamespace>
-    <AssemblyName>AgentIsland.WinUI</AssemblyName>
+    <AssemblyName>Edgelings</AssemblyName>
+    <Product>Edgelings</Product>
+    <AssemblyTitle>Edgelings</AssemblyTitle>
+    <Description>Little bots at the edge of your screen that watch your AI coding agents</Description>
     <Version>2.1.2</Version>
     <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -52,7 +55,7 @@
        Add them from the build output. -->
   <Target Name="IncludeXamlInPublish" AfterTargets="ComputeResolvedFilesToPublishList">
     <ItemGroup>
-      <_XamlOutput Include="$(OutDir)AgentIsland.WinUI.pri;$(OutDir)**\*.xbf" />
+      <_XamlOutput Include="$(OutDir)$(AssemblyName).pri;$(OutDir)**\*.xbf" />
       <ResolvedFileToPublish Include="@(_XamlOutput)" RelativePath="$([MSBuild]::MakeRelative('$(OutDir)', '%(_XamlOutput.FullPath)'))" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>

@@ -444,7 +444,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   proves the pixels are unchanged. Review frames rendered headlessly from a
   dev page, never by capturing your desktop.
 - **Unit tests.** `dotnet run` in `windows/tests/AgentIsland.Tests`.
-- **In the app.** Launch `AgentIsland.WinUI.exe` with:
+- **In the app.** Launch `Edgelings.exe` with:
 
   | Variable | Effect |
   |---|---|

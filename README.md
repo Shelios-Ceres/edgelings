@@ -72,9 +72,9 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 .\windows\build.ps1
 ```
 
-The last command publishes a self-contained build and zips it as `windows\dist\AgentIsland-<version>-win-x64.zip`. Unzip it and run `AgentIsland.WinUI.exe`.
+The last command publishes a self-contained build and zips it as `windows\dist\Edgelings-<version>-win-x64.zip`. Unzip it and run `Edgelings.exe`.
 
-Every push that changes the Windows code also builds a test package in GitHub Actions, and the workflow can be run by hand from the Actions tab: open the run and download `AgentIsland-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
+Every push that changes the Windows code also builds a test package in GitHub Actions, and the workflow can be run by hand from the Actions tab: open the run and download `Edgelings-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
 
 The app's own name is still "Agent Island" for now. Its code lives under `windows/`: `AgentIsland.Core` holds everything below the UI (scanning, usage, cost) and `AgentIsland.WinUI` the app. [windows/README.md](windows/README.md) has the layout and [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md) the design notes for the drawer.
 

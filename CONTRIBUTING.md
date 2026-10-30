@@ -25,7 +25,7 @@ dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -
 dotnet run --project windows/tests/AgentIsland.Tests -c Release
 ```
 
-The test runner ends with `ALL GREEN`. `windows\build.ps1` publishes a self-contained build and zips it as `windows\dist\AgentIsland-<version>-win-x64.zip`; unzip it and run `AgentIsland.WinUI.exe`. The app is still called Agent Island inside the code. [windows/README.md](windows/README.md) has the layout.
+The test runner ends with `ALL GREEN`. `windows\build.ps1` publishes a self-contained build and zips it as `windows\dist\Edgelings-<version>-win-x64.zip`; unzip it and run `Edgelings.exe`. The app is still called Agent Island inside the code. [windows/README.md](windows/README.md) has the layout.
 
 Tests must pass on any machine. The CI runner is en-US and UTC, and yours probably isn't:
 

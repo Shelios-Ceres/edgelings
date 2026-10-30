@@ -22,8 +22,8 @@ dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Debug
 dotnet run --project windows/tests/AgentIsland.Tests -c Debug
 ```
 
-`windows\build.ps1` builds the release zip, `windows\dist\AgentIsland-<version>-win-x64.zip`. `-Version` takes the version to stamp on the build; without it the csproj's version is used. See [CONTRIBUTING.md](../CONTRIBUTING.md#windows) for the rules the tests follow.
+`windows\build.ps1` builds the release zip, `windows\dist\Edgelings-<version>-win-x64.zip`. `-Version` takes the version to stamp on the build; without it the csproj's version is used. See [CONTRIBUTING.md](../CONTRIBUTING.md#windows) for the rules the tests follow.
 
 ## Get it
 
-There are no Edgelings releases yet. Build it from source as above, or take a test package: every push that changes `windows/` is built by GitHub Actions, and the workflow can be run by hand from the Actions tab. Open the run and download `AgentIsland-win-x64-test` under Artifacts (you need to be signed in to GitHub). Unzip it and run `AgentIsland.WinUI.exe`. The builds are not code-signed.
+There are no Edgelings releases yet. Build it from source as above, or take a test package: every push that changes `windows/` is built by GitHub Actions, and the workflow can be run by hand from the Actions tab. Open the run and download `Edgelings-win-x64-test` under Artifacts (you need to be signed in to GitHub). Unzip it and run `Edgelings.exe`. The builds are not code-signed.
