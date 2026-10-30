@@ -1,6 +1,6 @@
-# Agent Island for Windows
+# Edgelings for Windows
 
-The Windows app: a drawer of agent characters at the edge of your screen, a hover card per agent, a Settings window, a Usage & cost page and a tray icon. It ships from the same tag as the macOS app (see the repository's [CONTRIBUTING.md](../CONTRIBUTING.md#windows) for setup).
+The Windows app: a drawer of agent characters at the edge of your screen, a hover card per agent, a Settings window, a Usage & cost page and a tray icon. The app, its folders and its exe are still called Agent Island for now. For what it does, see the [root README](../README.md).
 
 ## Layout
 
@@ -22,8 +22,8 @@ dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Debug
 dotnet run --project windows/tests/AgentIsland.Tests -c Debug
 ```
 
-`windows\build.ps1` builds the release zip, `windows\dist\AgentIsland-<version>-win-x64.zip`. `-Version` takes the shared `VERSION` file's value at release time; the csproj version is only a fallback for local builds.
+`windows\build.ps1` builds the release zip, `windows\dist\AgentIsland-<version>-win-x64.zip`. `-Version` takes the version to stamp on the build; without it the csproj's version is used. See [CONTRIBUTING.md](../CONTRIBUTING.md#windows) for the rules the tests follow.
 
-## Download
+## Get it
 
-https://github.com/tristan666666/agent-island/releases/latest (`AgentIsland-<version>-win-x64.zip`). Unzip it and run `AgentIsland.WinUI.exe`.
+There are no Edgelings releases yet. Build it from source as above, or take a test package: every push that changes `windows/` is built by GitHub Actions, and the workflow can be run by hand from the Actions tab. Open the run and download `AgentIsland-win-x64-test` under Artifacts (you need to be signed in to GitHub). Unzip it and run `AgentIsland.WinUI.exe`. The builds are not code-signed.
