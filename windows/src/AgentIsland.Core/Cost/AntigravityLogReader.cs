@@ -64,7 +64,7 @@ public static class AntigravityLogReader
     {
         var servers = AntigravityLiveCascades.Servers(DateTimeOffset.Now);
         if (servers.Count == 0) return new AntigravityModelMap.Generations(false, null);
-        var body = JsonSerializer.Serialize(new { cascadeId = conversation });
+        var body = "{\"cascadeId\":" + JsonSerializer.Serialize(conversation, CoreJson.Default.String) + "}";
         foreach (var (port, token) in servers)
         {
             var reply = AntigravityLanguageServer.Call("GetCascadeTrajectoryGeneratorMetadata", port, body, token)

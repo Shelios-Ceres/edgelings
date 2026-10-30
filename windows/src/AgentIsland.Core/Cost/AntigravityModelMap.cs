@@ -118,7 +118,7 @@ internal sealed class AntigravityModelMap
         _models = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         try
         {
-            if (File.Exists(_path) && JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(File.ReadAllText(_path)) is { } saved)
+            if (File.Exists(_path) && JsonSerializer.Deserialize(File.ReadAllText(_path), CoreJson.Default.ModelMaps) is { } saved)
             {
                 foreach (var (id, models) in saved) _models[id] = new Dictionary<string, string>(models, StringComparer.Ordinal);
             }
@@ -137,7 +137,7 @@ internal sealed class AntigravityModelMap
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             tmp = _path + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(tmp, JsonSerializer.Serialize(_models));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(_models, CoreJson.Default.ModelMaps));
             File.Move(tmp, _path, overwrite: true);
         }
         catch

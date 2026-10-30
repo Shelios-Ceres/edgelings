@@ -378,7 +378,7 @@ public static class ClaudeCredentials
                 ["grant_type"] = "refresh_token",
                 ["refresh_token"] = refreshToken,
                 ["client_id"] = OauthClientId,
-            });
+            }, CoreJson.Default.StringMap);
             request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             using var response = await Http.Client.SendAsync(request);
             return RefreshResultFor((int)response.StatusCode, await response.Content.ReadAsByteArrayAsync(), DateTimeOffset.UtcNow);

@@ -10,7 +10,7 @@ namespace AgentIsland.Cost;
 /// %LOCALAPPDATA%\AgentIsland\cache.
 public sealed class LogParseCache
 {
-    private sealed record EventDto(
+    internal sealed record EventDto(
         long Ts, string Model, long In, long Out, long Cc, long Cr,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResponseKey = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool IsFinalUsage = false)
@@ -20,7 +20,7 @@ public sealed class LogParseCache
         public string Model { get; init; } = string.Intern(Model);
     }
 
-    private sealed record Entry(long MtimeTicks, long Size, List<EventDto> Events);
+    internal sealed record Entry(long MtimeTicks, long Size, List<EventDto> Events);
 
     private readonly string _cachePath;
     private readonly TriggerTool _provider;
@@ -155,7 +155,7 @@ public sealed class LogParseCache
             // Streamed both ways: a year of one agent's events is tens of MB
             // of JSON, which as one string would be twice that again.
             using var stream = SharedFile.Open(_cachePath);
-            if (JsonSerializer.Deserialize<Dictionary<string, Entry>>(stream) is { } saved)
+            if (JsonSerializer.Deserialize(stream, CoreJson.Default.ParseCache) is { } saved)
             {
                 // The deserializer's dictionary compares case-sensitively; a
                 // path in other casing would miss its entry and add a twin.
@@ -179,7 +179,7 @@ public sealed class LogParseCache
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
             tmp = _cachePath + ".tmp-" + Guid.NewGuid().ToString("N");
-            using (var stream = File.Create(tmp)) JsonSerializer.Serialize(stream, _entries);
+            using (var stream = File.Create(tmp)) JsonSerializer.Serialize(stream, _entries, CoreJson.Default.ParseCache);
             File.Move(tmp, _cachePath, overwrite: true);
         }
         catch
