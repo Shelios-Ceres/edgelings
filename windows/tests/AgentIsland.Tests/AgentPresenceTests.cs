@@ -174,13 +174,7 @@ public static class AgentPresenceTests
             }),
             ("on a Mac the live process table lists this process, with its arguments", () =>
             {
-                if (!OperatingSystem.IsMacOS()) return;
-                var entries = MacProcesses.Snapshot();
-                var me = entries.FirstOrDefault(e => e.Id == Environment.ProcessId) ?? throw new Exception("this process is not in the table");
-                if (me.ParentId <= 0 || me.Name.Length == 0 || string.IsNullOrEmpty(me.Path)) throw new Exception($"incomplete: {me.ParentId} {me.Name}");
-                var arguments = MacProcesses.CommandLine(Environment.ProcessId);
-                if (arguments is null || !arguments.Contains("AgentIsland.Tests", StringComparison.Ordinal)) throw new Exception("arguments: " + arguments);
-                if (!AgentPresences.Now().ContainsKey(TriggerTool.Claude)) throw new Exception("presence reads every agent");
+                if (OperatingSystem.IsMacOS()) LiveMacTable();
             }),
             ("a CLI under a desktop app in the tray stays in the tray beside a terminal", () => Expect(TriggerTool.Claude, AgentPresence.Hidden,
                 new[] { Explorer, new Running(10, 1, "claude"), new Running(11, 10, "claude"), new Running(61, 1, "WindowsTerminal") },
@@ -212,6 +206,17 @@ public static class AgentPresenceTests
     /// A CLI in Windows Terminal: the shell is the terminal's child.
     private static Running[] Terminal(string cli) =>
         new[] { Explorer, new Running(18, 1, "WindowsTerminal"), new Running(19, 18, "pwsh"), new Running(20, 19, cli) };
+
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static void LiveMacTable()
+    {
+        var entries = MacProcesses.Snapshot();
+        var me = entries.FirstOrDefault(e => e.Id == Environment.ProcessId) ?? throw new Exception("this process is not in the table");
+        if (me.ParentId <= 0 || me.Name.Length == 0 || string.IsNullOrEmpty(me.Path)) throw new Exception($"incomplete: {me.ParentId} {me.Name}");
+        var arguments = MacProcesses.CommandLine(Environment.ProcessId);
+        if (arguments is null || !arguments.Contains("AgentIsland.Tests", StringComparison.Ordinal)) throw new Exception("arguments: " + arguments);
+        if (!AgentPresences.Now().ContainsKey(TriggerTool.Claude)) throw new Exception("presence reads every agent");
+    }
 
     /// A CLI in Terminal on a Mac: launchd, the Dock beside it, Terminal (which owns the windows), login and the shell.
     private static Running[] MacTerminal(string cli) =>

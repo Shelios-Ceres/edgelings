@@ -48,12 +48,15 @@ public static class CodexLogReader
     internal static List<string> DropCompressedTwins(List<string> files)
     {
         var plain = new HashSet<string>(
-            files.Where(path => !IsCompressed(path)).Select(Path.GetFileName)!,
+            files.Where(path => !IsCompressed(path)).Select(FileNameOf),
             StringComparer.OrdinalIgnoreCase);
         return files
-            .Where(path => !IsCompressed(path) || !plain.Contains(Path.GetFileName(path)[..^".zst".Length]))
+            .Where(path => !IsCompressed(path) || !plain.Contains(FileNameOf(path)[..^".zst".Length]))
             .ToList();
     }
+
+    /// The last segment, split on either separator.
+    private static string FileNameOf(string path) => path[(path.LastIndexOfAny(new[] { '/', '\\' }) + 1)..];
 
     private static bool IsCompressed(string path) => path.EndsWith(".zst", StringComparison.OrdinalIgnoreCase);
 
