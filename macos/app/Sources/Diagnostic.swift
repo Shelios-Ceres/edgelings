@@ -85,6 +85,10 @@ enum SelfTest {
         check("usage decode", usage != nil, "\(usage?.agents.count ?? 0) agents")
         let looks = LooksModel.from(bridge.request("looks", ["id": "claude", "theme": "pixel"]))
         check("looks decode", (looks?.looks.count ?? 0) > 0)
+        for theme in ["pixel", "classic"] {
+            let reply = bridge.request("looks", ["id": "antigravity", "theme": theme, "english": theme == "pixel"])
+            check("looks in the \(theme) set (english flag)", (LooksModel.from(reply)?.looks.count ?? 0) > 1, (reply["error"] as? String) ?? "")
+        }
         let table = bridge.request("tr", ["keys": UIStrings.keys, "english": true])["strings"] as? [String: String]
         check("strings", (table?.count ?? 0) == Set(UIStrings.keys).count, "\(table?.count ?? 0) of \(Set(UIStrings.keys).count)")
         for theme in ["pixel", "classic"] {
