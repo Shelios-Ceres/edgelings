@@ -9,7 +9,7 @@ The Mac app will be a native Swift UI over the shared C# Core (`windows/src/Agen
 | `bridge/` | How Swift calls Core. **A1** is a NativeAOT dylib (`Aot/`, C exports `ai_call` and `ai_free`); **A2** is a self-contained helper process (`Helper/`, one JSON request per line on stdin). Both answer the same requests through `Shared/BridgeApi.cs`. `swift/bench.swift` calls each and prints size, cold start, scan times and memory; `make-fixture.py` writes the synthetic Kimi Code data they scan. |
 | `golden/` | The character engines on JavaScriptCore (`JSCEngine.swift`), drawn with Core Graphics (`SvgCanvas.swift`, a port of `SvgCanvas.cs`), compared with frames Windows made with V8 and Win2D (`frames/`). |
 
-CI (all on `macos-14`, on `mac/**` pushes): `macOS Core` runs the Core test suite (Windows-only suites are skipped by name and listed in the log), `macOS bridge` builds and measures A1 and A2, `macOS golden frames` runs the drawing check.
+CI (all on `macos-15`, on `mac/**` pushes): `macOS Core` runs the Core test suite (Windows-only suites are skipped by name and listed in the log), `macOS bridge` builds and measures A1 and A2, `macOS golden frames` runs the drawing check.
 
 ## Regenerating the golden frames
 
