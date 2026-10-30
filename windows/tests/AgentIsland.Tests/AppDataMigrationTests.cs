@@ -154,11 +154,13 @@ public static class AppDataMigrationTests
         var legacy = IslandPaths.LegacyAppSupportDir;
         Expect(Path.GetFileName(legacy), "AgentIsland");
         Expect(Path.GetFileName(IslandPaths.AppSupportDir), "Edgelings");
-        Expect(ClaudeHooks.SignalDirectory, Path.Combine(legacy, "claude-hooks"));
-        Expect(GrokHooks.Signals, Path.Combine(legacy, "grok-hooks"));
-        Expect(GrokHooks.Scripts, legacy);
+        // Windows keeps the hooks in Agent Island's folder; a Mac install never had one.
+        var hooks = OperatingSystem.IsMacOS() ? IslandPaths.AppSupportDir : legacy;
+        Expect(ClaudeHooks.SignalDirectory, Path.Combine(hooks, "claude-hooks"));
+        Expect(GrokHooks.Signals, Path.Combine(hooks, "grok-hooks"));
+        Expect(GrokHooks.Scripts, hooks);
         // Settings and caches moved; the hooks did not.
         Expect(IslandPaths.SettingsFile, Path.Combine(IslandPaths.AppSupportDir, "settings.json"));
-        Expect(Path.GetFileName(Path.GetDirectoryName(IslandPaths.CacheDir)), "Edgelings");
+        Expect(Path.GetFileName(OperatingSystem.IsMacOS() ? IslandPaths.CacheDir : Path.GetDirectoryName(IslandPaths.CacheDir)), "Edgelings");
     }
 }

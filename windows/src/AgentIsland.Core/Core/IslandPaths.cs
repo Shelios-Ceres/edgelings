@@ -61,13 +61,13 @@ public static class IslandPaths
     /// behind. The old folder comes first, so a session found in both is read
     /// from the new one. Looked up on every call: the move can happen while
     /// the app runs.
-    public static IReadOnlyList<string> ClaudeDesktopDataRoots => ClaudeDesktopDataRootsUnder(RoamingAppData, LocalAppData);
+    public static IReadOnlyList<string> ClaudeDesktopDataRoots =>
+        // The move to Claude-Data is Windows' (a packaged app); macOS keeps ~/Library/Application Support/Claude.
+        OperatingSystem.IsMacOS() ? new[] { Path.Combine(RoamingAppData, "Claude") } : ClaudeDesktopDataRootsUnder(RoamingAppData, LocalAppData);
 
     internal static IReadOnlyList<string> ClaudeDesktopDataRootsUnder(string roaming, string local)
     {
         var roots = new List<string> { Path.Combine(roaming, "Claude") };
-        // The move to Claude-Data is Windows' (a packaged app); macOS keeps ~/Library/Application Support/Claude.
-        if (OperatingSystem.IsMacOS()) return roots;
         try
         {
             var moved = Path.Combine(local, "Claude-Data");

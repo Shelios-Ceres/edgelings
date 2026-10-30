@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using AgentIsland.Core;
 
 namespace AgentIsland.Usage;
 
@@ -81,7 +82,7 @@ public static class AntigravityLanguageServer
     /// refresh tick would fork twice a minute for the life of the app.
     public static async Task<int?> Discover()
     {
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
         var cached = _cachedPort;
         var cachedPid = _cachedPid;
         // Still the same server's port: one Antigravity let go of can be taken
@@ -142,7 +143,7 @@ public static class AntigravityLanguageServer
 
     public static List<int> AntigravityProcessIds()
     {
-        if (!OperatingSystem.IsWindows()) return new List<int>();
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return new List<int>();
         var ids = new List<int>();
         var processes = Processes();
         var names = new Dictionary<int, string>();
@@ -161,6 +162,10 @@ public static class AntigravityLanguageServer
     /// the system won't give a snapshot.
     internal static List<(int Id, int ParentId, string Name)> Processes()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            return MacProcesses.Snapshot().Select(e => (e.Id, e.ParentId, e.Name)).ToList();
+        }
         if (!OperatingSystem.IsWindows()) return new List<(int Id, int ParentId, string Name)>();
         var list = new List<(int, int, string)>();
         var snapshot = CreateToolhelp32Snapshot(SnapProcess, 0);
@@ -182,6 +187,7 @@ public static class AntigravityLanguageServer
 
     private static string? ImagePath(int id)
     {
+        if (OperatingSystem.IsMacOS()) return MacProcesses.Snapshot().FirstOrDefault(e => e.Id == id)?.Path;
         var process = OpenProcess(QueryLimitedInformation, false, (uint)id);
         if (process == IntPtr.Zero) return null;
         try
@@ -260,7 +266,7 @@ public static class AntigravityLanguageServer
 
     public static List<int> ListeningPorts(int pid)
     {
-        if (!OperatingSystem.IsWindows()) return new List<int>();
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return new List<int>();
         var ports = new List<int>();
         foreach (var (owner, port) in Listeners())
         {
@@ -272,7 +278,7 @@ public static class AntigravityLanguageServer
     /// The process listening on a loopback port, if any.
     internal static int? PortOwner(int port)
     {
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
         foreach (var (owner, listening) in Listeners())
         {
             if (listening == port) return owner;
@@ -282,6 +288,15 @@ public static class AntigravityLanguageServer
 
     private static List<(int Pid, int Port)> Listeners()
     {
+        // lsof ships with macOS; its field output (-F) is stable and needs no parsing of columns.
+        if (OperatingSystem.IsMacOS()) return ParseLsof(Output(new ProcessStartInfo
+        {
+            FileName = "/usr/sbin/lsof",
+            Arguments = "-nP -iTCP -sTCP:LISTEN -Fpn",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        }, CommandLineTimeout) ?? "");
         var listeners = new List<(int, int)>();
         var size = 0;
         _ = GetExtendedTcpTable(IntPtr.Zero, ref size, false, AfInet, TcpTableOwnerPidListener, 0);
@@ -312,6 +327,25 @@ public static class AntigravityLanguageServer
         return listeners;
     }
 
+    /// `lsof -Fpn` prints "p<pid>" and then one "n<address>:<port>" per socket.
+    internal static List<(int Pid, int Port)> ParseLsof(string output)
+    {
+        var listeners = new List<(int, int)>();
+        var pid = 0;
+        foreach (var raw in output.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length < 2) continue;
+            if (line[0] == 'p') int.TryParse(line.AsSpan(1), out pid);
+            else if (line[0] == 'n' && pid > 0 && line.LastIndexOf(':') is var colon and > 0
+                && int.TryParse(line.AsSpan(colon + 1), out var port) && port > 0)
+            {
+                listeners.Add((pid, port));
+            }
+        }
+        return listeners;
+    }
+
     // MARK: - CSRF token
 
     private static readonly object TokenGate = new();
@@ -338,7 +372,7 @@ public static class AntigravityLanguageServer
     /// starts PowerShell, so it is read once per process.
     public static string? CsrfToken(int pid)
     {
-        if (!OperatingSystem.IsWindows()) return null;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
         var started = StartTime(pid);
         var now = DateTimeOffset.Now;
         lock (TokenGate)
@@ -380,6 +414,8 @@ public static class AntigravityLanguageServer
 
     private static string? ProcessCommandLine(int pid)
     {
+        // The arguments of a process of the same user; read once per process and never shown or logged.
+        if (OperatingSystem.IsMacOS()) return MacProcesses.CommandLine(pid);
         // WMI without a System.Management dependency: wmic is gone on
         // modern Windows, so query via PowerShell's CIM cmdlet. This runs
         // only on the rare desktop-IDE 401 retry path, never per tick.
