@@ -1,0 +1,115 @@
+{
+ "colors": {
+  "x": "#2B2B33",
+  "v": "#7B5CF0",
+  "e": "#FFFFFF",
+  "o": "#FF6A00"
+ },
+ "grids": {
+  "8": [
+   "....o...",
+   "....x...",
+   "xxxxxxxx",
+   "xvvvvvvx",
+   "xvevvevx",
+   "xvevvevx",
+   "xvvvvvvx",
+   "xxxxxxxx"
+  ],
+  "10": [
+   ".....o....",
+   ".....x....",
+   "xxxxxxxxxx",
+   "xvvvvvvvvx",
+   "xvvvvvvvvx",
+   "xvvevvevvx",
+   "xvvevvevvx",
+   "xvvvvvvvvx",
+   "xvvvvvvvvx",
+   "xxxxxxxxxx"
+  ],
+  "12": [
+   "......o.....",
+   "......x.....",
+   "......x.....",
+   "xxxxxxxxxxxx",
+   "xvvvvvvvvvvx",
+   "xvvvvvvvvvvx",
+   "xvveevveevvx",
+   "xvveevveevvx",
+   "xvveevveevvx",
+   "xvvvvvvvvvvx",
+   "xvvvvvvvvvvx",
+   "xxxxxxxxxxxx"
+  ],
+  "16": [
+   "........oo......",
+   "........oo......",
+   "........x.......",
+   "........x.......",
+   "xxxxxxxxxxxxxxxx",
+   "xvvvvvvvvvvvvvvx",
+   "xvvvvvvvvvvvvvvx",
+   "xvvvvvvvvvvvvvvx",
+   "xvvveevvvveevvvx",
+   "xvvveevvvveevvvx",
+   "xvvveevvvveevvvx",
+   "xvvveevvvveevvvx",
+   "xvvvvvvvvvvvvvvx",
+   "xvvvvvvvvvvvvvvx",
+   "xvvvvvvvvvvvvvvx",
+   "xxxxxxxxxxxxxxxx"
+  ]
+ },
+ "sizes": [
+  {
+   "size": 16,
+   "grid": 8,
+   "scale": 2
+  },
+  {
+   "size": 20,
+   "grid": 10,
+   "scale": 2
+  },
+  {
+   "size": 24,
+   "grid": 8,
+   "scale": 3
+  },
+  {
+   "size": 32,
+   "grid": 8,
+   "scale": 4
+  },
+  {
+   "size": 36,
+   "grid": 12,
+   "scale": 3
+  },
+  {
+   "size": 40,
+   "grid": 10,
+   "scale": 4
+  },
+  {
+   "size": 48,
+   "grid": 12,
+   "scale": 4
+  },
+  {
+   "size": 64,
+   "grid": 16,
+   "scale": 4
+  },
+  {
+   "size": 256,
+   "grid": 16,
+   "scale": 16
+  }
+ ],
+ "logo": {
+  "grid": 10,
+  "cellDip": 2
+ }
+}

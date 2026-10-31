@@ -36,6 +36,8 @@ FONTS="$REPO/windows/src/AgentIsland.WinUI/Assets/Fonts"
 cp "$FONTS"/*.ttf "$FONTS"/*.txt "$APP/Contents/Resources/Fonts/"
 cp "$REPO"/windows/src/AgentIsland.WinUI/Assets/mark-*.png "$APP/Contents/Resources/Marks/"
 
+if [ -n "${EDGELINGS_ICON:-}" ] && [ -f "$REPO/$EDGELINGS_ICON" ]; then cp "$REPO/$EDGELINGS_ICON" "$APP/Contents/Resources/AppIcon.icns"; elif [ -n "${EDGELINGS_ICON:-}" ] && [ -f "$EDGELINGS_ICON" ]; then cp "$EDGELINGS_ICON" "$APP/Contents/Resources/AppIcon.icns"; fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -45,6 +47,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Edgelings</string>
   <key>CFBundleDisplayName</key><string>Edgelings</string>
   <key>CFBundleExecutable</key><string>Edgelings</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>

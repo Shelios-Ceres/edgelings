@@ -41,7 +41,16 @@ jobs:
       - name: Core dylib (x64)
         run: dotnet publish macos/bridge/Aot -c Release -r osx-x64 -o out/aot-x64
 
+      - name: App icon (the Pixel robot head on the macOS plate)
+        run: |
+          swiftc -O macos/app/tools/gen_app_icon.swift -o out/gen-icon
+          out/gen-icon macos/app/tools/robot-head-grids.json out/AppIcon.iconset out/icon
+          iconutil -c icns out/AppIcon.iconset -o out/AppIcon.icns
+          ls -l out/AppIcon.icns out/icon
+
       - name: Build Edgelings.app
+        env:
+          EDGELINGS_ICON: out/AppIcon.icns
         run: |
           ls -l out/aot-arm64 | head -20
           bash macos/app/build-app.sh out/aot-arm64 out/aot-x64 out/app
@@ -95,6 +104,14 @@ jobs:
           system_profiler SPDisplaysDataType > out/uitest/displays.txt 2>&1 || true
           out/edgelings-uitest out/app/Edgelings.app out/uitest "$ROOT" --seconds 60 | tee out/uitest/uitest.txt
 
+      - name: Finder shows the icon (a runner screenshot)
+        continue-on-error: true
+        run: |
+          open -R out/app/Edgelings.app
+          sleep 5
+          screencapture -x out/uitest/finder-icon.png || true
+          osascript -e 'tell application "Finder" to close every window' || true
+
       - name: Friend's package
         run: |
           mkdir -p out/package
@@ -107,6 +124,12 @@ jobs:
           name: Edgelings-macos-test
           path: out/package
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Edgelings-app-icon
+          path: out/icon
 
       - uses: actions/upload-artifact@v4
         if: always()
