@@ -86,6 +86,12 @@ jobs:
           mkdir -p "$EDGELINGS_ROOT"
           out/app/Edgelings.app/Contents/MacOS/Edgelings --self-test | tee out/selftest.txt
 
+      - name: Loop cost at 2x (7 characters, stage by stage; fails past the bounds)
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --bench-loop --scale 2 --max-busy 1000 --max-calm 1000 | tee out/bench-loop.txt
+
       - name: Render every screen offscreen (synthetic data)
         run: |
           mkdir -p out/renders
@@ -116,7 +122,7 @@ jobs:
         run: |
           mkdir -p out/package
           ditto -c -k --keepParent out/app/Edgelings.app out/package/Edgelings-macos-test.zip
-          cp macos/app/HOW-TO-TEST.md out/package/HOW-TO-TEST.md
+          cp macos/app/HOW-TO-TEST.md macos/app/PROBE.md macos/app/CHECKLIST.md out/package/
           ls -l out/package
 
       - uses: actions/upload-artifact@v4
@@ -135,7 +141,9 @@ jobs:
         if: always()
         with:
           name: Edgelings-real-screen
-          path: out/uitest
+          path: |
+            out/uitest
+            out/bench-loop.txt
 
       - uses: actions/upload-artifact@v4
         if: always()

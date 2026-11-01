@@ -224,8 +224,13 @@ struct GeneralPage: View {
         }
         SectionLabel(store: store, text: store.t("About"))
         VStack(alignment: .leading, spacing: 8) {
-            SkinText(pixel: store.skin == .pixel, text: "Edgelings", pixelSize: 15, size: 15, weight: .semibold, color: store.palette.color("Text"))
-            SkinText(pixel: store.skin == .pixel, text: "Mac test build", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
+            HStack(spacing: 12) {
+                Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high).frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 2) {
+                    SkinText(pixel: store.skin == .pixel, text: "Edgelings", pixelSize: 15, size: 15, weight: .semibold, color: store.palette.color("Text"))
+                    SkinText(pixel: store.skin == .pixel, text: "Mac test build", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
+                }
+            }
             SkinText(pixel: store.skin == .pixel, text: store.t("Thanks"), pixelSize: 12, size: 12, weight: .semibold, color: store.palette.color("Text")).padding(.top, 6)
             SkinText(pixel: store.skin == .pixel, text: "Agent Island", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text"))
             SkinText(pixel: store.skin == .pixel, text: store.t("The original app, by {0} · MIT License", "Tristan Tang"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
