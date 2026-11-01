@@ -52,6 +52,45 @@ public static class CursorLogReader
         return output.ToList();
     }
 
+    /// For a diagnostic: how many bubbles carry a tokenCount, how many of those
+    /// count something, and how many of those are dated. Counts only; a free
+    /// plan's ledger can hold bubbles that are all zero, which Scan rightly skips.
+    public static (int WithCount, int NonZero, int Dated) Describe()
+    {
+        var path = DatabasePath;
+        if (!File.Exists(path)) return (0, 0, 0);
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+            DefaultTimeout = 1,
+        }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND instr(value, 'tokenCount') > 0";
+        using var reader = command.ExecuteReader();
+        int withCount = 0, nonZero = 0, dated = 0;
+        while (reader.Read())
+        {
+            if (reader.IsDBNull(0)) continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(reader.GetString(0));
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("tokenCount", out var counts) || counts.ValueKind != JsonValueKind.Object) continue;
+                withCount++;
+                if (ReadInt(counts, "inputTokens") == 0 && ReadInt(counts, "outputTokens") == 0) continue;
+                nonZero++;
+                if (BubbleDate(root) is not null) dated++;
+            }
+            catch (JsonException)
+            {
+            }
+        }
+        return (withCount, nonZero, dated);
+    }
+
     /// Write time and length alone can miss a commit: NTFS stamps a file that a
     /// writer holds open lazily, a commit into free pages keeps the length, and a
     /// reset WAL is rewritten from its start at the same length. So the stamp

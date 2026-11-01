@@ -19,11 +19,32 @@ enum DiagnosticReport {
         lines.append("System: \(value(report["os"])), \(value(report["arch"]))")
         lines.append("SQLite: \(value(report["sqlite"]))")
         lines.append("Windows reported by Swift: \(value(report["windowsReported"])) app(s)")
+        lines.append(contentsOf: systemLines())
         let agents = report["agents"] as? [String: Any] ?? [:]
         for name in agents.keys.sorted() {
             let agent = agents[name] as? [String: Any] ?? [:]
             let phases = (agent["phases"] as? [String: Any] ?? [:]).keys.sorted().map { "\($0) \(value((agent["phases"] as? [String: Any])?[$0]))" }.joined(separator: ", ")
             lines.append("  \(name): presence \(value(agent["presence"])), process \(value(agent["processRunning"])), sessions \(value(agent["sessions"]))\(phases.isEmpty ? "" : " (\(phases))")")
+            let folders = agent["folders"] as? [String: Any] ?? [:]
+            for label in folders.keys.sorted() {
+                let folder = folders[label] as? [String: Any] ?? [:]
+                var detail = "\(value(folder["exists"]))"
+                if let changed = folder["changedIn24h"] { detail += ", changed in the last 24 h: \(value(changed))" }
+                if let changed = folder["filesChangedIn24h"] {
+                    detail += ", \(value(changed)) of \(value(folder["filesSeen"])) files changed in the last 24 h\(folder["capped"] != nil ? " (capped)" : "")"
+                }
+                lines.append("      \(label): \(detail)")
+            }
+            let matched = agent["matchedProcesses"] as? [[String: Any]] ?? []
+            for process in matched {
+                lines.append("      process \(value(process["name"])) x\(value(process["count"])) by \(value(process["rule"])), parent \(value(process["parent"]))")
+            }
+        }
+        if let ledger = report["cursorLedger"] as? [String: Any] {
+            lines.append("Cursor ledger: \(value(ledger["bubblesWithTokenCount"])) bubbles with a token count, \(value(ledger["nonZero"])) non-zero, \(value(ledger["nonZeroDated"])) of those dated")
+        }
+        if let folders = report["kimiSupportFolders"] as? [String] {
+            lines.append("Application Support folders named kimi or moonshot: \(folders.isEmpty ? "none" : folders.joined(separator: ", "))")
         }
         let credentials = report["credentials"] as? [String: Any] ?? [:]
         lines.append("Claude login: \(value(credentials["claudeLoginSource"])) plan \(value(credentials["claudePlan"]))")
@@ -34,6 +55,21 @@ enum DiagnosticReport {
             lines.append("  tokens 30d \(name): \(value(entry["events"])) events, \(value(entry["wireTokens"])) tokens, \(value(entry["models"])) models")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// What only Swift knows: the displays' scale, the power source, and the loop's settings and rate.
+    static func systemLines() -> [String] {
+        var lines: [String] = []
+        let screens = NSScreen.screens
+        lines.append("Displays: \(screens.count), backing scale \(screens.map { String(format: "%.0fx", $0.backingScaleFactor) }.joined(separator: ", "))")
+        lines.append("Power: \(Power.source() ?? "unknown"), Low Power Mode \(Power.lowPowerMode ? "yes" : "no"), saver counts it as battery: \(Power.onBattery ? "yes" : "no")")
+        lines.append("Reduce Motion: \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "yes" : "no")")
+        if let frame = AppController.shared.frame {
+            let rate = frame.fps == 0 ? "match the display" : "\(frame.fps) fps"
+            let pace = DrawerPlacementHelper.drawer?.pace ?? 0
+            lines.append("Drawer: \(frame.theme) style, \(frame.shownBots.count) of \(frame.bots.count) characters shown, frame rate setting \(rate), Save battery \(frame.saveBattery ? "on" : "off"), loop now \(pace == 0 ? "resting" : String(format: "%.0f fps", pace))")
+        }
+        return lines
     }
 
     /// Copies the report to the pasteboard.

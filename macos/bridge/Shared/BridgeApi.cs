@@ -119,6 +119,7 @@ public static class BridgeApi
         var presence = AgentPresences.Now();
         var sessions = Safe(() => SessionScanner.MonitoringScan(now, new Dictionary<string, DateTimeOffset>()), new List<ScannedSession>());
         var gone = AgentPresences.ProcessesGone();
+        var matched = AgentPresences.MatchedProcesses();
         return Write(json =>
         {
             json.WriteString("os", System.Runtime.InteropServices.RuntimeInformation.OSDescription);
@@ -139,9 +140,33 @@ public static class BridgeApi
                     json.WriteNumber(group.Key.ToString().ToLowerInvariant(), group.Count());
                 }
                 json.WriteEndObject();
+                json.WriteStartObject("folders");
+                foreach (var folder in DataFolders().Where(f => f.Tool == tool)) WriteFolder(json, folder, now);
+                json.WriteEndObject();
+                json.WriteStartArray("matchedProcesses");
+                foreach (var group in matched.Where(m => m.Tool == tool).GroupBy(m => (m.Name, m.Rule, m.ParentName)).OrderBy(g => g.Key.Name, StringComparer.Ordinal))
+                {
+                    json.WriteStartObject();
+                    json.WriteString("name", group.Key.Name);
+                    json.WriteString("rule", group.Key.Rule);
+                    json.WriteString("parent", group.Key.ParentName);
+                    json.WriteNumber("count", group.Count());
+                    json.WriteEndObject();
+                }
+                json.WriteEndArray();
                 json.WriteEndObject();
             }
             json.WriteEndObject();
+
+            var ledger = Safe(() => CursorLogReader.Describe(), (0, 0, 0));
+            json.WriteStartObject("cursorLedger");
+            json.WriteNumber("bubblesWithTokenCount", ledger.Item1);
+            json.WriteNumber("nonZero", ledger.Item2);
+            json.WriteNumber("nonZeroDated", ledger.Item3);
+            json.WriteEndObject();
+            json.WriteStartArray("kimiSupportFolders");
+            foreach (var name in Safe(KimiSupportFolders, new List<string>())) json.WriteStringValue(name);
+            json.WriteEndArray();
 
             var login = ClaudeCredentials.Describe();
             json.WriteStartObject("credentials");
@@ -174,6 +199,78 @@ public static class BridgeApi
             }
         });
     }
+
+    /// An agent's data folder or file: a fixed label for the report (never the path), where it is, and what to count in it.
+    private sealed record DataFolder(TriggerTool Tool, string Label, string Path, string? Pattern);
+
+    private static IEnumerable<DataFolder> DataFolders()
+    {
+        var claudeProjects = IslandPaths.ClaudeProjectRoots.FirstOrDefault();
+        if (claudeProjects is not null) yield return new DataFolder(TriggerTool.Claude, "projects", claudeProjects, "*.jsonl");
+        yield return new DataFolder(TriggerTool.Claude, "desktop sessions", Path.Combine(IslandPaths.RoamingAppData, "Claude", "claude-code-sessions"), "*.json");
+        yield return new DataFolder(TriggerTool.Codex, "sessions", IslandPaths.CodexSessionsRoot, "*.jsonl");
+        yield return new DataFolder(TriggerTool.Codex, "archived sessions", IslandPaths.CodexArchivedSessionsRoot, "*");
+        yield return new DataFolder(TriggerTool.Grok, "sessions", IslandPaths.GrokSessionsRoot, "*.jsonl");
+        yield return new DataFolder(TriggerTool.Kimi, "home", IslandPaths.KimiHome, null);
+        yield return new DataFolder(TriggerTool.Kimi, "sessions", IslandPaths.KimiSessionsRoot, "wire.jsonl");
+        yield return new DataFolder(TriggerTool.Kimi, "server instances", Path.Combine(IslandPaths.KimiHome, "server", "instances"), "*.json");
+        foreach (var name in new[] { "antigravity", "antigravity-ide", "antigravity-cli" })
+        {
+            yield return new DataFolder(TriggerTool.Antigravity, name, Path.Combine(IslandPaths.Home, ".gemini", name), "*");
+        }
+        yield return new DataFolder(TriggerTool.Cursor, "state database", IslandPaths.CursorStateDb, null);
+        yield return new DataFolder(TriggerTool.DeepSeek, "sessions", IslandPaths.DeepSeekSessionsRoot, "*");
+    }
+
+    /// {exists, files changed in the last 24 h (when the folder holds files of a kind)}. At most 20000 files and
+    /// two seconds per folder, so a huge history can't stall the report; a capped count says "capped".
+    private static void WriteFolder(Utf8JsonWriter json, DataFolder folder, DateTimeOffset now)
+    {
+        json.WriteStartObject(folder.Label);
+        var isFile = File.Exists(folder.Path);
+        json.WriteBoolean("exists", isFile || Directory.Exists(folder.Path));
+        if (isFile)
+        {
+            json.WriteBoolean("changedIn24h", now - File.GetLastWriteTimeUtc(folder.Path) < TimeSpan.FromHours(24));
+        }
+        else if (folder.Pattern is not null && Directory.Exists(folder.Path))
+        {
+            var recent = 0;
+            var seen = 0;
+            var capped = false;
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System };
+                foreach (var file in new DirectoryInfo(folder.Path).EnumerateFiles(folder.Pattern, options))
+                {
+                    seen++;
+                    if (now - file.LastWriteTimeUtc < TimeSpan.FromHours(24)) recent++;
+                    if (seen >= 20000 || started.ElapsedMilliseconds > 2000)
+                    {
+                        capped = true;
+                        break;
+                    }
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
+            json.WriteNumber("filesChangedIn24h", recent);
+            json.WriteNumber("filesSeen", seen);
+            if (capped) json.WriteBoolean("capped", true);
+        }
+        json.WriteEndObject();
+    }
+
+    /// Folders under Application Support whose names say Kimi: names only, for finding where its desktop app keeps its data.
+    private static List<string> KimiSupportFolders() =>
+        Directory.Exists(IslandPaths.RoamingAppData)
+            ? Directory.EnumerateDirectories(IslandPaths.RoamingAppData)
+                .Select(p => Path.GetFileName(p))
+                .Where(n => n.Contains("kimi", StringComparison.OrdinalIgnoreCase) || n.Contains("moonshot", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal).ToList()
+            : new List<string>();
 
     /// Whether the bundled SQLite loads (Cursor's database needs it).
     private static string SqliteProbe()
