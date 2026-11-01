@@ -7,7 +7,7 @@ import Foundation
 import JavaScriptCore
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 4 || arguments.contains("--micro") else {
+guard arguments.count >= 4 || arguments.contains("--micro") || arguments.contains("--profile") else {
     print("usage: jsc-run <frozen.mjs> <live.mjs> <diff-core.mjs> [steps] [seeds]")
     exit(2)
 }
@@ -20,6 +20,61 @@ if arguments.count >= 3, arguments[1] == "--micro" {
     let clock: @convention(block) () -> Double = { ProcessInfo.processInfo.systemUptime }
     context.setObject(clock, forKeyedSubscript: "preciseTime" as NSString)
     context.evaluateScript(try! String(contentsOfFile: arguments[2], encoding: .utf8))
+    exit(0)
+}
+// jsc-run --profile <live.mjs>: where a frame's time goes inside the engine, by function (inclusive, so nested ones overlap).
+if arguments.count >= 3, arguments[1] == "--profile" {
+    var source = try! String(contentsOfFile: arguments[2], encoding: .utf8)
+    let names = ["pixels", "ringOf", "runsOf", "fitDraw", "settle", "fitShift", "allSafe"]
+    var wrappers = ""
+    for name in names {
+        source = source.replacingOccurrences(of: "function \(name)(", with: "function \(name)__orig(")
+        source = source.replacingOccurrences(of: "const \(name) = ", with: "const \(name)__orig = ")
+        wrappers += "const \(name) = (...a) => { const t = preciseTime(); try { return \(name)__orig(...a); } finally { PROF.\(name) += preciseTime() - t; } };
+"
+    }
+    source = source.replacingOccurrences(of: "const body = def.draw(shown, c);", with: "const __t0 = preciseTime(); const body = def.draw(shown, c); PROF.draw += preciseTime() - __t0;")
+    // The wrappers go before the first use at run time: just ahead of the engine's last line (module code has run by then).
+    let exports = try! NSRegularExpression(pattern: #"^export (?:const|function) (\w+)"#, options: [.anchorsMatchLines])
+    var exported: [String] = []
+    for match in exports.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+        exported.append((source as NSString).substring(with: match.range(at: 1)))
+    }
+    source = source.replacingOccurrences(of: #"(?m)^export "#, with: "", options: .regularExpression)
+    let script = "const PROF = { draw: 0, " + names.map { "\($0): 0" }.joined(separator: ", ") + " };
+const B = (function () {
+'use strict';
+" + source + "
+" + wrappers + "return { " + exported.joined(separator: ", ") + " };
+})();
+" + #"""
+    const states = ['idle', 'thinking', 'writing', 'running', 'sleeping'];
+    let frames = 0, total = 0;
+    for (const kind of B.KINDS) {
+      if (kind === 'cursor') continue;
+      for (const { id } of B.LOOKS[kind]) for (const state of states) {
+        const bot = B.createBot(kind, { seed: 7, tempo: 1, rim: true, look: id });
+        bot.setState(state, 0);
+        for (let i = 0; i < 20; i++) { bot.advance(1 / 30); bot.svg(44, 'b0'); }
+        for (const key in PROF) PROF[key] = 0;
+        const start = preciseTime();
+        for (let i = 0; i < 40; i++) { bot.advance(1 / 30); bot.svg(44, 'b0'); }
+        total += preciseTime() - start;
+        for (const key in PROF) PROFSUM[key] = (PROFSUM[key] || 0) + PROF[key];
+        frames += 40;
+      }
+    }
+    print('per frame (advance + svg), mean over all looks and 5 states: ' + (total * 1000 / frames).toFixed(3) + ' ms');
+    for (const key in PROFSUM) print('  ' + key.padEnd(9) + (PROFSUM[key] * 1000 / frames).toFixed(3) + ' ms');
+    """#
+    let context = JSContext()!
+    context.exceptionHandler = { _, exception in print("FAIL \(exception?.toString() ?? "")") }
+    let printer: @convention(block) (String) -> Void = { print($0) }
+    context.setObject(printer, forKeyedSubscript: "print" as NSString)
+    let clock: @convention(block) () -> Double = { ProcessInfo.processInfo.systemUptime }
+    context.setObject(clock, forKeyedSubscript: "preciseTime" as NSString)
+    context.evaluateScript("const PROFSUM = {};")
+    context.evaluateScript(script)
     exit(0)
 }
 let steps = arguments.count > 4 ? Int(arguments[4]) ?? 500 : 500
