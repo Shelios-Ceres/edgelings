@@ -51,6 +51,17 @@ final class CharacterEngine {
         clearGaze(i) { bots[i].clearGaze(); },
         poke(i) { bots[i].poke(); },
         cue(i, kind) { bots[i].cue?.(kind); },
+        // The bench's split of one tick: the advance alone, and the SVG alone.
+        advanceOnly(steps) {
+            const dts = steps.split(',');
+            for (let i = 0; i < bots.length; i++) if (dts[i]) bots[i].advance(+dts[i]);
+            return '';
+        },
+        svgOnly(size) {
+            let total = 0;
+            for (let i = 0; i < bots.length; i++) total += bots[i].svg(size, 'b' + i).length;
+            return total;
+        },
         tick(steps, size) {
             const dts = steps.split(','), parts = [];
             for (let i = 0; i < bots.length; i++) {
@@ -142,5 +153,23 @@ final class CharacterEngine {
             guard let split = part.range(of: "\u{2}") else { return nil }
             return EngineFrame(state: String(part[part.startIndex..<split.lowerBound]), svg: String(part[split.upperBound...]))
         }
+    }
+
+    /// For `--bench-loop`: the host calls that split one tick into its parts.
+    func benchAdvance(_ dts: [Double?]) {
+        call("advanceOnly", [dts.map { $0.map { String($0) } ?? "" }.joined(separator: ",")])
+    }
+
+    func benchSvg(size: Double) { call("svgOnly", [size]) }
+
+    /// The tick's own call with the Swift side timed apart: (JS call and string handover, splitting), in ms.
+    func benchTick(_ dts: [Double?], size: Double) -> (call: Double, split: Double) {
+        let steps = dts.map { $0.map { String($0) } ?? "" }.joined(separator: ",")
+        let start = DispatchTime.now().uptimeNanoseconds
+        let raw = call("tick", [steps, size])?.toString() ?? ""
+        let middle = DispatchTime.now().uptimeNanoseconds
+        _ = raw.components(separatedBy: "\u{1}").map { part in part.range(of: "\u{2}") }
+        let end = DispatchTime.now().uptimeNanoseconds
+        return (Double(middle - start) / 1e6, Double(end - middle) / 1e6)
     }
 }

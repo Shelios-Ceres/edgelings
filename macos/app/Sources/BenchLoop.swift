@@ -52,6 +52,7 @@ enum BenchLoop {
                 let dts = [Double?](repeating: 1 / fps, count: kinds.count)
                 let canvas = SvgCanvas()
                 var last = [String?](repeating: nil, count: kinds.count)
+                var jscSvg = 0.0, jscAdvance = 0.0, handover = 0.0, splitting = 0.0, early = 0.0, late = 0.0
                 var jsc = 0.0, parse = 0.0, raster = 0.0, legacy = 0.0, blit = 0.0
                 var redraws = 0
                 let target = CGContext(data: nil, width: pixels * kinds.count, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels * kinds.count * 4,
@@ -60,6 +61,10 @@ enum BenchLoop {
                 for round in 0..<(rounds + 30) {
                     var frames: [EngineFrame?] = []
                     let tickMs = milliseconds { frames = engine.tick(dts, size: Double(Metrics.botSize)) }
+                    // The same work split: the SVG alone, and the call with the Swift handling apart. Not counted in the total.
+                    let svgMs = milliseconds { engine.benchSvg(size: Double(Metrics.botSize)) }
+                    let advanceMs = milliseconds { engine.benchAdvance(dts) }
+                    let split = engine.benchTick(dts, size: Double(Metrics.botSize))
                     var roundChanged = false
                     var roundParse = 0.0, roundRaster = 0.0, roundLegacy = 0.0
                     for (index, produced) in frames.enumerated() {
@@ -98,6 +103,11 @@ enum BenchLoop {
                     if round == 0 { print("bench: first round done, \(frames.compactMap { $0 }.count) frames") }
                     guard round >= 30 else { continue }
                     jsc += tickMs
+                    jscSvg += svgMs
+                    jscAdvance += advanceMs
+                    handover += split.call
+                    splitting += split.split
+                    if round < 130 { early += tickMs } else if round >= rounds - 70 + 30 { late += tickMs }
                     parse += roundParse
                     raster += roundRaster
                     legacy += roundLegacy
@@ -112,6 +122,8 @@ enum BenchLoop {
                 print(String(format: "bench %@ %@ @%.0f fps: jsc %.3f ms/round, svg parse %.3f, raster (parse included) %.3f, blit %.3f ms/round (%.0f%% of rounds change a frame); old XMLParser %.3f ms/round sampled; about %.1f%% of one core",
                              theme, mode, fps, perRound(jsc), perRound(parse), perRound(raster), perRound(blit), 100 * Double(drawn) / Double(rounds),
                              perRound(legacy * 10), percent))
+                print(String(format: "bench %@ %@ split: svg alone %.3f ms/round, advance alone %.3f, tick call incl. string handover %.3f, Swift splitting %.3f; tick in rounds 30-130 %.3f, in the last 70 %.3f ms/round (JIT warm-up)",
+                             theme, mode, perRound(jscSvg), perRound(jscAdvance), perRound(handover), perRound(splitting), early / 100, late / 70))
                 if mode == "busy" && percent > maxBusy { print("FAIL \(theme) busy is over \(maxBusy)%"); failed = true }
                 if mode == "calm" && percent > maxCalm { print("FAIL \(theme) calm is over \(maxCalm)%"); failed = true }
             }
