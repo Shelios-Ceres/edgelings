@@ -97,13 +97,7 @@ public static class AgentPresences
         var list = new List<Running>();
         foreach (var entry in MacProcesses.Snapshot())
         {
-            var name = entry.Name;
-            if (!wanted.Contains(name))
-            {
-                var file = entry.Path is null ? null : Path.GetFileNameWithoutExtension(entry.Path);
-                if (file is not null && wanted.Contains(file)) name = file;
-                else if (entry.Path is not null && entry.Path.Contains("/claude/versions/", StringComparison.Ordinal)) name = "claude";
-            }
+            var name = MacAgentNames.Resolve(entry.Name, entry.Path, wanted)?.Name ?? entry.Name;
             // Every process stays in the list: an agent's host chain (shell, login,
             // terminal) is found through its parents.
             if (!wanted.Contains(name))
@@ -174,6 +168,45 @@ public static class AgentPresences
             presence[tool] = mine.Count == 0 ? AgentPresence.Closed : mine.Select(Shows).Min();
         }
         return presence;
+    }
+
+    /// One agent process the Mac's table holds, for the diagnostic: the name it
+    /// matched, the rule that matched it, and its parent's name. Names only.
+    public sealed record MatchedProcess(TriggerTool Tool, string Name, string Rule, string ParentName);
+
+    /// What on this Mac counts as each agent's process (empty off macOS).
+    public static IReadOnlyList<MatchedProcess> MatchedProcesses()
+    {
+        if (!OperatingSystem.IsMacOS()) return Array.Empty<MatchedProcess>();
+        return MatchedOnMac();
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static List<MatchedProcess> MatchedOnMac()
+    {
+        var list = new List<MatchedProcess>();
+        try
+        {
+            var wanted = AgentProcesses.Known.Select(k => k.Name).Concat(AgentProcesses.PresenceOnly.Select(k => k.Name))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var table = MacProcesses.Snapshot();
+            var names = new Dictionary<int, string>();
+            foreach (var entry in table) names.TryAdd(entry.Id, entry.Name);
+            foreach (var entry in table)
+            {
+                if (MacAgentNames.Resolve(entry.Name, entry.Path, wanted) is not { } match) continue;
+                var path = AgentProcesses.Known.Any(k => k.PathHint is not null && string.Equals(k.Name, match.Name, StringComparison.OrdinalIgnoreCase)) ? entry.Path : null;
+                foreach (var tool in AgentProcesses.Known.Where(k => AgentProcesses.Matches(k, match.Name, path)).Select(k => k.Tool)
+                    .Concat(AgentProcesses.PresenceOnly.Where(k => string.Equals(k.Name, match.Name, StringComparison.OrdinalIgnoreCase)).Select(k => k.Tool)).Distinct())
+                {
+                    list.Add(new MatchedProcess(tool, match.Name, match.Rule, names.GetValueOrDefault(entry.ParentId) ?? "?"));
+                }
+            }
+        }
+        catch
+        {
+        }
+        return list;
     }
 
     /// The agents with no process running, as AgentProcesses reads it (for a diagnostic outside this assembly).

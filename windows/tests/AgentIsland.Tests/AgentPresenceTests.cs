@@ -151,6 +151,19 @@ public static class AgentPresenceTests
                 new[] { new Running(1, 0, "launchd"), new Running(70, 1, "kimi", "/Users/me/.kimi-code/bin/kimi") }, new[] { new AppWindow(70, false) })),
             ("the Kimi chat app on a Mac isn't Kimi Code", () => Expect(TriggerTool.Kimi, AgentPresence.Closed,
                 new[] { new Running(1, 0, "launchd"), new Running(70, 1, "Kimi", "/Applications/Kimi.app/Contents/MacOS/Kimi") }, new[] { new AppWindow(70, false) })),
+            ("on a Mac an agent's app is found by its bundle even when its executable is named otherwise", () =>
+            {
+                var wanted = AgentProcesses.Known.Select(k => k.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var main = MacAgentNames.Resolve("Electron", "/Applications/Kimi Code.app/Contents/MacOS/Electron", wanted);
+                if (main is not { Name: "Kimi Code", Rule: "app bundle" }) throw new Exception("bundle: " + main);
+                if (MacAgentNames.Resolve("Kimi Code Helper", "/Applications/Kimi Code.app/Contents/Frameworks/Kimi Code Helper.app/Contents/MacOS/Kimi Code Helper", wanted) is not null)
+                    throw new Exception("a helper is not the app");
+                if (MacAgentNames.Resolve("Kimi", "/Applications/Kimi.app/Contents/MacOS/Kimi", wanted) is not { Name: "kimi" }) throw new Exception("the chat app still resolves by name, and is turned away by its path");
+                if (MacAgentNames.Resolve("python3", "/Users/me/.kimi-code/bin/runtime/python3", wanted) is not { Name: "kimi", Rule: "kimi-code folder" }) throw new Exception("kimi folder");
+                if (MacAgentNames.Resolve("Safari", "/Applications/Safari.app/Contents/MacOS/Safari", wanted) is not null) throw new Exception("unrelated");
+            }),
+            ("on a Mac the Kimi Code app is open through its bundle's window", () => Expect(TriggerTool.Kimi, AgentPresence.Open,
+                new[] { new Running(1, 0, "launchd"), new Running(71, 1, "Kimi Code") }, new[] { new AppWindow(71, false) })),
             ("KERN_PROCARGS2 reads as the arguments, and the environment is never touched", () =>
             {
                 var bytes = new List<byte>(BitConverter.GetBytes(3));

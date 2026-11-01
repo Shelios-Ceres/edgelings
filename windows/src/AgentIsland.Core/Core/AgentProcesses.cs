@@ -79,16 +79,11 @@ internal static class AgentProcesses
         try
         {
             var running = new List<(string Name, string? Path)>();
+            var wanted = Known.Select(k => k.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             foreach (var entry in MacProcesses.Snapshot())
             {
-                var name = entry.Name;
-                if (Known.All(k => !string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    var file = entry.Path is null ? null : System.IO.Path.GetFileNameWithoutExtension(entry.Path);
-                    if (file is not null && Known.Any(k => string.Equals(k.Name, file, StringComparison.OrdinalIgnoreCase))) name = file;
-                    else if (entry.Path is not null && entry.Path.Contains("/claude/versions/", StringComparison.Ordinal)) name = "claude";
-                    else continue;
-                }
+                if (MacAgentNames.Resolve(entry.Name, entry.Path, wanted) is not { } match) continue;
+                var name = match.Name;
                 var known = Known.First(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase));
                 var path = known.PathHint is null ? null : Hosts.Contains(name) ? CommandLineOf(entry.Id) : entry.Path;
                 // The memory plugin's headless runs are not Kimi being open.
