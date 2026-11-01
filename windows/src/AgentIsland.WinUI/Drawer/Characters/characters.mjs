@@ -58,6 +58,8 @@ function rng(seed) {
 // MARK: - SVG
 
 const n = v => {
+  // A whole number prints as itself (the rounding below leaves it alone).
+  if ((v | 0) === v) return String(v);
   const r = Math.round(v * 100) / 100;
   return r === 0 ? '0' : String(r);
 };
@@ -263,11 +265,15 @@ function canvas() {
     },
     // Rows of characters: '#' takes `color`, '.' is empty, other letters map.
     glyph(rows, x, y, color, map = {}, flip = false) {
-      rows.forEach((row, j) => [...row].forEach((ch, i) => {
-        const cx = flip ? x + row.length - 1 - i : x + i;
-        if (ch === '#') put(cx, y + j, color);
-        else if (ch !== '.') put(cx, y + j, map[ch] ?? '#FFFFFF');
-      }));
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        for (let i = 0; i < row.length; i++) {
+          const ch = row[i];
+          const cx = flip ? x + row.length - 1 - i : x + i;
+          if (ch === '#') put(cx, y + j, color);
+          else if (ch !== '.') put(cx, y + j, map[ch] ?? '#FFFFFF');
+        }
+      }
     },
     // Every cell whose centre passes `inside(x, y)` within the box.
     shape(inside, x0, y0, w, h, color) {
@@ -279,9 +285,12 @@ function canvas() {
     },
     // A darker line just outside the given cells, for pale bodies on pale walls.
     outline(list, color) {
-      const mine = new Set(list.map(([x, y]) => cellKey(x, y)));
-      for (const [x, y] of list) {
-        for (const [dx, dy] of NEIGHBORS_4) {
+      const mine = new Set();
+      for (let i = 0; i < list.length; i++) mine.add(cellKey(list[i][0], list[i][1]));
+      for (let i = 0; i < list.length; i++) {
+        const x = list[i][0], y = list[i][1];
+        for (let j = 0; j < 4; j++) {
+          const dx = NEIGHBORS_4[j][0], dy = NEIGHBORS_4[j][1];
           const k = cellKey(x + dx, y + dy);
           if (!mine.has(k) && !cells.has(k)) put(x + dx, y + dy, color);
         }
@@ -354,6 +363,7 @@ const RING_KEY_STEP = NEIGHBORS_8.map(([dx, dy]) => (dy << 11) + dx);
 // rectangle. A row of whole-number cells is a 32-bit mask (columns -4 to 27),
 // so the merging is a scan of bits; anything else takes the general route.
 const ROW_MASKS = new Int32Array(64);
+const RUN_TEXT = new Map();
 function runsOf(list) {
   const order = [];
   let whole = true;
@@ -379,7 +389,14 @@ function runsOf(list) {
       let end = col;
       while (end < 31 && (mask & (1 << (end + 1))) !== 0) end++;
       const start = col - 4;
-      d += `${M(start * PX, y * PX)}H${n((end - 3) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      // A run's text depends only on where it starts, how long it is and its row.
+      const id = (y + 8) * 4096 + (start + 8) * 64 + (end - col);
+      let text = RUN_TEXT.get(id);
+      if (text === undefined) {
+        text = `${M(start * PX, y * PX)}H${n((end - 3) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+        RUN_TEXT.set(id, text);
+      }
+      d += text;
       col = end + 1;
     }
   }
@@ -411,14 +428,14 @@ function runsGeneral(list) {
 // with each row's runs merged.
 function pixels(cv, c, opacity = 1) {
   const byColor = new Map();
-  for (const [key, color] of cv.cells) {
+  cv.cells.forEach((color, key) => {
     let list = byColor.get(color);
     if (!list) byColor.set(color, list = []);
     list.push(key);
-  }
+  });
   let out = '';
   if (c.rim) out += path(runsOf(ringOf(cv.cells)), F(RIM) + O(0.92));
-  for (const [color, list] of byColor) out += path(runsOf(list), F(color));
+  byColor.forEach((list, color) => { out += path(runsOf(list), F(color)); });
   return group(O(opacity), out);
 }
 
@@ -435,7 +452,11 @@ const SAFE = (() => {
     [-1, 0, 1].every(i => [-1, 0, 1].every(j => inside(x + i, y + j)))));
 })();
 const safe = (x, y) => SAFE[y]?.[x] === true;
-const allSafe = cv => [...cv.cells.keys()].every(k => safe(cellX(k), cellY(k)));
+const allSafe = cv => {
+  let all = true;
+  cv.cells.forEach((color, k) => { if (all && !safe(cellX(k), cellY(k))) all = false; });
+  return all;
+};
 
 // The smallest whole-cell shift that brings every cell inside, preferring
 // sideways steps toward the middle, and a spot clear of `clear` (the body)
