@@ -1,0 +1,33 @@
+# The Pixel engine on JavaScriptCore itself (the Mac app's script engine): the
+# frozen engine against the live one, timed per look, and the differential test
+# run on JavaScriptCore too.
+name: macOS Pixel engine on JavaScriptCore
+
+on:
+  push:
+    branches: ["mac/**"]
+    paths:
+      - "windows/tests/engine-diff/**"
+      - "windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs"
+      - ".github/workflows/macos-jsc.yml"
+  workflow_dispatch:
+
+jobs:
+  jsc:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run under jsc
+        timeout-minutes: 15
+        run: |
+          JSC=$(find /System/Library/Frameworks/JavaScriptCore.framework -name jsc -type f 2>/dev/null | head -1)
+          echo "jsc: $JSC"
+          "$JSC" -m windows/tests/engine-diff/jsc.mjs | tee jsc-result.txt
+          { echo '```'; cat jsc-result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pixel-engine-jsc
+          path: jsc-result.txt
