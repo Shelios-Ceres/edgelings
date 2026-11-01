@@ -18,12 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run under jsc
+      - name: Build the runner
+        run: swiftc -O windows/tests/engine-diff/jsc-run.swift -o jsc-run
+
+      - name: Time and diff the engines on JavaScriptCore
         timeout-minutes: 15
         run: |
-          JSC=$(find /System/Library/Frameworks/JavaScriptCore.framework -name jsc -type f 2>/dev/null | head -1)
-          echo "jsc: $JSC"
-          "$JSC" -m windows/tests/engine-diff/jsc.mjs | tee jsc-result.txt
+          set -o pipefail
+          ./jsc-run windows/tests/engine-diff/characters.frozen.mjs windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs windows/tests/engine-diff/diff-core.mjs 500 2 | tee jsc-result.txt
           { echo '```'; cat jsc-result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
