@@ -32,7 +32,8 @@ enum BenchLoop {
         let kinds = ["claude", "codex", "antigravity", "grok", "kimi", "deepseek", "claude"]
         let busyStates = ["thinking", "writing", "reading", "running", "searching", "streaming", "web"]
         print("bench-loop: \(kinds.count) characters, backing scale \(scale), \(pixels) px bitmaps, \(rounds) rounds")
-        for theme in ["pixel", "classic"] {
+        let only = arguments.firstIndex(of: "--theme").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        for theme in ["pixel", "classic"] where only == nil || only == theme {
             let pixel = theme == "pixel"
             for mode in ["busy", "calm"] {
                 print("bench: \(theme) \(mode): loading the engine")

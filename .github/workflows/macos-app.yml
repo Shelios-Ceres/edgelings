@@ -93,6 +93,16 @@ jobs:
           set -o pipefail
           EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --bench-loop --scale 2 --max-busy 1000 --max-calm 1000 | tee out/bench-loop.txt
 
+      - name: Pixel loop experiments (white rim off, JavaScriptCore JIT off)
+        timeout-minutes: 8
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          B=out/app/Edgelings.app/Contents/MacOS/Edgelings
+          export EDGELINGS_ROOT="$RUNNER_TEMP/bench-root"
+          { echo "== rim off"; EDGELINGS_BENCH_NO_RIM=1 $B --bench-loop --theme pixel --rounds 150;
+            echo "== JIT off"; JSC_useJIT=false $B --bench-loop --theme pixel --rounds 150; } | grep -E "^==|bench pixel" | tee -a out/bench-loop.txt
+
       - name: Render every screen offscreen (synthetic data)
         run: |
           mkdir -p out/renders

@@ -38,12 +38,12 @@ final class CharacterEngine {
         add(kind, seed, tempo, look) {
             const make = { kind, seed, tempo };
             makes.push(make);
-            bots.push(lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined }));
+            bots.push(lib.createBot(kind, { seed, tempo, rim: @RIM@, look: look || undefined }));
             return bots.length - 1;
         },
         setLook(i, look) {
             const { kind, seed, tempo } = makes[i], old = bots[i];
-            bots[i] = lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined });
+            bots[i] = lib.createBot(kind, { seed, tempo, rim: @RIM@, look: look || undefined });
             bots[i].setState(old.state, -1);
         },
         setState(i, state, phase) { bots[i].setState(state, phase); },
@@ -89,6 +89,7 @@ final class CharacterEngine {
         source = source.replacingOccurrences(of: #"(?m)^export "#, with: "", options: .regularExpression)
         let script = "const lib = (function () {\n'use strict';\n" + source + "\nreturn { " + names.joined(separator: ", ") + " };\n})();\n"
             + CharacterEngine.hostBody.replacingOccurrences(of: "@GLOBAL@", with: global)
+            .replacingOccurrences(of: "@RIM@", with: ProcessInfo.processInfo.environment["EDGELINGS_BENCH_NO_RIM"] == "1" ? "false" : "true")
         guard let context = JSContext() else { throw EngineError.script("no JSContext") }
         self.context = context
         var message: String?
