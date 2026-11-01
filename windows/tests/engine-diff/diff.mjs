@@ -13,6 +13,8 @@
 // id). A bot comparison follows every step.
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const oldFile = path.resolve(process.argv[2] ?? path.join(here, 'characters.frozen.mjs'));
@@ -27,6 +29,19 @@ import { runDiff } from './diff-core.mjs';
 try {
   const { runs, checked } = runDiff(A, B, steps, seeds);
   console.log(`engine differential: ${runs} runs, ${checked} SVG comparisons, all identical (old ${path.basename(oldFile)} vs new ${path.basename(newFile)})`);
+  // The ring marks wrap: run again with the live engine's stamp counter a few calls short of what an
+  // Int32Array holds, so every look crosses the wrap.
+  const source = fs.readFileSync(newFile, 'utf8');
+  if (!source.includes('let ringStamp = 0;')) throw new Error('ringStamp not found: update this test with the engine');
+  const wrapFile = path.join(os.tmpdir(), `characters-ringstamp-${process.pid}.mjs`);
+  fs.writeFileSync(wrapFile, source.replace('let ringStamp = 0;', 'let ringStamp = 2147483000;'));
+  try {
+    const W = await import(pathToFileURL(wrapFile).href);
+    const wrapped = runDiff(A, W, 400, 1);
+    console.log(`engine differential across the ring stamp wrap: ${wrapped.runs} runs, ${wrapped.checked} SVG comparisons, all identical`);
+  } finally {
+    fs.rmSync(wrapFile, { force: true });
+  }
 } catch (error) {
   console.error(String(error.message));
   process.exit(1);

@@ -335,6 +335,8 @@ function ringOf(cells) {
     return [...ring];
   }
   const cell = RING_CELLS, seen = RING_SEEN, out = [];
+  // Stamps count up on every call; before they pass what an Int32Array holds, start the marks afresh.
+  if (ringStamp === 0x7FFFFFFF) { RING_CELLS.fill(0); RING_SEEN.fill(0); ringStamp = 0; }
   const stamp = ++ringStamp;
   cells.forEach((color, key) => {
     cell[((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6] = stamp;
