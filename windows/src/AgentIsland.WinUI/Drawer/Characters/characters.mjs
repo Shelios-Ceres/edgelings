@@ -316,11 +316,13 @@ function sortRow(xs) {
 // Whole-number cells, all a canvas holds but for a few odd frames, are
 // marked on a small grid instead of looked up in a Map and a Set.
 const RING_W = 40;
-const RING_CELLS = new Uint8Array(RING_W * RING_W);
-const RING_SEEN = new Uint8Array(RING_W * RING_W);
+// A cell (or a ring cell) is marked with the current stamp, so nothing needs clearing between frames.
+const RING_CELLS = new Int32Array(RING_W * RING_W);
+const RING_SEEN = new Int32Array(RING_W * RING_W);
+let ringStamp = 0;
 function ringOf(cells) {
   let whole = true;
-  for (const key of cells.keys()) if (typeof key !== 'number') { whole = false; break; }
+  cells.forEach((color, key) => { if (typeof key !== 'number') whole = false; });
   if (!whole) {
     const ring = new Set();
     for (const key of cells.keys()) {
@@ -332,26 +334,21 @@ function ringOf(cells) {
     }
     return [...ring];
   }
-  const cell = RING_CELLS, seen = RING_SEEN, out = [], marked = [];
-  for (const key of cells.keys()) {
-    const at = ((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6;
-    cell[at] = 1;
-    marked.push(at);
-  }
-  const touched = [];
-  for (const key of cells.keys()) {
+  const cell = RING_CELLS, seen = RING_SEEN, out = [];
+  const stamp = ++ringStamp;
+  cells.forEach((color, key) => {
+    cell[((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6] = stamp;
+  });
+  cells.forEach((color, key) => {
     const at = ((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6;
     for (let i = 0; i < 8; i++) {
       const next = at + RING_STEP[i];
-      if (cell[next] === 0 && seen[next] === 0) {
-        seen[next] = 1;
-        touched.push(next);
+      if (cell[next] !== stamp && seen[next] !== stamp) {
+        seen[next] = stamp;
         out.push(key + RING_KEY_STEP[i]);
       }
     }
-  }
-  for (const at of marked) cell[at] = 0;
-  for (const at of touched) seen[at] = 0;
+  });
   return out;
 }
 // The neighbours in NEIGHBORS_8's order, as steps on the grid and on cell keys.
@@ -462,7 +459,10 @@ const allSafe = cv => {
 // sideways steps toward the middle, and a spot clear of `clear` (the body)
 // before any spot at all.
 function fitShift(cells, clear) {
-  const fits = (dx, dy) => cells.every(([x, y]) => safe(x + dx, y + dy));
+  const fits = (dx, dy) => {
+    for (let i = 0; i < cells.length; i++) if (!safe(cells[i][0] + dx, cells[i][1] + dy)) return false;
+    return true;
+  };
   if (fits(0, 0)) return [0, 0];
   const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
   const sx = (Math.min(...xs) + Math.max(...xs) + 1) / 2 > GRID / 2 ? -1 : 1;
@@ -487,19 +487,27 @@ function fitShift(cells, clear) {
 function fitDraw(into, draw, clear = into) {
   const tmp = canvas();
   draw(tmp);
-  const cells = [...tmp.cells].map(([k, color]) => [cellX(k), cellY(k), color]);
+  const cells = [];
+  tmp.cells.forEach((color, k) => { cells.push([cellX(k), cellY(k), color]); });
   if (!cells.length) return;
   const [dx, dy] = fitShift(cells, clear);
-  const moved = cells.map(([x, y, color]) => [x + dx, y + dy, color]);
+  const moved = [];
+  for (let i = 0; i < cells.length; i++) moved.push([cells[i][0] + dx, cells[i][1] + dy, cells[i][2]]);
   if (clear) {
-    const own = new Set(moved.map(([x, y]) => cellKey(x, y)));
+    const own = new Set();
+    for (let i = 0; i < moved.length; i++) own.add(cellKey(moved[i][0], moved[i][1]));
     const ring = [];
-    for (const [x, y] of moved) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-      if (!own.has(cellKey(x + i, y + j))) ring.push([x + i, y + j]);
+    for (let m = 0; m < moved.length; m++) {
+      const x = moved[m][0], y = moved[m][1];
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        if (!own.has(cellKey(x + i, y + j))) ring.push([x + i, y + j]);
+      }
     }
-    if (ring.some(([x, y]) => clear.has(x, y))) for (const [x, y] of ring) if (safe(x, y)) into.put(x, y, '#FFFFFF');
+    let touches = false;
+    for (let i = 0; i < ring.length && !touches; i++) touches = clear.has(ring[i][0], ring[i][1]);
+    if (touches) for (let i = 0; i < ring.length; i++) if (safe(ring[i][0], ring[i][1])) into.put(ring[i][0], ring[i][1], '#FFFFFF');
   }
-  for (const [x, y, color] of moved) into.put(x, y, color);
+  for (let i = 0; i < moved.length; i++) into.put(moved[i][0], moved[i][1], moved[i][2]);
 }
 
 // The pose's body offset, cut back until the body fits: each bot gets the
