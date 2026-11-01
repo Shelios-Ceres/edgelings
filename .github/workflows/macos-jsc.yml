@@ -32,7 +32,7 @@ jobs:
         run: ./jsc-run --micro windows/tests/engine-diff/micro.js | tee -a jsc-result.txt
 
       - name: Where a frame's time goes on JavaScriptCore
-        run: ./jsc-run --profile windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs | tee -a jsc-result.txt
+        run: ./jsc-run --profile windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs windows/tests/engine-diff/profile.js | tee -a jsc-result.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
