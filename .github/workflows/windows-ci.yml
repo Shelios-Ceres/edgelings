@@ -32,6 +32,9 @@ jobs:
         working-directory: windows
         run: dotnet run --project tests/AgentIsland.Tests -c Release
 
+      - name: Pixel engine differential (the live engine against the frozen one, every look)
+        run: node windows/tests/engine-diff/diff.mjs windows/tests/engine-diff/characters.frozen.mjs windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs 1500 2
+
       - name: Audit WinUI dependencies
         shell: pwsh
         run: |

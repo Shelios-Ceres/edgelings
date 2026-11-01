@@ -232,19 +232,32 @@ const steps = (t, fps) => Math.floor(t * fps) / fps;
 // Integer steps from a to b as u runs 0..1: a walk, one pixel at a time.
 const stepsTo = (u, a, b) => Math.round(lerp(a, b, clamp(u)));
 
+// A cell's key in a canvas's Map: one integer for a whole-number cell (every
+// cell the characters paint), the "x,y" text for anything else, so an odd
+// coordinate stays a cell of its own as it always was. The Map keeps its
+// insertion order whatever the key, so the order cells are visited in, and so
+// the SVG, is what the text keys gave.
+const CELL_BASE = 1024;
+const cellKey = (x, y) => (x | 0) === x && (y | 0) === y && x > -CELL_BASE && x < CELL_BASE && y > -CELL_BASE && y < CELL_BASE
+  ? ((y + CELL_BASE) << 11) | (x + CELL_BASE) : `${x},${y}`;
+const cellX = k => typeof k === 'number' ? (k & 2047) - CELL_BASE : Number(k.split(',')[0]);
+const cellY = k => typeof k === 'number' ? (k >> 11) - CELL_BASE : Number(k.split(',')[1]);
+const NEIGHBORS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+const NEIGHBORS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 // A pixel canvas: cells keyed by column and row; later paint wins.
 function canvas() {
   const cells = new Map();
   const put = (x, y, color) => {
     if (x < -2 || x > GRID + 1 || y < -2 || y > GRID + 1 || !color) return;
-    cells.set(`${x},${y}`, color);
+    cells.set(cellKey(x, y), color);
   };
   const cv = {
     cells,
     put,
-    has: (x, y) => cells.has(`${x},${y}`),
-    get: (x, y) => cells.get(`${x},${y}`),
-    clear: (x, y) => cells.delete(`${x},${y}`),
+    has: (x, y) => cells.has(cellKey(x, y)),
+    get: (x, y) => cells.get(cellKey(x, y)),
+    clear: (x, y) => cells.delete(cellKey(x, y)),
     rect(x, y, w, h, color) {
       for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, color);
     },
@@ -266,10 +279,10 @@ function canvas() {
     },
     // A darker line just outside the given cells, for pale bodies on pale walls.
     outline(list, color) {
-      const mine = new Set(list.map(([x, y]) => `${x},${y}`));
+      const mine = new Set(list.map(([x, y]) => cellKey(x, y)));
       for (const [x, y] of list) {
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const k = `${x + dx},${y + dy}`;
+        for (const [dx, dy] of NEIGHBORS_4) {
+          const k = cellKey(x + dx, y + dy);
           if (!mine.has(k) && !cells.has(k)) put(x + dx, y + dy, color);
         }
       }
@@ -278,45 +291,134 @@ function canvas() {
   return cv;
 }
 
+// A row's cell columns in ascending order. Sorting rows is the hot loop, and
+// a comparator sort is slow in some script engines; the rows are short.
+function sortRow(xs) {
+  for (let i = 1; i < xs.length; i++) {
+    const v = xs[i];
+    let j = i - 1;
+    while (j >= 0 && xs[j] > v) { xs[j + 1] = xs[j]; j--; }
+    xs[j + 1] = v;
+  }
+}
+
+// The cells round a canvas's cells (their 8 neighbours that hold no cell),
+// as cell keys in the order they are first met walking the cells in order.
+// Whole-number cells, all a canvas holds but for a few odd frames, are
+// marked on a small grid instead of looked up in a Map and a Set.
+const RING_W = 40;
+const RING_CELLS = new Uint8Array(RING_W * RING_W);
+const RING_SEEN = new Uint8Array(RING_W * RING_W);
+function ringOf(cells) {
+  let whole = true;
+  for (const key of cells.keys()) if (typeof key !== 'number') { whole = false; break; }
+  if (!whole) {
+    const ring = new Set();
+    for (const key of cells.keys()) {
+      const x = cellX(key), y = cellY(key);
+      for (const [dx, dy] of NEIGHBORS_8) {
+        const k = cellKey(x + dx, y + dy);
+        if (!cells.has(k)) ring.add(k);
+      }
+    }
+    return [...ring];
+  }
+  const cell = RING_CELLS, seen = RING_SEEN, out = [], marked = [];
+  for (const key of cells.keys()) {
+    const at = ((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6;
+    cell[at] = 1;
+    marked.push(at);
+  }
+  const touched = [];
+  for (const key of cells.keys()) {
+    const at = ((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6;
+    for (let i = 0; i < 8; i++) {
+      const next = at + RING_STEP[i];
+      if (cell[next] === 0 && seen[next] === 0) {
+        seen[next] = 1;
+        touched.push(next);
+        out.push(key + RING_KEY_STEP[i]);
+      }
+    }
+  }
+  for (const at of marked) cell[at] = 0;
+  for (const at of touched) seen[at] = 0;
+  return out;
+}
+// The neighbours in NEIGHBORS_8's order, as steps on the grid and on cell keys.
+const RING_STEP = NEIGHBORS_8.map(([dx, dy]) => dy * RING_W + dx);
+const RING_KEY_STEP = NEIGHBORS_8.map(([dx, dy]) => (dy << 11) + dx);
+
+// A list of cell keys as path data: row by row in the order rows first
+// appear, each row's cells in ascending order with neighbours merged into one
+// rectangle. A row of whole-number cells is a 32-bit mask (columns -4 to 27),
+// so the merging is a scan of bits; anything else takes the general route.
+const ROW_MASKS = new Int32Array(64);
+function runsOf(list) {
+  const order = [];
+  let whole = true;
+  for (const key of list) {
+    if (typeof key !== 'number') { whole = false; break; }
+    const row = (key >> 11) - 1000, col = (key & 2047) - 1020;
+    if (row < 0 || row > 63 || col < 0 || col > 31) { whole = false; break; }
+    if (ROW_MASKS[row] === 0) order.push(row);
+    ROW_MASKS[row] |= 1 << col;
+  }
+  if (!whole) {
+    for (const row of order) ROW_MASKS[row] = 0;
+    return runsGeneral(list);
+  }
+  let d = '';
+  for (const row of order) {
+    const y = row - 24;
+    const mask = ROW_MASKS[row];
+    ROW_MASKS[row] = 0;
+    let col = 0;
+    while (col < 32) {
+      if ((mask & (1 << col)) === 0) { col++; continue; }
+      let end = col;
+      while (end < 31 && (mask & (1 << (end + 1))) !== 0) end++;
+      const start = col - 4;
+      d += `${M(start * PX, y * PX)}H${n((end - 3) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      col = end + 1;
+    }
+  }
+  return d;
+}
+
+function runsGeneral(list) {
+  const rows = new Map();
+  for (const key of list) {
+    const y = cellY(key);
+    let xs = rows.get(y);
+    if (!xs) rows.set(y, xs = []);
+    xs.push(cellX(key));
+  }
+  let d = '';
+  for (const [y, xs] of rows) {
+    sortRow(xs);
+    let start = xs[0], prev = xs[0];
+    for (let i = 1; i <= xs.length; i++) {
+      if (i < xs.length && xs[i] === prev + 1) { prev = xs[i]; continue; }
+      d += `${M(start * PX, y * PX)}H${n((prev + 1) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      start = prev = xs[i];
+    }
+  }
+  return d;
+}
+
 // Cells to SVG: an optional white sticker outline, then one path per colour
 // with each row's runs merged.
 function pixels(cv, c, opacity = 1) {
   const byColor = new Map();
   for (const [key, color] of cv.cells) {
-    if (!byColor.has(color)) byColor.set(color, []);
-    byColor.get(color).push(key.split(',').map(Number));
+    let list = byColor.get(color);
+    if (!list) byColor.set(color, list = []);
+    list.push(key);
   }
-  const runs = list => {
-    const rows = new Map();
-    for (const [x, y] of list) {
-      if (!rows.has(y)) rows.set(y, []);
-      rows.get(y).push(x);
-    }
-    let d = '';
-    for (const [y, xs] of rows) {
-      xs.sort((a, b) => a - b);
-      let start = xs[0], prev = xs[0];
-      for (let i = 1; i <= xs.length; i++) {
-        if (i < xs.length && xs[i] === prev + 1) { prev = xs[i]; continue; }
-        d += `${M(start * PX, y * PX)}H${n((prev + 1) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
-        start = prev = xs[i];
-      }
-    }
-    return d;
-  };
   let out = '';
-  if (c.rim) {
-    const ring = new Map();
-    for (const key of cv.cells.keys()) {
-      const [x, y] = key.split(',').map(Number);
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
-        const k = `${x + dx},${y + dy}`;
-        if (!cv.cells.has(k)) ring.set(k, [x + dx, y + dy]);
-      }
-    }
-    out += path(runs([...ring.values()]), F(RIM) + O(0.92));
-  }
-  for (const [color, list] of byColor) out += path(runs(list), F(color));
+  if (c.rim) out += path(runsOf(ringOf(cv.cells)), F(RIM) + O(0.92));
+  for (const [color, list] of byColor) out += path(runsOf(list), F(color));
   return group(O(opacity), out);
 }
 
@@ -333,7 +435,7 @@ const SAFE = (() => {
     [-1, 0, 1].every(i => [-1, 0, 1].every(j => inside(x + i, y + j)))));
 })();
 const safe = (x, y) => SAFE[y]?.[x] === true;
-const allSafe = cv => [...cv.cells.keys()].every(k => { const [x, y] = k.split(',').map(Number); return safe(x, y); });
+const allSafe = cv => [...cv.cells.keys()].every(k => safe(cellX(k), cellY(k)));
 
 // The smallest whole-cell shift that brings every cell inside, preferring
 // sideways steps toward the middle, and a spot clear of `clear` (the body)
@@ -364,15 +466,15 @@ function fitShift(cells, clear) {
 function fitDraw(into, draw, clear = into) {
   const tmp = canvas();
   draw(tmp);
-  const cells = [...tmp.cells].map(([k, color]) => { const [x, y] = k.split(',').map(Number); return [x, y, color]; });
+  const cells = [...tmp.cells].map(([k, color]) => [cellX(k), cellY(k), color]);
   if (!cells.length) return;
   const [dx, dy] = fitShift(cells, clear);
   const moved = cells.map(([x, y, color]) => [x + dx, y + dy, color]);
   if (clear) {
-    const own = new Set(moved.map(([x, y]) => `${x},${y}`));
+    const own = new Set(moved.map(([x, y]) => cellKey(x, y)));
     const ring = [];
     for (const [x, y] of moved) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-      if (!own.has(`${x + i},${y + j}`)) ring.push([x + i, y + j]);
+      if (!own.has(cellKey(x + i, y + j))) ring.push([x + i, y + j]);
     }
     if (ring.some(([x, y]) => clear.has(x, y))) for (const [x, y] of ring) if (safe(x, y)) into.put(x, y, '#FFFFFF');
   }
@@ -1809,9 +1911,9 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   // round corners only, which breaks the logo's stroke into dots on the
   // cloud's diagonal edges.
   function outline8(cv, list, color) {
-    const mine = new Set(list.map(([x, y]) => `${x},${y}`));
+    const mine = new Set(list.map(([x, y]) => cellKey(x, y)));
     for (const [x, y] of list) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!mine.has(`${x + dx},${y + dy}`) && !cv.has(x + dx, y + dy)) cv.put(x + dx, y + dy, color);
+      if (!mine.has(cellKey(x + dx, y + dy)) && !cv.has(x + dx, y + dy)) cv.put(x + dx, y + dy, color);
     }
   }
 
@@ -1836,7 +1938,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     if (p.thin > 0.5) {
       const tick = Math.floor(c.T * 3);
       for (const [k, color] of [...cv.cells]) {
-        const [x, y] = k.split(',').map(Number);
+        const x = cellX(k), y = cellY(k);
         if (color === line && (x + y + tick) % 3 === 0) cv.clear(x, y);
       }
     }
@@ -3082,7 +3184,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     }
     // Wrapped in kelp to rest, so it doesn't drift.
     if (p.kelp) for (let i = 4; i < 18; i++) if (cv.has(x + i, y + 9 + (i % 3 === 0 ? 1 : 0))) cv.put(x + i, y + 9 + (i % 3 === 0 ? 1 : 0), KELP);
-    const mine = [...cv.cells.keys()].map(k => k.split(',').map(Number));
+    const mine = [...cv.cells.keys()].map(k => [cellX(k), cellY(k)]);
     cv.outline(mine, INK);
     // The sea round it, never over it: rows 13 to 17, drifting slowly;
     // still and grey when it's offline.
