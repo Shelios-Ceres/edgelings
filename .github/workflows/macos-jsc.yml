@@ -28,6 +28,9 @@ jobs:
           ./jsc-run windows/tests/engine-diff/characters.frozen.mjs windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs windows/tests/engine-diff/diff-core.mjs 500 2 | tee jsc-result.txt
           { echo '```'; cat jsc-result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Primitive costs on JavaScriptCore
+        run: ./jsc-run --micro windows/tests/engine-diff/micro.js | tee -a jsc-result.txt
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -7,9 +7,20 @@ import Foundation
 import JavaScriptCore
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 4 else {
+guard arguments.count >= 4 || arguments.contains("--micro") else {
     print("usage: jsc-run <frozen.mjs> <live.mjs> <diff-core.mjs> [steps] [seeds]")
     exit(2)
+}
+// jsc-run --micro <script.js>: runs a plain script with print() and preciseTime() and nothing else.
+if arguments.count >= 3, arguments[1] == "--micro" {
+    let context = JSContext()!
+    context.exceptionHandler = { _, exception in print("FAIL \(exception?.toString() ?? "")") }
+    let printer: @convention(block) (String) -> Void = { print($0) }
+    context.setObject(printer, forKeyedSubscript: "print" as NSString)
+    let clock: @convention(block) () -> Double = { ProcessInfo.processInfo.systemUptime }
+    context.setObject(clock, forKeyedSubscript: "preciseTime" as NSString)
+    context.evaluateScript(try! String(contentsOfFile: arguments[2], encoding: .utf8))
+    exit(0)
 }
 let steps = arguments.count > 4 ? Int(arguments[4]) ?? 500 : 500
 let seeds = arguments.count > 5 ? Int(arguments[5]) ?? 2 : 2
