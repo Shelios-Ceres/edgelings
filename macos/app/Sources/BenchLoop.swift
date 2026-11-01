@@ -69,9 +69,12 @@ enum BenchLoop {
                         roundParse += milliseconds { _ = FastSvg.parse(produced.svg) }
                         if round % 10 == 0 {
                             roundLegacy += milliseconds {
+                                // XMLParser keeps its delegate weakly: hold it for the parse.
+                                let delegate = BenchDelegate()
                                 let xml = XMLParser(data: Data(produced.svg.utf8))
-                                xml.delegate = BenchDelegate()
+                                xml.delegate = delegate
                                 _ = xml.parse()
+                                withExtendedLifetime(delegate) {}
                             }
                         }
                         roundRaster += milliseconds {
