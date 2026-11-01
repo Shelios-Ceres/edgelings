@@ -61,6 +61,8 @@ final class DrawerController {
     private var slots: [Slot] = []
     private var loopTimer: Timer?
     private var paceFps = 0.0
+    /// The loop's rate now, for the diagnostic (0 while it rests).
+    var pace: Double { paceFps }
     private let canvas = SvgCanvas()
     private let clock = Date()
     private var away = false
@@ -348,7 +350,7 @@ final class DrawerController {
         guard let frame, panel.isVisible, !away, engine != nil else { stopLoop(); return }
         let pixel = frame.isPixel
         var cap = Double(frame.fps)
-        if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 30 : min(cap, 30) }
+        if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 60 : min(cap, 60) }
         let active = pixel ? (cap == 0 ? 30 : min(cap, 30)) : (cap == 0 ? 60 : cap)
         let busy = slots.contains { $0.visible && !calmStates.contains($0.engineState) }
         let near = !reducedMotion && pointerNear
@@ -451,7 +453,7 @@ final class DrawerController {
         var anyNear = false
         var dts = [Double?](repeating: nil, count: slots.count)
         var cap = Double(frame.fps)
-        if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 30 : min(cap, 30) }
+        if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 60 : min(cap, 60) }
         let activeFps = reduced ? 12 : pixel ? (cap == 0 ? 30 : min(cap, 30)) : (cap == 0 ? 60 : cap)
         let gazeFps: Double = reduced ? 12 : pixel ? 30 : 60
         let calmFps: Double = reduced ? 6 : 30
@@ -487,9 +489,11 @@ final class DrawerController {
         // window server sent no mouse-moved event (a non-activating panel).
         if pressed == nil { pollHover(pointer) }
         let frames = engine.tick(dts, size: Double(Metrics.botSize))
+        var changed = false
         for index in due where index < frames.count {
             guard let produced = frames[index] else { continue }
             let slot = slots[index]
+            if slot.svg != produced.svg { changed = true }
             // Self-completing entries (finished, spawning…) fall back to idle;
             // keep playing the agent's phase instead.
             if produced.state == "idle" && slot.hold != "idle" { engine.setState(index, slot.hold, phase: -1) }
@@ -497,7 +501,8 @@ final class DrawerController {
             slot.svg = produced.svg
             fidget(index, slot, now: now, reduced: reduced)
         }
-        view.needsDisplay = true
+        // A frame the bots already show is not presented again (a moment's own redraw is runMoment's).
+        if changed { view.needsDisplay = true }
         updatePace()
     }
 
@@ -645,10 +650,8 @@ final class DrawerController {
         }
     }
 
-    /// Low Power Mode, or (for the runner's saver measurement) EDGELINGS_ASSUME_BATTERY=1.
-    static var onBattery: Bool {
-        ProcessInfo.processInfo.isLowPowerModeEnabled || ProcessInfo.processInfo.environment["EDGELINGS_ASSUME_BATTERY"] == "1"
-    }
+    /// On battery or in Low Power Mode (Power.swift), as Windows' Save battery asks.
+    static var onBattery: Bool { Power.onBattery }
 
     static var isDark: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

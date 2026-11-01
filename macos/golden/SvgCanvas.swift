@@ -17,6 +17,84 @@ final class SvgNode {
     func attr(_ key: String) -> String? { attrs[key] }
 }
 
+/// A scanner for the engines' SVG: elements with quoted attributes, no text,
+/// comments, entities or processing instructions. It is several times faster
+/// than XMLParser, which the drawer's loop would otherwise run for every frame
+/// of every character. Anything outside that subset answers nil, and the
+/// caller falls back to XMLParser, so an unusual frame is still drawn.
+enum FastSvg {
+    static func parse(_ svg: String) -> SvgNode? {
+        var copy = svg
+        return copy.withUTF8 { parse($0) }
+    }
+
+    private static func parse(_ b: UnsafeBufferPointer<UInt8>) -> SvgNode? {
+        let n = b.count
+        var i = 0
+        var root: SvgNode?
+        var stack: [SvgNode] = []
+        func isSpace(_ c: UInt8) -> Bool { c == 0x20 || c == 0x0A || c == 0x09 || c == 0x0D }
+        func text(_ from: Int, _ to: Int) -> String { String(decoding: UnsafeBufferPointer(rebasing: b[from..<to]), as: UTF8.self) }
+        while i < n {
+            if b[i] != 0x3C { // '<'
+                if !isSpace(b[i]) { return nil }
+                i += 1
+                continue
+            }
+            i += 1
+            guard i < n else { return nil }
+            if b[i] == 0x2F { // end tag
+                while i < n, b[i] != 0x3E { i += 1 }
+                guard i < n, !stack.isEmpty else { return nil }
+                stack.removeLast()
+                i += 1
+                continue
+            }
+            if b[i] == 0x21 || b[i] == 0x3F { return nil }
+            let nameStart = i
+            while i < n, !isSpace(b[i]), b[i] != 0x2F, b[i] != 0x3E { i += 1 }
+            guard i < n, i > nameStart else { return nil }
+            let name = text(nameStart, i)
+            var attrs: [String: String] = [:]
+            var selfClosing = false
+            attributes: while true {
+                while i < n, isSpace(b[i]) { i += 1 }
+                guard i < n else { return nil }
+                if b[i] == 0x3E { i += 1; break attributes }
+                if b[i] == 0x2F {
+                    guard i + 1 < n, b[i + 1] == 0x3E else { return nil }
+                    selfClosing = true
+                    i += 2
+                    break attributes
+                }
+                let keyStart = i
+                while i < n, b[i] != 0x3D, !isSpace(b[i]), b[i] != 0x3E, b[i] != 0x2F { i += 1 }
+                guard i < n, i > keyStart else { return nil }
+                let key = text(keyStart, i)
+                while i < n, isSpace(b[i]) { i += 1 }
+                guard i < n, b[i] == 0x3D else { return nil }
+                i += 1
+                while i < n, isSpace(b[i]) { i += 1 }
+                guard i < n, b[i] == 0x22 || b[i] == 0x27 else { return nil }
+                let quote = b[i]
+                i += 1
+                let valueStart = i
+                while i < n, b[i] != quote {
+                    if b[i] == 0x26 || b[i] == 0x3C { return nil } // an entity, or a stray <
+                    i += 1
+                }
+                guard i < n else { return nil }
+                attrs[key] = text(valueStart, i)
+                i += 1
+            }
+            let node = SvgNode(name: name, attrs: attrs)
+            if let top = stack.last { top.children.append(node) } else if root == nil { root = node } else { return nil }
+            if !selfClosing { stack.append(node) }
+        }
+        return stack.isEmpty ? root : nil
+    }
+}
+
 private final class SvgParser: NSObject, XMLParserDelegate {
     var root: SvgNode?
     private var stack: [SvgNode] = []
@@ -56,16 +134,27 @@ struct Paint {
 final class SvgCanvas {
     private var byId: [String: SvgNode] = [:]
     private var clips: [String: CGPath] = [:]
+    /// Parsed path data by its text: a frame's shapes mostly repeat from the
+    /// last (SvgCanvas.cs keeps the same cache); emptied past a bound.
+    private var paths: [String: CGPath] = [:]
+    private var colors: [String: CGColor] = [:]
+    private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
 
     /// Draws svg into ctx, whose current transform maps one SVG unit to the
     /// target's unit (the caller flips and scales it). antialias false is
     /// the Pixel style's aliased drawing.
     func render(svg: String, into ctx: CGContext, antialias: Bool) throws {
-        let parser = SvgParser()
-        let xml = XMLParser(data: Data(svg.utf8))
-        xml.delegate = parser
-        guard xml.parse(), let root = parser.root else {
-            throw NSError(domain: "svg", code: 1, userInfo: [NSLocalizedDescriptionKey: "unparsable SVG"])
+        let root: SvgNode
+        if let fast = FastSvg.parse(svg) {
+            root = fast
+        } else {
+            let parser = SvgParser()
+            let xml = XMLParser(data: Data(svg.utf8))
+            xml.delegate = parser
+            guard xml.parse(), let parsed = parser.root else {
+                throw NSError(domain: "svg", code: 1, userInfo: [NSLocalizedDescriptionKey: "unparsable SVG"])
+            }
+            root = parsed
         }
         byId = [:]
         clips = [:]
@@ -139,7 +228,12 @@ final class SvgCanvas {
             let cx = number(e.attr("cx") ?? "0"), cy = number(e.attr("cy") ?? "0"), r = number(e.attr("r") ?? "0")
             return CGPath(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil)
         }
-        return SvgPath.parse(e.attr("d") ?? "")
+        let data = e.attr("d") ?? ""
+        if let known = paths[data] { return known }
+        let parsed = SvgPath.parse(data)
+        if paths.count >= 2048 { paths.removeAll(keepingCapacity: true) }
+        paths[data] = parsed
+        return parsed
     }
 
     /// A clipPath's or mask's shapes as one path, in the user space of the element that uses it.
@@ -178,9 +272,16 @@ final class SvgCanvas {
     // MARK: values
 
     private func color(_ value: String) -> CGColor {
-        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        if let known = colors[value] { return known }
+        let made = makeColor(value)
+        if colors.count >= 512 { colors.removeAll(keepingCapacity: true) }
+        colors[value] = made
+        return made
+    }
+
+    private func makeColor(_ value: String) -> CGColor {
         func rgba(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat) -> CGColor {
-            CGColor(colorSpace: space, components: [r, g, b, a])!
+            CGColor(colorSpace: SvgCanvas.space, components: [r, g, b, a])!
         }
         switch value {
         case "white": return rgba(1, 1, 1, 1)
@@ -210,11 +311,22 @@ final class SvgCanvas {
     /// transform="A B C": SVG applies C first, so the steps are concatenated in order.
     private func transforms(_ value: String) -> [CGAffineTransform] {
         var steps: [CGAffineTransform] = []
-        let regex = try! NSRegularExpression(pattern: #"(\w+)\s*\(([^)]*)\)"#)
-        let range = NSRange(value.startIndex..., in: value)
-        for match in regex.matches(in: value, range: range) {
-            let name = (value as NSString).substring(with: match.range(at: 1))
-            let args = numbers((value as NSString).substring(with: match.range(at: 2)))
+        // The groups the pattern (\w+)\s*\(([^)]*)\) matches, read without building a regex.
+        let b = Array(value.utf8)
+        let n = b.count
+        func isWord(_ c: UInt8) -> Bool { (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || c == 0x5F }
+        var i = 0
+        while i < n {
+            guard isWord(b[i]) else { i += 1; continue }
+            let start = i
+            while i < n, isWord(b[i]) { i += 1 }
+            let end = i
+            var j = i
+            while j < n, b[j] == 0x20 || b[j] == 0x09 || b[j] == 0x0A || b[j] == 0x0D { j += 1 }
+            guard j < n, b[j] == 0x28, let close = b[(j + 1)...].firstIndex(of: 0x29) else { continue }
+            let name = String(decoding: b[start..<end], as: UTF8.self)
+            let args = numbers(String(decoding: b[(j + 1)..<close], as: UTF8.self))
+            i = close + 1
             switch name {
             case "translate": steps.append(CGAffineTransform(translationX: args[0], y: args.count > 1 ? args[1] : 0))
             case "scale": steps.append(CGAffineTransform(scaleX: args[0], y: args.count > 1 ? args[1] : args[0]))
@@ -245,7 +357,7 @@ final class SvgCanvas {
 enum SvgPath {
     static func parse(_ data: String) -> CGPath {
         let path = CGMutablePath()
-        var reader = Reader(Array(data))
+        var reader = Reader(Array(data.utf8))
         var open = false
         var start = CGPoint.zero
         var current = CGPoint.zero
@@ -345,10 +457,13 @@ enum SvgPath {
         }
     }
 
+    /// Path data is ASCII; walking it as Characters was the slowest part of a frame.
     private struct Reader {
-        let s: [Character]
+        let s: [UInt8]
         var i = 0
-        init(_ s: [Character]) { self.s = s }
+        init(_ s: [UInt8]) { self.s = s }
+
+        private static func isDigit(_ c: UInt8) -> Bool { c >= 0x30 && c <= 0x39 }
 
         mutating func more() -> Bool {
             skip()
@@ -356,11 +471,13 @@ enum SvgPath {
         }
         mutating func atCommand() -> Bool {
             skip()
-            return i < s.count && s[i].isLetter && s[i] != "e" && s[i] != "E"
+            guard i < s.count else { return false }
+            let c = s[i]
+            return ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) && c != 0x65 && c != 0x45
         }
         mutating func command() -> Character {
             defer { i += 1 }
-            return s[i]
+            return Character(UnicodeScalar(s[i]))
         }
         mutating func point() -> CGPoint {
             let x = number()
@@ -369,22 +486,22 @@ enum SvgPath {
         mutating func flag() -> Bool {
             skip()
             defer { i += 1 }
-            return s[i] == "1"
+            return s[i] == 0x31
         }
         mutating func number() -> CGFloat {
             skip()
             let start = i
-            if i < s.count, s[i] == "+" || s[i] == "-" { i += 1 }
-            while i < s.count, s[i].isNumber || s[i] == "." { i += 1 }
-            if i < s.count, s[i] == "e" || s[i] == "E" {
+            if i < s.count, s[i] == 0x2B || s[i] == 0x2D { i += 1 }
+            while i < s.count, Reader.isDigit(s[i]) || s[i] == 0x2E { i += 1 }
+            if i < s.count, s[i] == 0x65 || s[i] == 0x45 {
                 i += 1
-                if i < s.count, s[i] == "+" || s[i] == "-" { i += 1 }
-                while i < s.count, s[i].isNumber { i += 1 }
+                if i < s.count, s[i] == 0x2B || s[i] == 0x2D { i += 1 }
+                while i < s.count, Reader.isDigit(s[i]) { i += 1 }
             }
-            return CGFloat(Double(String(s[start..<i])) ?? 0)
+            return CGFloat(Double(String(decoding: s[start..<i], as: UTF8.self)) ?? 0)
         }
         private mutating func skip() {
-            while i < s.count, s[i].isWhitespace || s[i] == "," { i += 1 }
+            while i < s.count, s[i] == 0x20 || s[i] == 0x0A || s[i] == 0x09 || s[i] == 0x0D || s[i] == 0x2C { i += 1 }
         }
     }
 }
