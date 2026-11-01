@@ -9,6 +9,7 @@ public static class TerminalLauncher
 {
     public static bool RunVisible(string binary, string arguments, string title)
     {
+        if (OperatingSystem.IsMacOS()) return RunInMacTerminal(binary, arguments, title);
         var command = $"\"{binary}\" {arguments}";
         try
         {
@@ -55,6 +56,48 @@ public static class TerminalLauncher
             return false;
         }
     }
+
+    /// On a Mac: the command goes into a .command file that Terminal opens and
+    /// runs (the same trick the original macOS app used), so no Automation or
+    /// Accessibility permission is asked for.
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static bool RunInMacTerminal(string binary, string arguments, string title)
+    {
+        try
+        {
+            var folder = Path.Combine(Core.IslandPaths.AppSupportDir, "terminal");
+            Directory.CreateDirectory(folder);
+            var slug = new string(title.Where(char.IsAsciiLetterOrDigit).ToArray());
+            var file = Path.Combine(folder, (slug.Length == 0 ? "command" : slug) + ".command");
+            File.WriteAllText(file, MacScript(binary, arguments, title));
+            File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var open = new ProcessStartInfo { FileName = "/usr/bin/open", UseShellExecute = false };
+            open.ArgumentList.Add("-a");
+            open.ArgumentList.Add("Terminal");
+            open.ArgumentList.Add(file);
+            using var process = Process.Start(open);
+            return process is not null;
+        }
+        catch (Exception error)
+        {
+            Debug.WriteLine($"Edgelings: failed to open Terminal: {error.Message}");
+            return false;
+        }
+    }
+
+    /// The script Terminal runs: the title, the CLI, and a pause so the window
+    /// is not closed under a message the user has not read. The binary is
+    /// single-quoted for the shell; the title and arguments are the app's own
+    /// fixed words.
+    internal static string MacScript(string binary, string arguments, string title) =>
+        "#!/bin/bash\n" +
+        $"printf '\\033]0;%s\\007' {ShellQuote(title)}\n" +
+        $"{ShellQuote(binary)} {arguments}\n" +
+        "status=$?\n" +
+        "echo\n" +
+        "echo \"Finished (status $status). You can close this window.\"\n";
+
+    internal static string ShellQuote(string text) => "'" + text.Replace("'", "'\\''") + "'";
 
     private static readonly char[] CmdSpecials = { '&', '<', '>', '(', ')', '@', '^', '|' };
 

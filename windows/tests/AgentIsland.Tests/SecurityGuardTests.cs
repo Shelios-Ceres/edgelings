@@ -14,6 +14,7 @@ public static class SecurityGuardTests
         {
             ("account labels cannot escape the store directory", TestAccountLabelSanitizing),
             ("a CLI under a folder with & or ( ) in its name runs whole", TestShieldedCommand),
+            ("on a Mac the login script quotes a CLI path with a space or a quote", TestMacScript),
         };
         foreach (var (name, test) in tests)
         {
@@ -56,6 +57,14 @@ public static class SecurityGuardTests
         var boundarySpace = CodexAccountSwitcher.Sanitize(new string('a', 39) + "   tail");
         Expect(boundarySpace == new string('a', 39),
             $"a trailing space survived the cap: \"{boundarySpace}\"");
+    }
+
+    private static void TestMacScript()
+    {
+        var script = TerminalLauncher.MacScript("/Users/o'neil/My Tools/claude", "/login", "Edgelings Claude login");
+        Expect(script.StartsWith("#!/bin/bash\n", StringComparison.Ordinal), "a bash script");
+        Expect(script.Contains("'/Users/o'\\''neil/My Tools/claude' /login\n", StringComparison.Ordinal), "the path is one shell word, its quote escaped: " + script);
+        Expect(script.Contains("You can close this window", StringComparison.Ordinal), "the window says when it is done");
     }
 
     /// The login window's command, run with /c instead of /k and no window,
