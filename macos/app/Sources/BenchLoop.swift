@@ -21,6 +21,7 @@ enum BenchLoop {
     }
 
     static func run(arguments: [String]) -> Never {
+        setvbuf(stdout, nil, _IONBF, 0)
         let scale = CGFloat(value("--scale", arguments, 2))
         let rounds = Int(value("--rounds", arguments, 300))
         let maxBusy = value("--max-busy", arguments, 1000)
@@ -34,6 +35,7 @@ enum BenchLoop {
         for theme in ["pixel", "classic"] {
             let pixel = theme == "pixel"
             for mode in ["busy", "calm"] {
+                print("bench: \(theme) \(mode): loading the engine")
                 let engine: CharacterEngine
                 do {
                     engine = try CharacterEngine(theme: theme, directory: AppController.enginesDirectory())
@@ -45,6 +47,7 @@ enum BenchLoop {
                     let bot = engine.addBot(kind: kind, tempo: 1, seed: 7 + index * 13, look: "")
                     engine.setState(bot, mode == "busy" ? busyStates[index % busyStates.count] : "idle", phase: pixel ? 0 : -1)
                 }
+                print("bench: \(theme) \(mode): engine ready, \(kinds.count) bots added")
                 let fps: Double = mode == "busy" ? (pixel ? 30 : 60) : 30
                 let dts = [Double?](repeating: 1 / fps, count: kinds.count)
                 let canvas = SvgCanvas()
@@ -89,6 +92,7 @@ enum BenchLoop {
                             }
                         }
                     }
+                    if round == 0 { print("bench: first round done, \(frames.compactMap { $0 }.count) frames") }
                     guard round >= 30 else { continue }
                     jsc += tickMs
                     parse += roundParse
