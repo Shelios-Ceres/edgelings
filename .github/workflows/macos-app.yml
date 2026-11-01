@@ -90,7 +90,7 @@ jobs:
         timeout-minutes: 5
         run: |
           set -o pipefail
-          EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --bench-loop --scale 2 --max-busy 70 --max-calm 60 | tee out/bench-loop.txt
+          EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --bench-loop --scale 2 --max-busy 30 --max-calm 20 | tee out/bench-loop.txt
 
       - name: Render every screen offscreen (synthetic data)
         run: |
