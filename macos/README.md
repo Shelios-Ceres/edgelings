@@ -106,6 +106,15 @@ Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English
 
 `ClaudeHooks.UseShell` and `GrokHooks.UseShell` (off by default, turned on only by `appStart`) make the optional permission-prompt hooks `sh` commands that read the event with `plutil` and keep ids and a type, never text. Nothing is installed until the user flips the switch on the agent's card (a backup of `~/.claude/settings.json` is made first). `ShellHooksTests` runs the generated command on a Mac with temp folders only.
 
+### Fixes 1 (after the first friend report)
+
+- **Presence by bundle:** a process counts as an agent by its libproc name, its image's file name, the `.app` bundle its main executable sits in (`MacAgentNames`), or Kimi Code's folder. The diagnostic lists what matched and who started it.
+- **Save battery** follows the power source (`platform/Power.swift`, IOKit) as well as Low Power Mode, and caps at 60 fps as Windows does.
+- **Loop cost:** `Edgelings --bench-loop --scale 2` times seven characters stage by stage (JavaScriptCore step, SVG parse, Core Graphics, blit) and turns it into a share of one core. CI uses it as a regression guard (busy 35 %, calm 25 %, any of three runs). `golden/SvgCanvas.swift` has a byte scanner for the engines' SVG, a path cache and a colour cache.
+- **Pixel engine:** `windows/tests/engine-diff` holds the frozen engine and a differential test (Node, and JavaScriptCore in `macos-jsc.yml`) behind a 2.5-4x faster `characters.mjs` with byte-identical output.
+- **Sign in** writes a `.command` file under Application Support and opens it in Terminal (`TerminalLauncher`).
+- **Friend kit:** `app/HOW-TO-TEST.md`, `PROBE.md` (read-only commands) and `CHECKLIST.md` (two minutes for a person) are packed with the zip.
+
 ### Not ported yet
 
 The drawer's choreography (slide in and out, lift on drag, drop, edge switch, roster change), the M-series control motions, count-up bars, the drawn Classic window frame, the pixel icon set, the app icon, Sparkle. The upstream Mac-only features (turn alarm, reminders, jump to terminal, report cards) and the notch island stay in `Sources/` for the user to decide after parity.
