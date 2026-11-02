@@ -48,6 +48,31 @@ find ~/Library/Application\ Support/<the folder name> -maxdepth 2 -type d | head
 pmset -g batt | head -1
 ```
 
+## 7. The Kimi desktop app's Kimi Work data (if you have the Kimi client)
+
+Edgelings reads Kimi Work conversations as Kimi sessions. On Windows they live under `kimi-desktop\daimon-share\daimonuntime\kimi-code\home\sessions`; this finds where they are on a Mac. Names only (the folders are named with ids, which is fine to paste).
+
+```sh
+ls ~/Library/Application\ Support | grep -i -E 'kimi|moonshot'
+```
+
+For the Kimi desktop client's folder that this prints (not Kimi Code's own), replace `<folder>` below:
+
+```sh
+D=~/Library/Application\ Support/<folder>/daimon-share/daimon/runtime/kimi-code/home/sessions
+ls -d "$D"
+find "$D" -maxdepth 2 -type d | sed 's#.*/sessions#sessions#' | head -60
+find "$D" -name wire.jsonl -mtime -1 | wc -l
+```
+
+If the first `ls -d` says "No such file", run this instead and paste what it prints (folder names, three levels down):
+
+```sh
+find ~/Library/Application\ Support/<folder> -maxdepth 3 -type d | sed "s#$HOME#~#" | head -80
+```
+
+Run section 1 once more while the **Kimi** app (the desktop client, not Kimi Code) is open, and say which line in its output is the client.
+
 ## 6. Cursor: why tokens are zero (optional)
 
 ```sh
