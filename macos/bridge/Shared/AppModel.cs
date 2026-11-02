@@ -371,7 +371,8 @@ public static class AppModel
         json.WriteNumber("linger", linger);
         json.WriteBoolean("phaseLine", false);
         if (cue.Length > 0 && !pixel) json.WriteString("cue", cue);
-        if (pixel && kind != "error") json.WriteBoolean("hop", now - bot.PhaseSince >= 1.5);
+        // Mail moves nothing: its line shows and the character stays put.
+        if (pixel && kind is not ("error" or "plain")) json.WriteBoolean("hop", now - bot.PhaseSince >= 1.5);
         json.WriteEndObject();
     }
 

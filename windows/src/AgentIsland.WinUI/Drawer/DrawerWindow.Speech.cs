@@ -124,7 +124,8 @@ internal sealed partial class DrawerWindow
         Say(bot, line, kind, linger);
         if (pixel)
         {
-            if (kind != LineKind.Error && now - bot.PhaseSince >= 1.5) HopCharacter(bot);
+            // Mail moves nothing: its line shows and the character stays put.
+            if (kind is not (LineKind.Error or LineKind.Plain) && now - bot.PhaseSince >= 1.5) HopCharacter(bot);
         }
         else if (!cued)
         {
