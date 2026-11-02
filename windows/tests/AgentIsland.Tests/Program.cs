@@ -246,6 +246,10 @@ public static class Program
         var events = AgentIsland.Cost.KimiLogReader.Scan(30);
         var inWork = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl").Select(AgentIsland.Cost.KimiLogReader.ParseFile).SelectMany(e => e).ToList();
         Console.WriteLine($"Kimi tokens, 30 days: {events.Count} events, {events.Sum(e => e.WireTokens)} tokens in all trees; Kimi Work's own: {inWork.Count} events, {inWork.Sum(e => e.WireTokens)} tokens, models {string.Join(", ", inWork.Select(e => e.Model).Distinct().OrderBy(m => m, StringComparer.Ordinal))}");
+        var priced = inWork.GroupBy(e => e.Model).OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => $"{g.Key} {g.Sum(e => e.WireTokens)} tok ${g.Sum(e => e.Dollars):0.00}{(g.Any(e => e.Dollars == 0) ? " (unpriced)" : "")}");
+        Console.WriteLine($"Kimi Work by model: {string.Join("; ", priced)}");
+        Console.WriteLine($"K2 models hidden from the model rows: {string.Join(", ", inWork.Select(e => e.Model).Distinct().Where(m => AgentIsland.Cost.KimiLogReader.IsK2(m, null)).OrderBy(m => m, StringComparer.Ordinal))}");
         return 0;
     }
 

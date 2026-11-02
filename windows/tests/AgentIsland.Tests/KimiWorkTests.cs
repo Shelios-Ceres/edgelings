@@ -25,6 +25,8 @@ public static class KimiWorkTests
             ("the desktop app's helper sessions (titles, automations) are not conversations", HelpersSkipped),
             ("a request's display (the command and the folder) is never read or kept", DisplayNeverRead),
             ("tokens of both trees count once, and a copied history counts once", TokensCountOnce),
+            ("Kimi Work's model ids are priced as the models they are", WorkModelPrices),
+            ("Kimi Work's K2 models stay out of the model rows but count in totals", WorkK2Rule),
             ("the Kimi desktop app counts for Kimi's presence by its install folder", DesktopPresence),
             ("the kimi CLI's path hint and the desktop app's both match their own", PathHints),
             ("a desktop-hosted session is idled with its app, a CLI session with its CLI", SettleFollowsHost),
@@ -252,6 +254,39 @@ public static class KimiWorkTests
         Expect(events.Count, 2);
         Expect(events.Sum(e => e.InputTokens), 200L);
     });
+
+    private static TokenEvent Event(string model) =>
+        new(TriggerTool.Kimi, DateTimeOffset.UtcNow, model, 1_000_000, 1_000_000, 0, 1_000_000);
+
+    private static void WorkModelPrices()
+    {
+        void Same(string work, string known) =>
+            Expect(Math.Abs(Event(work).Dollars - Event(known).Dollars) < 1e-9 && Event(known).Dollars > 0, $"{work} is priced as {known}");
+        Same("k3d1-agent", "kimi-code/k3.1-pro");
+        Same("k3-agent", "kimi-code/k3");
+        Same("k2d8-preview", "kimi-code/kimi-for-coding");
+        // Anything else the desktop app writes has no known price: tokens only.
+        Expect(Event("k2d6-agent").Dollars, 0.0);
+        Expect(Pricing.IsKnown("k2d6-agent"), false);
+        Expect(Pricing.IsKnown("k3d1-agent"), true);
+    }
+
+    private static void WorkK2Rule()
+    {
+        Expect(KimiLogReader.IsK2("k2d6-agent", null), true);
+        Expect(KimiLogReader.IsK2("k2d8-preview", null), true);
+        Expect(KimiLogReader.IsK2("K2D9-agent", null), true);
+        Expect(KimiLogReader.IsK2("k3d1-agent", null), false);
+        Expect(KimiLogReader.IsK2("k3-agent", null), false);
+        Expect(KimiLogReader.IsK2("k2dx", null), false);
+        Expect(KimiLogReader.IsK2("k2d", null), false);
+        // A name Kimi gives wins, as for Kimi Code's own models.
+        Expect(KimiLogReader.IsK2("k2d8-preview", "K3 renamed"), false);
+        // Their tokens still count in every total.
+        var events = new[] { Event("k2d6-agent"), Event("k2d8-preview"), Event("k3d1-agent") }.ToList();
+        var summary = CostSummarizer.Summarize(events, DateTimeOffset.UtcNow.AddMinutes(5));
+        Expect(summary.RecentModels.Sum(m => m.Tokens), events.Sum(e => e.WireTokens));
+    }
 
     private static readonly Running Explorer = new(1, 0, "explorer");
 

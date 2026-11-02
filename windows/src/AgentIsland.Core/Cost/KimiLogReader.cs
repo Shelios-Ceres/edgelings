@@ -143,6 +143,8 @@ public static class KimiLogReader
     /// is K2 by the name Kimi gives it ("K2.8 Preview"); one with no name is K2
     /// by its id: the two plan aliases that were K2, or any `kimi-k2…` id.
     /// Kimi pointing an alias at a K3 model, under a K3 name, lists it again.
+    /// The desktop app's Kimi Work logs name a model k&lt;major&gt;d&lt;minor&gt;-…
+    /// (k2d6-agent, k2d8-preview, k3d1-agent): a K2 one starts "k2d" and a digit.
     public static bool IsK2(string model, string? displayName)
     {
         if (displayName is { Length: > 0 })
@@ -153,7 +155,8 @@ public static class KimiLogReader
         var name = model.StartsWith("kimi-code/", StringComparison.OrdinalIgnoreCase) ? model["kimi-code/".Length..] : model;
         return model.Equals("kimi-code/kimi-for-coding", StringComparison.OrdinalIgnoreCase)
             || model.Equals("kimi-code/kimi-for-coding-highspeed", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith("kimi-k2", StringComparison.OrdinalIgnoreCase);
+            || name.StartsWith("kimi-k2", StringComparison.OrdinalIgnoreCase)
+            || (name.Length > 3 && name.StartsWith("k2d", StringComparison.OrdinalIgnoreCase) && char.IsAsciiDigit(name[3]));
     }
 
     /// An event of another provider's model that has no price under the
