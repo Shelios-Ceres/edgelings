@@ -48,9 +48,17 @@ find ~/Library/Application\ Support/<the folder name> -maxdepth 2 -type d | head
 pmset -g batt | head -1
 ```
 
+## 6. Cursor: why tokens are zero (optional)
+
+```sh
+sqlite3 -readonly ~/Library/Application\ Support/Cursor/User/globalStorage/state.vscdb "select count(*) from cursorDiskKV where key like 'bubbleId:%' and instr(value,'tokenCount')>0;"
+```
+
+This prints one number: how many Cursor messages carry a token count at all. The Edgelings diagnostic prints the same facts, so you can skip this one.
+
 ## 7. The Kimi desktop app's Kimi Work data (if you have the Kimi client)
 
-Edgelings reads Kimi Work conversations as Kimi sessions. On Windows they live under `kimi-desktop\daimon-share\daimonuntime\kimi-code\home\sessions`; this finds where they are on a Mac. Names only (the folders are named with ids, which is fine to paste).
+Edgelings reads Kimi Work conversations as Kimi sessions. On Windows they live under `kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\sessions`; this finds where they are on a Mac. Names only (the folders are named with ids, which is fine to paste).
 
 ```sh
 ls ~/Library/Application\ Support | grep -i -E 'kimi|moonshot'
@@ -72,11 +80,3 @@ find ~/Library/Application\ Support/<folder> -maxdepth 3 -type d | sed "s#$HOME#
 ```
 
 Run section 1 once more while the **Kimi** app (the desktop client, not Kimi Code) is open, and say which line in its output is the client.
-
-## 6. Cursor: why tokens are zero (optional)
-
-```sh
-sqlite3 -readonly ~/Library/Application\ Support/Cursor/User/globalStorage/state.vscdb "select count(*) from cursorDiskKV where key like 'bubbleId:%' and instr(value,'tokenCount')>0;"
-```
-
-This prints one number: how many Cursor messages carry a token count at all. The Edgelings diagnostic prints the same facts, so you can skip this one.
