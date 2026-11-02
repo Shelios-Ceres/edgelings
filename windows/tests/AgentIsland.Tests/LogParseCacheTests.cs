@@ -21,12 +21,37 @@ public static class LogParseCacheTests
             Console.WriteLine("PASS parse cache: two copies saving one file leave a valid cache and no temp files");
             ReloadSharesModelNames(logs, cacheDirectory);
             Console.WriteLine("PASS parse cache: a reloaded cache keeps its events and one string per model");
+            OlderVersionsAreSwept(cacheDirectory);
+            Console.WriteLine("PASS parse cache: loading a cache removes its older versions and nothing else");
             Console.WriteLine("LogParseCacheTests GREEN");
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    /// Older versions of the same cache go when the current one loads; another
+    /// cache's files, a temp file, a version that isn't a number and a file
+    /// of another kind stay.
+    private static void OlderVersionsAreSwept(string parent)
+    {
+        // Its own folder: the other tests' caches live beside it.
+        var cacheDirectory = Directory.CreateDirectory(Path.Combine(parent, "sweep")).FullName;
+        var names = new[]
+        {
+            "x-parse-cache.v1.json", "x-parse-cache.v3.json", "x-parse-cache.v4.json", "x-parse-cache.v4.json.tmp-abc",
+            "x-parse-cache.vX.json", "y-parse-cache.v1.json", "antigravity-models.v1.json",
+        };
+        foreach (var name in names) File.WriteAllText(Path.Combine(cacheDirectory, name), "{}");
+        var cache = new LogParseCache(TriggerTool.Kimi, "x-parse-cache.v4.json", cacheDirectory);
+        cache.Walk(Array.Empty<string>(), DateTimeOffset.UtcNow.AddDays(-1), _ => throw new Exception("nothing to parse"));
+        var left = Directory.EnumerateFiles(cacheDirectory).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        Expect(string.Join(",", left),
+            "antigravity-models.v1.json,x-parse-cache.v4.json,x-parse-cache.v4.json.tmp-abc,x-parse-cache.vX.json,y-parse-cache.v1.json");
+        // A cache whose name carries no version sweeps nothing.
+        new LogParseCache(TriggerTool.Kimi, "plain.json", cacheDirectory).Walk(Array.Empty<string>(), DateTimeOffset.UtcNow, _ => new List<TokenEvent>());
+        Expect(Directory.EnumerateFiles(cacheDirectory).Count(), 5);
     }
 
     private static List<TokenEvent> Parse(string path) => new()

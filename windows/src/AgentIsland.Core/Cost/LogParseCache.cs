@@ -149,6 +149,7 @@ public sealed class LogParseCache
     {
         if (_loaded) return;
         _loaded = true;
+        SweepOlderVersions();
         try
         {
             if (!File.Exists(_cachePath)) return;
@@ -165,6 +166,33 @@ public sealed class LogParseCache
         catch
         {
             _entries = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// A cache's older versions (kimi-parse-cache.v1.json beside the v4) are
+    /// never read again once the name moved on, yet a few MB each stayed in
+    /// the folder; they go when the current one first loads. Only
+    /// "<stem>.v<digits>.json" siblings of this cache's name are touched.
+    private void SweepOlderVersions()
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(_cachePath);
+            var name = Path.GetFileName(_cachePath);
+            var at = name.LastIndexOf(".v", StringComparison.Ordinal);
+            if (directory is null || at <= 0 || !name.EndsWith(".json", StringComparison.Ordinal) || !Directory.Exists(directory)) return;
+            var stem = name[..at];
+            foreach (var file in Directory.EnumerateFiles(directory, stem + ".v*.json"))
+            {
+                var other = Path.GetFileName(file);
+                if (other.Equals(name, StringComparison.OrdinalIgnoreCase) || other.Length <= stem.Length + 2 + ".json".Length) continue;
+                var version = other[(stem.Length + 2)..^".json".Length];
+                if (version.Length == 0 || !version.All(char.IsAsciiDigit)) continue;
+                try { File.Delete(file); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        {
         }
     }
 
