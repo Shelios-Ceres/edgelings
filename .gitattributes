@@ -1,0 +1,4 @@
+# The character engines and the engine tests are JavaScript modules read byte
+# for byte (a design chat records an engine's sha256 when it freezes one), so
+# they keep LF endings on every checkout, whatever core.autocrlf says.
+*.mjs text eol=lf
