@@ -78,11 +78,12 @@ public static class Pricing
         ["kimi-code/kimi-for-coding"] = new(1, 4, 1, 0.25),
         ["kimi-k2.6"] = new(0.95, 4, 0.95, 0.16),
         // The model ids Kimi's desktop app (Kimi Work) writes to its logs. k3d1 is K3.1 Pro,
-        // k3 is K3 and k2d8-preview is K2.8 Preview (the user's price above). Its other
-        // models (k2d6-agent) have no known price and stay tokens only.
+        // k3 is K3, k2d8-preview is K2.8 Preview (the user's price above) and k2d6 is K2.6.
+        // Any other model it writes has no known price and stays tokens only.
         ["k3d1-agent"] = new(2, 10, 2, 0.2),
         ["k3-agent"] = new(3, 15, 3, 0.3),
         ["k2d8-preview"] = new(1, 4, 1, 0.25),
+        ["k2d6-agent"] = new(0.95, 4, 0.95, 0.16),
         // DeepSeek
         ["deepseek-v4-pro"] = new(1.32, 3.96, 1.32, 0.044),
         ["deepseek-v4-flash"] = new(0.3, 1.2, 0.3, 0.006),

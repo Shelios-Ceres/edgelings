@@ -265,9 +265,10 @@ public static class KimiWorkTests
         Same("k3d1-agent", "kimi-code/k3.1-pro");
         Same("k3-agent", "kimi-code/k3");
         Same("k2d8-preview", "kimi-code/kimi-for-coding");
+        Same("k2d6-agent", "kimi-k2.6");
         // Anything else the desktop app writes has no known price: tokens only.
-        Expect(Event("k2d6-agent").Dollars, 0.0);
-        Expect(Pricing.IsKnown("k2d6-agent"), false);
+        Expect(Event("k9d9-agent").Dollars, 0.0);
+        Expect(Pricing.IsKnown("k9d9-agent"), false);
         Expect(Pricing.IsKnown("k3d1-agent"), true);
     }
 
