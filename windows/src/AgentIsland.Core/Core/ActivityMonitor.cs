@@ -185,9 +185,10 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         LastScan = Task.Run(() =>
             {
                 var gone = AgentProcesses.Gone();
+                var desktopGone = AgentProcesses.DesktopGone();
                 var offline = InternetStatus.IsOffline(now);
                 var sessions = Settle(
-                    PrepareSessions(Scanner(now, lastWorkingSnapshot), now), gone, offline);
+                    PrepareSessions(Scanner(now, lastWorkingSnapshot), now), gone, offline, desktopGone);
                 return new Scan(sessions, offline, _events.Observe(sessions, now));
             })
             .ContinueWith(task =>
@@ -265,10 +266,12 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// Evidence beyond the transcripts: a mid-task session whose agent has no
     /// process left was abandoned, and while Windows reports no internet a
     /// working agent cannot be getting anywhere.
-    internal static List<ScannedSession> Settle(List<ScannedSession> sessions, IReadOnlySet<TriggerTool> gone, bool offline) =>
+    internal static List<ScannedSession> Settle(List<ScannedSession> sessions, IReadOnlySet<TriggerTool> gone, bool offline,
+        IReadOnlySet<TriggerTool>? desktopGone = null) =>
         sessions.ConvertAll(session => session.Status switch
         {
-            ActivityState.Working or ActivityState.NetworkTrouble when gone.Contains(session.Tool) =>
+            // A desktop-hosted session follows its app's process; every other follows its CLI's.
+            ActivityState.Working or ActivityState.NetworkTrouble when (session.DesktopHosted ? desktopGone is { } d && d.Contains(session.Tool) : gone.Contains(session.Tool)) =>
                 session with { Status = ActivityState.Idle, PendingPrompt = null },
             ActivityState.Working when offline => session with { Status = ActivityState.NetworkTrouble },
             _ => session,

@@ -14,6 +14,10 @@ public static class Program
         {
             return LiveScan();
         }
+        if (args.Length > 0 && args[0] == "kimiwork")
+        {
+            return KimiWorkLive();
+        }
         if (args.Length > 0 && args[0] == "costdump")
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -80,6 +84,7 @@ public static class Program
                 ("PersonalityTests", PersonalityTests.RunAll, null),
                 ("AgentPhaseTests", AgentPhaseTests.RunAll, null),
                 ("KimiDeepSeekTests", KimiDeepSeekTests.RunAll, null),
+                ("KimiWorkTests", KimiWorkTests.RunAll, null),
                 ("AntigravityCursorTests", AntigravityCursorTests.RunAll, null),
                 ("AntigravityQuotaTests", AntigravityQuotaTests.RunAll, null),
                 ("SubagentFilterTests", SubagentFilterTests.RunAll, null),
@@ -210,6 +215,37 @@ public static class Program
             }
             Thread.Sleep(2000);
         }
+        return 0;
+    }
+
+    /// Kimi Work against this machine's real folders, as ids, counts and states
+    /// only: no titles, folders, commands or message text.
+    private static int KimiWorkLive()
+    {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        var root = IslandPaths.KimiWorkSessionsRoot;
+        Console.WriteLine($"Kimi Work sessions folder exists: {Directory.Exists(root)}");
+        if (Directory.Exists(root))
+        {
+            var folders = SessionScanner.SafeEnumerateDirectories(root).SelectMany(SessionScanner.SafeEnumerateDirectories).ToList();
+            Console.WriteLine($"conversation folders: {folders.Count} ({folders.Count(f => Path.GetFileName(f).StartsWith("conv-", StringComparison.Ordinal))} named conv-*)");
+            var wires = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl");
+            Console.WriteLine($"wire.jsonl files: {wires.Count}, changed in the last 24 h: {wires.Count(w => DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(w) < TimeSpan.FromHours(24))}");
+        }
+        var now = DateTimeOffset.UtcNow;
+        var scanned = SessionScanner.ScanKimi(now, new Dictionary<string, DateTimeOffset>());
+        var work = scanned.Where(s => s.DesktopHosted).ToList();
+        Console.WriteLine($"Kimi sessions in the recent window: {scanned.Count} ({work.Count} Kimi Work, {scanned.Count - work.Count} Kimi Code)");
+        foreach (var session in work.Take(20))
+        {
+            var age = now - session.Modified;
+            Console.WriteLine($"  conv {session.SessionId[..Math.Min(8, session.SessionId.Length)]}  status {session.Status}  wait {(session.PendingPrompt is { } p ? p.Phase.ToString() : "-")}  turn ended {session.TurnEnded}  last write {age.TotalMinutes:0} min ago");
+        }
+        Console.WriteLine($"desktop app gone: {AgentProcesses.DesktopGone().Contains(TriggerTool.Kimi)}   Kimi Code processes gone: {AgentProcesses.Gone().Contains(TriggerTool.Kimi)}");
+        Console.WriteLine($"Kimi presence: {AgentPresences.Now().GetValueOrDefault(TriggerTool.Kimi)}");
+        var events = AgentIsland.Cost.KimiLogReader.Scan(30);
+        var inWork = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl").Select(AgentIsland.Cost.KimiLogReader.ParseFile).SelectMany(e => e).ToList();
+        Console.WriteLine($"Kimi tokens, 30 days: {events.Count} events, {events.Sum(e => e.WireTokens)} tokens in all trees; Kimi Work's own: {inWork.Count} events, {inWork.Sum(e => e.WireTokens)} tokens, models {string.Join(", ", inWork.Select(e => e.Model).Distinct().OrderBy(m => m, StringComparer.Ordinal))}");
         return 0;
     }
 

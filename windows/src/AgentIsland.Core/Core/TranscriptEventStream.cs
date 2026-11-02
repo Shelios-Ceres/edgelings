@@ -32,6 +32,7 @@ public sealed class TranscriptEventStream : IDisposable
         roots.AddRange(IslandPaths.ClaudeDesktopSessionsRoots);
         roots.Add(IslandPaths.GrokSessionsRoot);
         roots.Add(IslandPaths.KimiSessionsRoot);
+        roots.Add(IslandPaths.KimiWorkSessionsRoot);
         roots.Add(IslandPaths.DeepSeekSessionsRoot);
         roots.Add(ClaudeHooks.SignalDirectory);
         roots.Add(GrokHooks.Signals);

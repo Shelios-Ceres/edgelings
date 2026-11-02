@@ -30,9 +30,10 @@ public static class KimiLogReader
 
     public static List<TokenEvent> Scan(int lookbackDays)
     {
-        var root = IslandPaths.KimiSessionsRoot;
-        if (!Directory.Exists(root)) return new List<TokenEvent>();
-        var files = SessionScanner.SafeEnumerateFiles(root, "wire.jsonl");
+        // Kimi Code's own sessions and the Kimi desktop app's Kimi Work ones.
+        var roots = new[] { IslandPaths.KimiSessionsRoot, IslandPaths.KimiWorkSessionsRoot }.Where(Directory.Exists).ToList();
+        if (roots.Count == 0) return new List<TokenEvent>();
+        var files = roots.SelectMany(root => SessionScanner.SafeEnumerateFiles(root, "wire.jsonl")).ToList();
         var events = Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
         return PriceByProvider(events, ProviderModels());
     }

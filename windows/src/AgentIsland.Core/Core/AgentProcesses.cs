@@ -42,6 +42,58 @@ internal static class AgentProcesses
         (TriggerTool.Grok, GrokBot.ProcessName),
     };
 
+    /// Desktop apps that host a guest's sessions but are not the agent's CLI:
+    /// Kimi's desktop app (its chat, and Kimi Work, which runs an embedded Kimi
+    /// Code), told apart from the kimi CLI of the same name by its install
+    /// folder. They count toward whether the agent is on screen and keep their
+    /// own sessions (ScannedSession.DesktopHosted) alive, but not Kimi Code's:
+    /// they stay out of Known and Gone(). TODO(macOS): Kimi.app's bundle path
+    /// is not known yet; wait for the friend's PROBE.
+    internal static readonly (TriggerTool Tool, string Name, string? PathHint)[] DesktopApps =
+    {
+        (TriggerTool.Kimi, "Kimi", "kimi-desktop"),
+    };
+
+    /// The agents whose desktop app (DesktopApps) has no process left. A
+    /// desktop-hosted session in a state of work is abandoned then, as a CLI's
+    /// is when its process is gone. An unreadable path counts as alive, and
+    /// macOS answers nothing until the app's bundle is known.
+    public static IReadOnlySet<TriggerTool> DesktopGone()
+    {
+        if (!OperatingSystem.IsWindows()) return new HashSet<TriggerTool>();
+        try
+        {
+            var running = new List<(string Name, string? Path)>();
+            foreach (var process in Process.GetProcesses())
+            {
+                using (process)
+                {
+                    var name = process.ProcessName;
+                    if (!DesktopApps.Any(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase))) continue;
+                    running.Add((name, PathOf(process)));
+                }
+            }
+            return DesktopGone(running);
+        }
+        catch
+        {
+            return new HashSet<TriggerTool>();
+        }
+    }
+
+    internal static IReadOnlySet<TriggerTool> DesktopGone(IEnumerable<(string Name, string? Path)> running)
+    {
+        var alive = new HashSet<TriggerTool>();
+        foreach (var (name, path) in running)
+        {
+            foreach (var app in DesktopApps)
+            {
+                if (Matches(app, name, path)) alive.Add(app.Tool);
+            }
+        }
+        return DesktopApps.Select(a => a.Tool).Where(tool => !alive.Contains(tool)).ToHashSet();
+    }
+
     /// Runtimes that run an agent as a script: their own path says nothing.
     internal static readonly HashSet<string> Hosts = new(StringComparer.OrdinalIgnoreCase) { "node", "bun" };
 

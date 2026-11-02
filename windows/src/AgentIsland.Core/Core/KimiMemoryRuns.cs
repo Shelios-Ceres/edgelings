@@ -26,7 +26,8 @@ internal static class KimiMemoryRuns
             if (Cwds.TryGetValue(statePath, out var known) && known.Ticks == ticks) return known.Cwd;
             using var stream = SharedFile.Open(statePath);
             using var doc = JsonDocument.Parse(stream);
-            var cwd = Jsonl.GetString(doc.RootElement, "cwd") ?? "";
+            // Kimi Code writes cwd; the desktop app's Kimi Work sessions write workDir. Nothing else of the file is read.
+            var cwd = Jsonl.GetString(doc.RootElement, "cwd") ?? Jsonl.GetString(doc.RootElement, "workDir") ?? "";
             Cwds[statePath] = (ticks, cwd);
             return cwd;
         }

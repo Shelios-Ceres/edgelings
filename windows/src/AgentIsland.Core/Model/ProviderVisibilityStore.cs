@@ -86,7 +86,7 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
             DisplayProvider.Cursor => CursorCredentials.Exists(),
             // Both write their session trees on first use. Kimi Code's plan
             // quota comes through its own local server (KimiUsageFetcher).
-            DisplayProvider.Kimi => Directory.Exists(IslandPaths.KimiSessionsRoot),
+            DisplayProvider.Kimi => Directory.Exists(IslandPaths.KimiSessionsRoot) || Directory.Exists(IslandPaths.KimiWorkSessionsRoot),
             DisplayProvider.DeepSeek => Directory.Exists(IslandPaths.DeepSeekSessionsRoot),
             _ => false,
         };

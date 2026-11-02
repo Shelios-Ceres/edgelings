@@ -29,6 +29,10 @@ public sealed record ScannedSession(
     /// then how the turn ended, not a retry still under way.
     public bool TurnEnded { get; init; }
 
+    /// The session runs in the agent's desktop app (Kimi Work), not in its CLI:
+    /// it is abandoned when that app has no process left (AgentProcesses.DesktopGone).
+    public bool DesktopHosted { get; init; }
+
     /// Files waiting unread in the session's mailbox, newest last.
     public IReadOnlyList<MailFile> UnreadMail { get; init; } = Array.Empty<MailFile>();
 }

@@ -79,14 +79,19 @@ public static partial class SessionScanner
     {
         var output = new List<ScannedSession>();
         IReadOnlyDictionary<string, KimiLiveSessions.Report>? live = null;
-        foreach (var workdir in SafeEnumerateDirectories(IslandPaths.KimiSessionsRoot))
+        // Kimi Code's own tree (session_<uuid> folders) and the Kimi desktop
+        // app's Kimi Work tree (conv-<id> folders): the same wire format.
+        foreach (var (root, prefix) in new[] { (IslandPaths.KimiSessionsRoot, "session_"), (IslandPaths.KimiWorkSessionsRoot, "conv-") })
+        foreach (var workdir in SafeEnumerateDirectories(root))
         {
             foreach (var sessionDir in SafeEnumerateDirectories(workdir))
             {
                 var wire = Path.Combine(sessionDir, "agents", "main", "wire.jsonl");
                 if (!IsRecent(wire, now)) continue;
                 var name = Path.GetFileName(sessionDir);
-                var sid = name.StartsWith("session_", StringComparison.Ordinal) ? name["session_".Length..] : name;
+                // The desktop app's tree also holds helper sessions (titles, automations): only a conversation is a session.
+                if (prefix == "conv-" && !name.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                var sid = name.StartsWith(prefix, StringComparison.Ordinal) ? name[prefix.Length..] : name;
                 var cwd = KimiMemoryRuns.SessionCwd(Path.Combine(sessionDir, "state.json"));
                 if (KimiMemoryRuns.IsMemoryFolder(cwd)) continue;
                 var state = SessionState(wire, now, lastWorking, null, SessionTurnState.Kimi);
@@ -96,7 +101,17 @@ public static partial class SessionScanner
                 {
                     TurnEnded = state.TurnEnded,
                     UnreadMail = KimiUnreadMail(name),
+                    DesktopHosted = prefix == "conv-",
                 };
+                // An approval or a question the log shows still open: the session waits on the user.
+                if (state.Status == ActivityState.Working && KimiInteractions.Pending(TailLines(wire)) is { } wait)
+                {
+                    session = session with
+                    {
+                        Status = ActivityState.Working,
+                        PendingPrompt = new PhaseReading(KimiInteractions.PhaseOf(wait), null, wait.At ?? state.Modified),
+                    };
+                }
                 live ??= KimiLiveSessions.Read(now);
                 output.Add(live.TryGetValue(name, out var report) ? KimiLiveSessions.Apply(session, report) : session);
             }

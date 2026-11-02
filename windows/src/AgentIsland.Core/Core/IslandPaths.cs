@@ -125,6 +125,15 @@ public static class IslandPaths
     /// directory, one per session, the live event log at agents/main/wire.jsonl.
     public static string KimiSessionsRoot => Path.Combine(KimiHome, "sessions");
 
+    /// Kimi's desktop app keeps its data under {AppData}\kimi-desktop. Its
+    /// Kimi Work tasks run on an embedded Kimi Code with a home of its own, one
+    /// session folder per conversation (conv-{id}) holding the same wire.jsonl:
+    ///   {AppData}\kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\sessions\wd_{hash}\conv-{id}\agents\main\wire.jsonl
+    /// TODO(macOS): ~/Library/Application Support/kimi-desktop is expected;
+    /// confirm with the friend's PROBE before relying on it.
+    public static string KimiWorkSessionsRoot =>
+        Path.Combine(RoamingAppData, "kimi-desktop", "daimon-share", "daimon", "runtime", "kimi-code", "home", "sessions");
+
     /// Kimi Code's data folder: KIMI_CODE_HOME, else ~/.kimi-code. Sessions,
     /// config.toml, credentials, the memory plugin's folder and the mailbox
     /// all live under it.

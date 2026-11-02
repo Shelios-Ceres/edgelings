@@ -164,7 +164,8 @@ public static class AgentPresences
         foreach (var tool in AgentProcesses.Known.Select(k => k.Tool).Distinct())
         {
             var mine = processes.Where(p => !p.Headless).Where(p => AgentProcesses.Known.Any(k => k.Tool == tool && AgentProcesses.Matches(k, p.Name, p.Path))
-                || AgentProcesses.PresenceOnly.Any(k => k.Tool == tool && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase))).ToList();
+                || AgentProcesses.PresenceOnly.Any(k => k.Tool == tool && string.Equals(k.Name, p.Name, StringComparison.OrdinalIgnoreCase))
+                || AgentProcesses.DesktopApps.Any(k => k.Tool == tool && AgentProcesses.Matches(k, p.Name, p.Path))).ToList();
             presence[tool] = mine.Count == 0 ? AgentPresence.Closed : mine.Select(Shows).Min();
         }
         return presence;
