@@ -81,6 +81,9 @@ public static class L10n
         string.Format(Tr(key), args);
 
     /// Grows as features land; seeded with the strings the shell needs.
+    /// The zh table, for the test that scans it.
+    internal static IReadOnlyDictionary<string, string> ChineseEntries => ChineseTable;
+
     private static readonly Dictionary<string, string> ChineseTable = new()
     {
         ["Settings…"] = "设置…",
@@ -95,7 +98,7 @@ public static class L10n
         ["Usage refresh failed"] = "用量刷新失败",
         ["Claude stale"] = "Claude 数据过期",
         ["Codex stale"] = "Codex 数据过期",
-        ["5h"] = "5小时",
+        ["5h"] = "5 小时",
         ["week"] = "周",
         ["Week"] = "周",
         ["Usage"] = "用量",
@@ -225,8 +228,8 @@ public static class L10n
         ["sign in again — open Cursor"] = "需要重新登录 — 打开 Cursor",
         // Tile window labels the guests need: Gemini meters a daily bucket,
         // Cursor a ~30-day billing cycle. Values from zh-Hans.lproj:201-202.
-        ["24h"] = "24小时",
-        ["30d"] = "30天",
+        ["24h"] = "24 小时",
+        ["30d"] = "30 天",
 
         // Side drawer: placement, live phases, character menu.
         ["Show drawer"] = "显示抽屉",

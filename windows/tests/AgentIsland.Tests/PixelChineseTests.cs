@@ -35,6 +35,22 @@ public static class PixelChineseTests
             Expect(L10n.Tr("Locked in place.\nRight-click to unlock.") == "已经固定住啦。\n右键可以解锁。", "the locked bubble breaks after its first sentence");
             Expect(L10n.Tr("The pixel style shows Settings in English") == "The pixel style shows Settings in English", "the Settings-in-English note is gone from the table");
             Expect(L10n.Tr("The pixel font for Chinese, by {0} · SIL Open Font License 1.1") != "The pixel font for Chinese, by {0} · SIL Open Font License 1.1", "the Fusion Pixel credit");
+            // A number and its Han unit are set apart ("5 小时", "13 秒前"): no digit touches a Han character in the zh
+            // table, nor in what the time formats print. A placeholder next to Han is allowed where it holds a whole
+            // duration ("{0}重置" is "1 小时后重置"); the percent sign is not a digit's unit here.
+            var touching = new System.Text.RegularExpressions.Regex(@"\d[㐀-鿿]|[㐀-鿿]\d");
+            var allow = new HashSet<string>();
+            foreach (var (key, value) in L10n.ChineseEntries)
+            {
+                Expect(allow.Contains(key) || !touching.IsMatch(value), $"zh '{key}' sets a digit against a Han character: {value}");
+            }
+            foreach (var seconds in new[] { 3, 5, 59, 60, 119, 3599, 3600, 7300, 86399, 86400, 200000, 400000 })
+            {
+                var span = TimeSpan.FromSeconds(seconds);
+                Expect(!touching.IsMatch(AgentIsland.Core.Formatting.RelativeAgo(span, true)), $"RelativeAgo {seconds}: {AgentIsland.Core.Formatting.RelativeAgo(span, true)}");
+                Expect(!touching.IsMatch(AgentIsland.Core.Formatting.LongCountdown(span, true)), $"LongCountdown {seconds}: {AgentIsland.Core.Formatting.LongCountdown(span, true)}");
+            }
+            Expect(AgentIsland.Core.Formatting.LongCountdown(TimeSpan.FromHours(1.4), true) == "1 小时后" && AgentIsland.Core.Formatting.RelativeAgo(TimeSpan.FromSeconds(13), true) == "13 秒前", "the countdown and the age");
             Console.WriteLine("PASS Pixel in Chinese: look names, the look row, the locked bubble and the font credit");
         }
         finally
