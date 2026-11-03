@@ -133,6 +133,7 @@ public static class Program
                 ("ShellHooksTests", ShellHooksTests.RunAll, null),
                 ("GrokAuthFileTests", GrokAuthFileTests.RunAll, null),
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
+                ("StateGroupsTests", StateGroupsTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
                 ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),
                 ("ClaudeKeychainTests", ClaudeKeychainTests.RunAll, null),
