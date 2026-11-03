@@ -118,6 +118,15 @@ public sealed class GroupRotation
     /// The group the shown phase plays in, or null for its own state.
     public WorkGroup? Group => _group;
 
+    /// The phase left every group at once (an attention or rest state took
+    /// over); the next group is entered afresh, with no dwell to wait out.
+    public void Leave()
+    {
+        _group = null;
+        _phase = null;
+        _pending = null;
+    }
+
     /// The state to play now. Outside a group it is the phase's own entry
     /// state; a caller that sets a rest pose apart (finished, failed) keeps doing so.
     public string State(double now, AgentPhase phase, bool reducedMotion = false)

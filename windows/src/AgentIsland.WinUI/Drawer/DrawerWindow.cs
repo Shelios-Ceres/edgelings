@@ -93,6 +93,12 @@ internal sealed partial class DrawerWindow : Window
         public bool Resting;
         // When the character took its current state.
         public double Since;
+        // The phase its agent shows, and while that phase plays in a work
+        // group (Think, Do, Team, Busy) the rotation that picks the motion.
+        public AgentPhase Phase;
+        public bool Grouped;
+        public GroupRotation? Rotation;
+        public string? Playing;
     }
 
     /// What the game loop draws: the shown slots at their DIP offsets, and
@@ -100,7 +106,7 @@ internal sealed partial class DrawerWindow : Window
     private sealed record Scene((int Index, float X, float Y)[] Shown, int Left, int Top, double Scale);
 
     /// A state Show asked for that the game loop has yet to take.
-    private sealed record PendingShow(string Entry, string Hold, bool Resting, CharacterTheme Theme);
+    private sealed record PendingShow(string Entry, string Hold, bool Resting, CharacterTheme Theme, AgentPhase Phase);
 
     /// A theme switch's engine on its way to the game loop.
     private sealed class Handoff(ICharacterEngine? engine)

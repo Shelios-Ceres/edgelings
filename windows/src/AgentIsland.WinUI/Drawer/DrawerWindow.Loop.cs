@@ -30,6 +30,13 @@ internal sealed partial class DrawerWindow
         {
             if (now >= _slots[index].NextStep - 0.004) _due.Add(index);
         }
+        if (_engine is not null)
+        {
+            foreach (var (index, _, _) in scene.Shown)
+            {
+                if (_slots[index].Grouped) Rotate(index, _slots[index], now, reduced);
+            }
+        }
         var near = !reduced && _engine is not null && UpdateGaze(scene);
         if (_due.Count > 0) Step(now, near, reduced);
         Pace(scene, near, reduced, moment is not null && moment.Moving(momentMs));

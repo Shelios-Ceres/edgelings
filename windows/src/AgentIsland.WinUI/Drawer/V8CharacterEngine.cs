@@ -23,17 +23,19 @@ internal sealed class V8CharacterEngine : ICharacterEngine
             phases: () => lib.PHASES.join(','),
             fidgets: (kind, look) => lib.fidgetsOf(kind, look || undefined).join(','),
             add(kind, seed, tempo, look) {
-                const make = { kind, seed, tempo };
+                const make = { kind, seed, tempo, look };
                 makes.push(make);
                 bots.push(lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined }));
                 return bots.length - 1;
             },
             setLook(i, look) {
                 const { kind, seed, tempo } = makes[i], old = bots[i];
+                makes[i].look = look;
                 bots[i] = lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined });
                 bots[i].setState(old.state, -1);
             },
             setState(i, state, phase) { bots[i].setState(state, phase); },
+            cycle(i, state) { const { kind, tempo, look } = makes[i]; return @CYCLE@ / tempo; },
             setGaze(i, dx, dy) { bots[i].setGaze(dx, dy); },
             clearGaze(i) { bots[i].clearGaze(); },
             poke(i) { bots[i].poke(); },
@@ -77,6 +79,7 @@ internal sealed class V8CharacterEngine : ICharacterEngine
         Theme = theme;
         _ownCues = ownCues;
         var host = HostTemplate
+            .Replace("@CYCLE@", theme == CharacterTheme.Pixel ? "lib.cycleOf(kind, state, look || undefined)" : "lib.cycleOf(state)")
             .Replace("@ENGINE@", "./" + engineFile)
             .Replace("@GLOBAL@", global);
         _engine = new V8ScriptEngine();
@@ -128,6 +131,9 @@ internal sealed class V8CharacterEngine : ICharacterEngine
         var list = (string)_host.InvokeMethod("fidgets", DrawerLooks.Kind(provider), look ?? "");
         return _fidgets[(provider, look)] = list.Split(',', StringSplitOptions.RemoveEmptyEntries);
     }
+
+    public double CycleSeconds(int bot, string state) =>
+        Convert.ToDouble(_host.InvokeMethod("cycle", bot, state), System.Globalization.CultureInfo.InvariantCulture);
 
     public bool Draws(string state) => _phases.Contains(state);
 
