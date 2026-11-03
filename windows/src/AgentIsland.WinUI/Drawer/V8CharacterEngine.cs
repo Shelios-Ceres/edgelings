@@ -46,8 +46,14 @@ internal sealed class V8CharacterEngine : ICharacterEngine
                     // A bot past a short step list (a picker's previews) stays as it is:
                     // advancing it by +undefined would turn its clock to NaN for good.
                     if (!dts[i]) { parts.push(''); continue; }
-                    bots[i].advance(+dts[i]);
-                    parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
+                    // A throw in one bot's step or frame must not stop the others or the loop:
+                    // the host marks it, and keeps that bot's last good frame for this tick.
+                    try {
+                        bots[i].advance(+dts[i]);
+                        parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
+                    } catch (error) {
+                        parts.push('\u0003' + (error && error.message || error));
+                    }
                 }
                 return parts.join('\u0001');
             },
@@ -142,16 +148,34 @@ internal sealed class V8CharacterEngine : ICharacterEngine
     {
         var steps = string.Join(',', dts.Select(dt =>
             double.IsNaN(dt) ? "" : dt.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
-        var raw = (string)_host.InvokeMethod("tick", steps, size);
+        string raw;
+        try
+        {
+            raw = (string)_host.InvokeMethod("tick", steps, size);
+        }
+        catch (Exception error)
+        {
+            // The host itself failed: no bot has a new frame this tick, and the loop goes on.
+            Failed(new InvalidOperationException($"{Theme} engine host: {error.Message}"));
+            return new (string, string)?[dts.Count];
+        }
         return raw.Split('\u0001')
             .Select(part =>
             {
                 if (part.Length == 0) return ((string, string)?)null;
+                if (part[0] == '\u0003')
+                {
+                    Failed(new InvalidOperationException($"{Theme} engine: {part[1..]}"));
+                    return null;
+                }
                 var split = part.IndexOf('\u0002');
                 return (part[..split], part[(split + 1)..]);
             })
             .ToArray();
     }
+
+    /// Where an engine exception is reported: the crash log, once per launch for the same message.
+    internal Action<Exception> Failed { get; set; } = error => CrashLog.Write(error, "Character engine");
 
     public void Dispose() => _engine.Dispose();
 }

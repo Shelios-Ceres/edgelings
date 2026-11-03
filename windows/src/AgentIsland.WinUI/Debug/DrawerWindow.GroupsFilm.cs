@@ -169,7 +169,7 @@ internal sealed partial class DrawerWindow
     {
         foreach (var (phase, seconds) in turn)
         {
-            if (t < seconds) return phase;
+            if (t + 1e-9 < seconds) return phase;
             t -= seconds;
         }
         return turn[^1].Phase;

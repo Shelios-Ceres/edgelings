@@ -107,7 +107,7 @@ public static class L10n
         ["Manage"] = "管理",
         ["Settings"] = "设置",
         ["General"] = "通用",
-        ["Display"] = "显示",
+        ["Display"] = "显示器",
         ["Providers"] = "服务",
         ["License"] = "许可证",
         ["Status"] = "状态说明",

@@ -31,6 +31,7 @@ public static class PixelChineseTests
                 "the look row's description");
             Expect(L10n.TrFormat("{0}. What {1} wear in the drawer, on its card and in menus", "黑猫", "Grok 和 Cursor") == "黑猫 · Grok 和 Cursor 在抽屉、卡片和菜单里的样子",
                 "the shared look row's description");
+            Expect(L10n.Tr("Display") == "显示器" && L10n.Tr("Display") != L10n.Tr("Shown"), "the Drawer page's Display row is not named like the Shown switch");
             Expect(L10n.Tr("Locked in place.\nRight-click to unlock.") == "已经固定住啦。\n右键可以解锁。", "the locked bubble breaks after its first sentence");
             Expect(L10n.Tr("The pixel style shows Settings in English") == "The pixel style shows Settings in English", "the Settings-in-English note is gone from the table");
             Expect(L10n.Tr("The pixel font for Chinese, by {0} · SIL Open Font License 1.1") != "The pixel font for Chinese, by {0} · SIL Open Font License 1.1", "the Fusion Pixel credit");
