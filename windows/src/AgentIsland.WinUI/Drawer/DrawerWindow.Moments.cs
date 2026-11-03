@@ -1,3 +1,4 @@
+using AgentIsland.Core;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Platform;
 using AgentIsland.WinUI.Shell;
@@ -8,8 +9,10 @@ namespace AgentIsland.WinUI.Drawer;
 // Showing and hiding the drawer, the full-screen guard, and the drawer moments (reveal, roster, drag, edge).
 internal sealed partial class DrawerWindow
 {
-    /// Fullscreen apps hide the drawer (and pause it); otherwise it re-asserts
-    /// topmost now and then, since fullscreen and topmost apps park above it.
+    /// Fullscreen apps hide the drawer (and pause it) unless the user chose to keep it showing
+    /// (DrawerStore.ShowOverFullscreen); otherwise it re-asserts topmost now and then, since
+    /// fullscreen and topmost apps park above it. A game in exclusive full screen owns the
+    /// display, and nothing can be drawn over it.
     private void Guard()
     {
         _reducedMotion = Motion.ReducedMotion;
@@ -26,7 +29,7 @@ internal sealed partial class DrawerWindow
         // app to step aside for: the drawer stays put beneath it, without
         // jumping back on top, until it closes.
         var overlay = fullscreen && Win32.IsOverlay(foreground);
-        var covered = fullscreen && !overlay;
+        var covered = FullscreenRule.Covers(fullscreen, overlay, DrawerStore.Shared.ShowOverFullscreen);
         if (covered != _coveredByFullscreen)
         {
             _coveredByFullscreen = covered;

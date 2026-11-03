@@ -31,6 +31,7 @@ public sealed class DrawerStore : INotifyPropertyChanged
     private const string LookKeyPrefix = "AgentIsland.drawer.look.";
     private const string FrameRateKey = "AgentIsland.drawer.fps";
     private const string SaveBatteryKey = "AgentIsland.drawer.saveBattery";
+    private const string OverFullscreenKey = "AgentIsland.drawer.overFullscreen";
     private const string SpeechKey = "AgentIsland.drawer.speech";
     private const string ThemeKey = "AgentIsland.drawer.theme";
     private const string LockedKey = "AgentIsland.drawer.locked";
@@ -131,6 +132,19 @@ public sealed class DrawerStore : INotifyPropertyChanged
             if (SaveBattery == value) return;
             Preferences.Set(SaveBatteryKey, value);
             Raise(nameof(SaveBattery));
+        }
+    }
+
+    /// Whether the drawer keeps showing over a full-screen app. Off (the default) steps aside until the
+    /// full-screen app is left.
+    public bool ShowOverFullscreen
+    {
+        get => Preferences.Get<bool?>(OverFullscreenKey) ?? false;
+        set
+        {
+            if (ShowOverFullscreen == value) return;
+            Preferences.Set(OverFullscreenKey, value);
+            Raise(nameof(ShowOverFullscreen));
         }
     }
 

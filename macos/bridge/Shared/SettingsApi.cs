@@ -51,6 +51,7 @@ public static class SettingsApi
             json.WriteBoolean("locked", store.Locked);
             json.WriteNumber("fps", store.FrameRate);
             json.WriteBoolean("saveBattery", store.SaveBattery);
+            json.WriteBoolean("overFullscreen", store.ShowOverFullscreen);
             json.WriteString("display", IslandTargetDisplayStore.Shared.Choice);
             json.WriteEndObject();
 

@@ -44,6 +44,7 @@ struct FrameModel: Decodable {
     let pinnedTop: Double?
     let fps: Int
     let saveBattery: Bool
+    let overFullscreen: Bool?
     let speechBubbles: Bool
     let chinese: Bool
     let display: String

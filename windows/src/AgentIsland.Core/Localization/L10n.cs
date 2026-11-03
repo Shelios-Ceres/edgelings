@@ -379,6 +379,8 @@ public static class L10n
         ["Match the display"] = "跟随显示器刷新率",
         ["{0} fps"] = "{0} fps",
         ["Save battery"] = "省电",
+        ["In full screen"] = "全屏时",
+        ["Keep showing over full-screen apps; off hides the characters until you leave full screen"] = "在全屏应用上方继续显示；关闭则在退出全屏前隐藏角色",
         ["On battery, characters run at 60 fps at most"] = "使用电池时，角色最高 60 fps",
         ["Month"] = "月",
         ["Monthly window"] = "每月额度",

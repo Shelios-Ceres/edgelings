@@ -8,13 +8,16 @@ final class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// The user's "In full screen" choice, kept here for panels made later (DrawerController.apply sets it).
+    static var overFullscreen = false
+
     init(size: NSSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
         level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        collectionBehavior = DrawerController.collectionBehavior(overFullscreen: FloatingPanel.overFullscreen)
         ignoresMouseEvents = true
         hidesOnDeactivate = false
         isReleasedWhenClosed = false

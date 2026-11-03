@@ -121,6 +121,9 @@ internal sealed partial class SettingsWindow
         body.Children.Add(Card(L10n.Tr("Display"), L10n.Tr("A pinned display falls back to automatic while it is unplugged"), "\uE7F4",
             Combo(labels, Math.Max(0, selected), index =>
                 IslandTargetDisplayStore.Shared.Choice = index == 0 ? "auto" : screens[index - 1].Device)));
+        body.Children.Add(Card(L10n.Tr("In full screen"),
+            L10n.Tr("Keep showing over full-screen apps; off hides the characters until you leave full screen"), "",
+            Toggle(store.ShowOverFullscreen, on => store.ShowOverFullscreen = on)));
         // Where the drawer sits on its edge, and whether it stays there.
         var center = Button(L10n.Tr("Center on the edge"), () => store.Offset = 0.5);
         var lockToggle = Toggle(store.Locked, on => store.Locked = on);

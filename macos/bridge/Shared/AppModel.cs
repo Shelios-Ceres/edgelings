@@ -96,6 +96,7 @@ public static class AppModel
                 case "speech": store.SpeechBubbles = property.Value.GetBoolean(); break;
                 case "fps": store.FrameRate = property.Value.GetInt32(); break;
                 case "saveBattery": store.SaveBattery = property.Value.GetBoolean(); break;
+                case "overFullscreen": store.ShowOverFullscreen = property.Value.GetBoolean(); break;
                 case "order":
                     store.SetOrder(property.Value.EnumerateArray().Select(v => DisplayProviders.Parse(v.GetString())).OfType<DisplayProvider>().ToList());
                     break;
@@ -158,6 +159,7 @@ public static class AppModel
                 if (store.PinnedTop is { } pin) json.WriteNumber("pinnedTop", pin);
                 json.WriteNumber("fps", store.FrameRate);
                 json.WriteBoolean("saveBattery", store.SaveBattery);
+                json.WriteBoolean("overFullscreen", store.ShowOverFullscreen);
                 json.WriteBoolean("speechBubbles", store.SpeechBubbles);
                 json.WriteBoolean("chinese", L10n.IsChinese);
                 json.WriteString("display", IslandTargetDisplayStore.Shared.Choice);

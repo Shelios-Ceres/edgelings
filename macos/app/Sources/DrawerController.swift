@@ -93,7 +93,7 @@ final class DrawerController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.collectionBehavior = DrawerController.collectionBehavior(overFullscreen: false)
         panel.hidesOnDeactivate = false
         panel.isMovable = false
         panel.acceptsMouseMovedEvents = true
@@ -111,9 +111,20 @@ final class DrawerController {
 
     // MARK: Frames from Core
 
+    /// With "In full screen" on, the panels join full-screen Spaces (.fullScreenAuxiliary) and show over a
+    /// full-screen app; off, they stay out of those Spaces until the app leaves full screen.
+    static func collectionBehavior(overFullscreen: Bool) -> NSWindow.CollectionBehavior {
+        overFullscreen ? [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle] : [.canJoinAllSpaces, .stationary, .ignoresCycle]
+    }
+
     func apply(_ next: FrameModel) {
         let previous = frame
         frame = next
+        let over = next.overFullscreen ?? false
+        if FloatingPanel.overFullscreen != over || panel.collectionBehavior != DrawerController.collectionBehavior(overFullscreen: over) {
+            FloatingPanel.overFullscreen = over
+            panel.collectionBehavior = DrawerController.collectionBehavior(overFullscreen: over)
+        }
         if engine == nil || engineTheme != next.theme { buildEngine(for: next) }
         if slots.count != next.bots.count { slots = next.bots.map { _ in Slot() } }
         let now = clock.timeIntervalSinceNow * -1

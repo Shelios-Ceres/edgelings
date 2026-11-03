@@ -1,3 +1,4 @@
+using AgentIsland.Core;
 using AgentIsland.Model;
 using static AgentIsland.Tests.Check;
 
@@ -12,6 +13,40 @@ public static class DrawerPlacementTests
     private const int WorkBottom = 1600;
     private const double Scale = 1.5;
 
+    private static void TestFullscreenRule()
+    {
+        // A full-screen app in front covers the drawer unless the user keeps it showing.
+        Expect(FullscreenRule.Covers(foregroundIsFullscreen: true, foregroundIsOverlay: false, showOverFullscreen: false), true);
+        Expect(FullscreenRule.Covers(true, false, true), false);
+        // No full-screen app, no covering, whatever the choice.
+        Expect(FullscreenRule.Covers(false, false, false), false);
+        Expect(FullscreenRule.Covers(false, false, true), false);
+        // A full-screen overlay (the snipping layer) never covers it.
+        Expect(FullscreenRule.Covers(true, true, false), false);
+        Expect(FullscreenRule.Covers(true, true, true), false);
+    }
+
+    private static void TestFullscreenSetting()
+    {
+        var store = DrawerStore.Shared;
+        var before = store.ShowOverFullscreen;
+        try
+        {
+            store.ShowOverFullscreen = false;
+            Expect(store.ShowOverFullscreen, false);
+            var raised = 0;
+            store.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(DrawerStore.ShowOverFullscreen)) raised++; };
+            store.ShowOverFullscreen = true;
+            Expect(store.ShowOverFullscreen, true);
+            store.ShowOverFullscreen = true;
+            Expect(raised, 1);
+        }
+        finally
+        {
+            store.ShowOverFullscreen = before;
+        }
+    }
+
     public static void RunAll()
     {
         var tests = new (string Name, Action Test)[]
@@ -22,6 +57,8 @@ public static class DrawerPlacementTests
             ("locking and unlocking never move the drawer", TestRoundTrip),
             ("the saved order comes first, then the rest by default", TestOrder),
             ("a character left out of the list keeps its slot", TestReorderedKeepsSlot),
+            ("full screen: the drawer steps aside by default, and keeps showing when the user chose so", TestFullscreenRule),
+            ("full screen: the choice is saved, off by default", TestFullscreenSetting),
         };
         foreach (var (name, test) in tests)
         {
