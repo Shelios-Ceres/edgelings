@@ -66,7 +66,11 @@ final class DrawerController {
     private let canvas = SvgCanvas()
     private let clock = Date()
     private var away = false
-    private var reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    private var reducedMotion = DrawerController.systemReducedMotion
+    /// Reduce Motion, unless EDGELINGS_IGNORE_REDUCE_MOTION=1 (the runner's VM has it on; a measurement wants the full loop).
+    static var systemReducedMotion: Bool {
+        ProcessInfo.processInfo.environment["EDGELINGS_IGNORE_REDUCE_MOTION"] == "1" ? false : NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
 
     let cards = CardPresenter()
     let bubbles = BubblePresenter()
@@ -105,7 +109,7 @@ final class DrawerController {
             self?.layout()
         }
         NotificationCenter.default.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            self?.reducedMotion = DrawerController.systemReducedMotion
         }
     }
 
@@ -512,8 +516,17 @@ final class DrawerController {
             slot.svg = produced.svg
             fidget(index, slot, now: now, reduced: reduced)
         }
-        // A frame the bots already show is not presented again (a moment's own redraw is runMoment's).
-        if changed { view.needsDisplay = true }
+        // A frame the bots already show is not presented again (a moment's own redraw is runMoment's), and
+        // only the characters whose picture changed are invalidated, not the whole strip.
+        if changed {
+            if moment != nil || reduced {
+                view.needsDisplay = true
+            } else {
+                for index in due where index < frames.count && frames[index] != nil && slots[index].visible {
+                    view.setNeedsDisplay(slots[index].bounds.insetBy(dx: -14, dy: -14))
+                }
+            }
+        }
         updatePace()
     }
 
@@ -849,6 +862,8 @@ final class DrawerView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         let dark = DrawerController.isDark
         for slot in controller.drawSlots {
+            // Only what the dirty rectangle reaches is painted (the strip is invalidated by character).
+            guard slot.bounds.insetBy(dx: -14, dy: -14).intersects(dirtyRect) else { continue }
             guard let image = controller.image(for: slot, scale: scale) else { continue }
             BotPainter.paint(ctx, image: image, bounds: slot.bounds, pose: controller.pose(of: slot),
                              pixel: controller.isPixel, edge: CGFloat(controller.edge), dark: dark, scale: scale)

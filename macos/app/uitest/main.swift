@@ -369,7 +369,7 @@ measure(label: "default", extra: ["EDGELINGS_DIAG_FILE": "\(outFolder)/diagnosti
 measure(label: "battery-saver", extra: ["EDGELINGS_ASSUME_BATTERY": "1"])
 // A home with the data sizes of a real developer Mac (make-big-home.py): the same app, calm.
 if let at = arguments.firstIndex(of: "--big-root"), at + 1 < arguments.count {
-    measure(label: "big-home", extra: ["EDGELINGS_ROOT": arguments[at + 1], "EDGELINGS_DIAG_FILE": "\(outFolder)/diagnostic-big-home.txt", "EDGELINGS_DIAG_AFTER": "\(max(measureSeconds, 20))"])
+    measure(label: "big-home", extra: ["EDGELINGS_ROOT": arguments[at + 1], "EDGELINGS_IGNORE_REDUCE_MOTION": "1", "EDGELINGS_DIAG_FILE": "\(outFolder)/diagnostic-big-home.txt", "EDGELINGS_DIAG_AFTER": "\(max(measureSeconds, 20))"])
 }
 
 if let data = try? JSONEncoder().encode(steps) { try? data.write(to: URL(fileURLWithPath: "\(outFolder)/uitest.json")) }

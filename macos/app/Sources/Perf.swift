@@ -6,7 +6,9 @@ import Foundation
 enum Perf {
     private static let lock = NSLock()
     private static var cells: [String: (seconds: Double, count: Int, worst: Double)] = [:]
-    private static let started = ProcessInfo.processInfo.systemUptime
+    // Set by the first sample (the app calls it at start), not lazily at the first diagnostic.
+    private static var started = ProcessInfo.processInfo.systemUptime
+    private static var startedSet = false
     // The process's CPU seconds (user + system), sampled every few seconds, to say what the last minute cost.
     private static var samples: [(at: Double, cpu: Double)] = []
 
@@ -38,6 +40,10 @@ enum Perf {
     /// Called by a timer every few seconds.
     static func sample() {
         lock.lock()
+        if !startedSet {
+            started = ProcessInfo.processInfo.systemUptime
+            startedSet = true
+        }
         samples.append((ProcessInfo.processInfo.systemUptime, processCPUSeconds()))
         if samples.count > 200 { samples.removeFirst(samples.count - 200) }
         lock.unlock()
