@@ -29,10 +29,6 @@ internal static class Looks
     /// The prefix of the current kit's own keys: "Pixel" or "Classic".
     public static string Prefix => Pixel ? "Pixel" : "Classic";
 
-    /// Under Pixel these surfaces read in English, as the pixel cards and
-    /// bubbles do; null (no scope) under Classic.
-    public static IDisposable? English() => Pixel ? L10n.English() : null;
-
     // The kits of the windows built last, for code that picks styles and
     // brushes by name; every window's kit holds the same values. Pixel's
     // type sizes follow the scale, so a menu's kit, built for whichever

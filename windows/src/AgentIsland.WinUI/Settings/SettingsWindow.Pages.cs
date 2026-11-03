@@ -204,9 +204,7 @@ internal sealed partial class SettingsWindow
 
         body.Children.Add(Section(L10n.Tr("Language")));
         var language = AppLanguageStore.Load();
-        // Under Pixel these windows read in English whatever this says.
-        var languageNote = Shell.Looks.Pixel ? L10n.Tr("The pixel style shows Settings in English") : null;
-        body.Children.Add(Card(L10n.Tr("App language"), languageNote, "\uF2B7",
+        body.Children.Add(Card(L10n.Tr("App language"), null, "\uF2B7",
             Combo(new[] { L10n.Tr("Same as Windows"), "English", "简体中文" },
                 language switch { L10n.Language.English => 1, L10n.Language.SimplifiedChinese => 2, _ => 0 },
                 index =>
@@ -281,6 +279,7 @@ internal sealed partial class SettingsWindow
             HorizontalAlignment = HorizontalAlignment.Left,
         });
         Credit("Ark Pixel", L10n.TrFormat("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf"), 12);
+        Credit("Fusion Pixel", L10n.TrFormat("The pixel font for Chinese, by {0} · SIL Open Font License 1.1", "TakWolf"), 12);
         return credits;
     }
 }

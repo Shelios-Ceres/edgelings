@@ -9,12 +9,24 @@ namespace AgentIsland.WinUI.Shell;
 /// window's scale, and Fluent keys the remaining system controls read.
 public sealed partial class PixelTheme : ResourceDictionary
 {
-    private static FontFamily? _font;
+    private static FontFamily? _latinFont, _chineseFont;
+    private static ResourceDictionary? _appTokens;
 
-    /// The pixel face, with Microsoft YaHei UI for Chinese in user content
-    /// (folder names, account labels) that the face can't draw.
-    internal static FontFamily Font =>
-        _font ??= new FontFamily("ms-appx:///Assets/Fonts/ark-pixel-10px-proportional-latin.ttf#Ark Pixel 10px Prop latin, Microsoft YaHei UI");
+    /// The pixel face: Ark Pixel's Latin design in English, and in Chinese
+    /// Fusion Pixel 10px (Ark's Latin and digits, with the Han characters
+    /// filled in from other OFL pixel fonts), both with Microsoft YaHei UI
+    /// behind them for user content (folder names, account labels) that
+    /// they can't draw.
+    internal static FontFamily Font => AgentIsland.Localization.L10n.IsChinese
+        ? _chineseFont ??= new FontFamily("ms-appx:///Assets/Fonts/fusion-pixel-10px-proportional-zh_hans.ttf#Fusion Pixel 10px Prop zh-Hans, Microsoft YaHei UI")
+        : _latinFont ??= new FontFamily("ms-appx:///Assets/Fonts/ark-pixel-10px-proportional-latin.ttf#Ark Pixel 10px Prop latin, Microsoft YaHei UI");
+
+    /// The app language changed: the shared tokens carry the face for the
+    /// new language (a window's own kit is built afresh).
+    internal static void LanguageChanged()
+    {
+        if (_appTokens is not null) _appTokens["PixelFontFamily"] = Font;
+    }
 
     internal PixelTheme(double scale)
     {
@@ -49,6 +61,7 @@ public sealed partial class PixelTheme : ResourceDictionary
         tokens.ThemeDictionaries["Light"] = light;
         tokens.ThemeDictionaries["Default"] = dark;
         tokens["PixelFontFamily"] = Font;
+        _appTokens = tokens;
         tokens["PixelBodySize"] = PixelTokens.Body(scale);
         tokens["PixelSubtitleSize"] = PixelTokens.Subtitle(scale);
         tokens["PixelTitleSize"] = PixelTokens.Title(scale);

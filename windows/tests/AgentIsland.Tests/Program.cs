@@ -134,6 +134,7 @@ public static class Program
                 ("GrokAuthFileTests", GrokAuthFileTests.RunAll, null),
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
                 ("StateGroupsTests", StateGroupsTests.RunAll, null),
+                ("PixelChineseTests", PixelChineseTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
                 ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),
                 ("ClaudeKeychainTests", ClaudeKeychainTests.RunAll, null),

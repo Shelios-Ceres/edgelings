@@ -71,7 +71,6 @@ internal sealed partial class CostPage : IDisposable
         _clock.Tick += (_, _) =>
         {
             if (!_visible()) return;
-            using var english = Looks.English();
             var text = Scanned();
             if (text != _scanned.Text) _scanned.Text = text;
         };
@@ -223,7 +222,6 @@ internal sealed partial class CostPage : IDisposable
     /// numbers and chart columns are kept for counting (M17).
     private List<UIElement> Compose()
     {
-        using var english = Looks.English();
         _numbers.Clear();
         _columns.Clear();
         _scanned.Text = Scanned();
@@ -285,7 +283,7 @@ internal sealed partial class CostPage : IDisposable
             ranges.Count == 0 ? L10n.Tr("Not scanned yet") : string.Join(" / ", ranges),
             TokenDisplayText.TimeZoneLabel(stamps.Count == 0 ? DateTimeOffset.Now : stamps.Max()));
         _periodRange.Child = Drawer.PhraseFlow.Of(
-            dates.Split(" · ").Select(part => (FrameworkElement)Drawer.PhraseFlow.Words(part.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Dated))).ToList(),
+            dates.Split(" · ").Select(part => (FrameworkElement)Drawer.PhraseFlow.Words(Drawer.PhraseFlow.SplitWords(part).Select(Dated))).ToList(),
             () => Dated("·", new Thickness(4, 0, 4, 0)));
         var note = L10n.Tr(ranges.Count > 1
             ? "Snapshot dates differ; scan to refresh them together."
@@ -293,7 +291,7 @@ internal sealed partial class CostPage : IDisposable
         // Sentence by sentence (in Chinese, clause by clause), each moving whole.
         _calendarNote.Child = Drawer.PhraseFlow.Sentences(Regex.Split(note, @"(?<=[.!?])\s+|(?<=[。！？，；])")
             .Where(sentence => sentence.Length > 0)
-            .Select(sentence => Drawer.PhraseFlow.Words(sentence.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Noted))));
+            .Select(sentence => Drawer.PhraseFlow.Words(Drawer.PhraseFlow.SplitWords(sentence).Select(Noted))));
     }
 
     /// A word of the calendar note.

@@ -25,7 +25,6 @@ internal static class CodexAccounts
 
     private static void Fill(MenuFlyout menu, Func<XamlRoot?> root)
     {
-        using var english = Looks.English();
         menu.Items.Clear();
         var accounts = CodexAccountSwitcher.Accounts();
         var active = CodexAccountSwitcher.ActiveLabel();
@@ -50,7 +49,6 @@ internal static class CodexAccounts
             choices.Add((account.Label, item));
             item.Click += async (_, _) =>
             {
-                using var english = Looks.English();
                 var activated = CodexAccountSwitcher.Activate(account);
                 RestoreChecks();
                 if (!activated)
@@ -102,25 +100,21 @@ internal static class CodexAccounts
     private static async Task<bool> ConfirmRemove(XamlRoot root, CodexAccountSwitcher.Account account)
     {
         ContentDialog dialog;
-        using (Looks.English())
+        dialog = SettingsUi.Dialog(root);
+        dialog.Title = L10n.Tr("Remove saved account");
+        dialog.Content = new TextBlock
         {
-            dialog = SettingsUi.Dialog(root);
-            dialog.Title = L10n.Tr("Remove saved account");
-            dialog.Content = new TextBlock
-            {
-                Text = account.Email is { } email && email != account.Label ? $"{account.Label}  ({email})" : account.Label,
-                TextWrapping = TextWrapping.Wrap,
-            };
-            dialog.PrimaryButtonText = L10n.Tr("Remove");
-            dialog.CloseButtonText = L10n.Tr("Cancel");
-            dialog.DefaultButton = ContentDialogButton.Close;
-        }
+            Text = account.Email is { } email && email != account.Label ? $"{account.Label}  ({email})" : account.Label,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        dialog.PrimaryButtonText = L10n.Tr("Remove");
+        dialog.CloseButtonText = L10n.Tr("Cancel");
+        dialog.DefaultButton = ContentDialogButton.Close;
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private static async Task SaveCurrent(XamlRoot root)
     {
-        using var english = Looks.English();
         var name = new TextBox { PlaceholderText = L10n.Tr("work / personal"), MaxLength = 40 };
         SettingsUi.UseKit(name);
         AutomationProperties.SetName(name, L10n.Tr("Save current account"));

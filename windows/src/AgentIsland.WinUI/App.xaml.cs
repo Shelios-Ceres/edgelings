@@ -103,6 +103,7 @@ public sealed partial class App : Application
     /// (and a theme switch those whose colours were).
     public void Relocalize()
     {
+        Shell.PixelTheme.LanguageChanged();
         _drawer?.Relocalize();
         _tray?.Relocalize();
         Settings.SettingsWindow.Relocalize();
