@@ -151,6 +151,10 @@ struct DrawerPage: View {
                     store.setDrawer(["display": index == 0 ? "auto" : DrawerController.displayId(screens[index - 1])])
                 }
             }
+            SettingRow(store: store, glyph: "E740", symbol: "arrow.up.left.and.arrow.down.right", title: store.t("In full screen"),
+                       subtitle: store.t("Keep the characters on screen while a full-screen app is in front")) {
+                KitToggle(store: store, isOn: drawer.overFullscreen ?? false) { store.setDrawer(["overFullscreen": $0]) }
+            }
             SettingRow(store: store, glyph: "E7C2", symbol: "arrow.up.and.down", title: store.t("Position"), subtitle: store.t(drawer.locked
                 ? "Characters stay put: dragging won't move the drawer, and a character appearing or leaving won't shift the ones above it"
                 : "Drag any character up or down to move the drawer")) {
@@ -171,10 +175,6 @@ struct DrawerPage: View {
             }
             SettingRow(store: store, glyph: "E83F", symbol: "battery.100", title: store.t("Save battery"), subtitle: store.t("On battery, characters run at 60 fps at most")) {
                 KitToggle(store: store, isOn: drawer.saveBattery) { store.setDrawer(["saveBattery": $0]) }
-            }
-            SettingRow(store: store, glyph: "E740", symbol: "arrow.up.left.and.arrow.down.right", title: store.t("In full screen"),
-                       subtitle: store.t("Keep the characters on screen while a full-screen app is in front")) {
-                KitToggle(store: store, isOn: drawer.overFullscreen ?? false) { store.setDrawer(["overFullscreen": $0]) }
             }
             SettingRow(store: store, glyph: "E768", symbol: "sparkles", title: store.t("Animation"),
                        subtitle: store.t("With Reduce motion on in System Settings, characters slow down and stop following the pointer")) {
