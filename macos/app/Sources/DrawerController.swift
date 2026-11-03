@@ -40,6 +40,11 @@ final class Slot {
     var fidgetUntil = 0.0
     var nextFidget = 0.0
     var resting = false
+    /// The shown phase plays in a work group (Core says so), and the rotation was set up for this look.
+    var grouped = false
+    var rotationReady = false
+    /// The state the rotation last put the bot in; nil until it has.
+    var rotated: String?
     var since = 0.0
     var visible = false
     var bounds = CGRect.zero
@@ -145,6 +150,8 @@ final class DrawerController {
                 slot.nextFidget = Metrics.firstFidgetAfter + Double.random(in: 0..<Metrics.fidgetGap)
             }
             slot.swatch = bot.swatch
+            slot.grouped = bot.grouped == true && slot.rotationReady
+            if !slot.grouped { slot.rotated = nil }
             if slot.look != bot.look {
                 if known, engine != nil {
                     if !next.isPixel && !reducedMotion && panel.isVisible && !slot.look.isEmpty {
@@ -158,6 +165,8 @@ final class DrawerController {
                 slot.look = bot.look
                 slot.fidgets = engine?.fidgets(kind: bot.kind, look: bot.look) ?? []
                 slot.gazing = false
+                setupRotation(index)
+                slot.grouped = bot.grouped == true && slot.rotationReady
             }
             if slot.seq != bot.seq {
                 slot.seq = bot.seq
@@ -172,6 +181,46 @@ final class DrawerController {
             layout()
         }
         updatePace()
+    }
+
+    // MARK: Work groups
+
+    /// Gives a bot's rotation the cycle length of every state its look's groups can play (read from the engine,
+    /// over the bot's tempo). A look the tables do not know has no rotation and keeps entry and hold.
+    private func setupRotation(_ index: Int) {
+        guard let engine, let frame, let bridge = AppController.shared.bridge, frame.bots.indices.contains(index), slots.indices.contains(index) else { return }
+        let bot = frame.bots[index]
+        let states = (bridge.request("rotationStates", ["theme": frame.theme, "kind": bot.kind, "look": bot.look])["states"] as? [String]) ?? []
+        slots[index].rotationReady = !states.isEmpty
+        slots[index].rotated = nil
+        guard !states.isEmpty else { return }
+        let cycles = engine.cycles(kind: bot.kind, look: bot.look, states: states, tempo: bot.tempo)
+        bridge.request("rotationSetup", ["theme": frame.theme, "bots": [["id": bot.id, "kind": bot.kind, "look": bot.look, "cycles": cycles] as [String: Any]]])
+    }
+
+    /// Core's rotation says which state each grouped bot plays now; a change puts the bot into it from the start.
+    private func rotate(now: Double, reduced: Bool) {
+        guard let engine, let frame, let bridge = AppController.shared.bridge else { return }
+        var asked: [[String: Any]] = []
+        var places: [String: Int] = [:]
+        for (index, bot) in frame.bots.enumerated() where slots.indices.contains(index) {
+            let slot = slots[index]
+            guard slot.grouped, slot.visible else { continue }
+            asked.append(["id": bot.id, "phase": bot.phase])
+            places[bot.id] = index
+        }
+        guard !asked.isEmpty else { return }
+        let reply = bridge.request("rotate", ["now": now, "reduced": reduced, "bots": asked])
+        for answer in reply["bots"] as? [[String: Any]] ?? [] {
+            guard let id = answer["id"] as? String, let index = places[id], answer["grouped"] as? Bool == true, let state = answer["state"] as? String else { continue }
+            let slot = slots[index]
+            if slot.rotated == state { continue }
+            slot.rotated = state
+            slot.hold = state
+            slot.since = now
+            slot.nextStep = 0
+            engine.setState(index, state, phase: 0)
+        }
     }
 
     private func buildEngine(for frame: FrameModel) {
@@ -198,6 +247,15 @@ final class DrawerController {
         let slot = slots[index]
         var entry = bot.entry
         var hold = bot.hold
+        if slot.grouped && !bot.resting {
+            // A work group's state comes from the rotation on the next tick; entry and hold stand aside.
+            slot.resting = false
+            slot.since = now
+            slot.fidget = nil
+            slot.rotated = nil
+            slot.nextStep = 0
+            return
+        }
         if bot.resting, engine?.draws("resting") == true { entry = "resting"; hold = "resting" }
         slot.hold = hold
         slot.resting = bot.resting
@@ -475,6 +533,7 @@ final class DrawerController {
         let pixel = frame.isPixel
         let reduced = reducedMotion
         runMoment(now)
+        Perf.time("loop: work groups") { rotate(now: now, reduced: reduced) }
         var due: [Int] = []
         for (index, slot) in slots.enumerated() where slot.visible {
             if now >= slot.nextStep - 0.004 { due.append(index) }

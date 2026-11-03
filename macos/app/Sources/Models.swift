@@ -29,6 +29,8 @@ struct BotModel: Decodable, Identifiable {
     let hold: String
     let oneShot: Bool
     let resting: Bool
+    /// The phase plays in a work group: the rotation picks its state, not entry and hold.
+    let grouped: Bool?
     let running: Int
     let seq: Int
     let detail: String?

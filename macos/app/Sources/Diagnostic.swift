@@ -183,6 +183,21 @@ enum SelfTest {
                 engine.setState(index, "thinking", phase: 0)
                 let frames = engine.tick([0.1], size: 44)
                 check("engine \(theme)", frames.first.flatMap { $0 }?.svg.hasPrefix("<svg") == true)
+                // The work-state rotation: cycle lengths read from the engine, Core's scheduler on a fake clock.
+                let look = SampleLooks.look("claude", theme == "pixel" ? .pixel : .classic).id
+                let states = (bridge.request("rotationStates", ["theme": theme, "kind": "claude", "look": look])["states"] as? [String]) ?? []
+                let cycles = engine.cycles(kind: "claude", look: look, states: states, tempo: 1)
+                check("rotation states and cycles (\(theme))", !states.isEmpty && cycles.count == states.count, "\(states.count) states, \(cycles.count) cycles")
+                bridge.request("rotationSetup", ["theme": theme, "bots": [["id": "claude", "kind": "claude", "look": look, "cycles": cycles] as [String: Any]]])
+                var seen: Set<String> = []
+                var grouped = false
+                for second in stride(from: 0.0, through: 60.0, by: 1.0) {
+                    let reply = bridge.request("rotate", ["now": second, "reduced": false, "bots": [["id": "claude", "phase": "Thinking"]]])
+                    let answer = (reply["bots"] as? [[String: Any]])?.first
+                    grouped = answer?["grouped"] as? Bool == true
+                    if let state = answer?["state"] as? String { seen.insert(state) }
+                }
+                check("rotation turns Thinking between two motions (\(theme))", grouped && seen.count >= 2, "\(seen.sorted())")
             } catch {
                 check("engine \(theme)", false, "\(error)")
             }

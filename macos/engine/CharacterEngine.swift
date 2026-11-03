@@ -32,9 +32,13 @@ final class CharacterEngine {
 
     private static let hostBody = #"""
     const bots = [], makes = [];
+    let errors = [];
     globalThis.@GLOBAL@ = {
         phases: () => lib.PHASES.join(','),
         fidgets: (kind, look) => lib.fidgetsOf(kind, look || undefined).join(','),
+        // The cycle length of each state, in seconds: "state:seconds,…". Pixel's cycleOf takes the kind and look, Classic's the state.
+        cycles: (kind, look, states) => states.split(',').map(s =>
+            s + ':' + (lib.cycleOf.length > 1 ? lib.cycleOf(kind, s, look || undefined) : lib.cycleOf(s))).join(','),
         add(kind, seed, tempo, look) {
             const make = { kind, seed, tempo };
             makes.push(make);
@@ -66,10 +70,18 @@ final class CharacterEngine {
             const dts = steps.split(','), parts = [];
             for (let i = 0; i < bots.length; i++) {
                 if (!dts[i]) { parts.push(''); continue; }
-                bots[i].advance(+dts[i]);
-                parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
+                // One character's exception costs it this frame only: it keeps its last good picture.
+                try {
+                    bots[i].advance(+dts[i]);
+                    parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
+                } catch (error) {
+                    errors.push(makes[i].kind + ': ' + (error && error.message ? error.message : String(error)));
+                    parts.push('');
+                }
             }
-            return parts.join('\u0001');
+            const failed = errors.join('; ');
+            errors = [];
+            return parts.join('\u0001') + (failed ? '\u0003' + failed : '');
         },
     };
     """#
@@ -133,6 +145,21 @@ final class CharacterEngine {
         if ownCues { call("cue", [bot, kind]) } else { poke(bot) }
     }
 
+    /// Each state's cycle length in seconds on a bot with this tempo, for the work-state rotation.
+    func cycles(kind: String, look: String, states: [String], tempo: Double) -> [String: Double] {
+        let raw = call("cycles", [kind, look, states.joined(separator: ",")])?.toString() ?? ""
+        var result: [String: Double] = [:]
+        for pair in raw.split(separator: ",") {
+            let parts = pair.split(separator: ":")
+            if parts.count == 2, let seconds = Double(parts[1]) { result[String(parts[0])] = seconds / max(tempo, 0.01) }
+        }
+        return result
+    }
+
+    /// Called once per launch with the first exception a character's step threw (the drawer logs it).
+    static var onError: ((String) -> Void)?
+    private static var reported = false
+
     func fidgets(kind: String, look: String) -> [String] {
         let key = kind + "/" + look
         if let known = fidgetCache[key] { return known }
@@ -148,7 +175,14 @@ final class CharacterEngine {
     /// (engine state, SVG); skipped bots come back nil.
     func tick(_ dts: [Double?], size: Double) -> [EngineFrame?] {
         let steps = dts.map { $0.map { String($0) } ?? "" }.joined(separator: ",")
-        let raw = call("tick", [steps, size])?.toString() ?? ""
+        var raw = call("tick", [steps, size])?.toString() ?? ""
+        if let marker = raw.range(of: "\u{3}") {
+            if !CharacterEngine.reported {
+                CharacterEngine.reported = true
+                CharacterEngine.onError?("engine \(theme) step threw: " + String(String(raw[marker.upperBound...]).prefix(150)))
+            }
+            raw = String(raw[raw.startIndex..<marker.lowerBound])
+        }
         return raw.components(separatedBy: "\u{1}").map { part in
             guard let split = part.range(of: "\u{2}") else { return nil }
             return EngineFrame(state: String(part[part.startIndex..<split.lowerBound]), svg: String(part[split.upperBound...]))

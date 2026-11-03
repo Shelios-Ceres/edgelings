@@ -31,6 +31,8 @@ final class AppController {
         // The bundled SQLite lives beside the Core dylib; Core is told where.
         let folder = URL(fileURLWithPath: AppController.libraryPath()).deletingLastPathComponent().path
         bridge?.request("configure", ["native": folder])
+        // A character's step that throws costs it one frame; the first such error of a launch goes to the crash log.
+        CharacterEngine.onError = { text in AppController.shared.request("log", ["text": text]) }
     }
 
     /// Frameworks/ in the bundle, else next to the executable (a loose build).

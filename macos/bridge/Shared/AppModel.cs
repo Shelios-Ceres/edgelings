@@ -184,6 +184,8 @@ public static class AppModel
                     json.WriteString("hold", bot.Phase == AgentPhase.Idle ? "idle" : DrawerLooks.Hold(bot.Phase, theme));
                     json.WriteBoolean("oneShot", DrawerLooks.IsOneShot(DrawerLooks.Entry(bot.Phase, theme), theme));
                     json.WriteBoolean("resting", bot.Rest is not null);
+                    // The phase plays in a work group: the rotation (RotationApi) picks its state, not entry and hold.
+                    json.WriteBoolean("grouped", bot.Rest is null && StateGroups.GroupOf(theme, DrawerLooks.Kind(provider), look.Id, bot.Phase) is not null);
                     json.WriteNumber("running", bot.Running);
                     json.WriteNumber("seq", bot.Seq);
                     if (bot.Detail is { } detail) json.WriteString("detail", detail);
