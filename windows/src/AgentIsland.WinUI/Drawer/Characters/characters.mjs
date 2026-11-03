@@ -242,8 +242,24 @@ const stepsTo = (u, a, b) => Math.round(lerp(a, b, clamp(u)));
 const CELL_BASE = 1024;
 const cellKey = (x, y) => (x | 0) === x && (y | 0) === y && x > -CELL_BASE && x < CELL_BASE && y > -CELL_BASE && y < CELL_BASE
   ? ((y + CELL_BASE) << 11) | (x + CELL_BASE) : `${x},${y}`;
-const cellX = k => typeof k === 'number' ? (k & 2047) - CELL_BASE : Number(k.split(',')[0]);
-const cellY = k => typeof k === 'number' ? (k >> 11) - CELL_BASE : Number(k.split(',')[1]);
+// An odd cell's text key, read back into its two numbers once.
+const ODD_XY = new Map();
+const oddXY = k => {
+  let xy = ODD_XY.get(k);
+  if (!xy) {
+    if (ODD_XY.size > 4096) ODD_XY.clear();
+    const [x, y] = k.split(',');
+    ODD_XY.set(k, xy = [Number(x), Number(y)]);
+  }
+  return xy;
+};
+// ...and its 8 neighbours' keys, in NEIGHBORS_8's order (odd as well).
+const oddRing = k => {
+  const xy = oddXY(k);
+  return xy.ring ??= [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].map(([dx, dy]) => cellKey(xy[0] + dx, xy[1] + dy));
+};
+const cellX = k => typeof k === 'number' ? (k & 2047) - CELL_BASE : oddXY(k)[0];
+const cellY = k => typeof k === 'number' ? (k >> 11) - CELL_BASE : oddXY(k)[1];
 const NEIGHBORS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
 const NEIGHBORS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -321,27 +337,23 @@ const RING_CELLS = new Int32Array(RING_W * RING_W);
 const RING_SEEN = new Int32Array(RING_W * RING_W);
 let ringStamp = 0;
 function ringOf(cells) {
-  let whole = true;
-  cells.forEach((color, key) => { if (typeof key !== 'number') whole = false; });
-  if (!whole) {
-    const ring = new Set();
-    for (const key of cells.keys()) {
-      const x = cellX(key), y = cellY(key);
-      for (const [dx, dy] of NEIGHBORS_8) {
-        const k = cellKey(x + dx, y + dy);
-        if (!cells.has(k)) ring.add(k);
-      }
-    }
-    return [...ring];
-  }
   const cell = RING_CELLS, seen = RING_SEEN, out = [];
   // Stamps count up on every call; before they pass what an Int32Array holds, start the marks afresh.
   if (ringStamp === 0x7FFFFFFF) { RING_CELLS.fill(0); RING_SEEN.fill(0); ringStamp = 0; }
   const stamp = ++ringStamp;
+  let odd = null;
   cells.forEach((color, key) => {
-    cell[((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6] = stamp;
+    if (typeof key === 'number') cell[((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6] = stamp;
   });
   cells.forEach((color, key) => {
+    if (typeof key !== 'number') {
+      const ring = oddRing(key);
+      for (let i = 0; i < 8; i++) {
+        const k = ring[i];
+        if (!cells.has(k) && !(odd ??= new Set()).has(k)) { odd.add(k); out.push(k); }
+      }
+      return;
+    }
     const at = ((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6;
     for (let i = 0; i < 8; i++) {
       const next = at + RING_STEP[i];
@@ -375,7 +387,7 @@ function runsOf(list) {
   }
   if (!whole) {
     for (const row of order) ROW_MASKS[row] = 0;
-    return runsGeneral(list);
+    return runsMixed(list);
   }
   let d = '';
   for (const row of order) {
@@ -398,6 +410,56 @@ function runsOf(list) {
       d += text;
       col = end + 1;
     }
+  }
+  return d;
+}
+
+// The rows of a list holding odd cells, as runsGeneral() reads them: rows in
+// the order they first appear, each row's cells ascending. A row of whole
+// cells within the mask's columns keeps the mask; any other row is sorted.
+function runsMixed(list) {
+  const rows = new Map();
+  for (const key of list) {
+    let x, y;
+    if (typeof key === 'number') { x = (key & 2047) - CELL_BASE; y = (key >> 11) - CELL_BASE; } else [x, y] = oddXY(key);
+    let r = rows.get(y);
+    if (!r) rows.set(y, r = { mask: 0, xs: null });
+    const col = x + 4;
+    if (r.xs === null && (x | 0) === x && (y | 0) === y && col >= 0 && col <= 31) r.mask |= 1 << col;
+    else (r.xs ??= []).push(x);
+  }
+  let d = '';
+  for (const [y, r] of rows) {
+    if (r.xs === null) { d += maskRuns(y, r.mask); continue; }
+    const xs = r.xs;
+    for (let col = 0; col < 32; col++) if (r.mask & (1 << col)) xs.push(col - 4);
+    sortRow(xs);
+    let start = xs[0], prev = xs[0];
+    for (let i = 1; i <= xs.length; i++) {
+      if (i < xs.length && xs[i] === prev + 1) { prev = xs[i]; continue; }
+      d += `${M(start * PX, y * PX)}H${n((prev + 1) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      start = prev = xs[i];
+    }
+  }
+  return d;
+}
+
+// One row's runs from its bit mask (columns -4 to 27).
+function maskRuns(y, mask) {
+  let d = '', col = 0;
+  while (col < 32) {
+    if ((mask & (1 << col)) === 0) { col++; continue; }
+    let end = col;
+    while (end < 31 && (mask & (1 << (end + 1))) !== 0) end++;
+    const start = col - 4;
+    const id = (y + 8) * 4096 + (start + 8) * 64 + (end - col);
+    let text = RUN_TEXT.get(id);
+    if (text === undefined) {
+      text = `${M(start * PX, y * PX)}H${n((end - 3) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      RUN_TEXT.set(id, text);
+    }
+    d += text;
+    col = end + 1;
   }
   return d;
 }
@@ -450,7 +512,8 @@ const SAFE = (() => {
   return Array.from({ length: GRID }, (_, y) => Array.from({ length: GRID }, (_, x) =>
     [-1, 0, 1].every(i => [-1, 0, 1].every(j => inside(x + i, y + j)))));
 })();
-const safe = (x, y) => SAFE[y]?.[x] === true;
+const SAFE_FLAT = Uint8Array.from(SAFE.flat(), v => (v ? 1 : 0));
+const safe = (x, y) => (x | 0) === x && (y | 0) === y && x >= 0 && y >= 0 && x < GRID && y < GRID && SAFE_FLAT[y * GRID + x] === 1;
 const allSafe = cv => {
   let all = true;
   cv.cells.forEach((color, k) => { if (all && !safe(cellX(k), cellY(k))) all = false; });
@@ -460,26 +523,40 @@ const allSafe = cv => {
 // The smallest whole-cell shift that brings every cell inside, preferring
 // sideways steps toward the middle, and a spot clear of `clear` (the body)
 // before any spot at all.
-function fitShift(cells, clear) {
+// Which shifts fit the circle depends only on the cells' places, so the
+// fitting ones are listed once per shape, in the order they are tried.
+const FITS = new Map();
+function fittingShifts(cells) {
+  let key = '';
+  for (let i = 0; i < cells.length; i++) key += cells[i][0] + ',' + cells[i][1] + ';';
+  let list = FITS.get(key);
+  if (list) return list;
   const fits = (dx, dy) => {
     for (let i = 0; i < cells.length; i++) if (!safe(cells[i][0] + dx, cells[i][1] + dy)) return false;
     return true;
   };
-  if (fits(0, 0)) return [0, 0];
-  const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
-  const sx = (Math.min(...xs) + Math.max(...xs) + 1) / 2 > GRID / 2 ? -1 : 1;
-  const sy = (Math.min(...ys) + Math.max(...ys) + 1) / 2 > GRID / 2 ? -1 : 1;
-  const free = (dx, dy) => cells.every(([x, y]) => !clear.has(x + dx, y + dy));
-  for (const strict of clear ? [true, false] : [false]) {
+  list = [];
+  if (fits(0, 0)) list.zero = true;
+  else {
+    const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
+    const sx = (Math.min(...xs) + Math.max(...xs) + 1) / 2 > GRID / 2 ? -1 : 1;
+    const sy = (Math.min(...ys) + Math.max(...ys) + 1) / 2 > GRID / 2 ? -1 : 1;
     for (let d = 1; d <= 12; d++) {
       for (let i = d; i >= 0; i--) {
-        for (const [dx, dy] of [[sx * i, sy * (d - i)], [sx * i, -sy * (d - i)]]) {
-          if (fits(dx, dy) && (!strict || free(dx, dy))) return [dx, dy];
-        }
+        for (const [dx, dy] of [[sx * i, sy * (d - i)], [sx * i, -sy * (d - i)]]) if (fits(dx, dy)) list.push([dx, dy]);
       }
     }
   }
-  return [0, 0];
+  if (FITS.size > 2048) FITS.clear();
+  FITS.set(key, list);
+  return list;
+}
+function fitShift(cells, clear) {
+  const list = fittingShifts(cells);
+  if (list.zero) return [0, 0];
+  const free = (dx, dy) => cells.every(([x, y]) => !clear.has(x + dx, y + dy));
+  if (clear) for (const [dx, dy] of list) if (free(dx, dy)) return [dx, dy];
+  return list.length ? list[0] : [0, 0];
 }
 
 // Paints `draw` into `into`, moved as little as it takes to fit the circle.
@@ -524,6 +601,30 @@ function settle(p, draw) {
     if (allSafe(test)) return q;
   }
   return { ...p, dx: 0, dy: 0, lift: 0 };
+}
+
+// settle(), keeping the body it drew: the body drawn on fresh canvases at
+// the offset that fits, with what its drawing returned. A body that needs no
+// settling is drawn once, as before; one that does is no longer drawn twice.
+// The body draws must not read anything they did not paint themselves.
+// Every body reads dx, dy and lift only through rnd(), so two tries that
+// round alike draw alike: a try that rounds like one that failed fails too
+// and isn't drawn, and the zero fallback keeps the zero try's drawing.
+function settled(p, draw) {
+  const at = q => { const cv = canvas(), s = canvas(); return { q, cv, s, a: draw(cv, s, q) }; };
+  if (!p.dx && !p.dy && !p.lift) return at(p);
+  const failed = new Map();
+  for (const k of [1, 0.75, 0.5, 0.25, 0]) {
+    const q = k === 1 ? p : { ...p, dx: p.dx * k, dy: p.dy * k, lift: (p.lift ?? 0) * k };
+    const key = `${rnd(q.dx)},${rnd(q.dy)},${rnd(q.lift)}`;
+    if (failed.has(key)) continue;
+    const tried = at(q);
+    if (allSafe(tried.cv)) return tried;
+    failed.set(key, tried);
+  }
+  const zero = failed.get('0,0,0');
+  const q = { ...p, dx: 0, dy: 0, lift: 0 };
+  return zero ? { ...zero, q } : at(q);
 }
 
 // MARK: - Glyphs
@@ -960,9 +1061,8 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const color = p.dim > 0.5 ? DULL : ORANGE;
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => clawd(g, q, c, color));
-      const a = clawd(cv, q, c, color);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => clawd(g, q, c, color));
       const body = { ...pal, body: color };
       if (q.prop === 'think') fitDraw(cv, g => g.glyph(SPINNER[Math.floor(q.propT * 7) % SPINNER.length], a.mid - 2, a.top - 7, ORANGE));
       else if (q.prop === 'stall') fitDraw(cv, g => {
@@ -1096,9 +1196,8 @@ function pxProp(cv, back, p, a, pal, c) {
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => notebook(g, q, c));
-      const a = notebook(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => notebook(g, q, c));
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -1257,9 +1356,8 @@ function pxProp(cv, back, p, a, pal, c) {
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => balloon(g, q, c));
-      const a = balloon(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => balloon(g, q, c));
       pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -1367,9 +1465,8 @@ function pxProp(cv, back, p, a, pal, c) {
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => ring(g, q, c));
-      const a = ring(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => ring(g, q, c));
       const t = q.propT;
       // Rings, lines and sparks show only where the circle allows.
       const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
@@ -1574,10 +1671,9 @@ CHARACTERS.cursor = CHARACTERS.grok;
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => blob(g, q, c));
+      const back = canvas();
+      const { q, cv, a: b } = settled(p, (g, s, q) => blob(g, q, c));
       const t = q.propT;
-      const b = blob(cv, q, c);
       terminal(cv, q, c, t);
       const a = { mid: b.cx, top: b.top, left: b.cx - 6, right: b.cx + 6, ground: TERM.y + TERM.h, midY: rnd(b.cy), front: rnd(b.cy), eyes: b.eyes };
       // A nose bubble while it sleeps, a question mark while it's locked,
@@ -1782,7 +1878,8 @@ CHARACTERS.cursor = CHARACTERS.grok;
           break;
         }
         case 'bricks': {
-          const u = q.propU * 4;
+          // Blending in from a pose with a negative propU starts at the start.
+          const u = (q.propU < 0 ? 0 : q.propU) * 4;
           const SPOTS = [[4, 6], [6, 6], [5, 4]];
           const brick = ([x, y], light) => { cv.rect(x, y, 2, 2, WATER); cv.put(x, y, light ? '#FFFFFF' : '#C9D6FF'); };
           if (u >= 3.4) {
@@ -1870,9 +1967,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       return (poses && poses(s, t, T, b)) ?? b;
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => body(g, q, c));
-      const a = body(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => body(g, q, c));
       if (!(props && props(cv, back, q, a, c))) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -2002,9 +2098,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => cloud(g, q, c));
-      const a = cloud(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => cloud(g, q, c));
       const t = q.propT;
       switch (q.prop) {
         case 'think': {
@@ -2152,9 +2247,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => cloud(g, q, c));
-      const a = cloud(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => cloud(g, q, c));
       const t = q.propT;
       switch (q.prop) {
         case 'think': case 'stall': {
@@ -2303,9 +2397,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => folio(g, q, c));
-      const a = folio(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => folio(g, q, c));
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -2406,9 +2499,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => scroll(g, q, c));
-      const a = scroll(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => scroll(g, q, c));
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -2671,9 +2763,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => arch(g, canvas(), q, c));
-      const a = arch(cv, shade, q, c);
+      const back = canvas();
+      const { q, cv, s: shade, a } = settled(p, (g, s, q) => arch(g, s, q, c));
       const t = q.propT;
       // Single-cell particles only show where the circle allows.
       const dot = (x, y, color) => { if (safe(x, y)) cv.put(x, y, color); };
@@ -2889,9 +2980,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => body(g, canvas(), q, c));
-      const a = body(cv, shade, q, c);
+      const back = canvas();
+      const { q, cv, s: shade, a } = settled(p, (g, s, q) => body(g, s, q, c));
       satellites(cv, q, c, a);
       if (q.prop === 'sparks') pxProp(cv, back, q, a, { ...pal, main: SAT[2] }, c);
       else pxProp(cv, back, q, a, pal, c);
@@ -3011,9 +3101,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => blocks(g, canvas(), q, c));
-      const a = blocks(cv, shade, q, c);
+      const back = canvas();
+      const { q, cv, s: shade, a } = settled(p, (g, s, q) => blocks(g, s, q, c));
       if (q.prop === 'strap') {
         // A steel strap round the clicked-together blocks, a padlock on it.
         cv.rect(6, 12, 10, 1, '#8D94A6');
@@ -3113,9 +3202,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => kite(g, q, c));
-      const a = kite(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q) => kite(g, q, c));
       if (q.prop === 'stake') {
         // A wooden stake at the end of its tail, the tail tied fast to it.
         const x = a.mid + 3;
@@ -3384,9 +3472,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => ringBot(g, canvas(), q, c));
-      const a = ringBot(cv, back, q, c);
+      const { q, cv, s: back, a } = settled(p, (g, s, q) => ringBot(g, s, q, c));
       const t = q.propT;
       const [kx, ky] = a.knob;
       // Single cells show only where the circle allows.
@@ -3547,7 +3633,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       // A mortar right of it; three thumps of the mallet (raised over its
       // ear, halfway, down), the mochi a size bigger after each, then the
       // finished mochi sparkles. Steam rises all the while.
-      const v = q.propU, k = Math.floor(v / 0.24), w = frac(v / 0.24);
+      // Blending in from a pose with no or a negative propU starts at the start.
+      const v = q.propU > 0 ? q.propU : 0, k = Math.floor(v / 0.24), w = frac(v / 0.24);
       const size = k < 3 ? k + (w >= 0.6 ? 1 : 0) : 3;
       const shape = [['M'], ['MM'], ['.MM.', 'MMMS'], ['.MM.', 'MMMM', 'MMMS']][size];
       const mx = shape[0].length > 2 ? 15 : 16, my = 14 - shape.length;

@@ -37,6 +37,10 @@ internal interface ICharacterEngine : IDisposable
     /// in the given look.
     string[] Fidgets(DisplayProvider provider, string? look);
 
+    /// How long a state's loop lasts on this bot's own clock (the engine's
+    /// cycle for its look, over the bot's tempo), for the work groups' rotation.
+    double CycleSeconds(int bot, string state);
+
     /// Whether the set draws a state (its PHASES): one added later, like
     /// resting, falls back where a set doesn't have it yet.
     bool Draws(string state);

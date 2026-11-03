@@ -219,6 +219,7 @@ internal sealed partial class DrawerWindow
             }
         }
         Sheet(device, engine, directory, style, pixel, order);
+        GroupsFilm(device, engine, directory, pixel);
         DebugTrace.Write($"drawer film saved in {directory}");
     }
 

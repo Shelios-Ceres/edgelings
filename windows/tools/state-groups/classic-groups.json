@@ -1,0 +1,56 @@
+{
+  "about": "Task 4 (QUEUE.md, 2026-11-02): Classic's per-look state groups. Every state name is an existing state of the shipped classic.mjs (sha a63f3495...). See GROUPS.md beside this file for the rules.",
+  "style": "classic",
+  "engineSha256": "a63f34953a3a1fde1200f4de8ea7ea163dbb8add35601190e6f787213fbcbc83",
+  "phaseToState": {
+    "Thinking": "thinking", "Streaming": "streaming", "Compacting": "compacting",
+    "Reading": "reading", "Searching": "searching", "WebSearching": "web", "Writing": "writing",
+    "Running": "running", "Controlling": "controlling", "Working": "working",
+    "Spawning": "spawning", "WaitingOnAgents": "orbit", "Sending": "sending"
+  },
+  "groups": {
+    "think": ["Thinking", "Streaming", "Compacting"],
+    "do": ["Reading", "Searching", "WebSearching", "Writing", "Running", "Controlling", "Working"],
+    "team": ["Spawning", "WaitingOnAgents", "Sending"],
+    "busy": ["Thinking", "Streaming", "Compacting", "Reading", "Searching", "WebSearching", "Writing", "Running", "Controlling", "Working"]
+  },
+  "ownStatePhases": {
+    "do": ["Reading", "Searching", "WebSearching", "Writing", "Running", "Controlling"],
+    "team": ["Spawning", "Sending"],
+    "busy": ["Reading", "Searching", "WebSearching", "Writing", "Running", "Controlling"]
+  },
+  "busyKinds": ["kimi", "antigravity"],
+  "looks": {
+    "claude/succulent":        { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] },
+    "claude/clay-timer":       { "think": ["thinking", "streaming"], "do": ["running", "writing"],   "team": ["orbit", "spawning"] },
+    "codex/desk-computer":     { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] },
+    "codex/coffee-mug":        { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] },
+    "codex/keycap":            { "think": ["thinking", "streaming"], "do": ["running", "writing"],   "team": ["orbit", "spawning"] },
+    "codex/cloud-cushion":     { "think": ["thinking", "streaming"], "do": ["writing", "searching"], "team": ["orbit", "spawning"] },
+    "codex/cloud-terminal":    { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] },
+    "antigravity/flying-saucer": { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "antigravity/paper-plane":   { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "antigravity/crowned-arch":  { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "grok/ringed-planet":      { "think": ["thinking", "streaming"], "do": ["writing", "searching"], "team": ["orbit", "spawning"] },
+    "grok/orbit-ring":         { "think": ["thinking", "streaming"], "do": ["searching", "web"],     "team": ["orbit", "spawning"] },
+    "cursor/ringed-planet":    { "think": ["thinking", "streaming"], "do": ["writing", "searching"], "team": ["orbit", "spawning"] },
+    "cursor/orbit-ring":       { "think": ["thinking", "streaming"], "do": ["searching", "web"],     "team": ["orbit", "spawning"] },
+    "kimi/astronaut-helmet":   { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "kimi/moon-lamp":          { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "kimi/moon-rabbit":        { "busy": ["running", "thinking"], "team": ["orbit", "spawning"] },
+    "kimi/moonshot-rocket":    { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "kimi/note-clip":          { "busy": ["writing", "thinking"], "team": ["orbit", "spawning"] },
+    "deepseek/submarine":      { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] },
+    "deepseek/whale-stapler":  { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] },
+    "deepseek/tape-whale":     { "think": ["thinking", "streaming"], "do": ["writing", "running"],   "team": ["orbit", "spawning"] }
+  },
+  "timings": {
+    "rotateAfterSeconds": 12,
+    "mainSegmentSeconds": 8,
+    "secondSegmentSeconds": 5,
+    "segmentEndsOnCycleBoundary": true,
+    "minSegmentSeconds": 4,
+    "minDwellBetweenGroupsSeconds": 2,
+    "status": "final (Classic), 2026-11-02; same numbers as the Pixel chat agreed"
+  }
+}

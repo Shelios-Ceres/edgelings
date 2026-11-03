@@ -67,6 +67,9 @@ internal sealed partial class DrawerWindow
             {
                 var slot = _slots[index];
                 slot.Hold = slot.EngineState = hold;
+                slot.Grouped = false;
+                slot.Rotation = null;
+                slot.Playing = null;
                 slot.Resting = resting;
                 slot.Since = _clock.Elapsed.TotalSeconds;
                 slot.Swatch = swatch;
@@ -104,6 +107,8 @@ internal sealed partial class DrawerWindow
                 if (_loopTheme != theme || _engine is not { } engine) return;
                 var slot = _slots[index];
                 engine.SetLook(index, look);
+                // The new look has its own table: its rotation begins afresh.
+                slot.Rotation = null;
                 slot.Swatch = swatch;
                 slot.Fidgets = engine.Fidgets(provider, look);
                 slot.Fidget = null;

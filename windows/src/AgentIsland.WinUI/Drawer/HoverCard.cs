@@ -270,7 +270,7 @@ internal sealed partial class HoverCard : IDisposable
             _dark = request.Dark;
             _paperInk = !request.Pixel;
             _card.Padding = request.Pixel ? PixelPadding : PaperPadding;
-            using (request.Pixel ? L10n.English() : null) Build(request);
+            Build(request);
             _card.Width = _host.Width = _width;
             _room = room;
             _builds++;

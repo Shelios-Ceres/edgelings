@@ -296,7 +296,7 @@ enum Sample {
         return CardModel(
             id: "claude", name: "Claude", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t("Running commands"), detail: "Bash", plan: "MAX",
             tasks: TasksModel(label: RenderText.t("Tasks"), text: RenderText.t("{0} running", "2"), number: "2"),
-            meters: [MeterModel(label: RenderText.t("5h"), value: "38%", shown: 0.38, used: 0.38, resets: RenderText.t("Resets {0}", RenderText.chinese ? "2小时10分钟后" : "in 2h 10m")),
+            meters: [MeterModel(label: RenderText.t("5h"), value: "38%", shown: 0.38, used: 0.38, resets: RenderText.t("Resets {0}", RenderText.chinese ? "2 小时 10 分钟后" : "in 2h 10m")),
                      MeterModel(label: RenderText.t("Week"), value: "12%", shown: 0.12, used: 0.12, resets: nil)],
             tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("today") + " 1.2M", todayNumber: "1.2M", month: RenderText.t("{0} this month", "48M"), monthNumber: "48M"),
             note: [], waiting: WaitingModel(more: 0, rows: []))

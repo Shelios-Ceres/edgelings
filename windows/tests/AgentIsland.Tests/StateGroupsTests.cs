@@ -211,10 +211,17 @@ public static class StateGroupsTests
         // Do on Clawd: Working at first (second = running), Reading from 10 s: main until 12 s, then reading, not running.
         var trace = Trace(Rotation(CharacterTheme.Pixel, "claude", "clawd"), 20, t => t < 10 ? AgentPhase.Working : AgentPhase.Reading);
         Expect(Show(trace), "0:working 12:reading 18:working");
-        // A tool arriving during the second slot switches at that state's next boundary, no sooner than four seconds in
-        // (1 s cycles: the segment began at 12, the tool came at 14.3).
+        // A tool arriving during the second slot swaps the motion at the playing state's next cycle boundary, inside
+        // the same segment, which keeps its end rounded up to the new state's cycle; main follows it.
+        // (1 s cycles: the segment began at 12, the tool came at 14.3, the swap is at 15, the end at 17.)
         trace = Trace(Rotation(CharacterTheme.Pixel, "claude", "clawd", 1), 24, t => t < 14.3 ? AgentPhase.Working : AgentPhase.Searching);
-        Expect(Show(trace), "0:working 12:running 16:searching 21:working");
+        Expect(Show(trace), "0:working 12:running 15:searching 17:working");
+        // 3 s cycles: the swap at 15, the end at 18.
+        trace = Trace(Rotation(CharacterTheme.Pixel, "claude", "clawd"), 24, t => t < 13.1 ? AgentPhase.Working : AgentPhase.Searching);
+        Expect(Show(trace), "0:working 12:running 15:searching 18:working");
+        // Chained tools never starve main: each swap stays inside the one segment.
+        trace = Trace(Rotation(CharacterTheme.Pixel, "claude", "clawd", 1), 19, t => t < 13.1 ? AgentPhase.Working : t < 14.1 ? AgentPhase.Searching : t < 15.6 ? AgentPhase.Reading : AgentPhase.WebSearching);
+        Expect(Show(trace), "0:working 12:running 14:searching 15:reading 16:web 17:working");
         // Classic: a tool that is main falls back to the look's pick.
         trace = Trace(Rotation(CharacterTheme.Classic, "codex", "keycap"), 20, _ => AgentPhase.Running);
         Expect(Show(trace), "0:running 12:writing 18:running");

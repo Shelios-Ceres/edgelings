@@ -27,7 +27,7 @@ internal sealed partial class DrawerWindow
         if (_card.IsOpen && (_cardBot is null || _cardBot == bot)) return;
         var pixel = _theme == CharacterTheme.Pixel;
         string? line;
-        using (pixel ? L10n.English() : null) line = BotLines.For(phase, _random);
+        line = BotLines.For(phase, _random);
         if (line is null) return;
         bot.LastSpoke = now;
         bot.PhaseLine = true;
@@ -96,21 +96,18 @@ internal sealed partial class DrawerWindow
         string cue;
         // A bubble says only a stock line (never a session's name, never the
         // agent's own words); several waiting at once say how many.
-        using (pixel ? L10n.English() : null)
+        if (speech.IsSummary)
         {
-            if (speech.IsSummary)
-            {
-                line = BotLines.SummaryTitle(speech.Events.Count);
-                kind = speech.NeedsAnswer ? LineKind.Waiting : PopOf(speech.Events[0].Kind);
-                cue = CueOf(speech.Events[0].Kind);
-            }
-            else
-            {
-                var item = speech.First;
-                line = BotLines.For(item, _random) ?? "";
-                kind = PopOf(item.Kind);
-                cue = CueOf(item.Kind);
-            }
+            line = BotLines.SummaryTitle(speech.Events.Count);
+            kind = speech.NeedsAnswer ? LineKind.Waiting : PopOf(speech.Events[0].Kind);
+            cue = CueOf(speech.Events[0].Kind);
+        }
+        else
+        {
+            var item = speech.First;
+            line = BotLines.For(item, _random) ?? "";
+            kind = PopOf(item.Kind);
+            cue = CueOf(item.Kind);
         }
         // A session's error takes the place of the network line that just played the same cue.
         var cued = bot.PhaseLine && bot.Bubble is { IsOpen: true } && bot.Phase == AgentPhase.NetworkTrouble && cue == "error";
@@ -211,7 +208,7 @@ internal sealed partial class DrawerWindow
         _card.Hide();
         _cardBot = null;
         string line;
-        using (_theme == CharacterTheme.Pixel ? L10n.English() : null) line = L10n.Tr("Locked in place.\nRight-click to unlock.");
+        line = L10n.Tr("Locked in place.\nRight-click to unlock.");
         Say(bot, line, LineKind.Plain);
     }
 

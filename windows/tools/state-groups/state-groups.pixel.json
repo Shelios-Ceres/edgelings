@@ -1,0 +1,422 @@
+{
+  "about": "Pixel looks: the engine state each work group plays, per look (Task 4, Pixel design chat, 2026-11-02). Every name is an existing state of characters.v5.4.1.mjs (sha 913dd087...). 'think', 'do' and 'team' are for the other kinds; Kimi and Antigravity looks have 'busy' instead of 'think' and 'do' (Kimi keeps 'team'). 'main' plays first; 'second' plays when the rotation turns. 'second' may be 'tool', meaning the current phase's own state; 'secondIfNoTool' is the pick when no tool state applies. For busy, a known tool takes the second slot in place of thinking, as in Do.",
+  "engine": {
+    "file": "characters.v5.4.1.mjs",
+    "sha256": "913dd087289cfb591bfdeda8e1e5954c368d62955409a0f5b7b7c6d4a85f9443"
+  },
+  "groups": {
+    "think": [
+      "thinking",
+      "streaming",
+      "compacting"
+    ],
+    "do": [
+      "reading",
+      "searching",
+      "web",
+      "writing",
+      "running",
+      "controlling",
+      "working"
+    ],
+    "team": [
+      "spawning",
+      "orbit",
+      "sending"
+    ],
+    "busy": [
+      "thinking",
+      "streaming",
+      "compacting",
+      "reading",
+      "searching",
+      "web",
+      "writing",
+      "running",
+      "controlling",
+      "working"
+    ]
+  },
+  "toolStates": {
+    "think": {
+      "streaming": "streaming",
+      "compacting": "compacting"
+    },
+    "do": {
+      "reading": "reading",
+      "searching": "searching",
+      "web": "web",
+      "writing": "writing",
+      "running": "running",
+      "controlling": "controlling"
+    },
+    "team": {
+      "sending": "sending",
+      "orbit": "orbit"
+    },
+    "busy": {
+      "compacting": "compacting",
+      "reading": "reading",
+      "searching": "searching",
+      "web": "web",
+      "writing": "writing",
+      "running": "running",
+      "controlling": "controlling"
+    }
+  },
+  "timings": {
+    "status": "agreed with the Classic chat, 2026-11-02",
+    "firstMainSeconds": 12,
+    "mainSeconds": 8,
+    "secondSeconds": 5,
+    "segmentsEndAtCycleBoundary": true,
+    "minSegmentSeconds": 4,
+    "minDwellBetweenGroupsSeconds": 2,
+    "reentry": "starts at main with a fresh 12 s threshold",
+    "midSegmentChange": "waits for the playing state's next cycle boundary",
+    "reducedMotion": "main only, no rotation; today's HoldsStill rules"
+  },
+  "looks": {
+    "claude/clawd": {
+      "think": {
+        "main": "reading",
+        "second": "tool",
+        "secondIfNoTool": "thinking",
+        "note": "the user, 2026-11-02: Clawd thinks with its reading motion; its thinking motion takes the second slot"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "codex/notebook": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "writing",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "codex/puff": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "writing",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "codex/cloud": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "writing",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "codex/folio": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "writing",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "codex/scroll": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "writing",
+        "second": "tool",
+        "secondIfNoTool": "reading"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "codex/owl": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "writing"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "antigravity/balloon": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
+    "antigravity/rainbow": {
+      "busy": {
+        "main": "streaming",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
+    "antigravity/aeri": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
+    "antigravity/blocks": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
+    "antigravity/kite": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
+    "antigravity/otter": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
+    "grok/ring": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "running",
+        "second": "tool",
+        "secondIfNoTool": "searching"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "grok/ringbot": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "running",
+        "second": "tool",
+        "secondIfNoTool": "searching"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "grok/horizon": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "grok/cat": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "grok/astronaut": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "grok/martian": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "kimi/blob": {
+      "busy": {
+        "main": "writing",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "kimi/rabbit": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "kimi/terminal": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "kimi/moonlet": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "kimi/rocket": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
+      }
+    },
+    "deepseek/whale": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "writing"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "sending"
+      }
+    }
+  }
+}
