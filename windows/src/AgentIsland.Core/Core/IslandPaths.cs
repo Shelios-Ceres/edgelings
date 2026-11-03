@@ -129,8 +129,9 @@ public static class IslandPaths
     /// Kimi Work tasks run on an embedded Kimi Code with a home of its own, one
     /// session folder per conversation (conv-{id}) holding the same wire.jsonl:
     ///   {AppData}\kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\sessions\wd_{hash}\conv-{id}\agents\main\wire.jsonl
-    /// TODO(macOS): ~/Library/Application Support/kimi-desktop is expected;
-    /// confirm with the friend's PROBE before relying on it.
+    /// On a Mac the same tree sits under ~/Library/Application Support/kimi-desktop
+    /// (confirmed on a real Mac, where Kimi Code's own app keeps kimi-code-app
+    /// and the client's telemetry is under Kimi).
     public static string KimiWorkSessionsRoot =>
         Path.Combine(RoamingAppData, "kimi-desktop", "daimon-share", "daimon", "runtime", "kimi-code", "home", "sessions");
 

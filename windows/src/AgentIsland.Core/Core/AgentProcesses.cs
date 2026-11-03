@@ -47,19 +47,22 @@ internal static class AgentProcesses
     /// Code), told apart from the kimi CLI of the same name by its install
     /// folder. They count toward whether the agent is on screen and keep their
     /// own sessions (ScannedSession.DesktopHosted) alive, but not Kimi Code's:
-    /// they stay out of Known and Gone(). TODO(macOS): Kimi.app's bundle path
-    /// is not known yet; wait for the friend's PROBE.
+    /// they stay out of Known and Gone(). On a Mac the client is
+    /// /Applications/Kimi.app (its executable is called Kimi too), and Kimi
+    /// Code's own app is Kimi Code.app: the hint carries ".app/Contents/MacOS"
+    /// after the name, so "Kimi Code.app" is never it.
     internal static readonly (TriggerTool Tool, string Name, string? PathHint)[] DesktopApps =
     {
         (TriggerTool.Kimi, "Kimi", "kimi-desktop"),
+        (TriggerTool.Kimi, "Kimi", @"Kimi.app\Contents\MacOS\Kimi"),
     };
 
     /// The agents whose desktop app (DesktopApps) has no process left. A
     /// desktop-hosted session in a state of work is abandoned then, as a CLI's
-    /// is when its process is gone. An unreadable path counts as alive, and
-    /// macOS answers nothing until the app's bundle is known.
+    /// is when its process is gone. An unreadable path counts as alive.
     public static IReadOnlySet<TriggerTool> DesktopGone()
     {
+        if (OperatingSystem.IsMacOS()) return DesktopGoneOnMac();
         if (!OperatingSystem.IsWindows()) return new HashSet<TriggerTool>();
         try
         {
@@ -73,6 +76,23 @@ internal static class AgentProcesses
                     running.Add((name, PathOf(process)));
                 }
             }
+            return DesktopGone(running);
+        }
+        catch
+        {
+            return new HashSet<TriggerTool>();
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static IReadOnlySet<TriggerTool> DesktopGoneOnMac()
+    {
+        try
+        {
+            var running = MacProcesses.Snapshot()
+                .Where(entry => DesktopApps.Any(k => string.Equals(k.Name, entry.Name, StringComparison.OrdinalIgnoreCase)))
+                .Select(entry => (entry.Name, entry.Path))
+                .ToList();
             return DesktopGone(running);
         }
         catch

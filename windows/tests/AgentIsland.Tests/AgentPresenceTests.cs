@@ -149,8 +149,35 @@ public static class AgentPresenceTests
             }),
             ("on a Mac Kimi Code's CLI is told apart by its path", () => Expect(TriggerTool.Kimi, AgentPresence.Open,
                 new[] { new Running(1, 0, "launchd"), new Running(70, 1, "kimi", "/Users/me/.kimi-code/bin/kimi") }, new[] { new AppWindow(70, false) })),
-            ("the Kimi chat app on a Mac isn't Kimi Code", () => Expect(TriggerTool.Kimi, AgentPresence.Closed,
+            ("the Kimi desktop client on a Mac (Kimi.app) counts for Kimi's presence", () => Expect(TriggerTool.Kimi, AgentPresence.Open,
                 new[] { new Running(1, 0, "launchd"), new Running(70, 1, "Kimi", "/Applications/Kimi.app/Contents/MacOS/Kimi") }, new[] { new AppWindow(70, false) })),
+            ("on a Mac the Kimi client's helpers carry other names and add nothing", () => Expect(TriggerTool.Kimi, AgentPresence.Minimized,
+                new[] { new Running(1, 0, "launchd"), new Running(70, 1, "Kimi", "/Applications/Kimi.app/Contents/MacOS/Kimi"),
+                    new Running(71, 70, "Kimi Helper (Renderer)", "/Applications/Kimi.app/Contents/Frameworks/Kimi Helper (Renderer).app/Contents/MacOS/Kimi Helper (Renderer)") },
+                new[] { new AppWindow(70, true) })),
+            ("on a Mac Kimi Code's own app is not the Kimi client, and the client is not Kimi Code", () =>
+            {
+                // Kimi Code.app is told by its name; with only the client running, Kimi Code's processes are gone.
+                var client = new[] { ("Kimi", (string?)"/Applications/Kimi.app/Contents/MacOS/Kimi") };
+                if (!AgentProcesses.Gone(client).Contains(TriggerTool.Kimi)) throw new Exception("the client is not Kimi Code");
+                if (AgentProcesses.DesktopGone(client).Contains(TriggerTool.Kimi)) throw new Exception("the client is the desktop app");
+                var code = new[] { ("Kimi Code", (string?)null) };
+                if (AgentProcesses.Gone(code).Contains(TriggerTool.Kimi)) throw new Exception("Kimi Code's own app is Kimi Code");
+                if (!AgentProcesses.DesktopGone(code).Contains(TriggerTool.Kimi)) throw new Exception("Kimi Code's app is not the client");
+                if (!AgentProcesses.DesktopGone(new[] { ("Kimi", (string?)"/Applications/Kimi Code.app/Contents/MacOS/Kimi") }).Contains(TriggerTool.Kimi)) throw new Exception("another Kimi under Kimi Code.app is not the client");
+            }),
+            ("on a Mac the ChatGPT app's windows decide Codex's presence (its embedded Codex runs under it)", () =>
+            {
+                var tree = new[]
+                {
+                    new Running(1, 0, "launchd"), new Running(10, 1, "ChatGPT", "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"),
+                    new Running(11, 10, "codex", "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+                    new Running(12, 10, "Codex (Service)", "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/1/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)"),
+                };
+                Expect(TriggerTool.Codex, AgentPresence.Open, tree, new[] { new AppWindow(10, false) });
+                Expect(TriggerTool.Codex, AgentPresence.Minimized, tree, new[] { new AppWindow(10, true) });
+                Expect(TriggerTool.Codex, AgentPresence.Hidden, tree, new AppWindow[0]);
+            }),
             ("on a Mac an agent's app is found by its bundle even when its executable is named otherwise", () =>
             {
                 var wanted = AgentProcesses.Known.Select(k => k.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
