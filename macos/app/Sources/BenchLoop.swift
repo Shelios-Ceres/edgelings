@@ -128,7 +128,7 @@ enum BenchLoop {
                 print(String(format: "bench %@ %@ split: svg alone %.3f ms/round, advance alone %.3f, tick call incl. string handover %.3f, Swift splitting %.3f; tick in rounds 30-130 %.3f, in the last 70 %.3f ms/round (JIT warm-up)",
                              theme, mode, perRound(jscSvg), perRound(jscAdvance), perRound(handover), perRound(splitting), early / 100, late / 70))
                 if mode == "busy" && percent > maxBusy { print("FAIL \(theme) busy is over \(maxBusy)%"); failed = true }
-                if mode != "busy" && percent > maxCalm { print("FAIL \(theme) calm is over \(maxCalm)%"); failed = true }
+                if mode == "calm" && percent > maxCalm { print("FAIL \(theme) calm is over \(maxCalm)%"); failed = true }
             }
         }
         exit(failed ? 1 : 0)
