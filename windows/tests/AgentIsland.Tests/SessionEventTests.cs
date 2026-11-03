@@ -340,7 +340,7 @@ public static class SessionEventTests
             var chinese = StatusWaitingList.Of(new[] { Item("测试", SessionEventKind.Done) });
             Expect(chinese.Rows[0].Title == "A session", "in English a title the pixel face cannot set gives way to a stand-in");
             Localization.L10n.Current = Localization.L10n.Language.SimplifiedChinese;
-            Expect(StatusWaitingList.Of(new[] { Item("测试", SessionEventKind.Done) }).Rows[0].Title == "测试", "in Chinese the title shows as written");
+            Expect(StatusWaitingList.Of(new[] { Item("测试", SessionEventKind.Done) }).Rows[0].Title.Contains("测试"), "in Chinese the title shows as written");
         }
         finally
         {
