@@ -171,24 +171,25 @@ final class SettingsStore: ObservableObject {
         skin = pixel ? .pixel : .classic
         dark = DrawerController.isDark
         launchAtLogin = LaunchAtLogin.isEnabled
-        let english = pixel
-        AppController.shared.request("settings", ["english": english]) { [weak self] reply in
+        AppController.shared.request("settings") { [weak self] reply in
             guard let self, let model = SettingsModel.from(reply) else { return }
             self.settings = model
-            self.loadStringsIfNeeded(english: english, chinese: model.chinese)
+            PixelFace.chinese = model.chinese
+            self.loadStringsIfNeeded(chinese: model.chinese)
         }
         if page == .usage {
-            AppController.shared.request("usage", ["english": english]) { [weak self] reply in
+            AppController.shared.request("usage") { [weak self] reply in
                 if let model = UsageModel.from(reply) { self?.usage = model }
             }
         }
     }
 
-    private func loadStringsIfNeeded(english: Bool, chinese: Bool) {
-        let key = "\(english)-\(chinese)"
+    private func loadStringsIfNeeded(chinese: Bool) {
+        let key = "\(chinese)"
         guard key != loadedFor else { return }
         loadedFor = key
-        AppController.shared.request("tr", ["keys": UIStrings.keys, "english": english]) { [weak self] reply in
+        looks = [:]
+        AppController.shared.request("tr", ["keys": UIStrings.keys]) { [weak self] reply in
             guard let self, let table = reply["strings"] as? [String: String] else { return }
             self.strings = table
         }
@@ -197,7 +198,7 @@ final class SettingsStore: ObservableObject {
     /// A text in the app's language: Core's table first, then the Mac-only one.
     func t(_ key: String) -> String {
         if let known = strings[key], !known.isEmpty { return known }
-        if settings?.chinese == true && skin == .classic, let mac = MacStrings.zh[key] { return mac }
+        if settings?.chinese == true, let mac = MacStrings.zh[key] { return mac }
         return key
     }
 
@@ -210,7 +211,7 @@ final class SettingsStore: ObservableObject {
     func loadLooks(for id: String) {
         let key = "\(id)-\(skin == .pixel ? "pixel" : "classic")"
         guard looks[key] == nil else { return }
-        AppController.shared.request("looks", ["id": id, "theme": skin == .pixel ? "pixel" : "classic", "english": skin == .pixel]) { [weak self] reply in
+        AppController.shared.request("looks", ["id": id, "theme": skin == .pixel ? "pixel" : "classic"]) { [weak self] reply in
             if let model = LooksModel.from(reply) { self?.looks[key] = model.looks }
         }
     }
@@ -275,7 +276,6 @@ enum UIStrings {
         "Tokens", "Token counting", "Excludes cache reads; new input written to cache still counts. History is kept.",
         "Input + output (excluding cache reads)", "All tokens (including cache)",
         "Startup", "Launch at login", "Language", "App language", "English", "About", "Thanks", "Crash log", "Open folder", "Quit Edgelings", "Quit",
-        "The pixel style shows Settings in English",
         "Today", "This month", "On", "Off", "Switch", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
         "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price",
         "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
@@ -292,8 +292,7 @@ enum UIStrings {
     ]
 }
 
-/// Texts only the Mac app has, with their Chinese for the Classic skin
-/// (the Pixel skin reads English, as on Windows).
+/// Texts only the Mac app has, with their Chinese.
 enum MacStrings {
     static let zh: [String: String] = [
         "Start Edgelings when you sign in to your Mac": "登录 Mac 时启动 Edgelings",

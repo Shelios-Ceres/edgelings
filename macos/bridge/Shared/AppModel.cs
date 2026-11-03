@@ -228,7 +228,6 @@ public static class AppModel
             _presence = CoreProfile.Time("frame: presence", () => AgentPresences.Now());
             _presenceAt = now;
         }
-        using var english = pixel ? L10n.English() : null;
         var results = new List<(Bot Bot, AgentPhase Phase, string? Detail, int Running)>();
         foreach (var job in jobs)
         {
@@ -329,7 +328,6 @@ public static class AppModel
         if (bot.Speech.Reconcile(waiting) && bubbleOpen && !bot.PhaseLine) takeBack = true;
         if (takeBack) json.WriteBoolean("takeBack", true);
 
-        using var english = pixel ? L10n.English() : null;
         // A whole-agent line (quota, sign-in, network) for a phase that needs you.
         if (bot.PendingPhaseLine)
         {
@@ -418,7 +416,6 @@ public static class AppModel
             var sections = Bots.Where(b => visible[b.Provider] && (only is null || b.Provider == only))
                 .OrderBy(b => order.IndexOf(b.Provider))
                 .ToList();
-            using var english = pixel ? L10n.English() : null;
             return Json.Write(json =>
             {
                 json.WriteBoolean("pixel", pixel);

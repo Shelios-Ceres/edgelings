@@ -813,7 +813,7 @@ final class DrawerController {
         cards.hide(animated: false)
         let origin = panel.frame
         let anchor = NSRect(x: origin.minX + slot.bounds.minX, y: origin.maxY - slot.bounds.maxY, width: slot.bounds.width, height: slot.bounds.height)
-        bubbles.say(id: id, line: "Locked in place.\nRight-click to unlock.", kind: "plain", swatch: slot.swatch, pixel: frame.isPixel,
+        bubbles.say(id: id, line: AppStrings.t("Locked in place.\nRight-click to unlock."), kind: "plain", swatch: slot.swatch, pixel: frame.isPixel,
                     rightEdge: frame.side == "right", anchor: anchor, area: (screen ?? chooseScreen())?.visibleFrame ?? .zero,
                     linger: nil, dark: DrawerController.isDark) {
             AppController.shared.openBubbles.remove(id)

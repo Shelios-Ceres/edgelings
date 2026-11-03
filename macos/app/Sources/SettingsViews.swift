@@ -220,7 +220,7 @@ struct GeneralPage: View {
         }
         SectionLabel(store: store, text: store.t("Language"))
         if let language = store.settings?.language {
-            SettingRow(store: store, glyph: "F2B7", symbol: "globe", title: store.t("App language"), subtitle: store.skin == .pixel ? store.t("The pixel style shows Settings in English") : nil) {
+            SettingRow(store: store, glyph: "F2B7", symbol: "globe", title: store.t("App language")) {
                 KitMenu(store: store, options: [store.t("Same as system"), "English", "简体中文"], selected: ["auto": 0, "en": 1, "zh": 2][language] ?? 0) { index in
                     store.send("set", ["language": ["auto", "en", "zh"][index]]) { store.refresh() }
                 }
@@ -244,6 +244,8 @@ struct GeneralPage: View {
                 Link("github.com/tristan666666/agent-island", destination: URL(string: "https://github.com/tristan666666/agent-island")!).font(Kit(store: store).body(12))
             }
             SkinText(pixel: store.skin == .pixel, text: "Ark Pixel", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text")).padding(.top, 4)
+            SkinText(pixel: store.skin == .pixel, text: store.t("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
+            SkinText(pixel: store.skin == .pixel, text: "Fusion Pixel", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text")).padding(.top, 4)
             SkinText(pixel: store.skin == .pixel, text: store.t("The pixel font, by {0} · SIL Open Font License 1.1", "TakWolf"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
             HStack(spacing: 8) {
                 KitButton(store: store, title: store.t("Copy diagnostic")) { DiagnosticReport.copy() }

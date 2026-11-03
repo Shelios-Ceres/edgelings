@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         drawer.showMenu = { [weak self] id, point in self?.showDrawerMenu(for: id) }
         controller.onFrame = { [weak self] frame in
             guard let self else { return }
+            PixelFace.chinese = frame.chinese
+            AppStrings.follow(chinese: frame.chinese) { [weak self] in self?.retitleTray() }
             self.drawer.apply(frame)
             self.drawer.refreshCard()
             if self.statusItem == nil { self.installStatusItem() }
@@ -94,18 +96,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.toolTip = "Edgelings"
         let menu = NSMenu()
         menu.delegate = nil
-        let toggle = NSMenuItem(title: "Hide drawer", action: #selector(toggleDrawer), keyEquivalent: "")
+        let toggle = NSMenuItem(title: AppStrings.t("Hide drawer"), action: #selector(toggleDrawer), keyEquivalent: "")
         toggle.target = self
         menu.addItem(toggle)
         toggleItem = toggle
         menu.addItem(.separator())
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(title: AppStrings.t("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        settingsItem = settings
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Edgelings", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: AppStrings.t("Quit Edgelings"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
+        quitItem = quit
         trayMenu = menu
         item.button?.target = self
         item.button?.action = #selector(trayClicked)
@@ -115,6 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var iconPixel = true
+    private var settingsItem: NSMenuItem?
+    private var quitItem: NSMenuItem?
+
+    /// The tray menu's words, again in the app's language.
+    private func retitleTray() {
+        toggleItem?.title = AppStrings.t(drawer.isShown ? "Hide drawer" : "Show drawer")
+        settingsItem?.title = AppStrings.t("Settings…")
+        quitItem?.title = AppStrings.t("Quit Edgelings")
+    }
     private var trayMenu: NSMenu?
     private var trayCardTimer: Timer?
 
@@ -139,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDrawer() {
         let show = !drawer.isShown
         drawer.setShown(show)
-        toggleItem?.title = show ? "Hide drawer" : "Show drawer"
+        toggleItem?.title = AppStrings.t(show ? "Hide drawer" : "Show drawer")
     }
 
     @objc private func openSettings() { SettingsController.shared.show(agent: nil) }
@@ -164,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let frame = AppController.shared.frame else { return }
         let theme = frame.isPixel ? "pixel" : "classic"
         // The looks of the character that was clicked, for the Look submenu.
-        AppController.shared.request("looks", ["id": id, "theme": theme, "english": frame.isPixel]) { [weak self] reply in
+        AppController.shared.request("looks", ["id": id, "theme": theme]) { [weak self] reply in
             let looks = LooksModel.from(reply)?.looks ?? []
             self?.popUpDrawerMenu(for: id, frame: frame, looks: looks)
         }
@@ -184,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        let settings = item("Settings…", #selector(openAgentSettings(_:)), "general")
+        let settings = item(AppStrings.t("Settings…"), #selector(openAgentSettings(_:)), "general")
         settings.representedObject = id
         menu.addItem(settings)
         menu.addItem(.separator())
@@ -200,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 entry.image = MenuImages.face(agent: id, look: look.id, swatch: look.swatch, pixel: pixel)
                 submenu.addItem(entry)
             }
-            let lookItem = NSMenuItem(title: "Look", action: nil, keyEquivalent: "")
+            let lookItem = NSMenuItem(title: AppStrings.t("Look"), action: nil, keyEquivalent: "")
             lookItem.image = icon("palette")
             lookItem.submenu = submenu
             menu.addItem(lookItem)
@@ -215,20 +228,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             entry.image = MenuImages.face(agent: other.id, look: other.look, swatch: other.swatch, pixel: pixel)
             shown.addItem(entry)
         }
-        let shownItem = NSMenuItem(title: "Shown agents", action: nil, keyEquivalent: "")
+        let shownItem = NSMenuItem(title: AppStrings.t("Shown agents"), action: nil, keyEquivalent: "")
         shownItem.image = icon("agents")
         shownItem.submenu = shown
         menu.addItem(shownItem)
 
-        menu.addItem(item(frame.locked ? "Unlock position" : "Lock position", #selector(toggleLock), "lock"))
-        menu.addItem(item(frame.side == "right" ? "Move to left edge" : "Move to right edge", #selector(switchSide), "edge"))
-        menu.addItem(item(frame.isPixel ? "Classic characters" : "Pixel characters", #selector(switchStyle), "shapes"))
-        let speech = item("Character lines", #selector(toggleSpeech), "bubble")
+        menu.addItem(item(AppStrings.t(frame.locked ? "Unlock position" : "Lock position"), #selector(toggleLock), "lock"))
+        menu.addItem(item(AppStrings.t(frame.side == "right" ? "Move to left edge" : "Move to right edge"), #selector(switchSide), "edge"))
+        menu.addItem(item(AppStrings.t(frame.isPixel ? "Classic characters" : "Pixel characters"), #selector(switchStyle), "shapes"))
+        let speech = item(AppStrings.t("Character lines"), #selector(toggleSpeech), "bubble")
         speech.state = frame.speechBubbles ? .on : .off
         menu.addItem(speech)
         menu.addItem(.separator())
-        menu.addItem(item("Hide drawer", #selector(toggleDrawer), "eye"))
-        menu.addItem(item("Quit Edgelings", #selector(quit), "power"))
+        menu.addItem(item(AppStrings.t("Hide drawer"), #selector(toggleDrawer), "eye"))
+        menu.addItem(item(AppStrings.t("Quit Edgelings"), #selector(quit), "power"))
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 

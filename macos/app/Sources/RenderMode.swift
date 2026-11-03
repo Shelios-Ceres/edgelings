@@ -28,15 +28,24 @@ enum RenderMode {
         for theme in ["pixel", "classic"] {
             save(botSheet(theme: theme), "bots-\(theme).png")
         }
-        for skin in [Skin.pixel, Skin.classic] {
-            for dark in [false, true] {
-                let tag = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")"
-                let palette = Palette(skin: skin, dark: dark)
-                save(snapshot(placedScene(palette: palette, cards: Sample.cards([Sample.claude(skin)]), bubble: "Done — your turn!"), dark: dark), "scene-one-\(tag).png")
-                save(snapshot(placedScene(palette: palette, cards: Sample.cards(Sample.all(skin)), bubble: nil), dark: dark), "scene-all-\(tag).png")
-                save(snapshot(bubbles(palette: palette), dark: dark), "bubbles-\(tag).png")
+        // The cards and bubbles in both languages: the words come from Core's table in the language set, so the Chinese reads as the app does.
+        for zh in [false, true] {
+            AppController.shared.bridge?.request("set", ["language": zh ? "zh" : "en"])
+            PixelFace.chinese = zh
+            RenderText.chinese = zh
+            for skin in [Skin.pixel, Skin.classic] {
+                for dark in [false, true] {
+                    let tag = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")" + (zh ? "-zh" : "")
+                    let palette = Palette(skin: skin, dark: dark)
+                    save(snapshot(placedScene(palette: palette, cards: Sample.cards([Sample.claude(skin)]), bubble: RenderText.t("Done — your turn!")), dark: dark), "scene-one-\(tag).png")
+                    save(snapshot(placedScene(palette: palette, cards: Sample.cards(Sample.all(skin)), bubble: nil), dark: dark), "scene-all-\(tag).png")
+                    save(snapshot(bubbles(palette: palette), dark: dark), "bubbles-\(tag).png")
+                }
             }
         }
+        AppController.shared.bridge?.request("set", ["language": "en"])
+        PixelFace.chinese = false
+        RenderText.chinese = false
         for pixel in [true, false] {
             for dark in [false, true] {
                 for scale in [1, 2] {
@@ -157,10 +166,11 @@ enum RenderMode {
 
     private static func bubbles(palette: Palette) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
-            BubbleView(line: "Done — your turn!", kind: "done", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: 22)
-            BubbleView(line: "Can I run this? Needs your OK.", kind: "waiting", swatch: 0x5AA8F0, palette: palette, rightEdge: true, tailY: 22)
-            BubbleView(line: "3 sessions need you.", kind: "waiting", swatch: 0x4285F4, palette: palette, rightEdge: true, tailY: 22)
-            BubbleView(line: "Something broke…", kind: "error", swatch: 0xE05C4B, palette: palette, rightEdge: true, tailY: 22)
+            BubbleView(line: RenderText.t("Done — your turn!"), kind: "done", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: 22)
+            BubbleView(line: RenderText.t("Can I run this? Needs your OK."), kind: "waiting", swatch: 0x5AA8F0, palette: palette, rightEdge: true, tailY: 22)
+            BubbleView(line: RenderText.t("{0} sessions need you.", "3"), kind: "waiting", swatch: 0x4285F4, palette: palette, rightEdge: true, tailY: 22)
+            BubbleView(line: RenderText.t("Something broke…"), kind: "error", swatch: 0xE05C4B, palette: palette, rightEdge: true, tailY: 22)
+            BubbleView(line: RenderText.t("Locked in place.\nRight-click to unlock."), kind: "plain", swatch: 0xD97757, palette: palette, rightEdge: true, tailY: 22)
         }
         .padding(16)
     }
@@ -256,6 +266,25 @@ enum SampleLooks {
     }
 }
 
+/// The words of the render fixtures: English as written, or Core's table when the render is in Chinese.
+enum RenderText {
+    static var chinese = false
+    private static var cache: [String: String] = [:]
+
+    static func t(_ key: String, _ arguments: String...) -> String {
+        var text = key
+        if chinese {
+            if let known = cache[key] { text = known } else {
+                let reply = AppController.shared.bridge?.request("tr", ["keys": [key]]) ?? [:]
+                text = (reply["strings"] as? [String: String])?[key] ?? key
+                cache[key] = text
+            }
+        }
+        for (index, argument) in arguments.enumerated() { text = text.replacingOccurrences(of: "{\(index)}", with: argument) }
+        return text
+    }
+}
+
 /// Synthetic cards, as Core would send them.
 enum Sample {
     static func cards(_ list: [CardModel]) -> CardsModel { CardsModel(pixel: false, cards: list) }
@@ -263,11 +292,11 @@ enum Sample {
     static func claude(_ skin: Skin) -> CardModel {
         let look = SampleLooks.look("claude", skin)
         return CardModel(
-            id: "claude", name: "Claude", swatch: look.swatch, look: look.id, defaultLook: true, phase: "Running commands", detail: "Bash", plan: "MAX",
-            tasks: TasksModel(label: "Tasks", text: "2 running", number: "2"),
-            meters: [MeterModel(label: "5h", value: "38%", shown: 0.38, used: 0.38, resets: "Resets in 2h 10m"),
-                     MeterModel(label: "Week", value: "12%", shown: 0.12, used: 0.12, resets: nil)],
-            tokens: TokensModel(label: "Tokens", today: "today 1.2M", todayNumber: "1.2M", month: "48M this month", monthNumber: "48M"),
+            id: "claude", name: "Claude", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t("Running commands"), detail: "Bash", plan: "MAX",
+            tasks: TasksModel(label: RenderText.t("Tasks"), text: RenderText.t("{0} running", "2"), number: "2"),
+            meters: [MeterModel(label: RenderText.t("5h"), value: "38%", shown: 0.38, used: 0.38, resets: RenderText.t("Resets {0}", RenderText.chinese ? "2小时10分钟后" : "in 2h 10m")),
+                     MeterModel(label: RenderText.t("Week"), value: "12%", shown: 0.12, used: 0.12, resets: nil)],
+            tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("today") + " 1.2M", todayNumber: "1.2M", month: RenderText.t("{0} this month", "48M"), monthNumber: "48M"),
             note: [], waiting: WaitingModel(more: 0, rows: []))
     }
 
@@ -275,33 +304,33 @@ enum Sample {
         let look = SampleLooks.look("codex", skin)
         let pixel = skin == .pixel
         return CardModel(
-            id: "codex", name: "Codex", swatch: look.swatch, look: look.id, defaultLook: true, phase: "Waiting for your approval", detail: nil, plan: nil, tasks: nil,
-            meters: [MeterModel(label: "5h", value: "93%", shown: 0.93, used: 0.93, resets: nil),
-                     MeterModel(label: "Week", value: "61%", shown: 0.61, used: 0.61, resets: nil)],
-            tokens: TokensModel(label: "Tokens", today: "today 310K", todayNumber: "310K", month: "9.8M this month", monthNumber: "9.8M"),
-            note: [PhraseModel(text: "2 reset cards", lead: nil, numbers: ["2"])],
-            waiting: WaitingModel(more: 1, rows: [WaitingRowModel(title: "A session", word: pixel ? "Approval" : "Needs OK", kind: "approval"),
-                                                  WaitingRowModel(title: "Another session", word: pixel ? "Question" : "Asking", kind: "question")]))
+            id: "codex", name: "Codex", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t("Waiting for your approval"), detail: nil, plan: nil, tasks: nil,
+            meters: [MeterModel(label: RenderText.t("5h"), value: "93%", shown: 0.93, used: 0.93, resets: nil),
+                     MeterModel(label: RenderText.t("Week"), value: "61%", shown: 0.61, used: 0.61, resets: nil)],
+            tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("today") + " 310K", todayNumber: "310K", month: RenderText.t("{0} this month", "9.8M"), monthNumber: "9.8M"),
+            note: [PhraseModel(text: RenderText.t("{0} reset cards", "2"), lead: nil, numbers: ["2"])],
+            waiting: WaitingModel(more: 1, rows: [WaitingRowModel(title: "A session", word: RenderText.t(pixel ? "Approval" : "Needs OK"), kind: "approval"),
+                                                  WaitingRowModel(title: "Another session", word: RenderText.t(pixel ? "Question" : "Asking"), kind: "question")]))
     }
 
     static func antigravity(_ skin: Skin) -> CardModel {
         let look = SampleLooks.look("antigravity", skin)
         return CardModel(
-            id: "antigravity", name: "Antigravity", swatch: look.swatch, look: look.id, defaultLook: true, phase: "Idle", detail: nil, plan: nil, tasks: nil,
-            meters: [MeterModel(label: "5h", value: "20%", shown: 0.2, used: 0.2, resets: nil),
-                     MeterModel(label: "Week", value: "—", shown: nil, used: nil, resets: "Awaiting sync"),
+            id: "antigravity", name: "Antigravity", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t("Idle"), detail: nil, plan: nil, tasks: nil,
+            meters: [MeterModel(label: RenderText.t("5h"), value: "20%", shown: 0.2, used: 0.2, resets: nil),
+                     MeterModel(label: RenderText.t("Week"), value: "—", shown: nil, used: nil, resets: RenderText.t("Awaiting sync")),
                      MeterModel(label: "Argon", value: "7%", shown: 0.07, used: 0.07, resets: nil)],
-            tokens: TokensModel(label: "Tokens", today: "Not scanned yet", todayNumber: "", month: "—", monthNumber: ""),
-            note: [PhraseModel(text: "Quota updated 12 min ago", lead: nil, numbers: ["12"])], waiting: WaitingModel(more: 0, rows: []))
+            tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("Not scanned yet"), todayNumber: "", month: "—", monthNumber: ""),
+            note: [PhraseModel(text: RenderText.t("Quota updated {0}", RenderText.chinese ? "12分钟前" : "12 min ago"), lead: nil, numbers: ["12"])], waiting: WaitingModel(more: 0, rows: []))
     }
 
     static func kimi(_ skin: Skin) -> CardModel {
         let look = SampleLooks.look("kimi", skin)
         return CardModel(
-            id: "kimi", name: "Kimi Code", swatch: look.swatch, look: look.id, defaultLook: true, phase: skin == .pixel ? "Sleeping" : "Resting", detail: "In the tray", plan: nil, tasks: nil,
-            meters: [MeterModel(label: "Month", value: "44%", shown: 0.44, used: 0.44, resets: nil)],
-            tokens: TokensModel(label: "Tokens", today: "today 0", todayNumber: "0", month: "3.1M this month", monthNumber: "3.1M"),
-            note: [PhraseModel(text: "Kimi Code 30% · Kimi app 14%", lead: "Month:", numbers: ["30%", "14%"])],
+            id: "kimi", name: "Kimi Code", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t(skin == .pixel ? "Sleeping" : "Resting"), detail: RenderText.t("In the tray"), plan: nil, tasks: nil,
+            meters: [MeterModel(label: RenderText.t("Month"), value: "44%", shown: 0.44, used: 0.44, resets: nil)],
+            tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("today") + " 0", todayNumber: "0", month: RenderText.t("{0} this month", "3.1M"), monthNumber: "3.1M"),
+            note: [PhraseModel(text: RenderText.t("Kimi Code {0}% · Kimi app {1}%", "30", "14"), lead: RenderText.t("Month:"), numbers: ["30%", "14%"])],
             waiting: WaitingModel(more: 0, rows: []))
     }
 

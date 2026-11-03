@@ -2,6 +2,7 @@
 // ids, counts and states only. No window titles, session names, folders,
 // e-mail addresses or tokens.
 import AppKit
+import CoreText
 
 enum DiagnosticReport {
     static func text(from report: [String: Any]) -> String {
@@ -154,6 +155,19 @@ enum SelfTest {
         }
         let table = bridge.request("tr", ["keys": UIStrings.keys, "english": true])["strings"] as? [String: String]
         check("strings", (table?.count ?? 0) == Set(UIStrings.keys).count, "\(table?.count ?? 0) of \(Set(UIStrings.keys).count)")
+        // Chinese under Pixel: the face loads and draws the app's hard characters, and the line-break rules hold.
+        PixelFace.register()
+        PixelFace.chinese = true
+        check("Chinese pixel face loads", PixelFace.chineseFamily != nil, PixelFace.chineseFamily ?? "missing")
+        let probe = Array("额度缓存鲸即垫拖斜概热缘警餐".utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: probe.count)
+        let drawn = CTFontGetGlyphsForCharacters(CTFontCreateWithName((PixelFace.chineseFamily ?? "") as CFString, 10, nil), probe, &glyphs, probe.count)
+        check("Chinese pixel face draws 额度缓存鲸 and the characters Ark 12px lacks", drawn)
+        PixelFace.chinese = false
+        for (text, allowed, forbidden, name) in PixelBreaks.samples {
+            let found = PixelBreaks.opportunities(text)
+            check("line breaks: \(name)", allowed.allSatisfy { found.contains($0) } && forbidden.allSatisfy { !found.contains($0) }, "\(found)")
+        }
         for theme in ["pixel", "classic"] {
             do {
                 let engine = try CharacterEngine(theme: theme, directory: AppController.enginesDirectory())

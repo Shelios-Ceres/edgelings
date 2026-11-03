@@ -84,17 +84,17 @@ enum RenderSettings {
         for (language, tag) in [("en", "en"), ("zh", "zh")] {
             // Core's strings, in the language asked for (a temp settings file, never the user's).
             AppController.shared.bridge?.request("set", ["language": language])
+            PixelFace.chinese = language == "zh"
             for skin in [Skin.pixel, Skin.classic] {
                 for dark in [false, true] {
                     let store = SettingsStore()
                     store.skin = skin
                     store.dark = dark
-                    let english = skin == .pixel
                     if let bridge = AppController.shared.bridge,
-                       let table = bridge.request("tr", ["keys": UIStrings.keys, "english": english])["strings"] as? [String: String] {
+                       let table = bridge.request("tr", ["keys": UIStrings.keys])["strings"] as? [String: String] {
                         store.strings = table
                     }
-                    let chinese = language == "zh" && !english
+                    let chinese = language == "zh"
                     var settingsText = localize(fill(settingsTemplate, skin), store, chinese: chinese)
                     if chinese { settingsText = settingsText.replacingOccurrences(of: "\"chinese\":false", with: "\"chinese\":true") }
                     store.settings = SettingsModel.from(parse(settingsText))
@@ -102,13 +102,12 @@ enum RenderSettings {
                     store.launchAtLogin = false
                     for id in ["claude", "codex", "kimi"] {
                         for theme in ["pixel", "classic"] {
-                            if let model = LooksModel.from(AppController.shared.bridge?.request("looks", ["id": id, "theme": theme, "english": theme == "pixel"]) ?? [:]) {
+                            if let model = LooksModel.from(AppController.shared.bridge?.request("looks", ["id": id, "theme": theme]) ?? [:]) {
                                 store.looks["\(id)-\(theme)"] = model.looks
                             }
                         }
                     }
-                    let name = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")-\(language == "zh" && !english ? "zh" : "en")"
-                    if language == "zh" && english { continue }
+                    let name = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")-\(language)"
                     for page in SettingsPage.allCases {
                         store.page = page
                         let content = SettingsPageBody(store: store)
@@ -129,6 +128,7 @@ enum RenderSettings {
             }
         }
         AppController.shared.bridge?.request("set", ["language": "en"])
+        PixelFace.chinese = false
     }
 
     private static func parse(_ json: String) -> [String: Any] {

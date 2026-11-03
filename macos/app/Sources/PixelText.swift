@@ -15,7 +15,12 @@ struct PixelRun {
 enum PixelTypeset {
     static func font(_ size: CGFloat) -> CTFont {
         PixelFace.register()
-        return CTFontCreateWithName((PixelFace.family ?? "Menlo") as CFString, size, nil)
+        let base = CTFontCreateWithName((PixelFace.family ?? "Menlo") as CFString, size, nil)
+        guard PixelFace.chinese else { return base }
+        // A character the pixel face lacks comes from PingFang SC before any other system face.
+        let fallback = CTFontDescriptorCreateWithNameAndSize("PingFang SC" as CFString, size)
+        let cascade = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: [fallback]] as CFDictionary)
+        return CTFontCreateCopyWithAttributes(base, size, nil, cascade)
     }
 
     /// The line box: whole cells, so the baseline lands on a whole pixel (BodyLine 20 at the body size).
@@ -43,10 +48,15 @@ enum PixelTypeset {
         var result: [CTLine] = []
         var start = 0
         let length = text.length
+        // Chinese lines break by the spec's rules, which are stricter than Core Text's.
+        let opportunities = PixelBreaks.hasWide(text.string) ? PixelBreaks.opportunities(text.string) : nil
         while start < length {
             if let limit, result.count >= limit { break }
-            let count: Int
+            var count: Int
             if let width, width.isFinite { count = max(1, CTTypesetterSuggestLineBreak(typesetter, start, Double(width))) } else { count = length - start }
+            if let opportunities, start + count < length {
+                count = PixelBreaks.lineEnd(start: start, suggested: count, length: length, opportunities: opportunities) - start
+            }
             result.append(CTTypesetterCreateLine(typesetter, CFRange(location: start, length: count)))
             start += count
         }

@@ -103,23 +103,46 @@ extension Color {
     }
 }
 
-/// The pixel face: Ark Pixel's 10-pixel Latin design (SIL OFL 1.1, licence
-/// shipped beside it). Registered from the app's Resources/Fonts.
+/// The pixel faces (SIL OFL 1.1, licences shipped beside them), registered
+/// from the app's Resources/Fonts: Ark Pixel's 10-pixel Latin design, and,
+/// while the app speaks Chinese, Fusion Pixel's 10-pixel Simplified Chinese
+/// design, whose Latin and digits are Ark's. The system face (PingFang SC)
+/// stays behind them for the rare character neither draws.
 enum PixelFace {
-    private(set) static var family: String?
+    static let latinFile = "ark-pixel-10px-proportional-latin.ttf"
+    static let chineseFile = "fusion-pixel-10px-proportional-zh_hans.ttf"
+
+    private(set) static var latinFamily: String?
+    private(set) static var chineseFamily: String?
+
+    /// The app speaks Chinese: every pixel line sets in Fusion Pixel. Core says so with each frame.
+    static var chinese = false {
+        didSet { if chinese { registerChinese() } }
+    }
+
+    /// The face the pixel lines set in now.
+    static var family: String? { chinese ? (chineseFamily ?? latinFamily) : latinFamily }
 
     static func register() {
-        guard family == nil else { return }
+        if latinFamily == nil { latinFamily = load(latinFile) }
+        if chinese { registerChinese() }
+    }
+
+    private static func registerChinese() {
+        if chineseFamily == nil { chineseFamily = load(chineseFile) }
+    }
+
+    private static func load(_ file: String) -> String? {
         let folder = Bundle.main.resourceURL?.appendingPathComponent("Fonts")
-        let url = (ProcessInfo.processInfo.environment["EDGELINGS_FONTS"].map { URL(fileURLWithPath: $0) } ?? folder)?
-            .appendingPathComponent("ark-pixel-10px-proportional-latin.ttf")
-        guard let url else { return }
+        let url = (ProcessInfo.processInfo.environment["EDGELINGS_FONTS"].map { URL(fileURLWithPath: $0) } ?? folder)?.appendingPathComponent(file)
+        guard let url else { return nil }
         var error: Unmanaged<CFError>?
         _ = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
         if let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor], let first = descriptors.first,
            let name = CTFontDescriptorCopyAttribute(first, kCTFontNameAttribute) as? String {
-            family = name
+            return name
         }
+        return nil
     }
 
     /// The screen's scale (the offscreen renders draw at 2).
