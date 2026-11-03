@@ -2,6 +2,7 @@
 // runDiff(old, new, steps-per-run, seeds) throws on the first difference and returns the counts.
 export function runDiff(A, B, steps, seeds) {
 let checked = 0;
+let oldThrew = 0;
 function fail(message, context) {
   throw new Error('MISMATCH: ' + message + ' ' + JSON.stringify(context));
 }
@@ -43,9 +44,13 @@ function compare(label, bots, size, id, context) {
   const [a, b] = bots;
   if (a.state !== b.state) fail(`${label}: state`, { ...context, a: a.state, b: b.state });
   if (a.calm !== b.calm) fail(`${label}: calm`, { ...context, a: a.calm, b: b.calm });
-  const sa = a.svg(size, id), sb = b.svg(size, id);
+  // The old engine may throw where the new one is fixed to draw (v5.4 and v5.4.1 threw for a few
+  // frames after a blend into `working` from a negative propU): count it, and the new one must draw.
+  let sa;
+  try { sa = a.svg(size, id); } catch (error) { sa = null; oldThrew++; if (oldThrew <= 3) console.log(`old engine throws (${error.message}):`, JSON.stringify(context)); }
+  const sb = b.svg(size, id);
   checked++;
-  if (sa !== sb) {
+  if (sa !== null && sa !== sb) {
     let at = 0;
     while (at < sa.length && sa[at] === sb[at]) at++;
     fail(`${label}: svg differs at char ${at}`, { ...context, old: sa.slice(Math.max(0, at - 80), at + 120), new: sb.slice(Math.max(0, at - 80), at + 120), oldLength: sa.length, newLength: sb.length });
@@ -107,5 +112,5 @@ for (const kind of A.KINDS) {
     }
   }
 }
-return { runs, checked };
+return { runs, checked, oldThrew };
 }
