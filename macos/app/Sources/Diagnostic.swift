@@ -168,6 +168,9 @@ enum SelfTest {
             let found = PixelBreaks.opportunities(text)
             check("line breaks: \(name)", allowed.allSatisfy { found.contains($0) } && forbidden.allSatisfy { !found.contains($0) }, "\(found)")
         }
+        for sample in FullScreenWatch.samples {
+            check("full-screen rule: \(sample.name)", FullScreenWatch.covers(sample.window, display: sample.display) == sample.covers)
+        }
         for theme in ["pixel", "classic"] {
             do {
                 let engine = try CharacterEngine(theme: theme, directory: AppController.enginesDirectory())

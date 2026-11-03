@@ -393,12 +393,14 @@ func fullScreenCheck() {
         if !entered {
             record("In full screen \(label): the drawer against a full-screen window", true, "skipped: this runner did not enter full screen")
         } else {
-            let shown = drawer(pid: runPid) != nil
+            // With the setting off the drawer is still a window of this Space, but clear (alpha 0) and deaf.
+            let panelNow = drawer(pid: runPid)
+            let shown = (panelNow?.alpha ?? 0) > 0.5
             record("In full screen \(label): the drawer is \(on ? "" : "not ")shown over a full-screen window", shown == on,
-                   "setting \(label), drawer on screen: \(shown)", fatal: true)
+                   "setting \(label), drawer on screen: \(panelNow != nil), alpha \(panelNow?.alpha ?? -1)", fatal: true)
             window.toggleFullScreen(nil)
             spin(3)
-            let back = waitFor(6) { spin(0.25); return drawer(pid: runPid) != nil }
+            let back = waitFor(6) { spin(0.25); return (drawer(pid: runPid)?.alpha ?? 0) > 0.5 }
             record("In full screen \(label): the drawer is back when full screen ends", back, fatal: true)
         }
         window.close()
@@ -407,6 +409,78 @@ func fullScreenCheck() {
 }
 
 fullScreenCheck()
+
+// MARK: In Chinese
+
+/// The same walk in Chinese (AGENTISLAND_LANG=zh), so the design chats see the real hover card, the
+/// native menus and Settings under the Pixel style: screenshots only, nothing fatal but a vanished drawer.
+func chinesePass() {
+    if eventsBlocked { return }
+    let root = "\(rootFolder)-zh"
+    for folder in [".claude/projects", ".codex/sessions", ".kimi-code/sessions", ".dsh/sessions"] {
+        try? FileManager.default.createDirectory(atPath: "\(root)/home/\(folder)", withIntermediateDirectories: true)
+    }
+    guard let run = launch(extra: ["EDGELINGS_ROOT": root, "AGENTISLAND_LANG": "zh"], log: "\(outFolder)/app-zh.log") else { return }
+    let runPid = run.processIdentifier
+    defer { if run.isRunning { kill(runPid, SIGKILL); run.waitUntilExit() } }
+    guard waitFor(30, { drawer(pid: runPid) != nil }), let panel = drawer(pid: runPid) else {
+        record("Chinese pass: the drawer appears", false, "no drawer after 30 s")
+        return
+    }
+    pause(2)
+    let first = CGPoint(x: panel.x + 6 + 22, y: panel.y + 12 + 22)
+    moveMouse(to: first)
+    _ = waitFor(4) { cardWindow(pid: runPid) != nil }
+    pause(0.4)
+    screenshot("zh-hover-card")
+    moveMouse(to: CGPoint(x: display.midX, y: display.midY))
+    pause(0.8)
+    let second = CGPoint(x: first.x, y: first.y + 54)
+    click(second, right: true)
+    pause(0.6)
+    screenshot("zh-right-click-menu")
+    pressKey(125)
+    pause(0.2)
+    pressKey(125)
+    pause(0.2)
+    pressKey(124)
+    pause(0.6)
+    screenshot("zh-shown-agents-submenu")
+    pressKey(123)
+    pause(0.2)
+    pressKey(126)
+    pause(0.2)
+    pressKey(124)
+    pause(0.6)
+    screenshot("zh-look-submenu")
+    pressEscape()
+    pause(0.2)
+    pressEscape()
+    pause(0.5)
+    moveMouse(to: CGPoint(x: display.midX, y: display.midY))
+    pause(0.5)
+    if let item = menuBarItem(pid: runPid) {
+        let spot = CGPoint(x: item.x + item.width / 2, y: item.y + item.height / 2)
+        click(spot)
+        pause(1.0)
+        screenshot("zh-menu-bar-click")
+        pause(5.5)
+        click(spot, right: true)
+        pause(0.8)
+        screenshot("zh-menu-bar-right-click")
+        pressEscape()
+        pause(0.5)
+    }
+    let current = drawer(pid: runPid) ?? panel
+    click(CGPoint(x: current.x + 28, y: current.y + 34))
+    _ = waitFor(6) { windows().contains { $0.pid == runPid && $0.layer == 0 && $0.width >= 500 && $0.onScreen } }
+    pause(0.8)
+    screenshot("zh-settings")
+    moveMouse(to: CGPoint(x: display.midX, y: display.minY + 200))
+    record("Chinese pass: the app is still running", run.isRunning, "", fatal: true)
+}
+
+chinesePass()
 
 // MARK: CPU and memory
 

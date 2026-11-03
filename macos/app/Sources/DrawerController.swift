@@ -66,6 +66,8 @@ final class DrawerController {
     private let canvas = SvgCanvas()
     private let clock = Date()
     private var away = false
+    /// "In full screen" is off and another app is full screen on the drawer's display: the drawer is out of sight.
+    private var covered = false
     private var reducedMotion = DrawerController.systemReducedMotion
     /// Reduce Motion, unless EDGELINGS_IGNORE_REDUCE_MOTION=1 (the runner's VM has it on; a measurement wants the full loop).
     static var systemReducedMotion: Bool {
@@ -129,6 +131,8 @@ final class DrawerController {
             FloatingPanel.overFullscreen = over
             panel.collectionBehavior = DrawerController.collectionBehavior(overFullscreen: over)
         }
+        let nowCovered = !over && FullScreenWatch.isCovered(screen: screen ?? chooseScreen())
+        if nowCovered != covered { setCovered(nowCovered) }
         if engine == nil || engineTheme != next.theme { buildEngine(for: next) }
         if slots.count != next.bots.count { slots = next.bots.map { _ in Slot() } }
         let now = clock.timeIntervalSinceNow * -1
@@ -351,6 +355,19 @@ final class DrawerController {
 
     var isShown: Bool { panel.isVisible }
 
+    /// A full-screen app covers the display and the user keeps the drawer out of full screen: it goes
+    /// clear and deaf (a panel that can join every Space would otherwise show over the app), and rests.
+    private func setCovered(_ value: Bool) {
+        covered = value
+        if value {
+            cards.hide(animated: false)
+            bubbles.hideAll(animated: false)
+        }
+        panel.alphaValue = value ? 0 : 1
+        panel.ignoresMouseEvents = value
+        updatePace()
+    }
+
     /// A lock, a sleep or blanked displays rest the loop.
     func setAway(_ value: Bool) {
         away = value
@@ -362,7 +379,7 @@ final class DrawerController {
     /// Busy characters step at the user's ceiling, calm ones whose eyes follow a
     /// nearby pointer at 60 (Pixel: 30), the rest breathe at 30. Reduced motion keeps 12 / 6.
     private func updatePace() {
-        guard let frame, panel.isVisible, !away, engine != nil else { stopLoop(); return }
+        guard let frame, panel.isVisible, !away, !covered, engine != nil else { stopLoop(); return }
         let pixel = frame.isPixel
         var cap = Double(frame.fps)
         if frame.saveBattery && DrawerController.onBattery { cap = cap == 0 ? 60 : min(cap, 60) }
@@ -787,6 +804,8 @@ final class DrawerController {
 
     private func say(_ index: Int, _ bot: BotModel, _ speech: SpeechModel) {
         guard let frame, let slot = slots.indices.contains(index) ? slots[index] : nil else { return }
+        // Over a full-screen app with "In full screen" off, nothing speaks: the line is let go, as if dismissed.
+        if covered { AppController.shared.markDismissed(bot.id); return }
         let origin = panel.frame
         let anchor = NSRect(x: origin.minX + slot.bounds.minX, y: origin.maxY - slot.bounds.maxY, width: slot.bounds.width, height: slot.bounds.height)
         let area = (screen ?? chooseScreen())?.visibleFrame ?? .zero
@@ -809,7 +828,7 @@ final class DrawerController {
     }
 
     private func sayLocked(_ id: String) {
-        guard let frame, let slot = slots.first(where: { $0.id == id }) else { return }
+        guard let frame, !covered, let slot = slots.first(where: { $0.id == id }) else { return }
         cards.hide(animated: false)
         let origin = panel.frame
         let anchor = NSRect(x: origin.minX + slot.bounds.minX, y: origin.maxY - slot.bounds.maxY, width: slot.bounds.width, height: slot.bounds.height)
