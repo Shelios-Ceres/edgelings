@@ -205,7 +205,7 @@ public static class L10n
         ["Not detected — sign in with the grok CLI"] = "未检测到 grok CLI 登录",
         ["Not detected — sign in with the grok CLI or inside Cursor"] = "未检测到：请用 grok CLI 或在 Cursor 里登录",
         ["Not detected — sign in inside Cursor"] = "未检测到 — 请在 Cursor 里登录",
-        ["Not detected — open Kimi Code once"] = "未检测到 — 先打开一次 Kimi Code",
+        ["Not detected — open Kimi once"] = "未检测到 — 先打开一次 Kimi",
         ["Not detected — open DeepSeek Harness once"] = "未检测到 — 先打开一次 DeepSeek Harness",
         // Codex account switching
         ["Switch Codex account"] = "切换 Codex 账号",

@@ -56,7 +56,7 @@ public static class AgentReports
         DisplayProvider.Antigravity => "Not detected — sign in with the antigravity CLI",
         DisplayProvider.Grok => "Not detected — sign in with the grok CLI or inside Cursor",
         DisplayProvider.Cursor => "Not detected — sign in inside Cursor",
-        DisplayProvider.Kimi => "Not detected — open Kimi Code once",
+        DisplayProvider.Kimi => "Not detected — open Kimi once",
         _ => "Not detected — open DeepSeek Harness once",
     };
 
