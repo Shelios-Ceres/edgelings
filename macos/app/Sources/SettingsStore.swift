@@ -268,7 +268,7 @@ enum UIStrings {
         "Drag any character up or down to move the drawer",
         "Motion", "Frame rate while an agent works", "Calm characters always breathe at 30 fps", "Match the display", "{0} fps",
         "Save battery", "On battery, characters run at 60 fps at most", "Animation",
-        "Show in full screen", "Characters stay over full-screen apps instead of hiding",
+        "In full screen", "Keep the characters on screen while a full-screen app is in front",
         "Estimated at API list prices from this computer's session logs — not a bill.",
         "Quota", "Refresh interval", "Providers rate-limit their usage endpoints, so nothing shorter than five minutes is offered", "Every {0} minutes",
         "Quota shows", "How the bars and percentages read on the drawer's cards and in Settings", "Used", "Remaining",
