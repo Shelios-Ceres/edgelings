@@ -62,8 +62,9 @@ public sealed record StatusWaitingList(IReadOnlyList<StatusWaiting> Rows, int Mo
 
     /// Approvals first, then questions, errors and finished turns; the newest
     /// first within each. A scheduled task that did not run is a moment, not
-    /// a session, so it has no row. A title the pixel face cannot set (it has
-    /// no hanzi, kana or hangul) gives way to "A session".
+    /// a session, so it has no row. In English the pixel face has no hanzi,
+    /// kana or hangul to set a title like that, so it gives way to "A session";
+    /// in Chinese the face is Fusion Pixel, and the title shows as written.
     public static StatusWaitingList Of(IEnumerable<SessionEvent> waiting)
     {
         var ordered = waiting
@@ -79,7 +80,7 @@ public sealed record StatusWaitingList(IReadOnlyList<StatusWaiting> Rows, int Mo
             .ThenByDescending(e => e.At)
             .ToList();
         var rows = ordered.Take(MaxRows)
-            .Select(e => new StatusWaiting(HasCjk(e.Title) ? "A session" : e.Title, BotLines.Word(e), e.Kind))
+            .Select(e => new StatusWaiting(!L10n.IsChinese && HasCjk(e.Title) ? "A session" : e.Title, BotLines.Word(e), e.Kind))
             .ToList();
         return new StatusWaitingList(rows, ordered.Count - rows.Count);
     }
