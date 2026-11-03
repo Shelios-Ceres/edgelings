@@ -110,9 +110,12 @@ jobs:
           ROOT="$RUNNER_TEMP/uitest-root"
           mkdir -p "$ROOT/home"
           python3 macos/bridge/make-fixture.py "$ROOT/home/.kimi-code" 12 120
+          BIG="$RUNNER_TEMP/bighome"
+          mkdir -p "$BIG/home"
+          python3 macos/bridge/make-big-home.py "$BIG/home" --layout mac
           mkdir -p out/uitest
           system_profiler SPDisplaysDataType > out/uitest/displays.txt 2>&1 || true
-          out/edgelings-uitest out/app/Edgelings.app out/uitest "$ROOT" --seconds 60 | tee out/uitest/uitest.txt
+          out/edgelings-uitest out/app/Edgelings.app out/uitest "$ROOT" --seconds 60 --big-root "$BIG" | tee out/uitest/uitest.txt
 
       - name: Finder shows the icon (a runner screenshot)
         continue-on-error: true
