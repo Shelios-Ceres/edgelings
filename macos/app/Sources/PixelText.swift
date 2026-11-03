@@ -50,12 +50,13 @@ enum PixelTypeset {
         let length = text.length
         // Chinese lines break by the spec's rules, which are stricter than Core Text's.
         let opportunities = PixelBreaks.hasWide(text.string) ? PixelBreaks.opportunities(text.string) : nil
+        let phrases = PixelBreaks.phraseEnds(text.string)
         while start < length {
             if let limit, result.count >= limit { break }
             var count: Int
             if let width, width.isFinite { count = max(1, CTTypesetterSuggestLineBreak(typesetter, start, Double(width))) } else { count = length - start }
-            if let opportunities, start + count < length {
-                count = PixelBreaks.lineEnd(start: start, suggested: count, length: length, opportunities: opportunities) - start
+            if opportunities != nil || !phrases.isEmpty, start + count < length {
+                count = PixelBreaks.lineEnd(start: start, suggested: count, length: length, opportunities: opportunities, phrases: phrases, text: text.string as NSString) - start
             }
             result.append(CTTypesetterCreateLine(typesetter, CFRange(location: start, length: count)))
             start += count

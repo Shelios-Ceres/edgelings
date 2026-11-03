@@ -115,16 +115,47 @@ enum PixelBreaks {
         return false
     }
 
+    /// The offsets just after each " · " separator: a line of "label value · label value" breaks there
+    /// before it breaks inside a phrase, so a value never parts from its label (Windows' PhraseFlow).
+    static func phraseEnds(_ text: String) -> [Int] {
+        let ns = text as NSString
+        var result: [Int] = []
+        var from = 0
+        while from < ns.length {
+            let found = ns.range(of: " · ", options: [], range: NSRange(location: from, length: ns.length - from))
+            if found.location == NSNotFound { break }
+            result.append(found.location + found.length)
+            from = found.location + found.length
+        }
+        return result
+    }
+
     /// Where the line that starts at `start` ends, given the room Core Text left (`suggested`, a count).
-    /// With no better place the suggestion stands: a word longer than a line breaks inside.
-    static func lineEnd(start: Int, suggested: Int, length: Int, opportunities: [Int]) -> Int {
+    /// A phrase boundary comes first, then an allowed break (Chinese lines only); with no better place the
+    /// suggestion stands: a word longer than a line breaks inside. A last line of fewer than two Han
+    /// characters (a character and its mark) is avoided by carrying one more character down.
+    static func lineEnd(start: Int, suggested: Int, length: Int, opportunities: [Int]?, phrases: [Int] = [], text: NSString? = nil) -> Int {
         let limit = start + suggested
         if limit >= length { return length }
-        if let end = opportunities.last(where: { $0 > start && $0 <= limit }) { return end }
-        return limit
+        var end = limit
+        if let phrase = phrases.last(where: { $0 > start && $0 <= limit }) { end = phrase }
+        else if let allowed = opportunities?.last(where: { $0 > start && $0 <= limit }) { end = allowed }
+        if let text, let opportunities, end < length, length - end <= 3 {
+            let rest = text.substring(from: end).unicodeScalars
+            let han = rest.filter { isWide($0) && !closing.contains($0) && !opening.contains($0) }.count
+            if han < 2, rest.contains(where: isWide), let earlier = opportunities.last(where: { $0 > start && $0 < end }) { end = earlier }
+        }
+        return end
     }
 
     /// Lines with the break offsets that must and must not be offered, for the self-test.
+    /// Whole-line cases: the text, the room Core Text would leave (a count), and where the line must end.
+    static let lines: [(text: String, room: Int, end: Int, name: String)] = [
+        ("Kimi Code 30% · Kimi 应用 14%", 25, 16, "a value stays with its label"),
+        ("上下文生效。", 4, 3, "no last line of one character and its mark"),
+        ("等你批准后继续运行", 4, 4, "a long enough last line is left alone"),
+    ]
+
     static let samples: [(text: String, allowed: [Int], forbidden: [Int], name: String)] = [
         ("额度，已用", [1], [2], "none before a closing mark"),
         ("（额度）", [], [1, 3], "none after an opening mark"),

@@ -171,6 +171,11 @@ enum SelfTest {
         for sample in FullScreenWatch.samples {
             check("full-screen rule: \(sample.name)", FullScreenWatch.covers(sample.window, display: sample.display) == sample.covers)
         }
+        for sample in PixelBreaks.lines {
+            let end = PixelBreaks.lineEnd(start: 0, suggested: sample.room, length: (sample.text as NSString).length, opportunities: PixelBreaks.hasWide(sample.text) ? PixelBreaks.opportunities(sample.text) : nil,
+                                          phrases: PixelBreaks.phraseEnds(sample.text), text: sample.text as NSString)
+            check("line ends: \(sample.name)", end == sample.end, "\(end)")
+        }
         for theme in ["pixel", "classic"] {
             do {
                 let engine = try CharacterEngine(theme: theme, directory: AppController.enginesDirectory())
