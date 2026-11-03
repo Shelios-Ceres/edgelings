@@ -61,7 +61,7 @@ enum RenderSettings {
             ("\"synced 4m ago\"", "\"" + t("synced {0}", chinese ? "4分钟前" : "4m ago") + "\""),
             ("\"Quota updated 12 min ago\"", "\"" + t("Quota updated {0}", chinese ? "12分钟前" : "12 min ago") + "\""),
             ("\"Waiting for the first sync\"", "\"" + t("Waiting for the first sync") + "\""),
-            ("\"Resets in 2h 10m\"", "\"" + t("Resets {0}", chinese ? "2小时10分钟后" : "in 2h 10m") + "\""),
+            ("\"Resets in 2h 10m\"", "\"" + t("Resets {0}", chinese ? "2 小时 10 分钟后" : "in 2h 10m") + "\""),
             ("\"label\":\"5h\"", "\"label\":\"" + t("5h") + "\",\"title\":\"" + t("5-hour window") + "\""),
             ("\"label\":\"Week\"", "\"label\":\"" + t("Week") + "\",\"title\":\"" + t("Weekly window") + "\""),
             ("\"Tokens\"", "\"" + t("Tokens") + "\""),
