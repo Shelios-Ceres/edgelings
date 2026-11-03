@@ -62,6 +62,7 @@ enum RenderMode {
                 }
             }
         }
+        RenderGroups.run(save: save)
         RenderSettings.run(into: url, save: save)
         NSLog("render: wrote \(written) images to \(folder)")
     }
