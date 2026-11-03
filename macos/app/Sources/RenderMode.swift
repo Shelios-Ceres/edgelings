@@ -327,7 +327,7 @@ enum Sample {
     static func kimi(_ skin: Skin) -> CardModel {
         let look = SampleLooks.look("kimi", skin)
         return CardModel(
-            id: "kimi", name: "Kimi Code", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t(skin == .pixel ? "Sleeping" : "Resting"), detail: RenderText.t("In the tray"), plan: nil, tasks: nil,
+            id: "kimi", name: "Kimi", swatch: look.swatch, look: look.id, defaultLook: true, phase: RenderText.t(skin == .pixel ? "Sleeping" : "Resting"), detail: RenderText.t("In the tray"), plan: nil, tasks: nil,
             meters: [MeterModel(label: RenderText.t("Month"), value: "44%", shown: 0.44, used: 0.44, resets: nil)],
             tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("today") + " 0", todayNumber: "0", month: RenderText.t("{0} this month", "3.1M"), monthNumber: "3.1M"),
             note: [PhraseModel(text: RenderText.t("Kimi Code {0}% · Kimi app {1}%", "30", "14"), lead: RenderText.t("Month:"), numbers: ["30%", "14%"])],

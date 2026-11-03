@@ -18,7 +18,7 @@ enum RenderSettings {
        "meters":[{"label":"5h","value":"93%","shown":0.93,"used":0.93},{"label":"Week","value":"61%","shown":0.61,"used":0.61}],
        "tokens":{"label":"Tokens","today":"today 310K","todayNumber":"310K","month":"9.8M this month","monthNumber":"9.8M"},
        "look":{"pixel":"notebook","classic":"desk-computer"}},
-      {"id":"kimi","name":"Kimi Code","shown":false,"detected":true,"status":"Waiting for the first sync","signIn":"none","signInHint":"","accent":3043319,"swatch":@kimi@,"defaultLook":true,
+      {"id":"kimi","name":"Kimi","shown":false,"detected":true,"status":"Waiting for the first sync","signIn":"none","signInHint":"","accent":3043319,"swatch":@kimi@,"defaultLook":true,
        "meters":[],"look":{"pixel":"moonlet","classic":"moon-lamp"}}],
      "hooks":{"claude":false,"grok":false,"grokConflict":false},
      "codex":{"autoSwitch":false,"active":"personal","accounts":[{"label":"personal","email":"a@example.com"},{"label":"work"}]}}
@@ -34,7 +34,7 @@ enum RenderSettings {
        "hourlyDollars":[0,0,0,0,0,0,0,0,0.1,0.5,1.2,1.8,1.9,1.9,2.2,3,4,4.1,4.21,4.21,4.21,4.21,4.21,4.21],
        "days":[{"date":"10-24","tokens":1,"dollars":2},{"date":"10-25","tokens":1,"dollars":4},{"date":"10-26","tokens":1,"dollars":1},{"date":"10-27","tokens":1,"dollars":6},{"date":"10-28","tokens":1,"dollars":3},{"date":"10-29","tokens":1,"dollars":2.5},{"date":"10-30","tokens":1,"dollars":4.2}],
        "monthDays":[{"date":"10-01","tokens":1,"dollars":3},{"date":"10-02","tokens":1,"dollars":5},{"date":"10-03","tokens":1,"dollars":2}]}]},
-     {"id":"kimi","name":"Kimi Code","shown":true,"accent":3043319,"swatch":@kimi@,"defaultLook":true,"look":"@kimiLook@","parts":[{"id":"kimi","name":"Kimi Code","dollars":true,"scanned":true,
+     {"id":"kimi","name":"Kimi","shown":true,"accent":3043319,"swatch":@kimi@,"defaultLook":true,"look":"@kimiLook@","parts":[{"id":"kimi","name":"Kimi","dollars":true,"scanned":true,
        "today":{"dollars":0.4,"tokens":300000,"models":[{"name":"K3.1 Pro","tokens":200000,"dollars":0.3,"unpriced":false},{"name":"Memory (background)","tokens":100000,"dollars":0.1,"unpriced":true}]},
        "week":{"dollars":1,"tokens":900000,"models":[]},"month":{"dollars":3,"tokens":3100000,"models":[]},
        "hourly":[],"hourlyDollars":[0,0,0,0,0,0,0,0,0,0,0,0,0.1,0.2,0.4,0.4,0.4,0.4,0.4,0.4,0.4,0.4,0.4,0.4],"days":[],"monthDays":[]}]}]}

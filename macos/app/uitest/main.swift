@@ -348,6 +348,66 @@ if !eventsBlocked {
 
 record("the app is still running", app.isRunning, app.isRunning ? "" : "exited with status \(app.terminationStatus)", fatal: true)
 
+// MARK: In full screen
+
+/// The drawer's "In full screen" setting, against a real full-screen Space: a window of this
+/// process goes full screen, and the drawer must stay out of that Space with the setting off
+/// (the default) and join it with the setting on. If this runner cannot enter full screen the
+/// check says so and skips, so it never fails for the runner's sake.
+func fullScreenCheck() {
+    if app.isRunning { kill(app.processIdentifier, SIGKILL); app.waitUntilExit() }
+    let shared = NSApplication.shared
+    shared.setActivationPolicy(.regular)
+    shared.finishLaunching()
+    func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    for on in [false, true] {
+        let label = on ? "on" : "off"
+        let root = "\(rootFolder)-fullscreen-\(label)"
+        let support = "\(root)/home/Library/Application Support/Edgelings"
+        try? FileManager.default.createDirectory(atPath: support, withIntermediateDirectories: true)
+        try? Data("{\"AgentIsland.drawer.overFullscreen\": \(on)}".utf8).write(to: URL(fileURLWithPath: "\(support)/settings.json"))
+        for folder in [".claude/projects", ".codex/sessions", ".kimi-code/sessions", ".dsh/sessions"] {
+            try? FileManager.default.createDirectory(atPath: "\(root)/home/\(folder)", withIntermediateDirectories: true)
+        }
+        guard let run = launch(extra: ["EDGELINGS_ROOT": root], log: "\(outFolder)/app-fullscreen-\(label).log") else { continue }
+        let runPid = run.processIdentifier
+        defer { if run.isRunning { kill(runPid, SIGKILL); run.waitUntilExit() } }
+        guard waitFor(30, { drawer(pid: runPid) != nil }) else {
+            record("In full screen \(label): the drawer appears first", false, "no drawer after 30 s", fatal: true)
+            continue
+        }
+        let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 640, height: 400), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.collectionBehavior = [.fullScreenPrimary]
+        window.title = "edgelings-uitest"
+        window.makeKeyAndOrderFront(nil)
+        shared.activate(ignoringOtherApps: true)
+        spin(1)
+        window.toggleFullScreen(nil)
+        var entered = false
+        for _ in 0..<32 {
+            spin(0.25)
+            if window.styleMask.contains(.fullScreen) { entered = true; break }
+        }
+        spin(3)
+        screenshot("fullscreen-\(label)")
+        if !entered {
+            record("In full screen \(label): the drawer against a full-screen window", true, "skipped: this runner did not enter full screen")
+        } else {
+            let shown = drawer(pid: runPid) != nil
+            record("In full screen \(label): the drawer is \(on ? "" : "not ")shown over a full-screen window", shown == on,
+                   "setting \(label), drawer on screen: \(shown)", fatal: true)
+            window.toggleFullScreen(nil)
+            spin(3)
+            let back = waitFor(6) { spin(0.25); return drawer(pid: runPid) != nil }
+            record("In full screen \(label): the drawer is back when full screen ends", back, fatal: true)
+        }
+        window.close()
+        spin(0.5)
+    }
+}
+
+fullScreenCheck()
+
 // MARK: CPU and memory
 
 func measure(label: String, extra: [String: String]) {

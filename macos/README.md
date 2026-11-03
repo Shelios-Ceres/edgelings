@@ -100,7 +100,7 @@ The Mac app: an accessory app (menu-bar icon, no Dock icon), bundle id `dev.edge
 | Offscreen renders | `RenderMode.swift`, `RenderSettings.swift` (`Edgelings --render <folder>`) |
 | Diagnostic | `Diagnostic.swift` (`Edgelings --diagnose`, and Settings > General > Copy diagnostic) |
 
-Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English and Simplified Chinese; the few Mac-only strings are in `MacStrings`. The Pixel skin reads English, as on Windows.
+Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English and Simplified Chinese; the few Mac-only strings are in `MacStrings`. Both skins follow the app language; see "Pixel in Chinese" below.
 
 ### Hooks
 
@@ -115,6 +115,21 @@ Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English
 - **Sign in** writes a `.command` file under Application Support and opens it in Terminal (`TerminalLauncher`).
 - **Friend kit:** `app/HOW-TO-TEST.md`, `PROBE.md` (read-only commands) and `CHECKLIST.md` (two minutes for a person) are packed with the zip.
 
+### Fixes 2 (after the second friend report)
+
+- **Where the time goes:** `CoreProfile` (Core: each agent's scan, the cost scans, the process table, presence, every bridge call) and `Perf` (the app: loop tick, JavaScriptCore step, SVG raster, drawer draw, hover poll, polls) are printed by the diagnostic ("CPU:" and "Where the time goes"). `bridge/make-big-home.py` writes a home with the data sizes of a real developer Mac (15,000 Antigravity files, 80 Kimi sessions, a Cursor ledger), and the real-screen step measures the app on it (`--big-root`, `EDGELINGS_DIAG_FILE` / `EDGELINGS_DIAG_AFTER` write the diagnostic to a file, `EDGELINGS_IGNORE_REDUCE_MOTION=1` keeps the runner's VM from holding the loop at 6 fps). The drawer view redraws only the characters that changed.
+- **Kimi on a Mac:** `/Applications/Kimi.app` (the desktop client) counts for Kimi's presence and the Kimi Work sessions follow it; Kimi Code's own app (`kimi-code-app`) stays apart. The ChatGPT app's windows decide Codex's presence, as its embedded Codex is real Codex.
+- **In full screen** (Drawer page, both platforms): the panels join full-screen Spaces (`fullScreenAuxiliary`) only when the setting is on (`DrawerController.collectionBehavior`); off is the default. `edgelings-uitest` puts a window of its own into full screen and checks that the drawer stays out of that Space with the setting off and joins it with the setting on (it skips, with a note, on a runner that cannot enter full screen).
+
+### Pixel in Chinese
+
+The Pixel style follows the app language, as Classic does. Core no longer sets Pixel text in English (`L10n.English()` is gone from `AppModel.cs`, and the Settings page note is gone).
+
+- **The faces:** Ark Pixel's Latin face for English; while Core says the app is Chinese (`FrameModel.chinese`), every pixel line sets in Fusion Pixel 10px zh_hans (`fusion-pixel-10px-proportional-zh_hans.ttf`, SIL OFL, full file, by TakWolf), whose Latin and digits are Ark's, with PingFang SC as the cascade fallback. Both files and their licences live in `windows/src/AgentIsland.WinUI/Assets/Fonts`, shared with the Windows app; `PixelFace` registers the Chinese one the first time the app speaks Chinese. Sizes, line heights and layouts are the English ones (the spec is `windows/notes/pixel-zh-20261102/SPEC.md`, option F).
+- **Line breaks:** `PixelBreaks` offers a break between Han characters, never before a closing mark or after an opening one, never inside a Latin word, a number with its unit or a command. A line without Han characters keeps Core Text's breaks. `--self-test` checks the rules and that the face draws the app's hard characters.
+- **Menus:** the drawer's right-click menu, the tray menu and the locked bubble read their words from Core's table (`AppStrings`), with the few Mac-only ones translated there.
+- **Renders:** `--render` writes the cards, bubbles and Settings pages in both languages for both skins (`-zh` in the name).
+
 ### Not ported yet
 
-The drawer's choreography (slide in and out, lift on drag, drop, edge switch, roster change), the M-series control motions, count-up bars, the drawn Classic window frame, the pixel icon set, the app icon, Sparkle. The upstream Mac-only features (turn alarm, reminders, jump to terminal, report cards) and the notch island stay in `Sources/` for the user to decide after parity.
+M5's ghost-plate pop, the "Right now" row, the Agents expander and grip drag, Classic's segmented tabs (B8) and the "classic shapes you can recolour" copy (A8) wait for the design chats. The drawn Classic window frame is not ported. Sparkle and the release are stage 5. The upstream Mac-only features (turn alarm, reminders, jump to terminal, report cards) and the notch island stay in `Sources/` for the user to decide after parity.
