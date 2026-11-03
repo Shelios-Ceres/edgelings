@@ -30,12 +30,14 @@ enum BenchLoop {
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let pixels = Int((Metrics.botSize * scale).rounded())
         let kinds = ["claude", "codex", "antigravity", "grok", "kimi", "deepseek", "claude"]
+        // What the drawer shows while an agent's app is closed (the runner, and a Mac with its agents quit).
+        let restStates = ["resting", "sleeping", "offline", "resting", "locked", "resting", "sleeping"]
         let busyStates = ["thinking", "writing", "reading", "running", "searching", "streaming", "web"]
         print("bench-loop: \(kinds.count) characters, backing scale \(scale), \(pixels) px bitmaps, \(rounds) rounds")
         let only = arguments.firstIndex(of: "--theme").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
         for theme in ["pixel", "classic"] where only == nil || only == theme {
             let pixel = theme == "pixel"
-            for mode in ["busy", "calm"] {
+            for mode in ["busy", "calm", "rest"] {
                 print("bench: \(theme) \(mode): loading the engine")
                 let engine: CharacterEngine
                 do {
@@ -46,7 +48,7 @@ enum BenchLoop {
                 }
                 for (index, kind) in kinds.enumerated() {
                     let bot = engine.addBot(kind: kind, tempo: 1, seed: 7 + index * 13, look: "")
-                    engine.setState(bot, mode == "busy" ? busyStates[index % busyStates.count] : "idle", phase: pixel ? 0 : -1)
+                    engine.setState(bot, mode == "busy" ? busyStates[index % busyStates.count] : mode == "rest" ? restStates[index % restStates.count] : "idle", phase: pixel ? 0 : -1)
                 }
                 print("bench: \(theme) \(mode): engine ready, \(kinds.count) bots added")
                 let fps: Double = mode == "busy" ? (pixel ? 30 : 60) : 30
@@ -126,7 +128,7 @@ enum BenchLoop {
                 print(String(format: "bench %@ %@ split: svg alone %.3f ms/round, advance alone %.3f, tick call incl. string handover %.3f, Swift splitting %.3f; tick in rounds 30-130 %.3f, in the last 70 %.3f ms/round (JIT warm-up)",
                              theme, mode, perRound(jscSvg), perRound(jscAdvance), perRound(handover), perRound(splitting), early / 100, late / 70))
                 if mode == "busy" && percent > maxBusy { print("FAIL \(theme) busy is over \(maxBusy)%"); failed = true }
-                if mode == "calm" && percent > maxCalm { print("FAIL \(theme) calm is over \(maxCalm)%"); failed = true }
+                if mode != "busy" && percent > maxCalm { print("FAIL \(theme) calm is over \(maxCalm)%"); failed = true }
             }
         }
         exit(failed ? 1 : 0)
