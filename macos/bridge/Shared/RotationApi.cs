@@ -16,10 +16,12 @@ namespace AgentIsland.Bridge;
 public static class RotationApi
 {
     private static readonly object Gate = new();
-    private static readonly Dictionary<string, GroupRotation> Rotations = new();
+    private sealed record Entry(GroupRotation Rotation, string Kind, string Look);
 
-    /// {"method":"rotationStates","theme":"pixel","kind":"claude","look":"clawd"}: every state the look's
-    /// groups can play, so Swift can read their cycle lengths.
+    private static readonly Dictionary<string, Entry> Rotations = new();
+
+    /// {"method":"rotationStates","theme":"pixel","id":"claude","kind":"claude","look":"clawd"}: every state the
+    /// look's groups can play, so Swift can read their cycle lengths, and the character's tempo.
     public static string States(JsonElement request)
     {
         var theme = Theme(request);
@@ -39,8 +41,10 @@ public static class RotationApi
             // A tool's own state can take the second slot.
             foreach (var phase in Enum.GetValues<AgentPhase>()) states.Add(DrawerLooks.Entry(phase, theme));
         }
+        var tempo = request.TryGetProperty("id", out var idElement) && DisplayProviders.Parse(idElement.GetString()) is { } provider ? DrawerLooks.TempoOf(provider) : 1.0;
         return Json.Write(json =>
         {
+            json.WriteNumber("tempo", tempo);
             json.WriteStartArray("states");
             foreach (var state in states) json.WriteStringValue(state);
             json.WriteEndArray();
@@ -61,17 +65,21 @@ public static class RotationApi
                 var look = bot.TryGetProperty("look", out var l) ? l.GetString() ?? "" : "";
                 var cycles = new Dictionary<string, double>(StringComparer.Ordinal);
                 foreach (var cycle in bot.GetProperty("cycles").EnumerateObject()) cycles[cycle.Name] = cycle.Value.GetDouble();
-                Rotations[id] = new GroupRotation(theme, kind, look, state => cycles.TryGetValue(state, out var seconds) ? seconds : 3);
+                Rotations[id] = new Entry(new GroupRotation(theme, kind, look, state => cycles.TryGetValue(state, out var seconds) ? seconds : 3), kind, look);
             }
         }
         return Json.Write(json => json.WriteBoolean("ok", true));
     }
 
-    /// {"method":"rotate","now":123.4,"reduced":false,"bots":[{"id":"claude","phase":"Running"}]}: for each bot
-    /// the state to play and whether the phase plays in a group. Outside a group the host keeps its own
-    /// entry and hold logic, so only grouped answers are to be applied.
+    /// {"method":"rotate","theme":"pixel","now":123.4,"reduced":false,"bots":[{"id":"claude","phase":"Running"}]}: for
+    /// each bot the state to play and whether the phase plays in a group. A phase outside every group takes the
+    /// rotation out of its group at once (the dwell is not waited out, as on Windows) and answers its own entry
+    /// state; the drawer keeps its entry and hold logic there, so only grouped answers are to be applied.
+    /// "today":true answers every phase's own entry state: the drawer before the groups, for the films.
     public static string Rotate(JsonElement request)
     {
+        var theme = Theme(request);
+        var today = request.TryGetProperty("today", out var td) && td.ValueKind == JsonValueKind.True;
         var now = request.GetProperty("now").GetDouble();
         var reduced = request.TryGetProperty("reduced", out var r) && r.ValueKind == JsonValueKind.True;
         return Json.Write(json =>
@@ -82,12 +90,24 @@ public static class RotationApi
                 foreach (var bot in request.GetProperty("bots").EnumerateArray())
                 {
                     var id = bot.GetProperty("id").GetString() ?? "";
-                    if (!Rotations.TryGetValue(id, out var rotation) || !Enum.TryParse<AgentPhase>(bot.GetProperty("phase").GetString(), out var phase)) continue;
-                    var state = rotation.State(now, phase, reduced);
+                    if (!Rotations.TryGetValue(id, out var entry) || !Enum.TryParse<AgentPhase>(bot.GetProperty("phase").GetString(), out var phase)) continue;
+                    string state;
+                    bool grouped;
+                    if (!today && StateGroups.GroupOf(theme, entry.Kind, entry.Look, phase) is not null)
+                    {
+                        state = entry.Rotation.State(now, phase, reduced);
+                        grouped = true;
+                    }
+                    else
+                    {
+                        if (!today) entry.Rotation.Leave();
+                        state = DrawerLooks.Entry(phase, theme);
+                        grouped = false;
+                    }
                     json.WriteStartObject();
                     json.WriteString("id", id);
                     json.WriteString("state", state);
-                    json.WriteBoolean("grouped", rotation.Group is not null);
+                    json.WriteBoolean("grouped", grouped);
                     json.WriteEndObject();
                 }
             }

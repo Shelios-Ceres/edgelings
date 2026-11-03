@@ -42,6 +42,8 @@ final class Slot {
     var resting = false
     /// The shown phase plays in a work group (Core says so), and the rotation was set up for this look.
     var grouped = false
+    /// The bot just left a group: Core's rotation is told once (its next group starts afresh).
+    var needsLeave = false
     var rotationReady = false
     /// The state the rotation last put the bot in; nil until it has.
     var rotated: String?
@@ -150,8 +152,10 @@ final class DrawerController {
                 slot.nextFidget = Metrics.firstFidgetAfter + Double.random(in: 0..<Metrics.fidgetGap)
             }
             slot.swatch = bot.swatch
+            let wasGrouped = slot.grouped
             slot.grouped = bot.grouped == true && slot.rotationReady
             if !slot.grouped { slot.rotated = nil }
+            if wasGrouped && !slot.grouped { slot.needsLeave = true }
             if slot.look != bot.look {
                 if known, engine != nil {
                     if !next.isPixel && !reducedMotion && panel.isVisible && !slot.look.isEmpty {
@@ -190,7 +194,7 @@ final class DrawerController {
     private func setupRotation(_ index: Int) {
         guard let engine, let frame, let bridge = AppController.shared.bridge, frame.bots.indices.contains(index), slots.indices.contains(index) else { return }
         let bot = frame.bots[index]
-        let states = (bridge.request("rotationStates", ["theme": frame.theme, "kind": bot.kind, "look": bot.look])["states"] as? [String]) ?? []
+        let states = (bridge.request("rotationStates", ["theme": frame.theme, "id": bot.id, "kind": bot.kind, "look": bot.look])["states"] as? [String]) ?? []
         slots[index].rotationReady = !states.isEmpty
         slots[index].rotated = nil
         guard !states.isEmpty else { return }
@@ -205,12 +209,13 @@ final class DrawerController {
         var places: [String: Int] = [:]
         for (index, bot) in frame.bots.enumerated() where slots.indices.contains(index) {
             let slot = slots[index]
-            guard slot.grouped, slot.visible else { continue }
+            guard slot.grouped || slot.needsLeave, slot.visible else { continue }
             asked.append(["id": bot.id, "phase": bot.phase])
             places[bot.id] = index
         }
         guard !asked.isEmpty else { return }
-        let reply = bridge.request("rotate", ["now": now, "reduced": reduced, "bots": asked])
+        let reply = bridge.request("rotate", ["theme": frame.theme, "now": now, "reduced": reduced, "bots": asked])
+        for slot in slots { slot.needsLeave = false }
         for answer in reply["bots"] as? [[String: Any]] ?? [] {
             guard let id = answer["id"] as? String, let index = places[id], answer["grouped"] as? Bool == true, let state = answer["state"] as? String else { continue }
             let slot = slots[index]

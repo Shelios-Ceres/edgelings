@@ -12,6 +12,10 @@ struct EdgelingsMain {
         if arguments.contains("--self-test") { SelfTest.run() }
         if arguments.contains("--diagnose") { DiagnosticReport.printAndExit() }
         if arguments.contains("--bench-loop") { BenchLoop.run(arguments: arguments) }
+        if let at = arguments.firstIndex(of: "--render-groups"), at + 1 < arguments.count {
+            RenderGroups.run(into: arguments[at + 1])
+            exit(0)
+        }
         if let at = arguments.firstIndex(of: "--render"), at + 1 < arguments.count {
             RenderMode.run(into: arguments[at + 1])
             exit(0)

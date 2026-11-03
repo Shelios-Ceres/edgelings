@@ -192,7 +192,7 @@ enum SelfTest {
                 var seen: Set<String> = []
                 var grouped = false
                 for second in stride(from: 0.0, through: 60.0, by: 1.0) {
-                    let reply = bridge.request("rotate", ["now": second, "reduced": false, "bots": [["id": "claude", "phase": "Thinking"]]])
+                    let reply = bridge.request("rotate", ["theme": theme, "now": second, "reduced": false, "bots": [["id": "claude", "phase": "Thinking"]]])
                     let answer = (reply["bots"] as? [[String: Any]])?.first
                     grouped = answer?["grouped"] as? Bool == true
                     if let state = answer?["state"] as? String { seen.insert(state) }

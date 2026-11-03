@@ -1,71 +1,62 @@
-// Task 4's sample films from the Mac drawer's own pipeline: each agent's character plays a
-// realistic stretch of a session (the design chats' timelines, modelled on the 21-day replay)
-// through Core's GroupRotation on a fake clock and the real engine, and a frame is kept each
-// second. One contact sheet per style and theme: a block per agent, one cell per second, the
-// phase named where it changes and the state the bot plays under every frame.
+// Task 4's films from the Mac drawer's own pipeline, built as the Windows films are
+// (DrawerWindow.GroupsFilm.cs) so the traces can be diffed line by line: every look of every
+// agent plays its style's sample turn twice through the real engine, once as the drawer played it
+// before the groups (every phase its own state) and once through Core's GroupRotation, on a
+// 1/30 s clock; a frame is kept every two seconds, and groups-trace-<style>.txt lists each change
+// of state. `Edgelings --render-groups <folder>`.
 import SwiftUI
 import AppKit
 
 enum RenderGroups {
-    struct Cell {
-        let second: Int
+    static let frameEvery = 2.0
+    static let kinds = ["claude", "codex", "antigravity", "grok", "kimi", "deepseek"]
+
+    // [phase word, seconds] per agent, as in each design chat's sample page.
+    static let pixelTurns: [String: String] = [
+        "claude": "thinking 14, running 6, streaming 4, thinking 18, reading 3, writing 5, running 16, streaming 6, finished 4",
+        "codex": "thinking 26, streaming 10, running 8, thinking 30, streaming 12, finished 4",
+        "antigravity": "thinking 8, running 10, writing 12, reading 6, thinking 10, web 8, finished 4",
+        "grok": "thinking 16, searching 6, running 12, streaming 14, finished 4",
+        "kimi": "thinking 43, running 2, thinking 30, spawning 12, thinking 20, finished 4",
+        "deepseek": "thinking 22, writing 8, thinking 34, running 6, finished 4",
+    ]
+
+    static let classicTurns: [String: String] = [
+        "claude": "thinking 18, streaming 4, running 9, thinking 12, reading 2, writing 3, streaming 5, running 14, thinking 22, streaming 6, finished 7",
+        "codex": "thinking 34, streaming 8, running 6, thinking 26, writing 2, streaming 10, running 5, thinking 8, finished 7",
+        "kimi": "thinking 43, running 2, thinking 18, spawning 2, orbit 14, thinking 12, writing 2, streaming 4, finished 7",
+        "antigravity": "running 8, reading 4, thinking 6, writing 10, searching 4, running 12, thinking 8, controlling 6, web 4, reading 3, writing 6, thinking 4, running 10, finished 7",
+        "grok": "thinking 25, web 6, streaming 8, thinking 15, searching 4, streaming 6, thinking 14, streaming 5, finished 7",
+        "deepseek": "thinking 20, streaming 6, running 12, writing 6, thinking 18, streaming 8, running 6, thinking 10, finished 7",
+    ]
+
+    struct Frame {
+        let at: Double
         let phase: String
         let state: String
         let image: CGImage
     }
 
-    struct Block {
-        let kind: String
-        let look: String
-        let cells: [Cell]
-    }
-
-    static let kinds = ["claude", "codex", "antigravity", "grok", "kimi", "deepseek"]
-
-    // [phase, seconds] per agent, as in each design chat's sample page.
-    static let pixelTurns: [String: [(String, Double)]] = [
-        "claude": [("thinking", 14), ("running", 6), ("streaming", 4), ("thinking", 18), ("reading", 3), ("writing", 5), ("running", 16), ("streaming", 6), ("finished", 4)],
-        "codex": [("thinking", 26), ("streaming", 10), ("running", 8), ("thinking", 30), ("streaming", 12), ("finished", 4)],
-        "antigravity": [("thinking", 8), ("running", 10), ("writing", 12), ("reading", 6), ("thinking", 10), ("web", 8), ("finished", 4)],
-        "grok": [("thinking", 16), ("searching", 6), ("running", 12), ("streaming", 14), ("finished", 4)],
-        "kimi": [("thinking", 43), ("running", 2), ("thinking", 30), ("spawning", 12), ("thinking", 20), ("finished", 4)],
-        "deepseek": [("thinking", 22), ("writing", 8), ("thinking", 34), ("running", 6), ("finished", 4)],
-    ]
-
-    static let classicTurns: [String: [(String, Double)]] = [
-        "claude": [("thinking", 18), ("streaming", 4), ("running", 9), ("thinking", 12), ("reading", 2), ("writing", 3), ("streaming", 5), ("running", 14), ("thinking", 22), ("streaming", 6), ("finished", 7)],
-        "codex": [("thinking", 34), ("streaming", 8), ("running", 6), ("thinking", 26), ("writing", 2), ("streaming", 10), ("running", 5), ("thinking", 8), ("finished", 7)],
-        "kimi": [("thinking", 43), ("running", 2), ("thinking", 18), ("spawning", 2), ("orbit", 14), ("thinking", 12), ("writing", 2), ("streaming", 4), ("finished", 7)],
-        "antigravity": [("running", 8), ("reading", 4), ("thinking", 6), ("writing", 10), ("searching", 4), ("running", 12), ("thinking", 8), ("controlling", 6), ("web", 4), ("reading", 3), ("writing", 6), ("thinking", 4), ("running", 10), ("finished", 7)],
-        "grok": [("thinking", 25), ("web", 6), ("streaming", 8), ("thinking", 15), ("searching", 4), ("streaming", 6), ("thinking", 14), ("streaming", 5), ("finished", 7)],
-        "deepseek": [("thinking", 20), ("streaming", 6), ("running", 12), ("writing", 6), ("thinking", 18), ("streaming", 8), ("running", 6), ("thinking", 10), ("finished", 7)],
-    ]
-
-    /// The AgentPhase a sample turn's word stands for.
-    static func agentPhase(_ word: String) -> String {
-        switch word {
-        case "thinking": return "Thinking"
-        case "streaming": return "Streaming"
-        case "reading": return "Reading"
-        case "searching": return "Searching"
-        case "web": return "WebSearching"
-        case "writing": return "Writing"
-        case "running": return "Running"
-        case "controlling": return "Controlling"
-        case "spawning": return "Spawning"
-        case "orbit": return "WaitingOnAgents"
-        default: return "Finished"
+    private static func turn(_ text: String) -> [(phase: String, seconds: Double)] {
+        text.components(separatedBy: ",").map { part in
+            let pair = part.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
+            let phase: String
+            switch pair[0] {
+            case "web": phase = "WebSearching"
+            case "orbit": phase = "WaitingOnAgents"
+            default: phase = pair[0].prefix(1).uppercased() + pair[0].dropFirst()
+            }
+            return (phase, Double(pair[1]) ?? 0)
         }
     }
 
-    /// Colour of a phase's group, for the bar under a cell (the agents with a Busy group show Think and Do alike).
-    static func groupColor(_ word: String, busy: Bool) -> Color {
-        switch word {
-        case "thinking", "streaming", "compacting": return busy ? Color(hex: 0xC2448A) : Color(hex: 0x6B4EE6)
-        case "reading", "searching", "web", "writing", "running", "controlling", "working": return busy ? Color(hex: 0xC2448A) : Color(hex: 0xD9822B)
-        case "spawning", "orbit", "sending": return Color(hex: 0x2E9E8F)
-        default: return Color(hex: 0x9A97A3)
+    private static func phaseAt(_ turn: [(phase: String, seconds: Double)], _ time: Double) -> String {
+        var t = time
+        for part in turn {
+            if t + 1e-9 < part.seconds { return part.phase }
+            t -= part.seconds
         }
+        return turn.last!.phase
     }
 
     private static func image(of svg: String, pixel: Bool) -> CGImage? {
@@ -79,117 +70,129 @@ enum RenderGroups {
         return ctx.makeImage()
     }
 
-    /// Plays every agent's turn through Core's rotation and the engine; a frame each second.
-    static func simulate(theme: String) -> [Block]? {
-        guard let bridge = AppController.shared.bridge,
-              let engine = try? CharacterEngine(theme: theme, directory: AppController.enginesDirectory()) else { return nil }
-        let pixel = theme == "pixel"
-        let skin: Skin = pixel ? .pixel : .classic
-        let turns = pixel ? pixelTurns : classicTurns
-        var result: [Block] = []
-        for (position, kind) in kinds.enumerated() {
-            guard let turn = turns[kind] else { continue }
-            let look = SampleLooks.look(kind, skin).id
-            let index = engine.addBot(kind: kind, tempo: 1, seed: 7 + position * 13, look: look)
-            let states = (bridge.request("rotationStates", ["theme": theme, "kind": kind, "look": look])["states"] as? [String]) ?? []
-            let cycles = engine.cycles(kind: kind, look: look, states: states, tempo: 1)
-            bridge.request("rotationSetup", ["theme": theme, "bots": [["id": kind, "kind": kind, "look": look, "cycles": cycles] as [String: Any]]])
-            let total = turn.reduce(0) { $0 + $1.1 }
-            let step = 0.1
-            var applied = ""
-            var cells: [Cell] = []
-            var shot = 0
-            var t = 0.0
-            while t < total {
-                var end = 0.0
-                var word = turn.last!.0
-                for (name, seconds) in turn {
-                    end += seconds
-                    if t < end - 1e-9 { word = name; break }
-                }
-                let reply = bridge.request("rotate", ["now": t, "reduced": false, "bots": [["id": kind, "phase": agentPhase(word)]]])
-                if let answer = (reply["bots"] as? [[String: Any]])?.first, let state = answer["state"] as? String, state != applied {
-                    applied = state
-                    engine.setState(index, state, phase: 0)
-                }
-                var dts = [Double?](repeating: nil, count: index + 1)
-                dts[index] = step
-                if let produced = engine.tick(dts, size: 44)[index] {
-                    // A self-completing state (finished) settles into the set's resting pose, as the drawer's hold does.
-                    if produced.state == "idle" && applied != "idle" {
-                        applied = engine.draws("listening") ? "listening" : "idle"
-                        engine.setState(index, applied, phase: -1)
-                    }
-                    if Double(shot) <= t + 1e-9, let picture = image(of: produced.svg, pixel: pixel) {
-                        cells.append(Cell(second: shot, phase: word, state: produced.state, image: picture))
-                        shot += 1
-                    }
-                }
-                t += step
-            }
-            result.append(Block(kind: kind, look: look, cells: cells))
-        }
-        return result
+    private static func padded(_ text: String, _ width: Int) -> String {
+        text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
     }
 
-    private struct CellView: View {
-        let cell: Cell
-        let named: Bool
-        let busy: Bool
-        let dark: Bool
-
-        var body: some View {
-            VStack(spacing: 1) {
-                Text(named ? cell.phase : " ").font(.system(size: 8, weight: .semibold)).lineLimit(1)
-                Image(decorative: cell.image, scale: 2).resizable().interpolation(.none).frame(width: 44, height: 44)
-                Rectangle().fill(RenderGroups.groupColor(cell.phase, busy: busy)).frame(height: 3)
-                Text(cell.state).font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.7)
-                Text("\(cell.second) s").font(.system(size: 7)).foregroundColor(.secondary)
+    /// Plays one look's turn, today or grouped; appends its trace lines and returns the kept frames.
+    private static func play(engine: CharacterEngine, index: Int, count: Int, theme: String, id: String, turn: [(phase: String, seconds: Double)],
+                             grouped: Bool, label: String, trace: inout String, pixel: Bool) -> [Frame] {
+        guard let bridge = AppController.shared.bridge else { return [] }
+        engine.setState(index, "idle", phase: 0)
+        var playing: String?
+        var frames: [Frame] = []
+        let total = turn.reduce(0) { $0 + $1.seconds }
+        var dts = [Double?](repeating: nil, count: count)
+        dts[index] = 1.0 / 30.0
+        var nextFrame = frameEvery / 2
+        trace += "== \(label) \(grouped ? "grouped" : "today")\n"
+        var t = 0.0
+        while t < total {
+            let phase = phaseAt(turn, t)
+            let reply = bridge.request("rotate", ["theme": theme, "today": !grouped, "now": t, "reduced": false, "bots": [["id": id, "phase": phase]]])
+            guard let state = ((reply["bots"] as? [[String: Any]])?.first)?["state"] as? String else { t += 1.0 / 30.0; continue }
+            if state != playing {
+                trace += String(format: "%6.1f", t) + " s  " + padded(phase, 16) + " -> " + state + "\n"
+                engine.setState(index, state, phase: 0)
+                playing = state
             }
-            .frame(width: 50)
+            if t >= nextFrame {
+                if let produced = engine.tick(dts, size: 44)[index], let picture = image(of: produced.svg, pixel: pixel) {
+                    frames.append(Frame(at: t, phase: phase, state: playing ?? "", image: picture))
+                    nextFrame += frameEvery
+                }
+            } else {
+                engine.benchAdvance(dts)
+            }
+            t += 1.0 / 30.0
+        }
+        return frames
+    }
+
+    private struct FrameCell: View {
+        let frame: Frame
+        var body: some View {
+            VStack(spacing: 0) {
+                Text("\(Int(frame.at))s \(String(frame.phase.prefix(5)))").font(.system(size: 8)).lineLimit(1)
+                Image(decorative: frame.image, scale: 2).resizable().interpolation(.none).frame(width: 44, height: 44)
+                Text(frame.state).font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.6)
+            }
+            .frame(width: 56)
         }
     }
 
     @MainActor
-    static func sheet(theme: String, dark: Bool, blocks: [Block]) -> NSImage? {
-        let perRow = 20
-        let ink = dark ? Color.white : Color.black
-        let view = VStack(alignment: .leading, spacing: 18) {
-            Text("Work-state groups on the Mac drawer (\(theme)): Core's rotation on a fake clock, the real engine, a frame each second. Bar colour: Think violet, Do orange, Team green, Busy magenta, other grey.")
-                .font(.system(size: 11)).frame(width: 1000, alignment: .leading)
-            ForEach(blocks, id: \.kind) { block in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(block.kind) · \(block.look)").font(.system(size: 13, weight: .semibold))
-                    let busy = block.kind == "kimi" || block.kind == "antigravity"
-                    ForEach(0..<((block.cells.count + perRow - 1) / perRow), id: \.self) { row in
-                        HStack(spacing: 0) {
-                            ForEach(Array(block.cells[(row * perRow)..<min(block.cells.count, (row + 1) * perRow)].enumerated()), id: \.offset) { offset, cell in
-                                let previous = row * perRow + offset > 0 ? block.cells[row * perRow + offset - 1].phase : ""
-                                CellView(cell: cell, named: cell.phase != previous, busy: busy, dark: dark)
-                            }
+    private static func strip(title: String, today: [Frame], grouped: [Frame]) -> NSImage? {
+        let perRow = 28
+        let view = VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 9))
+            ForEach(0..<((today.count + perRow - 1) / perRow), id: \.self) { line in
+                ForEach(0..<2, id: \.self) { mode in
+                    let frames = mode == 0 ? today : grouped
+                    HStack(spacing: 4) {
+                        ForEach(Array(frames[(line * perRow)..<min(frames.count, (line + 1) * perRow)].enumerated()), id: \.offset) { _, frame in
+                            FrameCell(frame: frame)
                         }
                     }
                 }
             }
         }
-        .foregroundColor(ink)
-        .padding(16)
-        .background(dark ? Color(red: 0.11, green: 0.11, blue: 0.125) : Color(red: 0.94, green: 0.93, blue: 0.9))
+        .foregroundColor(Color(red: 0.09, green: 0.1, blue: 0.12))
+        .padding(4)
+        .background(Color(red: 0.95, green: 0.95, blue: 0.94))
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         return renderer.nsImage
     }
 
+    /// Every look of every agent in both styles, into `folder`.
     @MainActor
-    static func run(save: (NSImage?, String) -> Void) {
+    static func run(into folder: String) {
+        let url = URL(fileURLWithPath: folder)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        PixelFace.register()
+        RenderFlags.offscreen = true
+        PixelFace.scale = 2
+        guard let bridge = AppController.shared.bridge else { NSLog("render: no Core"); return }
+        var written = 0
         for theme in ["pixel", "classic"] {
-            guard let blocks = simulate(theme: theme) else {
-                NSLog("render: work groups \(theme) could not be simulated")
+            guard let engine = try? CharacterEngine(theme: theme, directory: AppController.enginesDirectory()) else {
+                NSLog("render: engine \(theme) did not load")
                 continue
             }
-            for dark in [false, true] {
-                save(sheet(theme: theme, dark: dark, blocks: blocks), "groups-\(theme)-\(dark ? "dark" : "light").png")
+            let pixel = theme == "pixel"
+            let turns = pixel ? pixelTurns : classicTurns
+            var trace = ""
+            // One bot per agent, each at its own tempo as in the drawer.
+            var indexes: [String: Int] = [:]
+            var tempos: [String: Double] = [:]
+            for (position, kind) in kinds.enumerated() {
+                let tempo = (bridge.request("rotationStates", ["theme": theme, "id": kind, "kind": kind, "look": SampleLooks.look(kind, pixel ? .pixel : .classic).id])["tempo"] as? Double) ?? 1
+                tempos[kind] = tempo
+                indexes[kind] = engine.addBot(kind: kind, tempo: tempo, seed: 7 + position * 13, look: SampleLooks.look(kind, pixel ? .pixel : .classic).id)
             }
+            for kind in kinds {
+                guard let text = turns[kind], let index = indexes[kind] else { continue }
+                let parsed = turn(text)
+                let reply = bridge.request("looks", ["id": kind, "theme": theme])
+                for look in LooksModel.from(reply)?.looks ?? [] {
+                    engine.setLook(index, look.id)
+                    let states = (bridge.request("rotationStates", ["theme": theme, "id": kind, "kind": kind, "look": look.id])["states"] as? [String]) ?? []
+                    let cycles = engine.cycles(kind: kind, look: look.id, states: states, tempo: tempos[kind] ?? 1)
+                    bridge.request("rotationSetup", ["theme": theme, "bots": [["id": kind, "kind": kind, "look": look.id, "cycles": cycles] as [String: Any]]])
+                    let label = "\(theme) \(kind)/\(look.id)"
+                    let today = play(engine: engine, index: index, count: kinds.count, theme: theme, id: kind, turn: parsed, grouped: false, label: label, trace: &trace, pixel: pixel)
+                    let grouped = play(engine: engine, index: index, count: kinds.count, theme: theme, id: kind, turn: parsed, grouped: true, label: label, trace: &trace, pixel: pixel)
+                    let title = "\(theme) · \(kind)/\(look.id) · a frame every 2 s · top row today, bottom row grouped · Mac drawer pipeline"
+                    if let image = strip(title: title, today: today, grouped: grouped), let tiff = image.tiffRepresentation,
+                       let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: url.appendingPathComponent("groups-\(theme)-\(kind)-\(look.id).png"))
+                        written += 1
+                    }
+                }
+            }
+            try? trace.write(to: url.appendingPathComponent("groups-trace-\(theme).txt"), atomically: true, encoding: .utf8)
         }
+        NSLog("render: wrote \(written) group strips to \(folder)")
     }
 }

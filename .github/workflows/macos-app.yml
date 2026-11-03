@@ -102,6 +102,13 @@ jobs:
           EDGELINGS_ROOT="$RUNNER_TEMP/render-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --render out/renders 2>&1 | tee out/render.log
           ls -l out/renders
 
+      - name: Work-state group films (every look, both styles, the Mac drawer's own pipeline)
+        timeout-minutes: 20
+        run: |
+          mkdir -p out/groups
+          EDGELINGS_ROOT="$RUNNER_TEMP/groups-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --render-groups out/groups 2>&1 | tee out/groups.log
+          ls out/groups | wc -l
+
       - name: Real-screen check (launch the app, drive it with real input, measure CPU)
         timeout-minutes: 15
         run: |
@@ -157,6 +164,12 @@ jobs:
         with:
           name: Edgelings-renders
           path: out/renders
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Edgelings-groups
+          path: out/groups
 
       - uses: actions/upload-artifact@v4
         if: always()
