@@ -7,6 +7,7 @@ enum AppStrings {
         "Settings…", "Quit Edgelings", "Show drawer", "Hide drawer", "Lock position", "Unlock position",
         "Move to left edge", "Move to right edge", "Classic characters", "Pixel characters", "Character lines",
         "Shown agents", "Look", "Locked in place.\nRight-click to unlock.",
+        "Today", "This month", "+{0} more",
     ]
 
     private static let zh: [String: String] = [
@@ -31,7 +32,20 @@ enum AppStrings {
         }
     }
 
-    static func t(_ key: String) -> String {
+    /// The table at once, for the renders (which never poll).
+    static func loadNow(chinese now: Bool) {
+        chinese = now
+        let reply = AppController.shared.bridge?.request("tr", ["keys": keys]) ?? [:]
+        if let strings = reply["strings"] as? [String: String] { table = strings }
+    }
+
+    static func t(_ key: String, _ arguments: String...) -> String {
+        var text = lookup(key)
+        for (index, argument) in arguments.enumerated() { text = text.replacingOccurrences(of: "{\(index)}", with: argument) }
+        return text
+    }
+
+    private static func lookup(_ key: String) -> String {
         if let known = table[key], !known.isEmpty, known != key { return known }
         if chinese, let mac = zh[key] { return mac }
         return known(key)

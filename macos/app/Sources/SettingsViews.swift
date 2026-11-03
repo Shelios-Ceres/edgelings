@@ -232,7 +232,7 @@ struct GeneralPage: View {
                 Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high).frame(width: 48, height: 48)
                 VStack(alignment: .leading, spacing: 2) {
                     SkinText(pixel: store.skin == .pixel, text: "Edgelings", pixelSize: 15, size: 15, weight: .semibold, color: store.palette.color("Text"))
-                    SkinText(pixel: store.skin == .pixel, text: "Mac test build", pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
+                    SkinText(pixel: store.skin == .pixel, text: store.t("Mac test build"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
                 }
             }
             SkinText(pixel: store.skin == .pixel, text: store.t("Thanks"), pixelSize: 12, size: 12, weight: .semibold, color: store.palette.color("Text")).padding(.top, 6)

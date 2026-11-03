@@ -33,6 +33,7 @@ enum RenderMode {
             AppController.shared.bridge?.request("set", ["language": zh ? "zh" : "en"])
             PixelFace.chinese = zh
             RenderText.chinese = zh
+            AppStrings.loadNow(chinese: zh)
             for skin in [Skin.pixel, Skin.classic] {
                 for dark in [false, true] {
                     let tag = "\(skin == .pixel ? "pixel" : "classic")-\(dark ? "dark" : "light")" + (zh ? "-zh" : "")
@@ -46,6 +47,7 @@ enum RenderMode {
         AppController.shared.bridge?.request("set", ["language": "en"])
         PixelFace.chinese = false
         RenderText.chinese = false
+        AppStrings.loadNow(chinese: false)
         for pixel in [true, false] {
             for dark in [false, true] {
                 for scale in [1, 2] {

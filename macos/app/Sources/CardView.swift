@@ -121,7 +121,7 @@ struct CardSection: View {
                 }
             }
             if card.waiting.more > 0 {
-                SkinText(pixel: pixel, text: "+\(card.waiting.more) more", pixelSize: 13, size: 12, weight: .regular, color: pixel ? secondary : tertiary)
+                SkinText(pixel: pixel, text: AppStrings.t("+{0} more", "\(card.waiting.more)"), pixelSize: 13, size: 12, weight: .regular, color: pixel ? secondary : tertiary)
             }
         }
     }
@@ -161,8 +161,8 @@ struct CardSection: View {
                 SkinText(pixel: pixel, text: tokens.today, pixelSize: 13, size: 12, weight: .regular, color: tertiary)
             } else {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack { SkinText(pixel: pixel, text: "Today", pixelSize: 13, size: 12, weight: .regular, color: secondary); Spacer(); EmphasisedText(pixel: pixel, phrase: tokens.todayNumber, numbers: [tokens.todayNumber], strong: primary, base: primary, pixelSize: 13, size: 12) }
-                    HStack { SkinText(pixel: pixel, text: "This month", pixelSize: 13, size: 12, weight: .regular, color: secondary); Spacer(); EmphasisedText(pixel: pixel, phrase: tokens.monthNumber, numbers: [tokens.monthNumber], strong: primary, base: primary, pixelSize: 13, size: 12) }
+                    HStack { SkinText(pixel: pixel, text: AppStrings.t("Today"), pixelSize: 13, size: 12, weight: .regular, color: secondary); Spacer(); EmphasisedText(pixel: pixel, phrase: tokens.todayNumber, numbers: [tokens.todayNumber], strong: primary, base: primary, pixelSize: 13, size: 12) }
+                    HStack { SkinText(pixel: pixel, text: AppStrings.t("This month"), pixelSize: 13, size: 12, weight: .regular, color: secondary); Spacer(); EmphasisedText(pixel: pixel, phrase: tokens.monthNumber, numbers: [tokens.monthNumber], strong: primary, base: primary, pixelSize: 13, size: 12) }
                 }
             }
         }
