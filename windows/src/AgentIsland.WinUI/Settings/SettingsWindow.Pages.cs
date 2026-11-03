@@ -188,6 +188,7 @@ internal sealed partial class SettingsWindow
 
     // The usage numbers on the Usage & cost page, while it shows.
     private Cost.CostPage? _costPage;
+    private SettingsExpander? _about;
 
     private void EndCostPage()
     {
@@ -250,6 +251,7 @@ internal sealed partial class SettingsWindow
             Description = L10n.Tr("Closes the drawer and the tray icon"),
             Content = Button(L10n.Tr("Quit"), () => App.Current.Quit()),
         });
+        _about = about;
         body.Children.Add(about);
     }
 

@@ -62,6 +62,14 @@ internal sealed partial class SettingsWindow
             await Task.Delay(1500);
             if (window.Content is { } content) await Shell.Snapshot.SaveAsync(content, Path.Combine(directory, $"settings-{page}.png"));
             if (window._scroll.Content is UIElement body) await Shell.Snapshot.SaveAsync(body, Path.Combine(directory, $"settings-{page}-full.png"));
+            if (page == Page.General && window._about is { } about)
+            {
+                // About open, to see its credits.
+                about.IsExpanded = true;
+                await Task.Delay(1500);
+                if (window._scroll.Content is UIElement opened) await Shell.Snapshot.SaveAsync(opened, Path.Combine(directory, "settings-General-about-full.png"));
+                about.IsExpanded = false;
+            }
         }
     }
 
