@@ -30,7 +30,7 @@ Thank you for testing. This is an early build of Edgelings, the little character
 
 ## What to try
 
-1. **The drawer.** A column of round characters appears on the right edge of the main display, one per agent it finds (Claude, Codex, Antigravity, Grok, Kimi Code, DeepSeek). Drag one up or down to move the column. Right-click a character for the menu.
+1. **The drawer.** A column of round characters appears on the right edge of the main display, one per agent it finds (Claude, Codex, Antigravity, Grok, Kimi, DeepSeek). Drag one up or down to move the column. Right-click a character for the menu.
 2. **Each agent open, minimized, closed.** With an agent's app open, its character is awake. Minimize its windows: it should fall asleep. Quit the app: it sleeps too. Bring it back and it wakes. Please note any agent that does not follow.
 3. **A long answer.** Ask Claude (or another agent) something that takes a minute. Its character should change while it works (thinking, reading, writing...) and say a line when it finishes or needs your approval.
 4. **The hover card.** Rest the pointer on a character: a card shows the agent's phase, quota bars and token counts. Check the numbers against the agent's own usage page.
