@@ -107,8 +107,9 @@ internal sealed partial class DrawerWindow
                 if (_loopTheme != theme || _engine is not { } engine) return;
                 var slot = _slots[index];
                 engine.SetLook(index, look);
-                // The new look has its own table: its rotation begins afresh.
+                // The new look has its own table: its rotation begins afresh, at its main motion.
                 slot.Rotation = null;
+                slot.Playing = null;
                 slot.Swatch = swatch;
                 slot.Fidgets = engine.Fidgets(provider, look);
                 slot.Fidget = null;
