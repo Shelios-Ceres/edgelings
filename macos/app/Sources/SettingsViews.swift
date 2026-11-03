@@ -172,8 +172,8 @@ struct DrawerPage: View {
             SettingRow(store: store, glyph: "E83F", symbol: "battery.100", title: store.t("Save battery"), subtitle: store.t("On battery, characters run at 60 fps at most")) {
                 KitToggle(store: store, isOn: drawer.saveBattery) { store.setDrawer(["saveBattery": $0]) }
             }
-            SettingRow(store: store, glyph: "E740", symbol: "arrow.up.left.and.arrow.down.right", title: store.t("In full screen"),
-                       subtitle: store.t("Keep showing over full-screen apps; off hides the characters until you leave full screen")) {
+            SettingRow(store: store, glyph: "E740", symbol: "arrow.up.left.and.arrow.down.right", title: store.t("Show in full screen"),
+                       subtitle: store.t("Characters stay over full-screen apps instead of hiding")) {
                 KitToggle(store: store, isOn: drawer.overFullscreen ?? false) { store.setDrawer(["overFullscreen": $0]) }
             }
             SettingRow(store: store, glyph: "E768", symbol: "sparkles", title: store.t("Animation"),
