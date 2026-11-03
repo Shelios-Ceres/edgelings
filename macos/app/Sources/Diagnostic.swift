@@ -202,6 +202,34 @@ enum SelfTest {
                 check("engine \(theme)", false, "\(error)")
             }
         }
+        // The real apply and show path: a phase change inside a group must not put the bot into the same state
+        // again (that restarted the motion from frame 0 and cut the switch to the second slot mid-cycle).
+        let controller = DrawerController()
+        var states: [String] = []
+        controller.onSetState = { _, state in states.append(state) }
+        let base = bridge.request("frame", ["now": 9.0, "shown": true])
+        func variant(phase: String, seq: Int) -> FrameModel? {
+            var copy = base
+            guard var bots = copy["bots"] as? [[String: Any]], let at = bots.firstIndex(where: { ($0["id"] as? String) == "claude" }) else { return nil }
+            bots[at]["visible"] = true
+            bots[at]["resting"] = false
+            bots[at]["phase"] = phase
+            bots[at]["grouped"] = true
+            bots[at]["seq"] = seq
+            copy["bots"] = bots
+            return FrameModel.from(copy)
+        }
+        if let first = variant(phase: "Thinking", seq: 1), let second = variant(phase: "Streaming", seq: 2) {
+            controller.apply(first)
+            controller.rotate(now: 0, reduced: false)
+            let entered = states.count
+            controller.apply(second)
+            controller.rotate(now: 0.5, reduced: false)
+            check("a group is entered at its main motion", entered == 1, "\(states)")
+            check("a phase change inside a group does not restart the motion", entered == 1 && states.count == entered, "\(states)")
+        } else {
+            check("a phase change inside a group does not restart the motion", false, "the frame had no Claude")
+        }
         exit(failed ? 1 : 0)
     }
 }

@@ -73,6 +73,8 @@ final class DrawerController {
     private let canvas = SvgCanvas()
     private let clock = Date()
     private var away = false
+    /// The self-test watches the states the rotation puts a bot into.
+    var onSetState: ((Int, String) -> Void)?
     /// "In full screen" is off and another app is full screen on the drawer's display: the drawer is out of sight.
     private var covered = false
     private var reducedMotion = DrawerController.systemReducedMotion
@@ -203,7 +205,7 @@ final class DrawerController {
     }
 
     /// Core's rotation says which state each grouped bot plays now; a change puts the bot into it from the start.
-    private func rotate(now: Double, reduced: Bool) {
+    func rotate(now: Double, reduced: Bool) {
         guard let engine, let frame, let bridge = AppController.shared.bridge else { return }
         var asked: [[String: Any]] = []
         var places: [String: Int] = [:]
@@ -215,7 +217,8 @@ final class DrawerController {
         }
         guard !asked.isEmpty else { return }
         let reply = bridge.request("rotate", ["theme": frame.theme, "now": now, "reduced": reduced, "bots": asked])
-        for slot in slots { slot.needsLeave = false }
+        // Only the bots that were asked have been told; a hidden one that left a group is told when it is next asked.
+        for index in places.values { slots[index].needsLeave = false }
         for answer in reply["bots"] as? [[String: Any]] ?? [] {
             guard let id = answer["id"] as? String, let index = places[id], answer["grouped"] as? Bool == true, let state = answer["state"] as? String else { continue }
             let slot = slots[index]
@@ -224,6 +227,7 @@ final class DrawerController {
             slot.hold = state
             slot.since = now
             slot.nextStep = 0
+            onSetState?(index, state)
             engine.setState(index, state, phase: 0)
         }
     }
@@ -254,10 +258,11 @@ final class DrawerController {
         var hold = bot.hold
         if slot.grouped && !bot.resting {
             // A work group's state comes from the rotation on the next tick; entry and hold stand aside.
+            // A phase change inside a group keeps the motion playing (rotated stays); entering a group
+            // finds it nil (apply clears it while ungrouped), and a look change clears it in setupRotation.
             slot.resting = false
             slot.since = now
             slot.fidget = nil
-            slot.rotated = nil
             slot.nextStep = 0
             return
         }
