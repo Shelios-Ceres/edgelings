@@ -184,12 +184,12 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             _lastWorking, StringComparer.OrdinalIgnoreCase);
         LastScan = Task.Run(() =>
             {
-                var gone = AgentProcesses.Gone();
-                var desktopGone = AgentProcesses.DesktopGone();
+                var gone = CoreProfile.Time("scan: process table", () => AgentProcesses.Gone());
+                var desktopGone = CoreProfile.Time("scan: desktop apps", () => AgentProcesses.DesktopGone());
                 var offline = InternetStatus.IsOffline(now);
-                var sessions = Settle(
-                    PrepareSessions(Scanner(now, lastWorkingSnapshot), now), gone, offline, desktopGone);
-                return new Scan(sessions, offline, _events.Observe(sessions, now));
+                var scanned = CoreProfile.Time("scan: all agents", () => Scanner(now, lastWorkingSnapshot));
+                var sessions = CoreProfile.Time("scan: prepare and settle", () => Settle(PrepareSessions(scanned, now), gone, offline, desktopGone));
+                return new Scan(sessions, offline, CoreProfile.Time("scan: session events", () => _events.Observe(sessions, now)));
             })
             .ContinueWith(task =>
             {

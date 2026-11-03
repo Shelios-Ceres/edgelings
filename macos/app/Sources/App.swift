@@ -65,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in self?.drawer.setAway(true) }
         workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.drawer.setAway(false) }
         installStatusItem()
+        // For the real-screen check on a runner: write the diagnostic (with the CPU breakdown) to a file
+        // after a while, so the numbers of a run that has been working can be read.
+        if let path = ProcessInfo.processInfo.environment["EDGELINGS_DIAG_FILE"] {
+            let after = Double(ProcessInfo.processInfo.environment["EDGELINGS_DIAG_AFTER"] ?? "") ?? 60
+            Timer.scheduledTimer(withTimeInterval: after, repeats: false) { _ in DiagnosticReport.write(to: path) }
+        }
         quotaTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.refreshTooltip() }
         // Launching the app again brings the drawer back.
     }

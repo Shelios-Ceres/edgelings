@@ -46,6 +46,7 @@ enum DiagnosticReport {
         if let folders = report["kimiSupportFolders"] as? [String] {
             lines.append("Application Support folders named kimi or moonshot: \(folders.isEmpty ? "none" : folders.joined(separator: ", "))")
         }
+        lines.append(contentsOf: profileLines(report))
         let credentials = report["credentials"] as? [String: Any] ?? [:]
         lines.append("Claude login: \(value(credentials["claudeLoginSource"])) plan \(value(credentials["claudePlan"]))")
         lines.append("Codex auth file: \(value(credentials["codexAuthFile"])), Grok auth file: \(value(credentials["grokAuthFile"])), Cursor database: \(value(credentials["cursorDatabase"]))")
@@ -55,6 +56,23 @@ enum DiagnosticReport {
             lines.append("  tokens 30d \(name): \(value(entry["events"])) events, \(value(entry["wireTokens"])) tokens, \(value(entry["models"])) models")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Where the CPU goes: the process's share, then each subsystem's milliseconds per minute of the app's
+    /// life and what share of one core that is (60,000 ms per minute is one whole core). Names and times only.
+    static func profileLines(_ report: [String: Any]) -> [String] {
+        let shares = Perf.cpuShares()
+        var lines = ["CPU: \(shares.lastMinute.map { String(format: "%.1f%%", $0) } ?? "not sampled yet") of one core over the last minute, \(String(format: "%.1f%%", shares.sinceStart)) since start (up \(Int(shares.uptime)) s)"]
+        var rows: [(String, Int, Double, Double)] = Perf.rows().map { ("app: " + $0.name, $0.count, $0.msPerMinute, $0.worstMs) }
+        for row in (report["profile"] as? [[String: Any]]) ?? [] {
+            rows.append(("core: " + (row["name"] as? String ?? "?"), (row["count"] as? NSNumber)?.intValue ?? 0, (row["msPerMinute"] as? NSNumber)?.doubleValue ?? 0, (row["worstMs"] as? NSNumber)?.doubleValue ?? 0))
+        }
+        lines.append("Where the time goes (ms per minute of the app's life, share of one core, runs, slowest run):")
+        for row in rows.sorted(by: { $0.2 > $1.2 }).prefix(28) {
+            let name = row.0.padding(toLength: 40, withPad: " ", startingAt: 0)
+            lines.append(String(format: "  %@ %8.0f ms/min  %5.1f%%  %6d runs  worst %7.1f ms", name, row.2, row.2 / 600, row.1, row.3))
+        }
+        return lines
     }
 
     /// What only Swift knows: the displays' scale, the power source, and the loop's settings and rate.
@@ -79,6 +97,15 @@ enum DiagnosticReport {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(text(from: report), forType: .string)
+            }
+        }
+    }
+
+    /// The report as a file (see EDGELINGS_DIAG_FILE in App.swift).
+    static func write(to path: String) {
+        AppController.shared.request("windows", WindowSnapshot.request()) { _ in
+            AppController.shared.request("diagnose", [:]) { report in
+                try? text(from: report).write(toFile: path, atomically: true, encoding: .utf8)
             }
         }
     }

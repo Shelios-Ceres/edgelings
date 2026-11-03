@@ -139,7 +139,7 @@ public static class AppModel
 
             var pixel = IsPixel;
             var theme = DrawerStore.Shared.Theme;
-            Poll(now, pixel);
+            CoreProfile.Time("frame: poll", () => Poll(now, pixel));
 
             var visibility = ProviderVisibilityStore.Shared;
             var visible = DrawerVisibility.Characters(Bots.ToDictionary(b => b.Provider, b => visibility.IsShown(b.Provider)));
@@ -223,7 +223,7 @@ public static class AppModel
         }).ToList();
         if (now - _presenceAt >= 1)
         {
-            _presence = AgentPresences.Now();
+            _presence = CoreProfile.Time("frame: presence", () => AgentPresences.Now());
             _presenceAt = now;
         }
         using var english = pixel ? L10n.English() : null;

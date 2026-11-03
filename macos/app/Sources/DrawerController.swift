@@ -359,7 +359,7 @@ final class DrawerController {
         if fps == paceFps, loopTimer != nil { return }
         paceFps = fps
         loopTimer?.invalidate()
-        let timer = Timer(timeInterval: 1 / fps, repeats: true) { [weak self] _ in self?.tick() }
+        let timer = Timer(timeInterval: 1 / fps, repeats: true) { [weak self] _ in Perf.time("loop: tick (all of it)") { self?.tick() } }
         timer.tolerance = 0.2 / fps
         RunLoop.main.add(timer, forMode: .common)
         loopTimer = timer
@@ -487,8 +487,8 @@ final class DrawerController {
         pointerNear = anyNear
         // The pointer resting on a character opens its card even where the
         // window server sent no mouse-moved event (a non-activating panel).
-        if pressed == nil { pollHover(pointer) }
-        let frames = engine.tick(dts, size: Double(Metrics.botSize))
+        if pressed == nil { Perf.time("loop: hover polling") { pollHover(pointer) } }
+        let frames = Perf.time("loop: JavaScript step") { engine.tick(dts, size: Double(Metrics.botSize)) }
         var changed = false
         for index in due where index < frames.count {
             guard let produced = frames[index] else { continue }
@@ -537,7 +537,7 @@ final class DrawerController {
         ctx.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
         ctx.translateBy(x: 0, y: CGFloat(pixels))
         ctx.scaleBy(x: scale, y: -scale)
-        try? canvas.render(svg: svg, into: ctx, antialias: frame?.isPixel != true)
+        Perf.time("loop: SVG draw (raster)") { try? canvas.render(svg: svg, into: ctx, antialias: frame?.isPixel != true) }
         slot.image = ctx.makeImage()
         slot.imageSvg = svg
         slot.imageScale = scale
@@ -832,6 +832,8 @@ final class DrawerView: NSView {
     override func rightMouseDown(with event: NSEvent) { controller?.rightClick(convert(event.locationInWindow, from: nil), event: event) }
 
     override func draw(_ dirtyRect: NSRect) {
+        let begin = ProcessInfo.processInfo.systemUptime
+        defer { Perf.add("present: drawer view draw", ProcessInfo.processInfo.systemUptime - begin) }
         guard let controller, let ctx = NSGraphicsContext.current?.cgContext else { return }
         let scale = window?.backingScaleFactor ?? 2
         let dark = DrawerController.isDark

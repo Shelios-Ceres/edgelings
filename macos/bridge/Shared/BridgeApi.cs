@@ -18,7 +18,8 @@ public static class BridgeApi
         {
             using var request = JsonDocument.Parse(requestJson);
             var method = request.RootElement.TryGetProperty("method", out var m) ? m.GetString() : null;
-            return method switch
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var reply = method switch
             {
                 "version" => Version(),
                 "configure" => Configure(request.RootElement),
@@ -42,6 +43,9 @@ public static class BridgeApi
                 "rescan" => SettingsApi.Rescan(),
                 _ => Error($"unknown method '{method}'"),
             };
+            // "diagnose" would count its own enumeration of the data folders.
+            if (method is not null and not "diagnose") CoreProfile.Add("bridge " + method, System.Diagnostics.Stopwatch.GetTimestamp() - started);
+            return reply;
         }
         catch (Exception error)
         {
@@ -159,6 +163,19 @@ public static class BridgeApi
             json.WriteEndObject();
 
             var ledger = Safe(() => CursorLogReader.Describe(), (0, 0, 0));
+            json.WriteNumber("coreUptimeSeconds", Math.Round(CoreProfile.UptimeSeconds, 1));
+            json.WriteStartArray("profile");
+            foreach (var row in CoreProfile.Snapshot().Take(24))
+            {
+                json.WriteStartObject();
+                json.WriteString("name", row.Name);
+                json.WriteNumber("count", row.Count);
+                json.WriteNumber("totalMs", Math.Round(row.TotalMs, 1));
+                json.WriteNumber("worstMs", Math.Round(row.WorstMs, 1));
+                json.WriteNumber("msPerMinute", Math.Round(row.MsPerMinute, 1));
+                json.WriteEndObject();
+            }
+            json.WriteEndArray();
             json.WriteStartObject("cursorLedger");
             json.WriteNumber("bubblesWithTokenCount", ledger.Item1);
             json.WriteNumber("nonZero", ledger.Item2);

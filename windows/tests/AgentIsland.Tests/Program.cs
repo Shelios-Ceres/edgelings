@@ -14,6 +14,10 @@ public static class Program
         {
             return LiveScan();
         }
+        if (args.Length > 0 && args[0] == "bigscan")
+        {
+            return BigScan(args.Length > 1 ? args[1] : "", args.Length > 2 && int.TryParse(args[2], out var rounds) ? rounds : 5);
+        }
         if (args.Length > 0 && args[0] == "kimiwork")
         {
             return KimiWorkLive();
@@ -250,6 +254,35 @@ public static class Program
             .Select(g => $"{g.Key} {g.Sum(e => e.WireTokens)} tok ${g.Sum(e => e.Dollars):0.00}{(g.Any(e => e.Dollars == 0) ? " (unpriced)" : "")}");
         Console.WriteLine($"Kimi Work by model: {string.Join("; ", priced)}");
         Console.WriteLine($"K2 models hidden from the model rows: {string.Join(", ", inWork.Select(e => e.Model).Distinct().Where(m => AgentIsland.Cost.KimiLogReader.IsK2(m, null)).OrderBy(m => m, StringComparer.Ordinal))}");
+        return 0;
+    }
+
+    /// Times Core's scans against a synthetic home of real sizes (make-big-home.py) under a temp root:
+    /// the session scan of every agent and the cost scans, a few rounds each, then CoreProfile's table.
+    private static int BigScan(string root, int rounds)
+    {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        IslandPaths.RootOverride = root;
+        IslandPaths.CacheDirOverride = Path.Combine(root, "cache");
+        Console.WriteLine($"root {root}, {rounds} rounds");
+        for (var i = 0; i < rounds; i++)
+        {
+            var sessions = SessionScanner.MonitoringScan(DateTimeOffset.UtcNow, new Dictionary<string, DateTimeOffset>());
+            if (i == 0) Console.WriteLine($"sessions found: {sessions.Count}");
+            CoreProfile.Time("process table", () => AgentProcesses.Gone());
+            CoreProfile.Time("presence", () => AgentPresences.Now());
+            CoreProfile.Time("cost scan claude", () => AgentIsland.Cost.ClaudeLogReader.Scan(30));
+            CoreProfile.Time("cost scan codex", () => AgentIsland.Cost.CodexLogReader.Scan(30));
+            CoreProfile.Time("cost scan antigravity", () => AgentIsland.Cost.AntigravityLogReader.Scan(30));
+            CoreProfile.Time("cost scan grok", () => AgentIsland.Cost.GrokLogReader.Scan(30));
+            try { CoreProfile.Time("cost scan cursor", () => AgentIsland.Cost.CursorLogReader.Scan(30)); } catch (Exception e) { Console.WriteLine("cursor: " + e.GetType().Name); }
+            CoreProfile.Time("cost scan kimi", () => AgentIsland.Cost.KimiLogReader.Scan(30));
+            CoreProfile.Time("cost scan deepseek", () => AgentIsland.Cost.DeepSeekLogReader.Scan(30));
+        }
+        foreach (var row in CoreProfile.Snapshot())
+        {
+            Console.WriteLine($"{row.Name,-26} {row.Count,3} runs  {row.TotalMs / Math.Max(1, row.Count),9:0.0} ms each  worst {row.WorstMs,8:0.0} ms");
+        }
         return 0;
     }
 

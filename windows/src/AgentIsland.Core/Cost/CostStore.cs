@@ -124,13 +124,13 @@ public sealed class CostStore : INotifyPropertyChanged
         // thread and committed together so a slow scan never blocks a fast one
         // twice. Antigravity's may ask its language servers for each step's
         // model, so it can take a few seconds the first time.
-        var claudeTask = Task.Run(() => CostSummarizer.Summarize(ClaudeLogReader.Scan(lookback), now));
-        var codexTask = Task.Run(() => CostSummarizer.Summarize(CodexLogReader.Scan(lookback), now));
-        var antigravityTask = Task.Run(() => CostSummarizer.Summarize(AntigravityLogReader.Scan(lookback), now) with { ModelNames = AntigravityLogReader.ModelNames() });
-        var grokTask = Task.Run(() => CostSummarizer.Summarize(GrokLogReader.Scan(lookback), now));
-        var cursorTask = Task.Run(() => CostSummarizer.Summarize(CursorLogReader.Scan(lookback), now));
-        var kimiTask = Task.Run(() => CostSummarizer.Summarize(KimiLogReader.Scan(lookback), now) with { ModelNames = KimiLogReader.ModelNames() });
-        var deepSeekTask = Task.Run(() => CostSummarizer.Summarize(DeepSeekLogReader.Scan(lookback), now));
+        var claudeTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan claude", () => ClaudeLogReader.Scan(lookback)), now));
+        var codexTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan codex", () => CodexLogReader.Scan(lookback)), now));
+        var antigravityTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan antigravity", () => AntigravityLogReader.Scan(lookback)), now) with { ModelNames = AntigravityLogReader.ModelNames() });
+        var grokTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan grok", () => GrokLogReader.Scan(lookback)), now));
+        var cursorTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan cursor", () => CursorLogReader.Scan(lookback)), now));
+        var kimiTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan kimi", () => KimiLogReader.Scan(lookback)), now) with { ModelNames = KimiLogReader.ModelNames() });
+        var deepSeekTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan deepseek", () => DeepSeekLogReader.Scan(lookback)), now));
         _ = Task.WhenAll(claudeTask, codexTask, antigravityTask, grokTask, cursorTask, kimiTask, deepSeekTask).ContinueWith(_ =>
         {
             UiThread.Post(() =>

@@ -55,6 +55,9 @@ final class AppController {
             _ = bridge?.request("appStart")
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
+        // The diagnostic says what the last minute cost: sample the process CPU every few seconds.
+        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in Perf.sample() }
+        Perf.sample()
         poll()
     }
 
@@ -74,10 +77,10 @@ final class AppController {
         if let cardBot { request["cardBot"] = cardBot }
         dismissed.removeAll()
         // Core's presence check wants a fresh window report every few seconds.
-        let windows: [String: Any]? = polls % 4 == 1 ? WindowSnapshot.request() : nil
+        let windows: [String: Any]? = polls % 4 == 1 ? Perf.time("poll: window snapshot (Swift)") { WindowSnapshot.request() } : nil
         coreQueue.async { [weak self] in
-            if let windows { bridge.request("windows", windows) }
-            let reply = bridge.request("frame", request)
+            if let windows { Perf.time("poll: core windows call") { _ = bridge.request("windows", windows) } }
+            let reply = Perf.time("poll: core frame call") { bridge.request("frame", request) }
             let decoded = FrameModel.from(reply)
             DispatchQueue.main.async {
                 guard let self else { return }

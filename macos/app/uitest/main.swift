@@ -365,8 +365,12 @@ func measure(label: String, extra: [String: String]) {
     if run.isRunning { kill(run.processIdentifier, SIGKILL); run.waitUntilExit() }
 }
 
-measure(label: "default", extra: [:])
+measure(label: "default", extra: ["EDGELINGS_DIAG_FILE": "\(outFolder)/diagnostic-default.txt", "EDGELINGS_DIAG_AFTER": "\(max(measureSeconds, 20))"])
 measure(label: "battery-saver", extra: ["EDGELINGS_ASSUME_BATTERY": "1"])
+// A home with the data sizes of a real developer Mac (make-big-home.py): the same app, calm.
+if let at = arguments.firstIndex(of: "--big-root"), at + 1 < arguments.count {
+    measure(label: "big-home", extra: ["EDGELINGS_ROOT": arguments[at + 1], "EDGELINGS_DIAG_FILE": "\(outFolder)/diagnostic-big-home.txt", "EDGELINGS_DIAG_AFTER": "\(max(measureSeconds, 20))"])
+}
 
 if let data = try? JSONEncoder().encode(steps) { try? data.write(to: URL(fileURLWithPath: "\(outFolder)/uitest.json")) }
 let failed = steps.filter { !$0.ok && $0.fatal }

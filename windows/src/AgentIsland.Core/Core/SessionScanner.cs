@@ -33,13 +33,13 @@ public static partial class SessionScanner
     /// toggle (owner call, 2026-08-08).
     public static List<ScannedSession> MonitoringScan(DateTimeOffset now, IReadOnlyDictionary<string, DateTimeOffset> lastWorking)
     {
-        var output = ScanClaudeTranscripts(now, lastWorking);
-        output.AddRange(ScanCodex(now, lastWorking));
-        output.AddRange(ScanGrok(now, lastWorking));
-        output.AddRange(ScanAntigravity(now, lastWorking));
-        output.AddRange(ScanCursor(now, lastWorking));
-        output.AddRange(ScanKimi(now, lastWorking));
-        output.AddRange(ScanDeepSeek(now, lastWorking));
+        var output = CoreProfile.Time("scan claude", () => ScanClaudeTranscripts(now, lastWorking));
+        output.AddRange(CoreProfile.Time("scan codex", () => ScanCodex(now, lastWorking)));
+        output.AddRange(CoreProfile.Time("scan grok", () => ScanGrok(now, lastWorking)));
+        output.AddRange(CoreProfile.Time("scan antigravity", () => ScanAntigravity(now, lastWorking)));
+        output.AddRange(CoreProfile.Time("scan cursor", () => ScanCursor(now, lastWorking)));
+        output.AddRange(CoreProfile.Time("scan kimi", () => ScanKimi(now, lastWorking)));
+        output.AddRange(CoreProfile.Time("scan deepseek", () => ScanDeepSeek(now, lastWorking)));
         output.Sort((a, b) => b.Modified.CompareTo(a.Modified));
         return output;
     }
