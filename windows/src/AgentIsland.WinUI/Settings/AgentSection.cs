@@ -148,7 +148,6 @@ internal sealed class AgentSection
         {
             _signInButton.Click += async (_, _) =>
             {
-                using var english = Looks.English();
                 if (AgentReports.StartSignIn(provider) || root() is not { } xamlRoot) return;
                 await Alert(xamlRoot, L10n.Tr("Sign in"), L10n.Tr(provider == DisplayProvider.Claude
                     ? "Claude Code CLI not found. Log in from a terminal with: claude /login"
@@ -469,7 +468,6 @@ internal sealed class AgentSection
         toggle.Toggled += async (_, _) =>
         {
             if (settling) return;
-            using var english = Looks.English();
             var wanted = toggle.IsOn;
             pending++;
             var error = await Task.Run(() => ClaudeHooks.SetInstalled(wanted));
@@ -513,7 +511,6 @@ internal sealed class AgentSection
         toggle.Toggled += async (_, _) =>
         {
             if (settling) return;
-            using var english = Looks.English();
             var wanted = toggle.IsOn;
             pending++;
             var error = await Task.Run(() => GrokHooks.SetInstalled(wanted));

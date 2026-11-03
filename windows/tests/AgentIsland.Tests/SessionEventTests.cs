@@ -333,8 +333,19 @@ public static class SessionEventTests
         var list = StatusWaitingList.Of(events);
         Expect(list.Rows.Select(r => r.Title).SequenceEqual(new[] { "Session ok", "Session ask", "Session done2" }), "approval, question, then the newest done");
         Expect(list.More == 2, $"two more, got {list.More}");
-        var chinese = StatusWaitingList.Of(new[] { Item("测试", SessionEventKind.Done) });
-        Expect(chinese.Rows[0].Title == "A session", "a title the pixel face cannot set gives way to a stand-in");
+        var language = Localization.L10n.Current;
+        try
+        {
+            Localization.L10n.Current = Localization.L10n.Language.English;
+            var chinese = StatusWaitingList.Of(new[] { Item("测试", SessionEventKind.Done) });
+            Expect(chinese.Rows[0].Title == "A session", "in English a title the pixel face cannot set gives way to a stand-in");
+            Localization.L10n.Current = Localization.L10n.Language.SimplifiedChinese;
+            Expect(StatusWaitingList.Of(new[] { Item("测试", SessionEventKind.Done) }).Rows[0].Title.Contains("测试"), "in Chinese the title shows as written");
+        }
+        finally
+        {
+            Localization.L10n.Current = language;
+        }
         var classic = StatusWaitingList.ForClassic(events, T0.AddMinutes(1));
         Expect(classic.Rows.Count == 4 && classic.More == 2, $"classic lists four rows, got {classic.Rows.Count} and {classic.More} more");
         Expect(classic.Rows[2].Word == BotLines.Word(SessionEventKind.Error, classic: true) && classic.Rows[3].Word == BotLines.Word(SessionEventKind.Done, classic: true)

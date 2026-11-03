@@ -81,6 +81,9 @@ public static class L10n
         string.Format(Tr(key), args);
 
     /// Grows as features land; seeded with the strings the shell needs.
+    /// The zh table, for the test that scans it.
+    internal static IReadOnlyDictionary<string, string> ChineseEntries => ChineseTable;
+
     private static readonly Dictionary<string, string> ChineseTable = new()
     {
         ["Settings…"] = "设置…",
@@ -95,7 +98,7 @@ public static class L10n
         ["Usage refresh failed"] = "用量刷新失败",
         ["Claude stale"] = "Claude 数据过期",
         ["Codex stale"] = "Codex 数据过期",
-        ["5h"] = "5小时",
+        ["5h"] = "5 小时",
         ["week"] = "周",
         ["Week"] = "周",
         ["Usage"] = "用量",
@@ -107,7 +110,7 @@ public static class L10n
         ["Manage"] = "管理",
         ["Settings"] = "设置",
         ["General"] = "通用",
-        ["Display"] = "显示",
+        ["Display"] = "显示器",
         ["Providers"] = "服务",
         ["License"] = "许可证",
         ["Status"] = "状态说明",
@@ -225,8 +228,8 @@ public static class L10n
         ["sign in again — open Cursor"] = "需要重新登录 — 打开 Cursor",
         // Tile window labels the guests need: Gemini meters a daily bucket,
         // Cursor a ~30-day billing cycle. Values from zh-Hans.lproj:201-202.
-        ["24h"] = "24小时",
-        ["30d"] = "30天",
+        ["24h"] = "24 小时",
+        ["30d"] = "30 天",
 
         // Side drawer: placement, live phases, character menu.
         ["Show drawer"] = "显示抽屉",
@@ -356,7 +359,7 @@ public static class L10n
         ["Show in the drawer, its menus and Usage & cost"] = "在抽屉、菜单和用量与成本页中显示",
         ["Move up"] = "上移",
         ["Move down"] = "下移",
-        ["Locked in place.\nRight-click to unlock."] = "已经固定住啦，右键可以解锁",
+        ["Locked in place.\nRight-click to unlock."] = "已经固定住啦。\n右键可以解锁。",
         ["Pixel bots drawn for each agent, or the classic shapes you can recolour"] = "为每个智能体设计的像素小人，或可以换色的经典形状",
         ["Pixel"] = "像素",
         ["Classic"] = "经典",
@@ -366,10 +369,10 @@ public static class L10n
         ["Start Edgelings when you sign in to Windows"] = "登录 Windows 时自动启动 Edgelings",
         ["App language"] = "应用语言",
         ["Same as Windows"] = "跟随 Windows",
-        ["The pixel style shows Settings in English"] = "像素风格下，设置以英文显示",
         ["Thanks"] = "致谢",
         ["The original app, by {0} · MIT License"] = "原版应用，作者 {0} · MIT 许可证",
         ["The pixel font, by {0} · SIL Open Font License 1.1"] = "像素字体，作者 {0} · SIL 开放字体许可证 1.1",
+        ["The pixel font for Chinese, by {0} · SIL Open Font License 1.1"] = "中文像素字体，作者 {0} · SIL 开放字体许可证 1.1",
         ["Crash log"] = "崩溃日志",
         ["Open folder"] = "打开文件夹",
         ["Closes the drawer and the tray icon"] = "关闭抽屉和托盘图标",
@@ -481,6 +484,10 @@ public static class L10n
         ["Aeri"] = "Aeri",
         ["Blocks"] = "积木",
         ["Kite"] = "风筝",
+        ["Owl"] = "猫头鹰",
+        ["Sea otter"] = "海獭",
+        ["{0}. What {1} wears in the drawer, on its card and in menus"] = "{0} · {1} 在抽屉、卡片和菜单里的样子",
+        ["{0}. What {1} wear in the drawer, on its card and in menus"] = "{0} · {1} 在抽屉、卡片和菜单里的样子",
         ["Slashed ring"] = "斜线圆环",
         ["Ring bot"] = "圆环机器人",
         ["Event horizon"] = "黑洞",

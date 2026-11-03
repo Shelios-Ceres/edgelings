@@ -81,12 +81,9 @@ internal sealed partial class DrawerWindow
         var dark = Brand.IsDark();
         var pixel = _theme == CharacterTheme.Pixel;
         List<(StatusCard, uint)> sections;
-        using (pixel ? L10n.English() : null)
-        {
-            sections = Ordered(_bots.Where(b => b.Visible && (_cardBot is null || b == _cardBot)))
-                .Select(b => (CardFor(b, _theme), Brand.Readable(SwatchOf(b), dark)))
-                .ToList();
-        }
+        sections = Ordered(_bots.Where(b => b.Visible && (_cardBot is null || b == _cardBot)))
+            .Select(b => (CardFor(b, _theme), Brand.Readable(SwatchOf(b), dark)))
+            .ToList();
         var height = WindowHeightDip(_bots.Count(b => b.Visible));
         var anchor = _cardBot?.Bounds ?? new Rect(InnerInset, height / 2 - BotSize / 2, BotSize, BotSize);
         _card.Show(sections, pixel, DrawerStore.Shared.Side == DrawerSide.Right, anchor,

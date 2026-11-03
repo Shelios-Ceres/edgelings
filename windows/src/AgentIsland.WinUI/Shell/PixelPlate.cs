@@ -19,12 +19,10 @@ internal sealed class PixelPlate : Canvas
     /// How far the pointer reaches past the plate's edge.
     public const double PointerReach = 2 * Cell;
 
-    private static FontFamily? _font;
-
-    /// The pixel face: Ark Pixel's 10-pixel Latin design (OFL-1.1, with its
-    /// licence in Assets/Fonts), so the panels read in English.
-    public static FontFamily Font =>
-        _font ??= new FontFamily("ms-appx:///Assets/Fonts/ark-pixel-10px-proportional-latin.ttf#Ark Pixel 10px Prop latin");
+    /// The pixel face for the app language: Ark Pixel's 10-pixel Latin
+    /// design, or Fusion Pixel's for Chinese (both OFL-1.1, with their
+    /// licences in Assets/Fonts).
+    public static FontFamily Font => PixelTheme.Font;
 
     /// A size for the pixel face that keeps its pixels whole: each of its
     /// 10-pixel design's pixels covers a whole number of screen pixels, as

@@ -100,7 +100,8 @@ public sealed class GroupRotation
     private WorkGroup? _group;
     private AgentPhase? _phase, _pending;
     private IReadOnlyList<string> _slots = Array.Empty<string>();
-    private double _groupAt, _segmentAt, _endAt;
+    private double _groupAt, _segmentAt, _playAt, _endAt;
+    private double? _swapAt;
     private int _segment, _slot;
     private string? _playing;
     private bool _reduced;
@@ -117,6 +118,15 @@ public sealed class GroupRotation
 
     /// The group the shown phase plays in, or null for its own state.
     public WorkGroup? Group => _group;
+
+    /// The phase left every group at once (an attention or rest state took
+    /// over); the next group is entered afresh, with no dwell to wait out.
+    public void Leave()
+    {
+        _group = null;
+        _phase = null;
+        _pending = null;
+    }
 
     /// The state to play now. Outside a group it is the phase's own entry
     /// state; a caller that sets a rest pose apart (finished, failed) keeps doing so.
@@ -150,18 +160,32 @@ public sealed class GroupRotation
                 else if (_group is { } held)
                 {
                     _slots = Plan(held, next);
-                    // A new tool while the second slot plays: switch at the next boundary.
-                    if (_slot > 0 && !SlotPlays(_slot)) _endAt = Math.Min(_endAt, BoundaryAfter(now - _segmentAt));
+                    // A new tool while the second slot plays: the motion swaps at the playing
+                    // state's next cycle boundary, inside the same segment.
+                    if (_slot > 0) _swapAt = SlotPlays(_slot) || _slot >= _slots.Count ? null : NextBoundary(now);
                 }
             }
         }
         if (_group is null || _phase is not { } shown) return DrawerLooks.Entry(_phase ?? phase, _theme);
         if (_slots.Count > 0 && (_slots.Count > 1) == reducedMotion) _slots = Plan(_group.Value, shown);
+        if (_swapAt is { } swapAt && now >= swapAt && swapAt < _endAt)
+        {
+            _swapAt = null;
+            if (_slot < _slots.Count && !SlotPlays(_slot))
+            {
+                _playing = _slots[_slot];
+                _playAt = now;
+                // The segment keeps its end, rounded up to the new state's cycle.
+                var cycle = Math.Max(0.1, _cycleSeconds(_playing));
+                var nominal = _segmentAt + Math.Max(t.Second, t.MinSegment);
+                _endAt = _playAt + Math.Max(1, Math.Ceiling((nominal - _playAt) / cycle - 1e-9)) * cycle;
+            }
+        }
         if (now >= _endAt)
         {
+            // Main follows every second segment, whatever tool arrived meanwhile.
             _segment++;
-            var toolChanged = _slot > 0 && !SlotPlays(_slot);
-            Start(now, _slots.Count < 2 ? 0 : _slot == 0 || toolChanged ? 1 : 0);
+            Start(now, _slots.Count < 2 ? 0 : _slot == 0 ? 1 : 0);
         }
         return _playing!;
     }
@@ -179,7 +203,8 @@ public sealed class GroupRotation
         var t = StateGroups.Timings;
         _slot = slot;
         _playing = _slots[slot];
-        _segmentAt = now;
+        _segmentAt = _playAt = now;
+        _swapAt = null;
         var length = _segment == 0 ? t.FirstMain : slot == 0 ? t.Main : t.Second;
         _endAt = BoundaryAfter(length);
     }
@@ -190,5 +215,12 @@ public sealed class GroupRotation
     {
         var cycle = Math.Max(0.1, _cycleSeconds(_playing!));
         return _segmentAt + Math.Ceiling(Math.Max(from, StateGroups.Timings.MinSegment) / cycle - 1e-9) * cycle;
+    }
+
+    // The playing state's next cycle boundary at or after now (it began at phase 0 at _playAt).
+    private double NextBoundary(double now)
+    {
+        var cycle = Math.Max(0.1, _cycleSeconds(_playing!));
+        return _playAt + Math.Ceiling((now - _playAt) / cycle - 1e-9) * cycle;
     }
 }

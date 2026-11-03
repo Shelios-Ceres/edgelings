@@ -23,17 +23,19 @@ internal sealed class V8CharacterEngine : ICharacterEngine
             phases: () => lib.PHASES.join(','),
             fidgets: (kind, look) => lib.fidgetsOf(kind, look || undefined).join(','),
             add(kind, seed, tempo, look) {
-                const make = { kind, seed, tempo };
+                const make = { kind, seed, tempo, look };
                 makes.push(make);
                 bots.push(lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined }));
                 return bots.length - 1;
             },
             setLook(i, look) {
                 const { kind, seed, tempo } = makes[i], old = bots[i];
+                makes[i].look = look;
                 bots[i] = lib.createBot(kind, { seed, tempo, rim: true, look: look || undefined });
                 bots[i].setState(old.state, -1);
             },
             setState(i, state, phase) { bots[i].setState(state, phase); },
+            cycle(i, state) { const { kind, tempo, look } = makes[i]; return @CYCLE@ / tempo; },
             setGaze(i, dx, dy) { bots[i].setGaze(dx, dy); },
             clearGaze(i) { bots[i].clearGaze(); },
             poke(i) { bots[i].poke(); },
@@ -44,8 +46,14 @@ internal sealed class V8CharacterEngine : ICharacterEngine
                     // A bot past a short step list (a picker's previews) stays as it is:
                     // advancing it by +undefined would turn its clock to NaN for good.
                     if (!dts[i]) { parts.push(''); continue; }
-                    bots[i].advance(+dts[i]);
-                    parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
+                    // A throw in one bot's step or frame must not stop the others or the loop:
+                    // the host marks it, and keeps that bot's last good frame for this tick.
+                    try {
+                        bots[i].advance(+dts[i]);
+                        parts.push(bots[i].state + '\u0002' + bots[i].svg(size, 'b' + i));
+                    } catch (error) {
+                        parts.push('\u0003' + (error && error.message || error));
+                    }
                 }
                 return parts.join('\u0001');
             },
@@ -61,8 +69,9 @@ internal sealed class V8CharacterEngine : ICharacterEngine
     /// Where the build copies the engines.
     public static string Directory => Path.Combine(AppContext.BaseDirectory, "Drawer", "Characters");
 
-    /// The pixel bots come from the approved v5.4 engine
-    /// (windows/notes/characters-v5.4-20261024, sha256 6c826907…): frames are
+    /// The pixel bots come from the approved v5.4.2 engine
+    /// (windows/notes/characters-v5.4.2-20261102, sha256 b7741cdc…, frame for
+    /// frame the v5.4 engine's, cheaper at rest): frames are
     /// SVG rectangles on a grid of 2-DIP cells, so they stay crisp at 100,
     /// 150 and 200 % scaling. The Classic bots come from the desk companions
     /// engine with looks from windows/notes/classic-grok-20261015/looks
@@ -77,6 +86,7 @@ internal sealed class V8CharacterEngine : ICharacterEngine
         Theme = theme;
         _ownCues = ownCues;
         var host = HostTemplate
+            .Replace("@CYCLE@", theme == CharacterTheme.Pixel ? "lib.cycleOf(kind, state, look || undefined)" : "lib.cycleOf(state)")
             .Replace("@ENGINE@", "./" + engineFile)
             .Replace("@GLOBAL@", global);
         _engine = new V8ScriptEngine();
@@ -129,22 +139,43 @@ internal sealed class V8CharacterEngine : ICharacterEngine
         return _fidgets[(provider, look)] = list.Split(',', StringSplitOptions.RemoveEmptyEntries);
     }
 
+    public double CycleSeconds(int bot, string state) =>
+        Convert.ToDouble(_host.InvokeMethod("cycle", bot, state), System.Globalization.CultureInfo.InvariantCulture);
+
     public bool Draws(string state) => _phases.Contains(state);
 
     public (string State, string Svg)?[] Tick(IReadOnlyList<double> dts, double size)
     {
         var steps = string.Join(',', dts.Select(dt =>
             double.IsNaN(dt) ? "" : dt.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
-        var raw = (string)_host.InvokeMethod("tick", steps, size);
+        string raw;
+        try
+        {
+            raw = (string)_host.InvokeMethod("tick", steps, size);
+        }
+        catch (Exception error)
+        {
+            // The host itself failed: no bot has a new frame this tick, and the loop goes on.
+            Failed(new InvalidOperationException($"{Theme} engine host: {error.Message}"));
+            return new (string, string)?[dts.Count];
+        }
         return raw.Split('\u0001')
             .Select(part =>
             {
                 if (part.Length == 0) return ((string, string)?)null;
+                if (part[0] == '\u0003')
+                {
+                    Failed(new InvalidOperationException($"{Theme} engine: {part[1..]}"));
+                    return null;
+                }
                 var split = part.IndexOf('\u0002');
                 return (part[..split], part[(split + 1)..]);
             })
             .ToArray();
     }
+
+    /// Where an engine exception is reported: the crash log, once per launch for the same message.
+    internal Action<Exception> Failed { get; set; } = error => CrashLog.Write(error, "Character engine");
 
     public void Dispose() => _engine.Dispose();
 }

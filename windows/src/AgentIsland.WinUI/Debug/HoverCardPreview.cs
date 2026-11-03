@@ -423,10 +423,10 @@ internal sealed class HoverCardPreview : Window
             {
                 var line = kind switch
                 {
-                    LineKind.Done => "Done — your turn!",
-                    LineKind.Error => "Hit an error.",
-                    LineKind.Plain => "Locked in place.\nRight-click to unlock.",
-                    _ => "Can I run this? Needs your OK.",
+                    LineKind.Done => L10n.Tr("Done — your turn!"),
+                    LineKind.Error => L10n.Tr("Hit an error."),
+                    LineKind.Plain => L10n.Tr("Locked in place.\nRight-click to unlock."),
+                    _ => L10n.Tr("Can I run this? Needs your OK."),
                 };
                 await Film(Path.Combine(directory, $"m5-{kind.ToString().ToLowerInvariant()}-{name}.png"), bubble,
                     () => _bubble.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, Motion.ReducedMotion, kind));
@@ -450,11 +450,8 @@ internal sealed class HoverCardPreview : Window
     private static SessionEvent Waiting(string title, SessionEventKind kind, int minutesAgo = 1) =>
         new(TriggerTool.Claude, title, title, kind, kind + ":" + title, FilmNow.AddMinutes(-minutesAgo));
 
-    /// A stock line, in the app's language (Pixel's panels read in English).
-    private string Stock(string line)
-    {
-        using (_pixel ? L10n.English() : null) return L10n.Tr(line);
-    }
+    /// A stock line, in the app's language.
+    private string Stock(string line) => L10n.Tr(line);
 
     /// Phase 3: the bubbles that say only stock lines (a merged one says how
     /// many sessions wait), and the card's list of waiting sessions.
@@ -469,7 +466,7 @@ internal sealed class HoverCardPreview : Window
         await Film(File("m5-question"), bubble, () => Say(Stock("Quick question for you."), LineKind.Waiting));
         await Film(File("m5-error"), bubble, () => Say(Stock("Hit an error."), LineKind.Error));
         await Film(File("m5-mail"), bubble, () => Say(Stock("You've got mail."), LineKind.Plain));
-        string Count(int n) { using (_pixel ? L10n.English() : null) return BotLines.SummaryTitle(n); }
+        string Count(int n) => BotLines.SummaryTitle(n);
         await Film(File("m5-merged"), bubble, () => Say(Count(_pixel ? 3 : 2), LineKind.Waiting));
         _bubble!.Hide(animated: false);
 
@@ -534,15 +531,12 @@ internal sealed class HoverCardPreview : Window
             }
             if (queue.Next(t) is { } speech)
             {
-                using (_pixel ? L10n.English() : null)
-                {
-                    // The two sessions say different stock lines, so the hand-off shows.
-                    var line = speech.IsSummary ? BotLines.SummaryTitle(speech.Events.Count) : BotLines.For(speech.First, new Random(1)) ?? "";
-                    for (var seed = 2; line == _lastLine && seed < 40 && !speech.IsSummary; seed++) line = BotLines.For(speech.First, new Random(seed)) ?? "";
-                    _lastLine = line;
-                    var seconds = _pixel ? 5.5 : Math.Clamp(2 + 0.05 * line.Length, 4.5, 9);
-                    _bubble.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, Motion.ReducedMotion, LineKind.Done, TimeSpan.FromSeconds(seconds));
-                }
+                // The two sessions say different stock lines, so the hand-off shows.
+                var line = speech.IsSummary ? BotLines.SummaryTitle(speech.Events.Count) : BotLines.For(speech.First, new Random(1)) ?? "";
+                for (var seed = 2; line == _lastLine && seed < 40 && !speech.IsSummary; seed++) line = BotLines.For(speech.First, new Random(seed)) ?? "";
+                _lastLine = line;
+                var seconds = _pixel ? 5.5 : Math.Clamp(2 + 0.05 * line.Length, 4.5, 9);
+                _bubble.Say(line, Swatches[0], _pixel, characterRight: true, Anchor(0), Area, Motion.ReducedMotion, LineKind.Done, TimeSpan.FromSeconds(seconds));
                 DebugTrace.Write($"queue film: bubble at {t:F2} s");
             }
             if (t >= nextShot)

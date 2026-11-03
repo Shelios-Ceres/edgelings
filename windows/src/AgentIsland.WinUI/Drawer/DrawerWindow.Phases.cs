@@ -27,21 +27,16 @@ internal sealed partial class DrawerWindow
                 .ToList();
             // Tail reads stay off the UI thread. Working sessions are read for
             // how they work, network trouble for a prompt that may be open, and
-            // finished turns for whether they ended on an error. The pixel
-            // panels read in English, details included.
-            var english = _theme == CharacterTheme.Pixel;
+            // finished turns for whether they ended on an error.
             var lookAround = _clock.Elapsed.TotalSeconds - _presenceAt >= 1;
             var (readings, presence) = await Task.Run(() =>
             {
-                using (english ? L10n.English() : null)
-                {
-                    return (jobs
-                        .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
-                            && job.Path is { } path
-                            ? AgentPhaseClassifier.Classify(job.Tool, path, now)
-                            : null))
-                        .ToList(), lookAround ? AgentPresences.Now() : null);
-                }
+                return (jobs
+                    .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
+                        && job.Path is { } path
+                        ? AgentPhaseClassifier.Classify(job.Tool, path, now)
+                        : null))
+                    .ToList(), lookAround ? AgentPresences.Now() : null);
             });
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
@@ -60,7 +55,7 @@ internal sealed partial class DrawerWindow
                 var detail = reading is { } r && r.Phase == phase ? r.Detail : null;
                 if (phase == AgentPhase.NetworkTrouble && detail is null && monitor.IsOffline)
                 {
-                    using (english ? L10n.English() : null) detail = L10n.Tr("No internet connection");
+                    detail = L10n.Tr("No internet connection");
                 }
                 results.Add((bot, phase, detail, running));
             }
@@ -129,14 +124,14 @@ internal sealed partial class DrawerWindow
     /// The loop takes only the latest state per character, so a loop that
     /// rests (drawer hidden, displays off) does not pile up every change.
     private void Show(Bot bot, string entry, string hold) =>
-        Volatile.Write(ref _shows[bot.Index], new PendingShow(entry, hold, bot.Rest is not null, _theme));
+        Volatile.Write(ref _shows[bot.Index], new PendingShow(entry, hold, bot.Rest is not null, _theme, bot.Phase));
 
     /// On the game loop: the states Show left since the last frame.
     private void TakeShows()
     {
         for (var index = 0; index < _shows.Length; index++)
         {
-            if (Interlocked.Exchange(ref _shows[index], null) is not var (entry, hold, resting, theme)) continue;
+            if (Interlocked.Exchange(ref _shows[index], null) is not var (entry, hold, resting, theme, phase)) continue;
             var slot = _slots[index];
             if (resting && _engine?.Draws(Resting) == true) entry = hold = Resting;
             slot.Hold = hold;
@@ -144,11 +139,39 @@ internal sealed partial class DrawerWindow
             slot.Since = _clock.Elapsed.TotalSeconds;
             slot.Fidget = null;
             slot.NextFidget = slot.Since + FidgetGap * (0.5 + Random.Shared.NextDouble());
+            slot.Phase = phase;
+            // A phase in a work group plays the group's motion, and the rotation turns it;
+            // a phase change inside the group keeps the motion playing.
+            var wasGrouped = slot.Grouped;
+            slot.Grouped = _engine is not null && !resting && StateGroups.GroupOf(theme, DrawerLooks.Kind(_bots[index].Provider), _bots[index].Look ?? "", phase) is not null;
+            if (!wasGrouped || !slot.Grouped) slot.Playing = null;
+            if (!slot.Grouped) slot.Rotation?.Leave();
+            if (slot.Grouped)
+            {
+                slot.NextStep = 0;
+                Rotate(index, slot, _clock.Elapsed.TotalSeconds, _reducedMotion);
+                continue;
+            }
             // Reduced motion rests in the settled pose (the loop's start), held still.
             if (_engine is not null) _engine.SetState(index, entry, DrawerLooks.IsOneShot(entry, theme) || DrawerLooks.HoldsStill(entry, theme, _reducedMotion, _bots[index].Look) ? 0 : -1);
             else slot.EngineState = hold;
             slot.NextStep = 0;
         }
+    }
+
+    /// On the game loop: a grouped character plays the motion its rotation
+    /// names now, starting each new one at the start of its cycle so a
+    /// segment ends on the cycle's boundary.
+    private void Rotate(int index, Slot slot, double now, bool reduced)
+    {
+        var bot = _bots[index];
+        var engine = _engine!;
+        slot.Rotation ??= new GroupRotation(_loopTheme, DrawerLooks.Kind(bot.Provider), bot.Look ?? "", state => engine.CycleSeconds(index, state));
+        var state = slot.Rotation.State(now, slot.Phase, reduced);
+        if (state == slot.Playing) return;
+        slot.Playing = slot.Hold = state;
+        slot.Since = now;
+        engine.SetState(index, state, 0);
     }
 
     private const string Resting = "resting";

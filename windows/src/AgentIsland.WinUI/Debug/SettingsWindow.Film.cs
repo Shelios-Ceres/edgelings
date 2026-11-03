@@ -1,3 +1,4 @@
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using Microsoft.UI.Xaml;
@@ -59,10 +60,10 @@ internal sealed partial class SettingsWindow
             if (window.Content.XamlRoot is { } root)
             {
                 var dialog = SettingsUi.Dialog(root);
-                dialog.Title = "Save current account?";
-                dialog.Content = new TextBlock { Text = "A synthetic dialog for the motion film.", TextWrapping = TextWrapping.Wrap };
-                dialog.PrimaryButtonText = "Save";
-                dialog.CloseButtonText = "Cancel";
+                dialog.Title = L10n.Tr("Save current account");
+                dialog.Content = new TextBlock { Text = L10n.Tr("Give this login a name so you can switch back to it later"), TextWrapping = TextWrapping.Wrap };
+                dialog.PrimaryButtonText = L10n.Tr("Save");
+                dialog.CloseButtonText = L10n.Tr("Cancel");
                 var before = UiMoment.Latest;
                 _ = dialog.ShowAsync();
                 if (await PopupPrint.NextMoment(before) is { } open)

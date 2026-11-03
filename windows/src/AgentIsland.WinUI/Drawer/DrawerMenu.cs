@@ -25,7 +25,6 @@ internal static class DrawerMenu
         var pixel = Looks.Pixel;
         var dark = Brand.IsDark();
         var mark = pixel ? null : await Brand.MarkAsync(provider, dark);
-        using var english = Looks.English();
         var menu = new MenuFlyout();
         var title = new MenuFlyoutItem { Text = ProviderIdentity.DisplayName(provider) };
         title.Click += (_, _) => SettingsWindow.Open(provider);

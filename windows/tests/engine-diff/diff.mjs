@@ -27,8 +27,8 @@ const B = await import(pathToFileURL(newFile).href);
 
 import { runDiff } from './diff-core.mjs';
 try {
-  const { runs, checked } = runDiff(A, B, steps, seeds);
-  console.log(`engine differential: ${runs} runs, ${checked} SVG comparisons, all identical (old ${path.basename(oldFile)} vs new ${path.basename(newFile)})`);
+  const { runs, checked, oldThrew } = runDiff(A, B, steps, seeds);
+  console.log(`engine differential: ${runs} runs, ${checked} SVG comparisons, all identical${oldThrew ? `, the old engine threw on ${oldThrew} (the new one drew them)` : ''} (old ${path.basename(oldFile)} vs new ${path.basename(newFile)})`);
   // The ring marks wrap: run again with the live engine's stamp counter a few calls short of what an
   // Int32Array holds, so every look crosses the wrap.
   const source = fs.readFileSync(newFile, 'utf8');
@@ -38,7 +38,7 @@ try {
   try {
     const W = await import(pathToFileURL(wrapFile).href);
     const wrapped = runDiff(A, W, 400, 1);
-    console.log(`engine differential across the ring stamp wrap: ${wrapped.runs} runs, ${wrapped.checked} SVG comparisons, all identical`);
+    console.log(`engine differential across the ring stamp wrap: ${wrapped.runs} runs, ${wrapped.checked} SVG comparisons, all identical${wrapped.oldThrew ? `, the old engine threw on ${wrapped.oldThrew}` : ''}`);
   } finally {
     fs.rmSync(wrapFile, { force: true });
   }

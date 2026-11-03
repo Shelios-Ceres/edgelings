@@ -46,6 +46,30 @@ internal sealed class PhraseFlow : Panel
         return flow;
     }
 
+    /// A phrase's words at its spaces. A number stays with the Han unit
+    /// after it ("2 小时", "5 小时额度"), so a line never ends on the number
+    /// alone; a Han run breaks between any two characters inside its own
+    /// text block, and the text engine keeps closing marks off the start of a
+    /// line and opening ones off the end.
+    public static IEnumerable<string> SplitWords(string text)
+    {
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (i + 1 < words.Length && IsNumber(words[i]) && IsHan(words[i + 1][0]))
+            {
+                yield return words[i] + " " + words[i + 1];
+                i++;
+            }
+            else yield return words[i];
+        }
+    }
+
+    private static bool IsHan(char c) => c >= '⺀' && c <= '鿿' || c >= '豈' && c <= '﫿';
+
+    private static bool IsNumber(string word) =>
+        word.Any(char.IsAsciiDigit) && word.All(c => char.IsAsciiDigit(c) || c is '.' or ',' or ':' or '%' or '$' or '¥' or '+' or '-');
+
     /// One phrase as its words, a space between those that share a line.
     public static PhraseFlow Words(IEnumerable<TextBlock> words, double hang = 0)
     {
@@ -147,7 +171,7 @@ internal sealed class PhraseFlow : Panel
         // are set close.
         if (element is PhraseFlow { Children.Count: > 0 } sentence)
         {
-            return sentence.Children[0] is TextBlock { Text: [var first, ..] } && first >= '⺀' ? 0 : Space(sentence.Children[0]);
+            return sentence.Children[0] is TextBlock { Text: [var first, ..] } && IsHan(first) ? 0 : Space(sentence.Children[0]);
         }
         if (element is not TextBlock word) return 4;
         var key = (word.FontFamily?.Source ?? "", word.FontSize, (double)word.CharacterSpacing);

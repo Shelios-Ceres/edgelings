@@ -149,7 +149,6 @@ internal sealed partial class SettingsWindow : Window
     /// open page: when the window opens, and again on every switch.
     private void Build()
     {
-        using var english = Shell.Looks.English();
         var title = "Edgelings — " + L10n.Tr("Settings");
         var root = Content is null
             ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520, Rescaled)
@@ -239,7 +238,6 @@ internal sealed partial class SettingsWindow : Window
         DrawerStore.Shared.PropertyChanged -= _drawerPage;
         _drawerPage = update is null ? null : (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
-            using var english = Shell.Looks.English();
             update();
         });
         DrawerStore.Shared.PropertyChanged += _drawerPage;
@@ -250,7 +248,6 @@ internal sealed partial class SettingsWindow : Window
     private void Tick()
     {
         if (_page != Page.Agents) return;
-        using var english = Shell.Looks.English();
         // Reports read a few small files (Codex's account); the clock-driven
         // "synced" captions refresh every fifth second.
         if (_dirty || ++_ticks % 5 == 0)
@@ -263,7 +260,6 @@ internal sealed partial class SettingsWindow : Window
 
     private void Show(Page page, bool keepOffset = false)
     {
-        using var english = Shell.Looks.English();
         CloseToolTips();
         _page = page;
         Preferences.Set(PageKey, page.ToString());
