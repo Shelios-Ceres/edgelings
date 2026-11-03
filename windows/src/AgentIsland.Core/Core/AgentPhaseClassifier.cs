@@ -495,7 +495,7 @@ public static class AgentPhaseClassifier
                 or "search_tool" or "search" or "grep_search" or "find_by_name" or "codebase_search"
                 or "ripgrep_raw_search" or "glob_file_search" => AgentPhase.Searching,
             "WebSearch" or "WebFetch" or "web_search" or "web_search_call" or "fetch" or "web_fetch"
-                or "search_web" or "read_url_content" or "read_browser_page" => AgentPhase.WebSearching,
+                or "search_web" or "read_url_content" or "read_browser_page" or "FetchURL" => AgentPhase.WebSearching,
             "Edit" or "MultiEdit" or "Write" or "NotebookEdit" or "apply_patch" or "write_file" or "append_to_file"
                 or "edit_file" or "edit" or "write" or "search_replace" or "write_to_file" or "replace_file_content"
                 or "multi_replace_file_content" or "edit_file_v2" => AgentPhase.Writing,

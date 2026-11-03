@@ -28,7 +28,12 @@ public static class AgentPhaseTests
             ("claude: Edit is writing", () => Claude(AgentPhase.Writing, ToolUse("Edit", 1, "e"))),
             ("claude: Grep is searching", () => Claude(AgentPhase.Searching, ToolUse("Grep", 1, "g"))),
             ("claude: WebFetch is web searching", () => Claude(AgentPhase.WebSearching, ToolUse("WebFetch", 1, "w"))),
-            ("claude: a fresh Task is spawning", () => Claude(AgentPhase.Spawning, ToolUse("Task", 1, "t"))),
+            ("kimi: FetchURL is web searching", () =>
+            {
+                if (AgentPhaseClassifier.ToolPhase("FetchURL") != AgentPhase.WebSearching) throw new Exception("FetchURL: " + AgentPhaseClassifier.ToolPhase("FetchURL"));
+                if (AgentPhaseClassifier.ToolPhase("SomethingElse") != AgentPhase.Working) throw new Exception("an unknown tool stays working");
+            }),
+            ("claude: a fresh Task is spawning",() => Claude(AgentPhase.Spawning, ToolUse("Task", 1, "t"))),
             ("claude: a long Task is waiting on agents", () => Claude(AgentPhase.WaitingOnAgents, ToolUse("Task", 20, "t"))),
             ("claude: AskUserQuestion is asking", () => Claude(AgentPhase.Asking, ToolUse("AskUserQuestion", 40, "q"))),
             ("claude: a browser MCP tool is controlling", () => Claude(AgentPhase.Controlling, ToolUse("mcp__Claude_Browser__navigate", 2, "n"))),

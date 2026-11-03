@@ -662,7 +662,7 @@ internal sealed class HoverCardPreview : Window
             },
             new("Tokens", "Today 128K", "128K", "This month 2.4M", "2.4M"),
             new[] { new StatusPhrase("2 reset cards · synthetic preview", new[] { "2" }) }),
-        _ => new(DisplayProvider.Kimi, "Kimi Code", "Waiting for your approval", "Synthetic permission prompt",
+        _ => new(DisplayProvider.Kimi, "Kimi", "Waiting for your approval", "Synthetic permission prompt",
             new("Tasks", "1 running", "1"),
             new[]
             {

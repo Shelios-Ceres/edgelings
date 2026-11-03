@@ -15,7 +15,7 @@ public static class ProviderIdentity
         DisplayProvider.Antigravity => "Antigravity",
         DisplayProvider.Grok => "Grok",
         DisplayProvider.Cursor => "Cursor",
-        DisplayProvider.Kimi => "Kimi Code",
+        DisplayProvider.Kimi => "Kimi",
         DisplayProvider.DeepSeek => "DeepSeek",
         _ => "Claude",
     };
