@@ -96,10 +96,15 @@ enum DiagnosticReport {
         let memory = Perf.memoryMB()
         lines.append(String(format: "Memory: resident %.0f MB, footprint %.0f MB", memory.resident, memory.footprint))
         if let context = JSContext() {
-            let begin = DispatchTime.now().uptimeNanoseconds
-            _ = context.evaluateScript("let s = 0; for (let i = 0; i < 5000000; i++) { s += i % 7; } s")
-            let ms = Double(DispatchTime.now().uptimeNanoseconds - begin) / 1_000_000
-            lines.append(String(format: "JavaScript: a 5M-iteration loop takes %.0f ms (%@)", ms, ms < 80 ? "JIT looks on" : "JIT looks off"))
+            // A hot function, run three times: a JIT compiles it after the first calls, an interpreter keeps its pace.
+            context.evaluateScript("function hot() { let s = 0; for (let i = 0; i < 2000000; i++) { s += i % 7; } return s; }")
+            var best = Double.infinity
+            for _ in 0..<3 {
+                let begin = DispatchTime.now().uptimeNanoseconds
+                _ = context.evaluateScript("hot()")
+                best = min(best, Double(DispatchTime.now().uptimeNanoseconds - begin) / 1_000_000)
+            }
+            lines.append(String(format: "JavaScript: a 2M-iteration function takes %.0f ms at best of three (%@)", best, best < 40 ? "JIT looks on" : "JIT looks off"))
         }
         return lines
     }
