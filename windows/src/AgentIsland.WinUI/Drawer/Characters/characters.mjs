@@ -135,6 +135,8 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true, look: lookId 
   let pokeAt = -99;
   let rimWidth = rim ? 0.9 : 0;
   let pose = null;
+  // The layers pixels() drew last frame, in the order it drew them.
+  const memo = { layers: [], at: 0, body: null, misses: 0, rest: 0, hits: 0, draws: 0 };
 
   const poseOf = s => ({ ...rest, ...def.pose(s.state, s.t, T, k) });
 
@@ -197,9 +199,13 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true, look: lookId 
       const q = T - blinkAt;
       const blink = shown.blink > 0.5 && q < 0.17 ? bump(q / 0.17) : 0;
       const eye = { look: [look[0], look[1]] };
+      eye.lx = clamp(rnd(look[0] * 1.3), -1, 1);
+      eye.ly = clamp(rnd(look[1] * 1.2), -1, 1);
+      eye.ly1 = clamp(rnd(look[1]), -1, 1);
       for (const key of EYE_KEYS) eye[key] = shown[key];
       eye.open = shown.open * (1 - blink);
-      const c = { T, id, rim: rimWidth, eye, k };
+      const c = { T, id, rim: rimWidth, eye, k, memo };
+      memo.at = 0;
       const body = def.draw(shown, c);
       // A click makes the character hop a whole pixel (2 DIP), so pixel art
       // stays on its grid.
@@ -487,7 +493,29 @@ function runsGeneral(list) {
 
 // Cells to SVG: an optional white sticker outline, then one path per colour
 // with each row's runs merged.
+// Pixel motion is stepped, so most frames repeat the last one. A layer's
+// SVG depends only on its cells (keys and colours, in the canvas's order),
+// the rim and the opacity, so a layer whose cells match the same layer last
+// frame reuses that frame's text. The cells are copied, not kept, since a
+// canvas could still change after it is drawn.
 function pixels(cv, c, opacity = 1) {
+  const memo = c.memo;
+  if (!memo) return drawPixels(cv, c, opacity);
+  const i = memo.at++;
+  const last = memo.layers[i], cells = cv.cells;
+  if (last && last.rim === c.rim && last.opacity === opacity && last.keys.length === cells.size) {
+    let j = 0, same = true;
+    for (const [key, color] of cells) {
+      if (last.keys[j] !== key || last.colors[j] !== color) { same = false; break; }
+      j++;
+    }
+    if (same) return last.out;
+  }
+  const out = drawPixels(cv, c, opacity);
+  memo.layers[i] = { rim: c.rim, opacity, keys: [...cells.keys()], colors: [...cells.values()], out };
+  return out;
+}
+function drawPixels(cv, c, opacity) {
   const byColor = new Map();
   cv.cells.forEach((color, key) => {
     let list = byColor.get(color);
@@ -610,21 +638,147 @@ function settle(p, draw) {
 // Every body reads dx, dy and lift only through rnd(), so two tries that
 // round alike draw alike: a try that rounds like one that failed fails too
 // and isn't drawn, and the zero fallback keeps the zero try's drawing.
-function settled(p, draw) {
-  const at = q => { const cv = canvas(), s = canvas(); return { q, cv, s, a: draw(cv, s, q) }; };
-  if (!p.dx && !p.dy && !p.lift) return at(p);
+function settledRun(p, draw, c, rec) {
+  const at = (q, k) => {
+    const cv = canvas(), s = canvas();
+    if (!rec) return { q, cv, s, a: draw(cv, s, q, c) };
+    const log = [];
+    rec.tries.push({ k, log });
+    const i = rec.tries.length - 1;
+    return { q, cv, s, a: draw(cv, s, traced(q, 0, [], log, rec), traced(c, 1, [], log, rec)), i };
+  };
+  if (!p.dx && !p.dy && !p.lift) return at(p, 1);
   const failed = new Map();
   for (const k of [1, 0.75, 0.5, 0.25, 0]) {
     const q = k === 1 ? p : { ...p, dx: p.dx * k, dy: p.dy * k, lift: (p.lift ?? 0) * k };
     const key = `${rnd(q.dx)},${rnd(q.dy)},${rnd(q.lift)}`;
     if (failed.has(key)) continue;
-    const tried = at(q);
+    const tried = at(q, k);
     if (allSafe(tried.cv)) return tried;
     failed.set(key, tried);
   }
   const zero = failed.get('0,0,0');
   const q = { ...p, dx: 0, dy: 0, lift: 0 };
-  return zero ? { ...zero, q } : at(q);
+  if (zero) {
+    if (rec) rec.zero = true;
+    return { ...zero, q };
+  }
+  return at(q, 'z');
+}
+
+// The body memo. A body's drawing depends only on what it reads of the pose
+// and the frame: the bodies are pure, and the closures that call them hold
+// nothing else that changes (Clawd's colour is passed along as `extra`). So
+// the reads of a frame that drew are logged, through proxies, with the values
+// they gave. A later frame whose pose and frame give the same value at every
+// logged read takes the same branches, makes the same tries and draws the
+// same cells, and gets copies of them instead. Which tries are made and
+// skipped follows from the pose's own offsets, which are part of the key. A
+// body whose reads keep changing (a clock it draws from) isn't logged for a
+// while, and draws as before.
+const MEMO_MISSES = 6;
+const MEMO_REST = 48;
+const TRACED = new WeakSet();
+const ARRAY = { tag: 'array' }, OBJECT = { tag: 'object' }, HAS = { tag: 'has' }, HAS_NOT = { tag: 'has not' };
+function traced(obj, root, path, log, rec) {
+  const kids = new Map();
+  const px = new Proxy(obj, {
+    get(o, key) {
+      const v = o[key];
+      if (typeof key !== 'string') return v;
+      if (v !== null && typeof v === 'object') {
+        log.push(root, path, key, Array.isArray(v) ? ARRAY : OBJECT);
+        let kid = kids.get(key);
+        if (!kid || kid.of !== v) kids.set(key, kid = { of: v, px: traced(v, root, path.concat(key), log, rec) });
+        return kid.px;
+      }
+      if (typeof v === 'function') rec.bad = true;
+      log.push(root, path, key, v);
+      return v;
+    },
+    has(o, key) {
+      const v = key in o;
+      if (typeof key === 'string') log.push(root, path, key, v ? HAS : HAS_NOT); else rec.bad = true;
+      return v;
+    },
+    ownKeys(o) { rec.bad = true; return Reflect.ownKeys(o); },
+    set(o, key, v) { rec.bad = true; o[key] = v; return true; },
+    deleteProperty(o, key) { rec.bad = true; return delete o[key]; },
+    defineProperty(o, key, d) { rec.bad = true; return Reflect.defineProperty(o, key, d); },
+  });
+  TRACED.add(px);
+  TRACE_OF.set(px, { o: obj, root, path, log });
+  return px;
+}
+const TRACE_OF = new WeakMap();
+// f(c.T), logged as f's value: f must be a pure function of the clock, made once.
+function when(c, f) {
+  const tr = TRACE_OF.get(c);
+  if (!tr) return f(c.T);
+  const v = f(tr.o.T);
+  tr.log.push(tr.root, tr.path, f, v);
+  return v;
+}
+const SEA_PHASE = T => Math.floor(T / 0.75);
+const CARET_BLINK = T => frac(T / 1.05) < 0.55;
+const BLOCK_BOB = [0, 1, 2, 3].map(i => T => frac(T / 2.4 + i * 0.27) < 0.5);
+const tryPose = (p, k) => k === 1 ? p : k === 'z' ? { ...p, dx: 0, dy: 0, lift: 0 } : { ...p, dx: p.dx * k, dy: p.dy * k, lift: (p.lift ?? 0) * k };
+function readsMatch(log, q, c) {
+  for (let i = 0; i < log.length; i += 4) {
+    let o = log[i] === 0 ? q : c;
+    const path = log[i + 1];
+    for (let j = 0; j < path.length; j++) o = o[path[j]];
+    const key = log[i + 2], want = log[i + 3];
+    if (typeof key === 'function') { if (!Object.is(key(o.T), want)) return false; continue; }
+    if (want === HAS || want === HAS_NOT) { if ((key in o) !== (want === HAS)) return false; continue; }
+    const v = o[key];
+    if (want === ARRAY) { if (!Array.isArray(v)) return false; continue; }
+    if (want === OBJECT) { if (v === null || typeof v !== 'object' || Array.isArray(v)) return false; continue; }
+    if (!Object.is(v, want)) return false;
+  }
+  return true;
+}
+// A plain copy of what a body returned; anything that isn't plain data
+// can't be kept.
+function plain(v, rec) {
+  if (v === null || typeof v !== 'object') { if (typeof v === 'function') rec.bad = true; return v; }
+  if (TRACED.has(v)) rec.bad = true;
+  if (Array.isArray(v)) return v.map(x => plain(x, rec));
+  if (Object.getPrototypeOf(v) !== Object.prototype) { rec.bad = true; return v; }
+  const out = {};
+  for (const key in v) out[key] = plain(v[key], rec);
+  return out;
+}
+const cellsOf = cv => ({ keys: [...cv.cells.keys()], colors: [...cv.cells.values()] });
+function canvasOf(saved) {
+  const cv = canvas();
+  for (let i = 0; i < saved.keys.length; i++) cv.cells.set(saved.keys[i], saved.colors[i]);
+  return cv;
+}
+function settled(p, draw, c = null, extra = undefined) {
+  const memo = c && c.memo;
+  if (!memo) return settledRun(p, draw, c, null);
+  const last = memo.body;
+  if (last && Object.is(last.dx, p.dx) && Object.is(last.dy, p.dy) && Object.is(last.lift, p.lift) && Object.is(last.extra, extra)
+    && last.tries.every(t => readsMatch(t.log, tryPose(p, t.k), c))) {
+    memo.misses = 0;
+    memo.hits++;
+    return { q: tryPose(p, last.k), cv: canvasOf(last.cv), s: canvasOf(last.s), a: plain(last.a, {}) };
+  }
+  memo.body = null;
+  memo.draws++;
+  if (memo.rest > 0) { memo.rest--; return settledRun(p, draw, c, null); }
+  if (++memo.misses > MEMO_MISSES) { memo.misses = 0; memo.rest = MEMO_REST; return settledRun(p, draw, c, null); }
+  const rec = { tries: [], zero: false, bad: false };
+  const out = settledRun(p, draw, c, rec);
+  const a = plain(out.a, rec);
+  if (!rec.bad) {
+    // The winner is the last try made, or the zero fallback, which keeps the
+    // zero try's drawing under a pose with no offsets at all.
+    const won = rec.zero ? out.i : rec.tries.length - 1;
+    memo.body = { dx: p.dx, dy: p.dy, lift: p.lift, extra, tries: rec.tries, k: rec.zero ? 'z' : rec.tries[won].k, cv: cellsOf(out.cv), s: cellsOf(out.s), a };
+  }
+  return out;
 }
 
 // MARK: - Glyphs
@@ -661,8 +815,8 @@ const PIX = {
 // glance a pixel toward the pointer and change shape with the mood.
 function pxEyes(cv, at, c, mode, color, look = true) {
   const e = c.eye;
-  const lx = look ? clamp(rnd(e.look[0] * 1.3), -1, 1) : 0;
-  const ly = look ? clamp(rnd(e.look[1] * 1.2), -1, 1) : 0;
+  const lx = look ? e.lx : 0;
+  const ly = look ? e.ly : 0;
   const m = e.cross > 0.5 ? 'x' : e.happy > 0.5 ? 'happy' : e.sleep > 0.5 ? 'closed' : e.open < 0.45 ? 'blink' : mode;
   at.forEach(([x0, y0], i) => {
     const side = i === 0 ? -1 : 1;
@@ -1062,7 +1216,7 @@ function pxProp(cv, back, p, a, pal, c) {
     draw(p, c) {
       const color = p.dim > 0.5 ? DULL : ORANGE;
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => clawd(g, q, c, color));
+      const { q, cv, a } = settled(p, (g, s, q, c) => clawd(g, q, c, color), c, color);
       const body = { ...pal, body: color };
       if (q.prop === 'think') fitDraw(cv, g => g.glyph(SPINNER[Math.floor(q.propT * 7) % SPINNER.length], a.mid - 2, a.top - 7, ORANGE));
       else if (q.prop === 'stall') fitDraw(cv, g => {
@@ -1197,7 +1351,7 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => notebook(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => notebook(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -1357,7 +1511,7 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => balloon(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => balloon(g, q, c), c);
       pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -1385,7 +1539,7 @@ function pxProp(cv, back, p, a, pal, c) {
     main: INK, body: INK, dark: INK, light: '#9A9AA0', accent: INK,
     mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { w: FACE }),
   };
-  const lookOf = c => [clamp(rnd(c.eye.look[0] * 1.3), -1, 1), clamp(rnd(c.eye.look[1] * 1.2), -1, 1)];
+  const lookOf = c => [c.eye.lx, c.eye.ly];
 
   // Pill eyes, 2 wide and `h` tall, centred on cx + 0.5; they morph with the
   // mood and the phase.
@@ -1393,10 +1547,10 @@ function pxProp(cv, back, p, a, pal, c) {
     const [lx, ly] = lookOf(c);
     const top = cy - 2 + ly;
     const xs = [cx - 3 + lx, cx + 2 + lx];
-    const e = c.eye, t = p.propT;
+    const e = c.eye;
     if (p.face === 'dots') {
       // Thinking: three dots across the face, the lit one walking.
-      const k = Math.floor(t * 4) % 3;
+      const k = Math.floor(p.propT * 4) % 3;
       [cx - 4, cx, cx + 4].forEach((x, i) => cv.rect(x + lx, cy - 1 + ly, 2, 2, i === k ? ink : dim));
       return;
     }
@@ -1427,13 +1581,12 @@ function pxProp(cv, back, p, a, pal, c) {
     const dim = p.dim > 0.5;
     const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
     const inner = p.sq > 0.5 ? 3.4 : 4.5;
-    const tick = Math.floor(c.T * 6);
     // The slash, behind the face: out past the ring at both ends.
     for (const [dx, dy] of [[5, -5], [6, -6], [-5, 5], [-6, 6]]) cv.put(cx + dx, cy + dy, ink);
     cv.shape((x, y) => Math.hypot(x - cx - 0.5, y - cy - 0.5) <= 6.5, cx - 7, cy - 7, 15, 15, (x, y) => {
       const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
       if (d < inner) return face;
-      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + tick) % 2) return face;
+      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + Math.floor(c.T * 6)) % 2) return face;
       return ink;
     });
     if (p.glow && Math.floor(c.T * 4) % 2) cv.put(cx + 5, cy - 7, '#F5BE2E');
@@ -1466,7 +1619,7 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => ring(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => ring(g, q, c), c);
       const t = q.propT;
       // Rings, lines and sparks show only where the circle allows.
       const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
@@ -1579,7 +1732,7 @@ CHARACTERS.cursor = CHARACTERS.grok;
     // Resting: a quiet prompt, dimmed, with no caret.
     if (!red && p.term !== 'yn' && p.term !== 'lock' && p.term !== 'check') cv.glyph(CHEV, x0, row - 1, p.term === 'rest' ? '#55708F' : ink);
     let caret = x0 + 3;
-    const blink = frac(c.T / 1.05) < 0.55;
+    const blink = when(c, CARET_BLINK);
     switch (p.term) {
       case 'dots':
         for (let i = 0; i < 3; i++) cv.put(caret + i * 2, row, Math.floor(t * 5) % 3 === i ? ink : '#55708F');
@@ -1672,7 +1825,7 @@ CHARACTERS.cursor = CHARACTERS.grok;
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a: b } = settled(p, (g, s, q) => blob(g, q, c));
+      const { q, cv, a: b } = settled(p, (g, s, q, c) => blob(g, q, c), c);
       const t = q.propT;
       terminal(cv, q, c, t);
       const a = { mid: b.cx, top: b.top, left: b.cx - 6, right: b.cx + 6, ground: TERM.y + TERM.h, midY: rnd(b.cy), front: rnd(b.cy), eyes: b.eyes };
@@ -1938,7 +2091,7 @@ function moodOf(c, mode) {
 // pointer and change shape with the mood.
 function blockEyes(cv, at, c, mode, color, w = 2) {
   const e = c.eye;
-  const lx = clamp(rnd(e.look[0] * 1.3), -1, 1), ly = clamp(rnd(e.look[1] * 1.2), -1, 1);
+  const lx = e.lx, ly = e.ly;
   const m = moodOf(c, mode);
   at.forEach(([x0, y0], i) => {
     const x = x0 + lx, y = y0 + ly, right = i === 1;
@@ -1968,7 +2121,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => body(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => body(g, q, c), c);
       if (!(props && props(cv, back, q, a, c))) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -2099,7 +2252,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => cloud(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => cloud(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'think': {
@@ -2248,7 +2401,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => cloud(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => cloud(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'think': case 'stall': {
@@ -2398,7 +2551,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => folio(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => folio(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -2500,7 +2653,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => scroll(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => scroll(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -2764,7 +2917,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, s: shade, a } = settled(p, (g, s, q) => arch(g, s, q, c));
+      const { q, cv, s: shade, a } = settled(p, (g, s, q, c) => arch(g, s, q, c), c);
       const t = q.propT;
       // Single-cell particles only show where the circle allows.
       const dot = (x, y, color) => { if (safe(x, y)) cv.put(x, y, color); };
@@ -2981,7 +3134,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, s: shade, a } = settled(p, (g, s, q) => body(g, s, q, c));
+      const { q, cv, s: shade, a } = settled(p, (g, s, q, c) => body(g, s, q, c), c);
       satellites(cv, q, c, a);
       if (q.prop === 'sparks') pxProp(cv, back, q, a, { ...pal, main: SAT[2] }, c);
       else pxProp(cv, back, q, a, pal, c);
@@ -3030,7 +3183,6 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
 
   function blocks(cv, shadowCv, p, c) {
     const dim = p.dim > 0.5;
-    const T = c.T;
     const snap = clamp(p.snap ?? 0), fall = clamp(p.fall ?? 0), spread = rnd(p.spread ?? 0);
     const placed = BLOCKS.map((b, i) => {
       // Where it is: floating, clicked together, or fallen, in whole cells.
@@ -3043,7 +3195,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       if (fall < 1) {
         x += rnd(p.dx); y += rnd(p.dy);
         // Antigravity: each block bobs on its own beat while they float.
-        if (p.bob && snap < 0.5) y -= frac(T / 2.4 + i * 0.27) < 0.5 ? 0 : 1;
+        if (p.bob && snap < 0.5) y -= when(c, BLOCK_BOB[i]) ? 0 : 1;
         // Thinking: they drift apart, a cell each way.
         x += [0, -spread, spread, 0][i]; y += [-spread, 0, 0, spread][i];
         // Walking: the legs take turns stepping up.
@@ -3051,7 +3203,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
         // The plank sliding in and out while it builds.
         if (i === 3) x += rnd(p.bar ?? 0);
       }
-      const lost = p.lost > 0.5 && (i + Math.floor(T * 2)) % 2;
+      const lost = p.lost > 0.5 && (i + Math.floor(c.T * 2)) % 2;
       return { ...b, cells: tipped ? b.lying : b.cells, x, y, colors: dim || lost ? DIM : b.col };
     });
     // Its fidget: the two legs trade places, colours and all.
@@ -3102,7 +3254,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, s: shade, a } = settled(p, (g, s, q) => blocks(g, s, q, c));
+      const { q, cv, s: shade, a } = settled(p, (g, s, q, c) => blocks(g, s, q, c), c);
       if (q.prop === 'strap') {
         // A steel strap round the clicked-together blocks, a padlock on it.
         cv.rect(6, 12, 10, 1, '#8D94A6');
@@ -3203,7 +3355,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q) => kite(g, q, c));
+      const { q, cv, a } = settled(p, (g, s, q, c) => kite(g, q, c), c);
       if (q.prop === 'stake') {
         // A wooden stake at the end of its tail, the tail tied fast to it.
         const x = a.mid + 3;
@@ -3308,7 +3460,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     // The sea round it, never over it: rows 13 to 17, drifting slowly;
     // still and grey when it's offline.
     const still = p.sea === 'still';
-    const phase = still ? 0 : Math.floor(c.T / 0.75);
+    const phase = still ? 0 : when(c, SEA_PHASE);
     for (let r = 13; r <= 17; r++) for (let i = 2; i < 20; i++) {
       if (!safe(i, r) || cv.has(i, r)) continue;
       if (still ? r % 2 === 0 : (i + r + phase) % 4 === 0) continue;
@@ -3405,14 +3557,13 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     const dim = p.dim > 0.5;
     const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
     const inner = p.sq > 0.5 ? 3.0 : 4.1;
-    const tick = Math.floor(c.T * 6);
     cv.shape((x, y) => {
       const d = Math.hypot(x - cx - 0.5, y - cy - 0.5);
       return d <= 5.5;
     }, cx - 6, cy - 6, 13, 13, (x, y) => {
       const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
       if (d < inner) return face;
-      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + tick) % 2) return face;
+      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + Math.floor(c.T * 6)) % 2) return face;
       return ink;
     });
     // Legs and arm nubs.
@@ -3472,7 +3623,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const { q, cv, s: back, a } = settled(p, (g, s, q) => ringBot(g, s, q, c));
+      const { q, cv, s: back, a } = settled(p, (g, s, q, c) => ringBot(g, s, q, c), c);
       const t = q.propT;
       const [kx, ky] = a.knob;
       // Single cells show only where the circle allows.
@@ -3702,7 +3853,6 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   const MINI = ['####', '#nn#', '####', '#..#'];
   function body(cv, p, c) {
     const x = rnd(p.dx), y = 2 + rnd(p.dy) - rnd(p.lift ?? 0);
-    const t = p.propT, T = c.T;
     const dim = p.dim > 0.5, red = p.screen === 'red';
     art(cv, ART, x, y, { L: dim ? DULL : SHINE, B: dim ? DULL : BLUE, D: dim ? DULL_D : DEEP, N: red ? RED : NAVY, G: red ? '#E0605A' : GLARE, E: LED, A: NAVY, d: p.dotLit ? LIT : DOT });
     if (!p.dotLit) cv.put(x + 11, y, dim ? DULL : SHINE);
@@ -3711,23 +3861,23 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     if (liftL) { for (const i of [6, 7, 8]) cv.clear(x + i, y + 16); cv.put(x + 6, y + 15, NAVY); }
     if (liftR) { for (const i of [13, 14, 15]) cv.clear(x + i, y + 16); cv.put(x + 15, y + 15, NAVY); }
     // The power light: green, amber breathing in standby, red when locked or failed.
-    cv.put(x + 15, y + 13, p.standby ? (Math.floor(T / 1.4) % 2 ? AMBER : DEEP) : p.screen === 'lock' || red ? RED_LED : p.screen === 'static' ? DEEP : LED);
+    cv.put(x + 15, y + 13, p.standby ? (Math.floor(c.T / 1.4) % 2 ? AMBER : DEEP) : p.screen === 'lock' || red ? RED_LED : p.screen === 'static' ? DEEP : LED);
     const eyes = [[x + 8, y + 7], [x + 12, y + 7]];
     switch (p.screen) {
       case 'dots': {
         // Thinking: the eyes become three dots, the lit one walking.
-        const k = Math.floor(t * 4) % 3;
+        const k = Math.floor(p.propT * 4) % 3;
         for (let i = 0; i < 3; i++) cv.rect(x + 7 + i * 3, y + 8, 2, 2, i === k ? EYE : CODE);
         break;
       }
       case 'code':
         blockEyes(cv, eyes.map(([ex, ey]) => [ex, ey - 1]), c, 'focus', EYE);
-        cv.rect(x + 7, y + 11, [5, 8, 3, 7, 6, 4][Math.floor(t * 6) % 6], 1, CODE);
+        cv.rect(x + 7, y + 11, [5, 8, 3, 7, 6, 4][Math.floor(p.propT * 6) % 6], 1, CODE);
         break;
       case 'static':
         // Offline: snow on the screen, no face.
         for (let j = 7; j <= 11; j++) for (let i = 6; i <= 15; i++) {
-          const v = hash(i * 31 + j * 7 + Math.floor(T * 8) * 131);
+          const v = hash(i * 31 + j * 7 + Math.floor(c.T * 8) * 131);
           if (v > 0.62) cv.put(x + i, y + j, v > 0.85 ? '#C9D6E6' : '#55708F');
         }
         break;
@@ -3965,7 +4115,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   const MINI = ['.##.', '#vv#', '#vv#', '.##.'];
   function body(cv, p, c) {
     const x = rnd(p.dx), y = 3 + rnd(p.dy) - rnd(p.lift ?? 0);
-    const dim = p.dim > 0.5, T = c.T;
+    const dim = p.dim > 0.5;
     art(cv, ART, x, y, { O: INK, W: dim ? DIM_SUIT : SUIT, S: SHADE, V: VISOR, P: PACK, K: INK });
     // Walking: a boot lifts.
     if (p.legs === 'walk1' || p.legs === 'jump') for (let i = 6; i <= 9; i++) cv.clear(x + i, y + 15);
@@ -3987,7 +4137,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
         for (let i = 0; i < 3; i++) cv.rect(x + 7 + i * 3, y + 6, 2, 2, i === k ? EYE : GLINT);
       } else if (p.visor === 'static') {
         for (let j = 4; j <= 9; j++) for (let i = 5; i <= 16; i++) {
-          const v = hash(i * 31 + j * 7 + Math.floor(T * 8) * 131);
+          const v = hash(i * 31 + j * 7 + Math.floor(c.T * 8) * 131);
           if (v > 0.66 && cv.get(x + i, y + j) === VISOR) cv.put(x + i, y + j, v > 0.86 ? '#C9C9CF' : '#4A4A52');
         }
       } else if (p.visor === 'dark') blockEyes(cv, eyes, c, 'closed', DARK);
@@ -4245,7 +4395,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   const MINI = ['#.#', '###', 'w#w', '###'];
   function eyesOf(cv, x, y, c, mode) {
     const e = c.eye;
-    const lx = clamp(rnd(e.look[0] * 1.3), -1, 1), ly = clamp(rnd(e.look[1]), -1, 1);
+    const lx = e.lx, ly = e.ly1;
     const m = moodOf(c, mode);
     [[x + 6, y + 5], [x + 12, y + 5]].forEach(([X, Y], i) => {
       const mm = i === 1 && e.wink > 0.5 ? 'happy' : m;
@@ -4264,10 +4414,10 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   }
   function body(cv, p, c) {
     const x = rnd(p.dx), y = 3 + rnd(p.dy) - rnd(p.lift ?? 0);
-    const dim = p.dim > 0.5, T = c.T;
+    const dim = p.dim > 0.5;
     // Antennae: up, or drooping out to the sides.
     const tipColor = i => {
-      if (p.tips === 'lost') return i === 0 && Math.floor(T * 2) % 2 ? RED : GREY;
+      if (p.tips === 'lost') return i === 0 && Math.floor(c.T * 2) % 2 ? RED : GREY;
       if (p.tips === 'turn') return Math.floor(p.propT * 2.5) % 2 === i ? GOLD : DIM_GOLD;
       if (p.tips === 'flash') return Math.floor(p.propT * 8) % 2 ? '#FFF2C2' : GOLD;
       if (p.tips === 'beep') return Math.floor(p.propT * 4) % 3 === i ? '#FFF2C2' : GOLD;

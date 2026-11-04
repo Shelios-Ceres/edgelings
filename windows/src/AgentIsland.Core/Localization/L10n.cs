@@ -488,6 +488,7 @@ public static class L10n
         ["Sea otter"] = "海獭",
         ["{0}. What {1} wears in the drawer, on its card and in menus"] = "{0} · {1} 在抽屉、卡片和菜单里的样子",
         ["{0}. What {1} wear in the drawer, on its card and in menus"] = "{0} · {1} 在抽屉、卡片和菜单里的样子",
+        ["Waiting"] = "等待中",
         ["Slashed ring"] = "斜线圆环",
         ["Ring bot"] = "圆环机器人",
         ["Event horizon"] = "黑洞",

@@ -28,6 +28,26 @@ public static class AgentPhaseTests
             ("claude: Edit is writing", () => Claude(AgentPhase.Writing, ToolUse("Edit", 1, "e"))),
             ("claude: Grep is searching", () => Claude(AgentPhase.Searching, ToolUse("Grep", 1, "g"))),
             ("claude: WebFetch is web searching", () => Claude(AgentPhase.WebSearching, ToolUse("WebFetch", 1, "w"))),
+            ("a sleep or wait tool shows as Waiting, in the app language, and the phase is unchanged", () =>
+            {
+                var language = Localization.L10n.Current;
+                try
+                {
+                    Localization.L10n.Current = Localization.L10n.Language.English;
+                    var sleeping = AgentPhaseClassifier.Tool("sleep", Now, Now);
+                    if (sleeping.Phase != AgentPhase.Working || sleeping.Detail != "Waiting") throw new Exception($"sleep: {sleeping.Phase} '{sleeping.Detail}'");
+                    var waiting = AgentPhaseClassifier.Tool("wait", Now, Now);
+                    if (waiting.Phase != AgentPhase.WaitingOnAgents || waiting.Detail != "Waiting") throw new Exception($"wait: {waiting.Phase} '{waiting.Detail}'");
+                    if (AgentPhaseClassifier.Tool("Bash", Now, Now).Detail != "Bash" || AgentPhaseClassifier.Tool("mcp__srv__lookup", Now, Now).Detail != "lookup")
+                        throw new Exception("other tool names keep their short names");
+                    Localization.L10n.Current = Localization.L10n.Language.SimplifiedChinese;
+                    if (AgentPhaseClassifier.Tool("sleep", Now, Now).Detail != "等待中") throw new Exception("zh: " + AgentPhaseClassifier.Tool("sleep", Now, Now).Detail);
+                }
+                finally
+                {
+                    Localization.L10n.Current = language;
+                }
+            }),
             ("kimi: FetchURL is web searching", () =>
             {
                 if (AgentPhaseClassifier.ToolPhase("FetchURL") != AgentPhase.WebSearching) throw new Exception("FetchURL: " + AgentPhaseClassifier.ToolPhase("FetchURL"));
