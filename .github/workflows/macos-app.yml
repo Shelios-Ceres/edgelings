@@ -107,6 +107,32 @@ jobs:
             sysctl -n machdep.cpu.brand_string hw.ncpu
           } 2>&1 | tee -a out/bench-loop.txt
 
+      - name: Does an entitlement or the hardened runtime turn JavaScriptCore's JIT on? (the same app, signed three ways)
+        if: success() || failure()
+        run: |
+          cat > "$RUNNER_TEMP/jit.entitlements" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>com.apple.security.cs.allow-jit</key><true/>
+            <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+          </dict></plist>
+          EOF
+          {
+            for variant in plain entitled hardened; do
+              rm -rf "$RUNNER_TEMP/jit-$variant.app"
+              ditto out/app/Edgelings.app "$RUNNER_TEMP/jit-$variant.app"
+              case $variant in
+                entitled) codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/jit.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
+                hardened) codesign --force --deep --sign - --options runtime --entitlements "$RUNNER_TEMP/jit.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
+              esac
+              echo "== $variant: $(codesign -dv "$RUNNER_TEMP/jit-$variant.app" 2>&1 | grep -E 'flags=' )"
+              BIN="$RUNNER_TEMP/jit-$variant.app/Contents/MacOS/Edgelings"
+              EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --diagnose 2>&1 | grep -E "JavaScript:" || true
+              EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --bench-loop --lineup --rounds 400 2>&1 || true
+            done
+          } 2>&1 | tee -a out/bench-loop.txt
+
       - name: Loop cost at 2x (7 characters, stage by stage; a regression guard, not the target)
         timeout-minutes: 5
         run: |
