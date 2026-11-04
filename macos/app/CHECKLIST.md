@@ -2,6 +2,8 @@
 
 **Please do this one yourself, with your own eyes and hands, not through an agent or a script.** An agent running in Terminal cannot see the screen or use the pointer, and every item below needs one of them. Answer each line with a word or two. If something looks wrong, a screenshot helps.
 
+If you let an AI agent (for example Codex, with its computer use) operate your Mac for the rest of the test, that's fine, but **please look at items 7, 14 and 15 yourself**: they are about how things look, and an agent's "looks fine" is not enough there.
+
 Only the last item (the diagnostic) can be pasted for you. The diagnostic now also says where the app's CPU goes, so please let the app run for a few minutes before you copy it.
 
 1. **The drawer.** Is there a column of round characters on the right edge of your main screen? How many? Does each match an agent you have (Claude, Codex, Antigravity, Grok, Kimi, DeepSeek)?
@@ -14,9 +16,9 @@ Only the last item (the diagnostic) can be pasted for you. The diagnostic now al
 8. **Dark mode.** Switch macOS to dark and back. Do the cards, the Settings window and the menu-bar icon follow?
 9. **Awake and asleep.** Open and quit one agent's app (for example Kimi). Does its character wake and fall asleep with it?
 10. **Working.** Start a long task in one agent. Does its character change while it works and say a short line when it finishes?
-11. **CPU while calm.** With no agent working, open Activity Monitor, find Edgelings, and let it settle for a minute. Write down its % CPU, whether the Mac is on battery or plugged in, and the Mac's display (built-in or external).
+11. **CPU while calm.** (This build runs the character engine compiled, so the number should be far lower than the 27 % of kit g.) With no agent working, open Activity Monitor, find Edgelings, and let it settle for a minute. Write down its % CPU, whether the Mac is on battery or plugged in, and the Mac's display (built-in or external).
 12. **CPU while an agent works.** Start a long task in one agent and write down Edgelings' % CPU after a minute. Then open Settings > Drawer, set "Frame rate while an agent works" to 60 fps, switch "Save battery" on, and write it down again. (Calm characters always run at 30 fps; there is no 30 fps setting.)
 13. **Kimi Work (only if you have the Kimi desktop client).** Start one Kimi Work task. While it runs, does the Kimi character work, and does it say "done" when the task finishes? Then switch the client to manual approval and give it a task that runs a command: while the client asks you to approve, does the Kimi character show a waiting-for-approval state and say so? (If it stays idle through the whole task, say so: the probe in PROBE.md section 7 finds where its data is on your Mac.)
 14. **Pixel in Chinese.** Set the app language to 简体中文 with the Pixel style on. Look at the hover card, a speech bubble if one appears, the right-click menu and the tray menu, and the four Settings pages. Is everything Chinese? Does any text look cut off, overlapping, or in a different face from the rest?
-15. **Full screen.** Settings > Drawer > "In full screen". With it off (the default), put any app (Safari, Notes) into full screen: do the characters go away, and come back when you leave full screen? Switch it on and repeat: do the characters stay on screen over the full-screen app, and can you still hover and click them?
+15. **Full screen.** Settings > Drawer > "In full screen". With it off (the default), play a video in a browser (Safari or Chrome) and put it into full screen: do the characters go away, and come back when you leave full screen? Switch it on and repeat: do the characters stay on screen over the video, and can you still hover and click them? (Your Mac's screen has a notch. The kit-g build did not see a full-screen window below the notch; this build should.)
 16. **Copy diagnostic.** After the app has run for at least five minutes with your usual agents open: Settings > General > About > Copy diagnostic, and paste it into the report. Its "Where the time goes" lines are the part we need most.
