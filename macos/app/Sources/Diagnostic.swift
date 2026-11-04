@@ -84,6 +84,20 @@ enum DiagnosticReport {
         return lines
     }
 
+    /// A hot function in a fresh JSContext, run three times: a JIT compiles it after the first calls (a few ms), an interpreter
+    /// keeps its pace (about 100 ms).
+    static func hotFunctionMs() -> Double? {
+        guard let context = JSContext() else { return nil }
+        context.evaluateScript("function hot() { let s = 0; for (let i = 0; i < 2000000; i++) { s += i % 7; } return s; }")
+        var best = Double.infinity
+        for _ in 0..<3 {
+            let begin = DispatchTime.now().uptimeNanoseconds
+            _ = context.evaluateScript("hot()")
+            best = min(best, Double(DispatchTime.now().uptimeNanoseconds - begin) / 1_000_000)
+        }
+        return best
+    }
+
     /// Which build this is and what it costs: the engines' sha256 (first 8 hex), the process's memory, and a
     /// JavaScript loop's time (a JavaScriptCore with its JIT on runs it in a few milliseconds; an interpreter takes ten times that).
     static func buildLines() -> [String] {
@@ -95,15 +109,7 @@ enum DiagnosticReport {
         lines.append("Engines: pixel \(sha("characters.mjs")), classic \(sha("classic.mjs"))")
         let memory = Perf.memoryMB()
         lines.append(String(format: "Memory: resident %.0f MB, footprint %.0f MB", memory.resident, memory.footprint))
-        if let context = JSContext() {
-            // A hot function, run three times: a JIT compiles it after the first calls, an interpreter keeps its pace.
-            context.evaluateScript("function hot() { let s = 0; for (let i = 0; i < 2000000; i++) { s += i % 7; } return s; }")
-            var best = Double.infinity
-            for _ in 0..<3 {
-                let begin = DispatchTime.now().uptimeNanoseconds
-                _ = context.evaluateScript("hot()")
-                best = min(best, Double(DispatchTime.now().uptimeNanoseconds - begin) / 1_000_000)
-            }
+        if let best = hotFunctionMs() {
             lines.append(String(format: "JavaScript: a 2M-iteration function takes %.0f ms at best of three (%@)", best, best < 40 ? "JIT looks on" : "JIT looks off"))
         }
         return lines
@@ -201,6 +207,8 @@ enum SelfTest {
             let found = PixelBreaks.opportunities(text)
             check("line breaks: \(name)", allowed.allSatisfy { found.contains($0) } && forbidden.allSatisfy { !found.contains($0) }, "\(found)")
         }
+        let hot = DiagnosticReport.hotFunctionMs() ?? .infinity
+        check("JavaScriptCore runs its JIT (the app is signed with the allow-jit entitlement)", hot < 40, String(format: "%.0f ms for a 2M-iteration function", hot))
         for sample in FullScreenWatch.samples {
             check("full-screen rule: \(sample.name)", FullScreenWatch.covers(sample.window, display: sample.display, notch: sample.notch, menuBarShowing: sample.menuBar) == sample.covers)
         }

@@ -60,6 +60,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 for lib in "$APP"/Contents/Frameworks/*.dylib; do codesign --force -s - "$lib"; done
-codesign --force --deep -s - "$APP"
+# The entitlements let JavaScriptCore use its JIT (without them the engines run in its interpreter, about 3.5x slower).
+codesign --force --deep -s - --entitlements "$HERE/Edgelings.entitlements" "$APP"
 lipo -info "$APP/Contents/MacOS/Edgelings"
 echo "built $APP"
