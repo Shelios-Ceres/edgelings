@@ -536,15 +536,24 @@ func memoryPass() {
         pause(20)
         let calm = residentMB(runPid)
         var withSettings = 0.0
+        var afterClose = 0.0
         if !eventsBlocked {
             click(CGPoint(x: panel.x + 28, y: panel.y + 34))
             _ = waitFor(6) { windows().contains { $0.pid == runPid && $0.layer == 0 && $0.width >= 500 && $0.onScreen } }
             pause(6)
             withSettings = residentMB(runPid)
+            // Command-W closes Settings: its memory should go with it.
+            for down in [true, false] {
+                let event = CGEvent(keyboardEventSource: nil, virtualKey: 13, keyDown: down)
+                event?.flags = .maskCommand
+                event?.post(tap: .cghidEventTap)
+            }
+            pause(6)
+            afterClose = residentMB(runPid)
             moveMouse(to: CGPoint(x: display.midX, y: display.minY + 200))
         }
         vmmapSummary(runPid, to: "\(outFolder)/vmmap-\(label).txt")
-        let line = String(format: "%@: resident %.1f MB calm, %.1f MB with Settings open", label, calm, withSettings)
+        let line = String(format: "%@: resident %.1f MB calm, %.1f MB with Settings open, %.1f MB after it was closed", label, calm, withSettings, afterClose)
         print(line)
         appendLine(line, to: "\(outFolder)/memory.txt")
         record("memory \(label)", run.isRunning, line)

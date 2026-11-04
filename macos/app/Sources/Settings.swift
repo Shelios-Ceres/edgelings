@@ -33,5 +33,10 @@ final class SettingsController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         store.stop()
+        // The window and its SwiftUI tree go with it (the next show builds them again): a closed Settings window
+        // kept its pages and their caches, tens of megabytes of the app's memory.
+        let closing = window
+        window = nil
+        DispatchQueue.main.async { closing?.contentView = nil }
     }
 }
