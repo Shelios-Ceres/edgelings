@@ -482,6 +482,77 @@ func chinesePass() {
 
 chinesePass()
 
+// MARK: Memory by variant
+
+func residentMB(_ pid: Int32) -> Double {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/ps")
+    process.arguments = ["-o", "rss=", "-p", "\(pid)"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    try? process.run()
+    process.waitUntilExit()
+    let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    return (Double(text) ?? 0) * 1024 / 1_000_000
+}
+
+/// vmmap's region summary of the process, best effort (it needs the right to look at a process).
+func vmmapSummary(_ pid: Int32, to path: String) {
+    for command in [["/usr/bin/sudo", "-n", "/usr/bin/vmmap", "-summary", "\(pid)"], ["/usr/bin/vmmap", "-summary", "\(pid)"]] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: command[0])
+        process.arguments = Array(command.dropFirst())
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do { try process.run() } catch { continue }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        if process.terminationStatus == 0, data.count > 200 {
+            try? data.write(to: URL(fileURLWithPath: path))
+            return
+        }
+    }
+}
+
+/// The app's memory in each language and style, calm and with Settings open, and where it sits (vmmap).
+/// Numbers only; nothing fails here.
+func memoryPass() {
+    for (label, language, theme) in [("en-pixel", "en", "Pixel"), ("zh-pixel", "zh", "Pixel"), ("en-classic", "en", "Classic"), ("zh-classic", "zh", "Classic")] {
+        let root = "\(rootFolder)-mem-\(label)"
+        let support = "\(root)/home/Library/Application Support/Edgelings"
+        try? FileManager.default.createDirectory(atPath: support, withIntermediateDirectories: true)
+        try? Data("{\"AgentIsland.drawer.theme\": \"\(theme)\"}".utf8).write(to: URL(fileURLWithPath: "\(support)/settings.json"))
+        for folder in [".claude/projects", ".codex/sessions", ".kimi-code/sessions", ".dsh/sessions"] {
+            try? FileManager.default.createDirectory(atPath: "\(root)/home/\(folder)", withIntermediateDirectories: true)
+        }
+        guard let run = launch(extra: ["EDGELINGS_ROOT": root, "AGENTISLAND_LANG": language, "EDGELINGS_IGNORE_REDUCE_MOTION": "1"], log: "\(outFolder)/app-mem-\(label).log") else { continue }
+        let runPid = run.processIdentifier
+        defer { if run.isRunning { kill(runPid, SIGKILL); run.waitUntilExit() } }
+        guard waitFor(30, { drawer(pid: runPid) != nil }), let panel = drawer(pid: runPid) else {
+            appendLine("\(label): no drawer", to: "\(outFolder)/memory.txt")
+            continue
+        }
+        pause(20)
+        let calm = residentMB(runPid)
+        var withSettings = 0.0
+        if !eventsBlocked {
+            click(CGPoint(x: panel.x + 28, y: panel.y + 34))
+            _ = waitFor(6) { windows().contains { $0.pid == runPid && $0.layer == 0 && $0.width >= 500 && $0.onScreen } }
+            pause(6)
+            withSettings = residentMB(runPid)
+            moveMouse(to: CGPoint(x: display.midX, y: display.minY + 200))
+        }
+        vmmapSummary(runPid, to: "\(outFolder)/vmmap-\(label).txt")
+        let line = String(format: "%@: resident %.1f MB calm, %.1f MB with Settings open", label, calm, withSettings)
+        print(line)
+        appendLine(line, to: "\(outFolder)/memory.txt")
+        record("memory \(label)", run.isRunning, line)
+    }
+}
+
+memoryPass()
+
 // MARK: CPU and memory
 
 func measure(label: String, extra: [String: String]) {

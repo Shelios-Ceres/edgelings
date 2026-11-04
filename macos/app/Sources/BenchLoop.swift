@@ -20,12 +20,41 @@ enum BenchLoop {
         return number
     }
 
+    /// The friend's real Mac, as his diagnostic read it: four characters shown, Codex working, Kimi idle and
+    /// two resting, at 30 fps. His loop's JavaScript step took about 8 ms a tick; this says what the runner takes.
+    private static func lineup(rounds: Int) -> Never {
+        let bots: [(kind: String, look: String, state: String)] = [("codex", "notebook", "thinking"), ("kimi", "blob", "idle"), ("claude", "clawd", "resting"), ("deepseek", "whale", "resting")]
+        guard let engine = try? CharacterEngine(theme: "pixel", directory: AppController.enginesDirectory()) else {
+            print("FAIL lineup: the engine did not load")
+            exit(1)
+        }
+        for (index, bot) in bots.enumerated() {
+            let added = engine.addBot(kind: bot.kind, tempo: 1, seed: 7 + index * 13, look: bot.look)
+            engine.setState(added, bot.state, phase: 0)
+        }
+        let dts = [Double?](repeating: 1.0 / 30, count: bots.count)
+        var total = 0.0
+        var worst = 0.0
+        for round in 0..<(rounds + 60) {
+            let start = DispatchTime.now().uptimeNanoseconds
+            _ = engine.tick(dts, size: Double(Metrics.botSize))
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            guard round >= 60 else { continue }
+            total += ms
+            worst = max(worst, ms)
+        }
+        let mean = total / Double(rounds)
+        print(String(format: "bench lineup (codex thinking, kimi idle, claude and deepseek resting; pixel): JavaScript step %.2f ms per tick, worst %.1f ms, about %.1f%% of one core at 30 fps (the friend's Mac read 8.2 ms)", mean, worst, mean * 30 / 10))
+        exit(0)
+    }
+
     static func run(arguments: [String]) -> Never {
         setvbuf(stdout, nil, _IONBF, 0)
         let scale = CGFloat(value("--scale", arguments, 2))
         let rounds = Int(value("--rounds", arguments, 300))
         let maxBusy = value("--max-busy", arguments, 1000)
         let maxCalm = value("--max-calm", arguments, 1000)
+        if arguments.contains("--lineup") { lineup(rounds: rounds) }
         var failed = false
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let pixels = Int((Metrics.botSize * scale).rounded())

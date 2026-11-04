@@ -96,6 +96,13 @@ jobs:
           done
           exit 1
 
+      - name: The friend's lineup, and whether JIT is on (signing flags)
+        run: |
+          set -o pipefail
+          EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --bench-loop --lineup --rounds 400 | tee -a out/bench-loop.txt
+          codesign -dv --verbose=4 out/app/Edgelings.app 2>&1 | grep -E "flags|Signature|Identifier" | tee -a out/bench-loop.txt
+          codesign -d --entitlements - out/app/Edgelings.app 2>&1 | head -5 | tee -a out/bench-loop.txt || true
+
       - name: Render every screen offscreen (synthetic data)
         run: |
           mkdir -p out/renders

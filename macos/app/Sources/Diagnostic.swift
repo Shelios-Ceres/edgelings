@@ -3,6 +3,8 @@
 // e-mail addresses or tokens.
 import AppKit
 import CoreText
+import CryptoKit
+import JavaScriptCore
 
 enum DiagnosticReport {
     static func text(from report: [String: Any]) -> String {
@@ -21,6 +23,7 @@ enum DiagnosticReport {
         lines.append("SQLite: \(value(report["sqlite"]))")
         lines.append("Windows reported by Swift: \(value(report["windowsReported"])) app(s)")
         lines.append(contentsOf: systemLines())
+        lines.append(contentsOf: buildLines())
         let agents = report["agents"] as? [String: Any] ?? [:]
         for name in agents.keys.sorted() {
             let agent = agents[name] as? [String: Any] ?? [:]
@@ -63,6 +66,11 @@ enum DiagnosticReport {
     /// life and what share of one core that is (60,000 ms per minute is one whole core). Names and times only.
     static func profileLines(_ report: [String: Any]) -> [String] {
         let shares = Perf.cpuShares()
+        // A one-shot run (--diagnose) has no lifetime to average over: its share would read as thousands of percent.
+        if shares.uptime < 5 {
+            return ["CPU: not sampled yet (a one-shot run, up \(Int(shares.uptime)) s; the running app's Copy diagnostic has the real figure)",
+                    "Where the time goes: not sampled yet (same reason)"]
+        }
         var lines = ["CPU: \(shares.lastMinute.map { String(format: "%.1f%%", $0) } ?? "not sampled yet") of one core over the last minute, \(String(format: "%.1f%%", shares.sinceStart)) since start (up \(Int(shares.uptime)) s)"]
         var rows: [(String, Int, Double, Double)] = Perf.rows().map { ("app: " + $0.name, $0.count, $0.msPerMinute, $0.worstMs) }
         for row in (report["profile"] as? [[String: Any]]) ?? [] {
@@ -72,6 +80,26 @@ enum DiagnosticReport {
         for row in rows.sorted(by: { $0.2 > $1.2 }).prefix(28) {
             let name = row.0.padding(toLength: 40, withPad: " ", startingAt: 0)
             lines.append(String(format: "  %@ %8.0f ms/min  %5.1f%%  %6d runs  worst %7.1f ms", name, row.2, row.2 / 600, row.1, row.3))
+        }
+        return lines
+    }
+
+    /// Which build this is and what it costs: the engines' sha256 (first 8 hex), the process's memory, and a
+    /// JavaScript loop's time (a JavaScriptCore with its JIT on runs it in a few milliseconds; an interpreter takes ten times that).
+    static func buildLines() -> [String] {
+        var lines: [String] = []
+        func sha(_ file: String) -> String {
+            guard let data = FileManager.default.contents(atPath: AppController.enginesDirectory() + "/" + file) else { return "missing" }
+            return SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
+        }
+        lines.append("Engines: pixel \(sha("characters.mjs")), classic \(sha("classic.mjs"))")
+        let memory = Perf.memoryMB()
+        lines.append(String(format: "Memory: resident %.0f MB, footprint %.0f MB", memory.resident, memory.footprint))
+        if let context = JSContext() {
+            let begin = DispatchTime.now().uptimeNanoseconds
+            _ = context.evaluateScript("let s = 0; for (let i = 0; i < 5000000; i++) { s += i % 7; } s")
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - begin) / 1_000_000
+            lines.append(String(format: "JavaScript: a 5M-iteration loop takes %.0f ms (%@)", ms, ms < 80 ? "JIT looks on" : "JIT looks off"))
         }
         return lines
     }

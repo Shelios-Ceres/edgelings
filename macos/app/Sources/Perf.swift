@@ -37,6 +37,17 @@ enum Perf {
         return seconds(usage.ru_utime) + seconds(usage.ru_stime)
     }
 
+    /// The process's memory in decimal megabytes (as `ps` reports it): resident, and the footprint macOS charges it.
+    static func memoryMB() -> (resident: Double, footprint: Double) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        guard result == KERN_SUCCESS else { return (0, 0) }
+        return (Double(info.resident_size) / 1_000_000, Double(info.phys_footprint) / 1_000_000)
+    }
+
     /// Called by a timer every few seconds.
     static func sample() {
         lock.lock()
