@@ -107,7 +107,7 @@ jobs:
             sysctl -n machdep.cpu.brand_string hw.ncpu
           } 2>&1 | tee -a out/bench-loop.txt
 
-      - name: JavaScriptCore's JIT by signing, and the Pixel engine v5.4.2 against v5.4.3 on the friend's lineup
+      - name: JavaScriptCore's JIT by signing, on the friend's lineup
         if: success() || failure()
         run: |
           cat > "$RUNNER_TEMP/jit-only.entitlements" <<'EOF'
@@ -139,17 +139,6 @@ jobs:
               BIN="$RUNNER_TEMP/jit-$variant.app/Contents/MacOS/Edgelings"
               EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --diagnose 2>&1 | grep -E "JavaScript:" || true
               EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --bench-loop --lineup --rounds 400 2>&1 || true
-            done
-            # The Pixel engine one version back, in the shipped (entitled) app: v5.4.2 against the bundled v5.4.3.
-            mkdir -p "$RUNNER_TEMP/engines-v542"
-            cp out/app/Edgelings.app/Contents/Resources/Characters/classic.mjs "$RUNNER_TEMP/engines-v542/"
-            cp macos/app/tools/engines-ref/characters-v5.4.2.mjs "$RUNNER_TEMP/engines-v542/characters.mjs"
-            BIN=out/app/Edgelings.app/Contents/MacOS/Edgelings
-            for round in 1 2 3; do
-              echo "== lineup, engine v5.4.2 (round $round)"
-              EDGELINGS_ENGINES="$RUNNER_TEMP/engines-v542" EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400 2>&1 || true
-              echo "== lineup, engine v5.4.3 as bundled (round $round)"
-              EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400 2>&1 || true
             done
           } 2>&1 | tee -a out/bench-loop.txt
 

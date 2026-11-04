@@ -15,6 +15,9 @@ enum FullScreenWatch {
     private static func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= 1.5 }
 
     /// A window the size of the whole display, or (with a notch and no menu bar) the display below the notch.
+    /// CGWindowList has no full-screen flag, so this is geometry. Accepted edge case: on a notched display with
+    /// the menu bar set to hide always, a zoomed window also sits at the display minus the notch with no menu
+    /// bar showing, and counts as full screen.
     static func covers(_ window: CGRect, display: CGRect, notch: CGFloat = 0, menuBarShowing: Bool = false) -> Bool {
         guard near(window.minX, display.minX), near(window.width, display.width) else { return false }
         if near(window.minY, display.minY), near(window.height, display.height) { return true }

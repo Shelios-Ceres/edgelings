@@ -38,13 +38,6 @@ jobs:
       - name: Where a frame's time goes on JavaScriptCore
         run: ./jsc-run --profile windows/src/AgentIsland.WinUI/Drawer/Characters/characters.mjs windows/tests/engine-diff/profile.js | tee -a jsc-result.txt
 
-      - name: The same profile for the engine one version back (v5.4.2), for the comparison
-        run: |
-          echo "== engine v5.4.2 (macos/app/tools/engines-ref/characters-v5.4.2.mjs)" | tee -a jsc-result.txt
-          ./jsc-run --profile macos/app/tools/engines-ref/characters-v5.4.2.mjs windows/tests/engine-diff/profile.js | tee -a jsc-result.txt
-          echo "== hot loop and the micro costs again, JIT on" | tee -a jsc-result.txt
-          ./jsc-run --micro windows/tests/engine-diff/micro.js | tee -a jsc-result.txt
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
