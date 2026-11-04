@@ -121,6 +121,14 @@ Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English
 - **Kimi on a Mac:** `/Applications/Kimi.app` (the desktop client) counts for Kimi's presence and the Kimi Work sessions follow it; Kimi Code's own app (`kimi-code-app`) stays apart. The ChatGPT app's windows decide Codex's presence, as its embedded Codex is real Codex.
 - **In full screen** (Drawer page, both platforms): the panels join full-screen Spaces (`fullScreenAuxiliary`) only when the setting is on (`DrawerController.collectionBehavior`); off is the default. `edgelings-uitest` puts a window of its own into full screen and checks that the drawer stays out of that Space with the setting off and joins it with the setting on (it skips, with a note, on a runner that cannot enter full screen).
 
+### Fixes 3 (after the third friend report, kit g)
+
+- **JavaScriptCore's JIT.** The app was ad-hoc signed with no entitlements, and the system JavaScriptCore then runs the character engines in its interpreter: a hot loop took about 100 ms for 2M iterations instead of 4, and the friend's lineup (Codex working, Kimi idle, two resting, 30 fps) cost 5.5 ms a tick on the runner instead of 1.5. `macos/app/Edgelings.entitlements` (`com.apple.security.cs.allow-jit`) is applied by `build-app.sh`, and `--self-test` fails if the JIT is off. `JSC_` environment options do nothing here: the system JavaScriptCore ignores them. The diagnostic prints the hot-loop time ("JIT looks on" or "off"), the engines' sha and the process's memory.
+- **Release signing (stage 5).** A release build must keep this entitlement. If the hardened runtime (`codesign --options runtime`) is ever added, `allow-jit` is mandatory with it; notarisation needs the hardened runtime, so this applies as soon as the app is notarised.
+- **Full screen on a notched display.** On a MacBook Pro's built-in screen a full-screen window sits below the camera housing, so its bounds are the display minus `safeAreaInsets.top`. `FullScreenWatch` counts that form too while no menu bar is showing; the runner has no notch, so the self-test covers the geometry with samples.
+- **Memory.** On the runner the app idles at 53 to 57 MB (Chinese adds 0 to 2 MB), and opening Settings once adds about 40 MB at 1x that stays after the window closes (framework and cache growth; releasing the window made no difference). A measurement taken after visiting Settings reads about 40 MB (more at 2x) higher than one taken before.
+- **`--diagnose`** no longer prints a lifetime CPU for a one-shot run (it read thousands of percent); it says "not sampled yet".
+
 ### Pixel in Chinese
 
 The Pixel style follows the app language, as Classic does. Core no longer sets Pixel text in English (`L10n.English()` is gone from `AppModel.cs`, and the Settings page note is gone).
