@@ -9,6 +9,6 @@ node windows/tests/engine-diff/profile.mjs [engine.mjs] [rounds]    # ms per adv
 
 The frozen copy is a fixture: never edit it. When the Pixel chat freezes a later engine, copy that file over it and record its sha here.
 
-The live engine is v5.4.2 (sha256 `b7741cdc...`, 2026-11-02): the closed-agent poses are cheaper and every frame v5.4 drew is byte-identical against this fixture. Where an older engine throws (v5.4 and v5.4.1 did for a few frames after a blend into `working` from a pose with a negative `propU`, in the whale's bubble bricks and the moon rabbit's mochi), the diff counts it and requires the new engine to draw it; the run prints how many.
+The live engine is v5.4.3 (sha256 `4b2eaf18...`, 2026-11-03: a frame memo on top of v5.4.2's cheaper closed-agent poses; every frame v5.4 drew is byte-identical against this fixture). Where an older engine throws (v5.4 and v5.4.1 did for a few frames after a blend into `working` from a pose with a negative `propU`, in the whale's bubble bricks and the moon rabbit's mochi), the diff counts it and requires the new engine to draw it; the run prints how many.
 
 The live engine was made faster without changing a byte of output: a canvas keys its cells by integer instead of `"x,y"` text (the Map keeps its insertion order, so the order cells are visited in is unchanged; a cell at an odd coordinate keeps a text key), the white rim is marked on a small grid, and a row of cells is a bit mask whose runs are read off by scanning bits.

@@ -69,9 +69,9 @@ internal sealed class V8CharacterEngine : ICharacterEngine
     /// Where the build copies the engines.
     public static string Directory => Path.Combine(AppContext.BaseDirectory, "Drawer", "Characters");
 
-    /// The pixel bots come from the approved v5.4.2 engine
-    /// (windows/notes/characters-v5.4.2-20261102, sha256 b7741cdc…, frame for
-    /// frame the v5.4 engine's, cheaper at rest): frames are
+    /// The pixel bots come from the approved v5.4.3 engine
+    /// (windows/notes/characters-v5.4.3-20261103, sha256 4b2eaf18…, frame for
+    /// frame the v5.4 engine's, with a frame memo): frames are
     /// SVG rectangles on a grid of 2-DIP cells, so they stay crisp at 100,
     /// 150 and 200 % scaling. The Classic bots come from the desk companions
     /// engine with looks from windows/notes/classic-grok-20261015/looks
