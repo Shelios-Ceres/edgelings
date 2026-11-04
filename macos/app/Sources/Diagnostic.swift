@@ -197,7 +197,7 @@ enum SelfTest {
             check("line breaks: \(name)", allowed.allSatisfy { found.contains($0) } && forbidden.allSatisfy { !found.contains($0) }, "\(found)")
         }
         for sample in FullScreenWatch.samples {
-            check("full-screen rule: \(sample.name)", FullScreenWatch.covers(sample.window, display: sample.display) == sample.covers)
+            check("full-screen rule: \(sample.name)", FullScreenWatch.covers(sample.window, display: sample.display, notch: sample.notch, menuBarShowing: sample.menuBar) == sample.covers)
         }
         for sample in PixelBreaks.lines {
             let end = PixelBreaks.lineEnd(start: 0, suggested: sample.room, length: (sample.text as NSString).length, opportunities: PixelBreaks.hasWide(sample.text) ? PixelBreaks.opportunities(sample.text) : nil,
