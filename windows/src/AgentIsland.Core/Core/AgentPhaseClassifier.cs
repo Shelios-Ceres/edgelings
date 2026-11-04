@@ -546,9 +546,19 @@ public static class AgentPhaseClassifier
     private static string? ShortName(string? name)
     {
         if (name is null) return null;
+        if (ReadableDetails.TryGetValue(name, out var words)) return Localization.L10n.Tr(words);
         var parts = name.Split("__");
         return parts.Length >= 3 ? parts[^1] : name;
     }
+
+    /// Tool names that read as ordinary words on a card, where the raw name
+    /// would look like a wrong state ("sleep" on a working Codex): the
+    /// card says what the tool does instead. The phase is unchanged.
+    private static readonly Dictionary<string, string> ReadableDetails = new(StringComparer.Ordinal)
+    {
+        ["sleep"] = "Waiting",
+        ["wait"] = "Waiting",
+    };
 
     /// "Reconnecting · attempt 3 of 10" for a Claude Code retry record.
     private static string? RetryDetail(JsonElement root) =>
