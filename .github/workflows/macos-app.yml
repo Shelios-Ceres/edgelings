@@ -107,10 +107,17 @@ jobs:
             sysctl -n machdep.cpu.brand_string hw.ncpu
           } 2>&1 | tee -a out/bench-loop.txt
 
-      - name: Does an entitlement or the hardened runtime turn JavaScriptCore's JIT on? (the same app, signed three ways)
+      - name: JavaScriptCore's JIT by signing, and the Pixel engine v5.4.2 against v5.4.3 on the friend's lineup
         if: success() || failure()
         run: |
-          cat > "$RUNNER_TEMP/jit.entitlements" <<'EOF'
+          cat > "$RUNNER_TEMP/jit-only.entitlements" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>com.apple.security.cs.allow-jit</key><true/>
+          </dict></plist>
+          EOF
+          cat > "$RUNNER_TEMP/jit-both.entitlements" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
@@ -119,17 +126,30 @@ jobs:
           </dict></plist>
           EOF
           {
-            for variant in plain entitled hardened; do
+            for variant in shipped none jit-only both; do
               rm -rf "$RUNNER_TEMP/jit-$variant.app"
               ditto out/app/Edgelings.app "$RUNNER_TEMP/jit-$variant.app"
               case $variant in
-                entitled) codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/jit.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
-                hardened) codesign --force --deep --sign - --options runtime --entitlements "$RUNNER_TEMP/jit.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
+                none) codesign --force --deep --sign - "$RUNNER_TEMP/jit-$variant.app" ;;
+                jit-only) codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/jit-only.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
+                both) codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/jit-both.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
               esac
               echo "== $variant: $(codesign -dv "$RUNNER_TEMP/jit-$variant.app" 2>&1 | grep -E 'flags=' )"
+              codesign -d --entitlements - "$RUNNER_TEMP/jit-$variant.app" 2>&1 | grep -E "allow-" || true
               BIN="$RUNNER_TEMP/jit-$variant.app/Contents/MacOS/Edgelings"
               EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --diagnose 2>&1 | grep -E "JavaScript:" || true
               EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --bench-loop --lineup --rounds 400 2>&1 || true
+            done
+            # The Pixel engine one version back, in the shipped (entitled) app: v5.4.2 against the bundled v5.4.3.
+            mkdir -p "$RUNNER_TEMP/engines-v542"
+            cp out/app/Edgelings.app/Contents/Resources/Characters/classic.mjs "$RUNNER_TEMP/engines-v542/"
+            cp macos/app/tools/engines-ref/characters-v5.4.2.mjs "$RUNNER_TEMP/engines-v542/characters.mjs"
+            BIN=out/app/Edgelings.app/Contents/MacOS/Edgelings
+            for round in 1 2 3; do
+              echo "== lineup, engine v5.4.2 (round $round)"
+              EDGELINGS_ENGINES="$RUNNER_TEMP/engines-v542" EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400 2>&1 || true
+              echo "== lineup, engine v5.4.3 as bundled (round $round)"
+              EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400 2>&1 || true
             done
           } 2>&1 | tee -a out/bench-loop.txt
 

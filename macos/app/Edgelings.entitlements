@@ -2,12 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Without these two, JavaScriptCore runs the character engines as an interpreter (about 3.5x slower on a
-         runner; the hot-loop probe in the diagnostic says which). The app is ad-hoc signed and not hardened, so
-         they only mark it as a JIT user. -->
+    <!-- Without allow-jit, JavaScriptCore runs the character engines as an interpreter (about 3.5x slower on a
+         runner; the hot-loop probe in the diagnostic and the self-test say which). The app is ad-hoc signed and
+         not hardened, so this only marks it as a JIT user. If the app is ever signed with the hardened runtime,
+         this entitlement is mandatory. -->
     <key>com.apple.security.cs.allow-jit</key>
-    <true/>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
 </dict>
 </plist>
