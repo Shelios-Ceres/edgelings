@@ -1,9 +1,9 @@
-// edgelings-diagnose: what the shared Core sees on this Mac, for a first live
+// limen-diagnose: what the shared Core sees on this Mac, for a first live
 // check of state detection. It prints ids, counts and states only: no window
 // titles, session names, folders, e-mail addresses or tokens. Core keeps its
 // caches in a temporary folder, never in the app's own.
 //
-//   edgelings-diagnose [--lib <AgentIslandBridge.dylib>] [--fetch] [--json]
+//   limen-diagnose [--lib <AgentIslandBridge.dylib>] [--fetch] [--json]
 //
 // --fetch also asks Claude's and Codex's usage endpoints for their quota
 // windows. That uses the stored Claude login the way the app does, and can
@@ -21,11 +21,11 @@ func libraryPath() -> String {
 }
 
 guard let bridge = CoreBridge(libraryPath: libraryPath()) else {
-    print("Could not load the Core library. Keep edgelings-diagnose and AgentIslandBridge.dylib in one folder.")
+    print("Could not load the Core library. Keep limen-diagnose and AgentIslandBridge.dylib in one folder.")
     exit(1)
 }
 
-let cacheFolder = NSTemporaryDirectory() + "edgelings-diagnose-" + UUID().uuidString
+let cacheFolder = NSTemporaryDirectory() + "limen-diagnose-" + UUID().uuidString
 bridge.request("configure", ["cache": cacheFolder])
 func finish(_ code: Int32) -> Never {
     try? FileManager.default.removeItem(atPath: cacheFolder)
@@ -54,7 +54,7 @@ func text(_ value: Any?) -> String {
     }
 }
 
-print("Edgelings diagnostic. It prints ids, counts and states only.")
+print("Limen diagnostic. It prints ids, counts and states only.")
 if let error = report["error"] { print("Core answered with an error: \(text(error))"); finish(1) }
 print("System: \(text(report["os"])), \(text(report["arch"]))")
 print("Windows reported by Swift: \(text(windows["windows"])) app(s) with an ordinary window")

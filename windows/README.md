@@ -1,6 +1,6 @@
-# Edgelings for Windows
+# Limen for Windows
 
-The Windows app: a drawer of agent characters at the edge of your screen, a hover card per agent, a Settings window, a Usage & cost page and a tray icon. The app, its exe, its settings folder and its startup entry are called Edgelings since the rename; the code projects keep their Agent Island names. For what it does, see the [root README](../README.md).
+The Windows app: a drawer of agent characters at the edge of your screen, a hover card per agent, a Settings window, a Usage & cost page and a tray icon. The app, its exe, its settings folder and its startup entry are called Limen since the rename; the code projects keep their Agent Island names. For what it does, see the [root README](../README.md).
 
 ## Layout
 
@@ -22,8 +22,8 @@ dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Debug
 dotnet run --project windows/tests/AgentIsland.Tests -c Debug
 ```
 
-`windows\build.ps1` builds the release zip, `windows\dist\Edgelings-<version>-win-x64.zip`. `-Version` takes the version to stamp on the build; without it the csproj's version is used. See [CONTRIBUTING.md](../CONTRIBUTING.md#windows) for the rules the tests follow.
+`windows\build.ps1` builds the release zip, `windows\dist\Limen-<version>-win-x64.zip`. `-Version` takes the version to stamp on the build; without it the csproj's version is used. See [CONTRIBUTING.md](../CONTRIBUTING.md#windows) for the rules the tests follow.
 
 ## Get it
 
-There are no Edgelings releases yet. Build it from source as above, or take a test package: every push that changes `windows/` is built by GitHub Actions, and the workflow can be run by hand from the Actions tab. Open the run and download `Edgelings-win-x64-test` under Artifacts (you need to be signed in to GitHub). Unzip it and run `Edgelings.exe`. The builds are not code-signed.
+There are no Limen releases yet. Build it from source as above, or take a test package: every push that changes `windows/` is built by GitHub Actions, and the workflow can be run by hand from the Actions tab. Open the run and download `Limen-win-x64-test` under Artifacts (you need to be signed in to GitHub). Unzip it and run `Limen.exe`. The builds are not code-signed.

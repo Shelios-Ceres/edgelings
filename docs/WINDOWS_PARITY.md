@@ -1,6 +1,6 @@
 # Windows port — parity audit vs macOS
 
-> Upstream history: an audit from Agent Island's repository, when the Windows app was an early port of its macOS app. It is not a statement about Edgelings.
+> Upstream history: an audit from Agent Island's repository, when the Windows app was an early port of its macOS app. It is not a statement about Limen.
 
 > Historical record. The WPF app described below (`windows/src/AgentIsland`, the
 > `UI/` paths and the island bar) was retired in Phase 5; the Windows app is now the

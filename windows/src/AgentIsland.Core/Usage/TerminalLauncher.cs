@@ -80,7 +80,7 @@ public static class TerminalLauncher
         }
         catch (Exception error)
         {
-            Debug.WriteLine($"Edgelings: failed to open Terminal: {error.Message}");
+            Debug.WriteLine($"Limen: failed to open Terminal: {error.Message}");
             return false;
         }
     }

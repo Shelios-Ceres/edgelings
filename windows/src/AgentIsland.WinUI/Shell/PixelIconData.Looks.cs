@@ -76,6 +76,19 @@ internal static partial class PixelIcons
             ".gr....rg.",
             "..........",
         }, new[] { ('g', 0xF2BB55u), ('r', 0xEFD9AFu), ('R', 0xC09A5Cu), ('w', 0xFFF2D8u), ('k', 0x263349u) }),
+        [(DisplayProvider.Antigravity, "balloon")] = (new[]
+        {
+            "...bcyg...",
+            "..bbcyyg..",
+            ".bbccyygg.",
+            ".ffkffkff.",
+            ".ffkffkff.",
+            ".ffffffff.",
+            "..bbcyyg..",
+            "...bcyg...",
+            "...k..k...",
+            "...tttt...",
+        }, new[] { ('b', 0x4D96EBu), ('c', 0xE77C65u), ('y', 0xF2BB55u), ('g', 0x56AB78u), ('f', 0xFFF2D8u), ('k', 0x263349u), ('t', 0xD9A04Au) }),
         [(DisplayProvider.Antigravity, "rainbow")] = (new[]
         {
             "....rr....",
@@ -141,6 +154,19 @@ internal static partial class PixelIcons
             "....c.....",
             ".....y....",
         }, new[] { ('l', 0x7DB6F5u), ('b', 0x4D96EBu), ('s', 0xFFF2D8u), ('k', 0x263349u), ('c', 0xE77C65u), ('y', 0xF2BB55u) }),
+        [(DisplayProvider.Grok, "ring")] = (new[]
+        {
+            ".........k",
+            "...kkkk.k.",
+            "..kwwwwk..",
+            ".kwwwwwwk.",
+            ".kwkwwkwk.",
+            ".kwkwwkwk.",
+            ".kwwwwwwk.",
+            "..kwwwwk..",
+            ".k.kkkk...",
+            "k.........",
+        }, new[] { ('k', 0x0B0B0Cu), ('w', 0xF4F4F6u) }),
         [(DisplayProvider.Grok, "ringbot")] = (new[]
         {
             ".......kk.",

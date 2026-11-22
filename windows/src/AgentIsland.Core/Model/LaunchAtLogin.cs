@@ -12,9 +12,9 @@ public static class LaunchAtLogin
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ApprovedKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
-    private const string ValueName = "Edgelings";
-    /// What Agent Island registered itself as, before the rename.
-    private const string LegacyValueName = "AgentIsland";
+    private const string ValueName = "Limen";
+    /// What Edgelings and Agent Island registered themselves as, before the rename.
+    private static readonly string[] LegacyValueNames = { "Edgelings", "AgentIsland" };
 
     /// Registered, and not switched off in Windows' startup settings.
     public static bool IsEnabled
@@ -87,27 +87,33 @@ public static class LaunchAtLogin
         }
     }
 
-    /// An Agent Island registration becomes an Edgelings one, once: the old
-    /// Run value is replaced by one that starts this executable, and Windows'
+    /// An Edgelings or Agent Island registration becomes a Limen one, once: the
+    /// old Run value is replaced by one that starts this executable, and Windows'
     /// own switch for it (StartupApproved) moves to the new name, so an entry
-    /// the user had switched off stays off. Nothing happens without the old value.
+    /// the user had switched off stays off. Nothing happens without an old value.
     [SupportedOSPlatform("windows")]
     internal static void MoveLegacyEntry(string exe, string runKey = RunKey, string approvedKey = ApprovedKey)
     {
         try
         {
             using var run = Registry.CurrentUser.OpenSubKey(runKey, writable: true);
-            if (run?.GetValue(LegacyValueName) is not string) return;
-            run.SetValue(ValueName, $"\"{exe}\"");
-            using (var approved = Registry.CurrentUser.OpenSubKey(approvedKey, writable: true))
+            if (run is null) return;
+            var found = LegacyValueNames.FirstOrDefault(name => run.GetValue(name) is string);
+            if (found is null) return;
+            if (run.GetValue(ValueName) is not string)
             {
-                if (approved?.GetValue(LegacyValueName) is byte[] state)
+                run.SetValue(ValueName, $"\"{exe}\"");
+                using var approved = Registry.CurrentUser.OpenSubKey(approvedKey, writable: true);
+                if (approved?.GetValue(found) is byte[] state)
                 {
                     approved.SetValue(ValueName, state, RegistryValueKind.Binary);
-                    approved.DeleteValue(LegacyValueName, throwOnMissingValue: false);
                 }
             }
-            run.DeleteValue(LegacyValueName, throwOnMissingValue: false);
+            using (var approved = Registry.CurrentUser.OpenSubKey(approvedKey, writable: true))
+            {
+                foreach (var legacy in LegacyValueNames) approved?.DeleteValue(legacy, throwOnMissingValue: false);
+            }
+            foreach (var legacy in LegacyValueNames) run.DeleteValue(legacy, throwOnMissingValue: false);
         }
         catch
         {

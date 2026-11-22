@@ -10,7 +10,7 @@ the minimum each reader needs.
   Codex         ~/.codex/sessions (1 file) and archived_sessions (2)
 
 usage: make-big-home.py <home> [--layout mac|windows] [--antigravity-files 15348] [--kimi 80]
-<home> is the folder EDGELINGS_ROOT/home points at.
+<home> is the folder LIMEN_ROOT/home points at.
 """
 import argparse, json, os, random, sqlite3, time, uuid
 

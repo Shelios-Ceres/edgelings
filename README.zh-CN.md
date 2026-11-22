@@ -1,6 +1,6 @@
 <div align="center">
 
-# Edgelings
+# Limen
 
 **住在屏幕边缘的小机器人,替你盯着 AI 编程 Agent。**
 
@@ -10,7 +10,7 @@
 
 </div>
 
-Edgelings 源自 Tristan Tang 的 [Agent Island](https://github.com/PurryTam/agent-island)(MIT)。这里的重点是 Windows 版;macOS 版仍是原来的 Agent Island,见 [macOS](#macos)。
+Limen 源自 Tristan Tang 的 [Agent Island](https://github.com/PurryTam/agent-island)(MIT)。这里的重点是 Windows 版;macOS 版仍是原来的 Agent Island,见 [macOS](#macos)。
 
 <p align="center">
   <img src="docs/media/edgelings/drawer.png" alt="同一排七个小机器人,分别是 Pixel 和 Classic 两种风格,各有浅色和深色背景" width="620">
@@ -64,7 +64,7 @@ Edgelings 源自 Tristan Tang 的 [Agent Island](https://github.com/PurryTam/age
 
 ## 获取
 
-Edgelings 目前还没有发布版本。请从源码构建(Windows 10 1809 或更新版本,x64;需要 .NET 10 SDK):
+Limen 目前还没有发布版本。请从源码构建(Windows 10 1809 或更新版本,x64;需要 .NET 10 SDK):
 
 ```powershell
 dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -p:Platform=x64
@@ -72,17 +72,17 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 .\windows\build.ps1
 ```
 
-最后一条命令发布一个自包含的版本,并打成 `windows\dist\Edgelings-<version>-win-x64.zip`。解压后运行 `Edgelings.exe`。
+最后一条命令发布一个自包含的版本,并打成 `windows\dist\Limen-<version>-win-x64.zip`。解压后运行 `Limen.exe`。
 
-每次改到 Windows 代码的推送,都会在 GitHub Actions 里构建一个测试包,也可以在 Actions 页面手动运行:打开对应的运行记录,在 Artifacts 下下载 `Edgelings-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
+每次改到 Windows 代码的推送,都会在 GitHub Actions 里构建一个测试包,也可以在 Actions 页面手动运行:打开对应的运行记录,在 Artifacts 下下载 `Limen-win-x64-test`(需要登录 GitHub)。Windows 版没有代码签名。
 
-应用已改名为 Edgelings(exe、设置目录和开机启动项也都改了),代码工程沿用旧名。代码在 `windows/` 下:`AgentIsland.Core` 是界面以下的全部逻辑(扫描、用量、费用),`AgentIsland.WinUI` 是应用本体。目录说明见 [windows/README.md](windows/README.md),抽屉的设计笔记见 [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md)。
+应用已改名为 Limen(exe、设置目录和开机启动项也都改了),代码工程沿用旧名。代码在 `windows/` 下:`AgentIsland.Core` 是界面以下的全部逻辑(扫描、用量、费用),`AgentIsland.WinUI` 是应用本体。目录说明见 [windows/README.md](windows/README.md),抽屉的设计笔记见 [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md)。
 
 ## 隐私
 
-Edgelings 在你自己的电脑上运行,自己没有账号、统计分析、崩溃上传或更新检查。
+Limen 在你自己的电脑上运行,自己没有账号、统计分析、崩溃上传或更新检查。
 
-**本地读取什么:** 各个 Agent 的会话日志和设置,用来判断它在做什么。也就是 `~/.claude`(以及 Claude Desktop 的会话目录)、`~/.codex`、`~/.kimi-code`(包括邮箱目录,只列出文件名)、Antigravity 的 `~/.gemini`、`~/.grok`、DeepSeek Harness 的 `~/.dsh`,以及 Cursor 的 `state.vscdb`(只读打开)。费用就是从这些日志算出来的。崩溃日志写在 `%APPDATA%\AgentIsland`。
+**本地读取什么:** 各个 Agent 的会话日志和设置,用来判断它在做什么。也就是 `~/.claude`(以及 Claude Desktop 的会话目录)、`~/.codex`、`~/.kimi-code`(包括邮箱目录,只列出文件名)、Antigravity 的 `~/.gemini`、`~/.grok`、DeepSeek Harness 的 `~/.dsh`,以及 Cursor 的 `state.vscdb`(只读打开)。费用就是从这些日志算出来的。崩溃日志写在 `%APPDATA%\Limen`。
 
 **往外发什么、用谁的凭据:** 只向各个 Agent 自己的服务发额度和套餐查询(以及 Token 刷新),用的是 Agent 已经存在你电脑上的登录信息:
 
@@ -92,7 +92,7 @@ Edgelings 在你自己的电脑上运行,自己没有账号、统计分析、崩
 | Codex | `chatgpt.com` | `~/.codex/auth.json` |
 | Grok | `cli-chat-proxy.grok.com`,Token 刷新走 `auth.x.ai` | `~/.grok/auth.json` |
 | Cursor | `api2.cursor.sh` | Cursor 自己数据库里的 Token |
-| Kimi Code | `api.kimi.com` | `~/.kimi-code/credentials/kimi-code.json`(Edgelings 从不刷新它) |
+| Kimi Code | `api.kimi.com` | `~/.kimi-code/credentials/kimi-code.json`(Limen 从不刷新它) |
 
 Kimi Code 桌面端的服务和 Antigravity 的语言服务只通过本机回环地址(`127.0.0.1`)访问。除此之外不会上传到任何地方。
 
@@ -100,7 +100,7 @@ Kimi Code 桌面端的服务和 Antigravity 的语言服务只通过本机回环
 
 - 刷新 Claude 或 Grok 的 Token 后,新 Token 会写回那个 Agent 自己的登录文件。
 - 切换 Codex 账号,或打开可选的自动切换时,会写 `~/.codex/auth.json`。
-- 两个可选开关(默认都关闭)会安装只观察、不干预的 hook,让 Edgelings 知道某个权限提示正开着:`~/.claude/settings.json` 里的 Notification hook(第一次修改会留一份 `.agentisland.bak` 备份),以及 `~/.grok/hooks` 下的一个 hook 文件。hook 对权限没有决定权。
+- 两个可选开关(默认都关闭)会安装只观察、不干预的 hook,让 Limen 知道某个权限提示正开着:`~/.claude/settings.json` 里的 Notification hook(第一次修改会留一份 `.agentisland.bak` 备份),以及 `~/.grok/hooks` 下的一个 hook 文件。hook 对权限没有决定权。
 - 如果你打开"开机启动",会为当前用户加一条 `Run` 启动项。
 
 ## macOS

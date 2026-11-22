@@ -212,7 +212,7 @@ struct GeneralPage: View {
         PageTitle(store: store, key: "General")
         SectionLabel(store: store, text: store.t("Startup"))
         SettingRow(store: store, glyph: "E7E8", symbol: "power", title: store.t("Launch at login"),
-                   subtitle: LaunchAtLogin.needsApproval ? store.t("Login Items need your approval in System Settings") : store.t("Start Edgelings when you sign in to your Mac")) {
+                   subtitle: LaunchAtLogin.needsApproval ? store.t("Login Items need your approval in System Settings") : store.t("Start Limen when you sign in to your Mac")) {
             KitToggle(store: store, isOn: store.launchAtLogin) { on in
                 LaunchAtLogin.setEnabled(on)
                 store.launchAtLogin = LaunchAtLogin.isEnabled
@@ -231,7 +231,7 @@ struct GeneralPage: View {
             HStack(spacing: 12) {
                 Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high).frame(width: 48, height: 48)
                 VStack(alignment: .leading, spacing: 2) {
-                    SkinText(pixel: store.skin == .pixel, text: "Edgelings", pixelSize: 15, size: 15, weight: .semibold, color: store.palette.color("Text"))
+                    SkinText(pixel: store.skin == .pixel, text: "Limen", pixelSize: 15, size: 15, weight: .semibold, color: store.palette.color("Text"))
                     SkinText(pixel: store.skin == .pixel, text: store.t("Mac test build"), pixelSize: 12, size: 12, weight: .regular, color: store.palette.color("Text2"))
                 }
             }
@@ -250,7 +250,7 @@ struct GeneralPage: View {
             HStack(spacing: 8) {
                 KitButton(store: store, title: store.t("Copy diagnostic")) { DiagnosticReport.copy() }
                 KitButton(store: store, title: store.t("Open folder")) {
-                    let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("Edgelings")
+                    let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("Limen")
                     if let folder { try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true); NSWorkspace.shared.open(folder) }
                 }
                 KitButton(store: store, title: store.t("Quit")) { NSApp.terminate(nil) }

@@ -1,18 +1,18 @@
-# Contributing to Edgelings
+# Contributing to Limen
 
 Thanks for being here. The project is small, so a good bug report or a small fix helps a lot.
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/Shelios-Ceres/edgelings/issues>. Useful things to include:
+Open an issue at <https://github.com/Shelios-Ceres/limen/issues>. Useful things to include:
 
 - Your OS and build: the Windows version (`winver`), or the macOS version (`sw_vers`).
 - Which build you ran: the commit, or the Actions run a test package came from.
-- Which agent is involved (Claude Code, Codex, Kimi Code, and so on), and whether its bot, quota or Usage & cost page shows data at all. An "auth required" or sign-in message usually means the agent's own sign-in isn't where Edgelings looks for it.
+- Which agent is involved (Claude Code, Codex, Kimi Code, and so on), and whether its bot, quota or Usage & cost page shows data at all. An "auth required" or sign-in message usually means the agent's own sign-in isn't where Limen looks for it.
 - A short description of what you expected and what happened. A screenshot helps; blur project paths and session titles first.
 - On macOS, for a settings bug: the output of `defaults read dev.agentisland.AgentIsland`.
 
-Some of the usage endpoints Edgelings reads are undocumented (Claude's `/api/oauth/usage`, Codex's `/wham/usage`, and others) and can change without notice. If one starts returning something unexpected, a `curl` of the response with the token removed lets us update the parser.
+Some of the usage endpoints Limen reads are undocumented (Claude's `/api/oauth/usage`, Codex's `/wham/usage`, and others) and can change without notice. If one starts returning something unexpected, a `curl` of the response with the token removed lets us update the parser.
 
 ## Building locally
 
@@ -25,7 +25,7 @@ dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -
 dotnet run --project windows/tests/AgentIsland.Tests -c Release
 ```
 
-The test runner ends with `ALL GREEN`. `windows\build.ps1` publishes a self-contained build and zips it as `windows\dist\Edgelings-<version>-win-x64.zip`; unzip it and run `Edgelings.exe`. The code projects keep their Agent Island names. [windows/README.md](windows/README.md) has the layout.
+The test runner ends with `ALL GREEN`. `windows\build.ps1` publishes a self-contained build and zips it as `windows\dist\Limen-<version>-win-x64.zip`; unzip it and run `Limen.exe`. The code projects keep their Agent Island names. [windows/README.md](windows/README.md) has the layout.
 
 Tests must pass on any machine. The CI runner is en-US and UTC, and yours probably isn't:
 

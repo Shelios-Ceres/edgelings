@@ -78,9 +78,9 @@ final class DrawerController {
     /// "In full screen" is off and another app is full screen on the drawer's display: the drawer is out of sight.
     private var covered = false
     private var reducedMotion = DrawerController.systemReducedMotion
-    /// Reduce Motion, unless EDGELINGS_IGNORE_REDUCE_MOTION=1 (the runner's VM has it on; a measurement wants the full loop).
+    /// Reduce Motion, unless LIMEN_IGNORE_REDUCE_MOTION=1 (the runner's VM has it on; a measurement wants the full loop).
     static var systemReducedMotion: Bool {
-        ProcessInfo.processInfo.environment["EDGELINGS_IGNORE_REDUCE_MOTION"] == "1" ? false : NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        (ProcessInfo.processInfo.environment["LIMEN_IGNORE_REDUCE_MOTION"] ?? ProcessInfo.processInfo.environment["EDGELINGS_IGNORE_REDUCE_MOTION"]) == "1" ? false : NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     let cards = CardPresenter()
@@ -113,7 +113,7 @@ final class DrawerController {
         panel.isMovable = false
         panel.acceptsMouseMovedEvents = true
         panel.isReleasedWhenClosed = false
-        panel.title = "Edgelings"
+        panel.title = "Limen"
         view.controller = self
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -240,11 +240,11 @@ final class DrawerController {
             engineTheme = frame.theme
             for (index, bot) in frame.bots.enumerated() {
                 let added = built.addBot(kind: bot.kind, tempo: bot.tempo, seed: 7 + index * 13, look: bot.look)
-                if added != index { NSLog("Edgelings: engine bot index \(added) for \(index)") }
+                if added != index { NSLog("Limen: engine bot index \(added) for \(index)") }
             }
             for slot in slots { slot.look = ""; slot.seq = -1; slot.svg = nil; slot.image = nil; slot.engineState = "idle"; slot.hold = "idle" }
         } catch {
-            NSLog("Edgelings: engine \(frame.theme) failed: \(error)")
+            NSLog("Limen: engine \(frame.theme) failed: \(error)")
             AppController.shared.request("log", ["text": "engine \(frame.theme) did not load"])
             engineTheme = frame.theme
         }

@@ -1,4 +1,4 @@
-# Mac port, stages 2-4: the Edgelings app (macos/app). Builds the NativeAOT
+# Mac port, stages 2-4: the Limen app (macos/app). Builds the NativeAOT
 # Core dylibs and the Swift app (universal, ad-hoc signed), starts it for a few
 # seconds on the runner as a smoke test, and uploads the friend's test zip.
 name: macOS app
@@ -48,9 +48,9 @@ jobs:
           iconutil -c icns out/AppIcon.iconset -o out/AppIcon.icns
           ls -l out/AppIcon.icns out/icon
 
-      - name: Build Edgelings.app
+      - name: Build Limen.app
         env:
-          EDGELINGS_ICON: out/AppIcon.icns
+          LIMEN_ICON: out/AppIcon.icns
         run: |
           ls -l out/aot-arm64 | head -20
           bash macos/app/build-app.sh out/aot-arm64 out/aot-x64 out/app
@@ -58,9 +58,9 @@ jobs:
       - name: Smoke test (the app starts, polls Core and stays up)
         timeout-minutes: 3
         run: |
-          export EDGELINGS_ROOT="$RUNNER_TEMP/edgelings-root"
-          mkdir -p "$EDGELINGS_ROOT"
-          out/app/Edgelings.app/Contents/MacOS/Edgelings > out/smoke.log 2>&1 &
+          export LIMEN_ROOT="$RUNNER_TEMP/limen-root"
+          mkdir -p "$LIMEN_ROOT"
+          out/app/Limen.app/Contents/MacOS/Limen > out/smoke.log 2>&1 &
           pid=$!
           sleep 20
           status=ok
@@ -73,36 +73,36 @@ jobs:
         timeout-minutes: 3
         run: |
           set -o pipefail
-          export EDGELINGS_ROOT="$RUNNER_TEMP/diag-root"
-          mkdir -p "$EDGELINGS_ROOT"
-          out/app/Edgelings.app/Contents/MacOS/Edgelings --diagnose | tee out/diagnose.txt
+          export LIMEN_ROOT="$RUNNER_TEMP/diag-root"
+          mkdir -p "$LIMEN_ROOT"
+          out/app/Limen.app/Contents/MacOS/Limen --diagnose | tee out/diagnose.txt
           grep -q "SQLite: ok" out/diagnose.txt
 
       - name: Self test (everything the UI reads from Core decodes in Swift)
         timeout-minutes: 3
         run: |
           set -o pipefail
-          export EDGELINGS_ROOT="$RUNNER_TEMP/selftest-root"
-          mkdir -p "$EDGELINGS_ROOT"
-          out/app/Edgelings.app/Contents/MacOS/Edgelings --self-test | tee out/selftest.txt
+          export LIMEN_ROOT="$RUNNER_TEMP/selftest-root"
+          mkdir -p "$LIMEN_ROOT"
+          out/app/Limen.app/Contents/MacOS/Limen --self-test | tee out/selftest.txt
 
       - name: The friend's lineup, and whether JavaScriptCore runs its JIT (signing flags, options)
         if: success() || failure()
         run: |
           mkdir -p out
-          BIN=out/app/Edgelings.app/Contents/MacOS/Edgelings
+          BIN=out/app/Limen.app/Contents/MacOS/Limen
           {
             echo "== lineup, default options"
-            EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400
+            LIMEN_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400
             echo "== lineup, JSC_useJIT=1"
-            JSC_useJIT=1 EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400
+            JSC_useJIT=1 LIMEN_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400
             echo "== lineup, JSC_useJIT=0 (the interpreter alone)"
-            JSC_useJIT=0 EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400
+            JSC_useJIT=0 LIMEN_ROOT="$RUNNER_TEMP/bench-root" $BIN --bench-loop --lineup --rounds 400
             echo "== JSC options the process sees"
-            JSC_dumpOptions=1 EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" $BIN --diagnose 2>&1 | grep -E "useJIT|useBaselineJIT|useDFGJIT|useFTLJIT|useLLInt|JavaScript:" || true
+            JSC_dumpOptions=1 LIMEN_ROOT="$RUNNER_TEMP/bench-root" $BIN --diagnose 2>&1 | grep -E "useJIT|useBaselineJIT|useDFGJIT|useFTLJIT|useLLInt|JavaScript:" || true
             echo "== signing"
-            codesign -dv --verbose=4 out/app/Edgelings.app 2>&1 | grep -E "flags|Signature|Identifier|Runtime" || true
-            codesign -d --entitlements - out/app/Edgelings.app 2>&1 | head -5 || true
+            codesign -dv --verbose=4 out/app/Limen.app 2>&1 | grep -E "flags|Signature|Identifier|Runtime" || true
+            codesign -d --entitlements - out/app/Limen.app 2>&1 | head -5 || true
             sw_vers
             sysctl -n machdep.cpu.brand_string hw.ncpu
           } 2>&1 | tee -a out/bench-loop.txt
@@ -128,7 +128,7 @@ jobs:
           {
             for variant in shipped none jit-only both; do
               rm -rf "$RUNNER_TEMP/jit-$variant.app"
-              ditto out/app/Edgelings.app "$RUNNER_TEMP/jit-$variant.app"
+              ditto out/app/Limen.app "$RUNNER_TEMP/jit-$variant.app"
               case $variant in
                 none) codesign --force --deep --sign - "$RUNNER_TEMP/jit-$variant.app" ;;
                 jit-only) codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/jit-only.entitlements" "$RUNNER_TEMP/jit-$variant.app" ;;
@@ -136,9 +136,9 @@ jobs:
               esac
               echo "== $variant: $(codesign -dv "$RUNNER_TEMP/jit-$variant.app" 2>&1 | grep -E 'flags=' )"
               codesign -d --entitlements - "$RUNNER_TEMP/jit-$variant.app" 2>&1 | grep -E "allow-" || true
-              BIN="$RUNNER_TEMP/jit-$variant.app/Contents/MacOS/Edgelings"
-              EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --diagnose 2>&1 | grep -E "JavaScript:" || true
-              EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --bench-loop --lineup --rounds 400 2>&1 || true
+              BIN="$RUNNER_TEMP/jit-$variant.app/Contents/MacOS/Limen"
+              LIMEN_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --diagnose 2>&1 | grep -E "JavaScript:" || true
+              LIMEN_ROOT="$RUNNER_TEMP/bench-root" "$BIN" --bench-loop --lineup --rounds 400 2>&1 || true
             done
           } 2>&1 | tee -a out/bench-loop.txt
 
@@ -148,7 +148,7 @@ jobs:
           set -o pipefail
           # A shared runner's speed swings by half from run to run: the guard passes if any of three runs is under the bounds.
           for attempt in 1 2 3; do
-            if EDGELINGS_ROOT="$RUNNER_TEMP/bench-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --bench-loop --scale 2 --max-busy 35 --max-calm 25 | tee -a out/bench-loop.txt; then exit 0; fi
+            if LIMEN_ROOT="$RUNNER_TEMP/bench-root" out/app/Limen.app/Contents/MacOS/Limen --bench-loop --scale 2 --max-busy 35 --max-calm 25 | tee -a out/bench-loop.txt; then exit 0; fi
           done
           exit 1
 
@@ -156,7 +156,7 @@ jobs:
         if: success() || failure()
         run: |
           mkdir -p out/renders
-          EDGELINGS_ROOT="$RUNNER_TEMP/render-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --render out/renders 2>&1 | tee out/render.log
+          LIMEN_ROOT="$RUNNER_TEMP/render-root" out/app/Limen.app/Contents/MacOS/Limen --render out/renders 2>&1 | tee out/render.log
           ls -l out/renders
 
       - name: Work-state group films (every look, both styles, the Mac drawer's own pipeline)
@@ -164,7 +164,7 @@ jobs:
         timeout-minutes: 20
         run: |
           mkdir -p out/groups
-          EDGELINGS_ROOT="$RUNNER_TEMP/groups-root" out/app/Edgelings.app/Contents/MacOS/Edgelings --render-groups out/groups 2>&1 | tee out/groups.log
+          LIMEN_ROOT="$RUNNER_TEMP/groups-root" out/app/Limen.app/Contents/MacOS/Limen --render-groups out/groups 2>&1 | tee out/groups.log
           ls out/groups | wc -l
 
       - name: Real-screen check (launch the app, drive it with real input, measure CPU)
@@ -172,7 +172,7 @@ jobs:
         timeout-minutes: 15
         run: |
           set -o pipefail
-          swiftc -O macos/app/uitest/main.swift -o out/edgelings-uitest
+          swiftc -O macos/app/uitest/main.swift -o out/limen-uitest
           ROOT="$RUNNER_TEMP/uitest-root"
           mkdir -p "$ROOT/home"
           python3 macos/bridge/make-fixture.py "$ROOT/home/.kimi-code" 12 120
@@ -181,12 +181,12 @@ jobs:
           python3 macos/bridge/make-big-home.py "$BIG/home" --layout mac
           mkdir -p out/uitest
           system_profiler SPDisplaysDataType > out/uitest/displays.txt 2>&1 || true
-          out/edgelings-uitest out/app/Edgelings.app out/uitest "$ROOT" --seconds 60 --big-root "$BIG" | tee out/uitest/uitest.txt
+          out/limen-uitest out/app/Limen.app out/uitest "$ROOT" --seconds 60 --big-root "$BIG" | tee out/uitest/uitest.txt
 
       - name: Finder shows the icon (a runner screenshot)
         continue-on-error: true
         run: |
-          open -R out/app/Edgelings.app
+          open -R out/app/Limen.app
           sleep 5
           screencapture -x out/uitest/finder-icon.png || true
           osascript -e 'tell application "Finder" to close every window' || true
@@ -194,26 +194,26 @@ jobs:
       - name: Friend's package
         run: |
           mkdir -p out/package
-          ditto -c -k --keepParent out/app/Edgelings.app out/package/Edgelings-macos-test.zip
+          ditto -c -k --keepParent out/app/Limen.app out/package/Limen-macos-test.zip
           cp macos/app/HOW-TO-TEST.md macos/app/PROBE.md macos/app/CHECKLIST.md out/package/
           ls -l out/package
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Edgelings-macos-test
+          name: Limen-macos-test
           path: out/package
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Edgelings-app-icon
+          name: Limen-app-icon
           path: out/icon
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Edgelings-real-screen
+          name: Limen-real-screen
           path: |
             out/uitest
             out/bench-loop.txt
@@ -221,13 +221,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Edgelings-renders
+          name: Limen-renders
           path: out/renders
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Edgelings-groups
+          name: Limen-groups
           path: out/groups
 
       - uses: actions/upload-artifact@v4

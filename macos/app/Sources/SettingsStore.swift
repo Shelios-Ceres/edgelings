@@ -275,7 +275,7 @@ enum UIStrings {
         "Quota shows", "How the bars and percentages read on the drawer's cards and in Settings", "Used", "Remaining",
         "Tokens", "Token counting", "Excludes cache reads; new input written to cache still counts. History is kept.",
         "Input + output (excluding cache reads)", "All tokens (including cache)",
-        "Startup", "Launch at login", "Language", "App language", "English", "About", "Thanks", "Crash log", "Open folder", "Quit Edgelings", "Quit",
+        "Startup", "Launch at login", "Language", "App language", "English", "About", "Thanks", "Crash log", "Open folder", "Quit Limen", "Quit",
         "Today", "This month", "On", "Off", "Switch", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
         "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price",
         "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
@@ -288,14 +288,14 @@ enum UIStrings {
         "5-hour window", "Weekly window", "Daily window", "Billing cycle", "Monthly window", "Permission prompts",
         "Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up.",
         "Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up.",
-        "A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Edgelings', so this stays off.",
+        "A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Limen's, so this stays off.",
     ]
 }
 
 /// Texts only the Mac app has, with their Chinese.
 enum MacStrings {
     static let zh: [String: String] = [
-        "Start Edgelings when you sign in to your Mac": "登录 Mac 时启动 Edgelings",
+        "Start Limen when you sign in to your Mac": "登录 Mac 时启动 Limen",
         "Same as system": "跟随系统",
         "With Reduce motion on in System Settings, characters slow down and stop following the pointer": "系统设置里开启「减弱动态效果」后，角色会放慢并不再跟随指针",
         "Open System Settings": "打开系统设置",

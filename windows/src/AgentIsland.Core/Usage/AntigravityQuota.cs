@@ -103,7 +103,7 @@ public sealed class AntigravityQuotaSnapshot
 }
 
 /// Gemini's quota as the island shows it: the main group's 5-hour and longer
-/// window, then one pool per further Gemini group (Gemini 4 Argon).
+/// window, then one pool per further Gemini group (Gemini 4 Argon, Carbon, …).
 public sealed record AntigravityGeminiPools(
     AntigravityQuotaBucket? ShortWindow,
     AntigravityQuotaBucket? LongWindow,
@@ -148,42 +148,73 @@ public static class AntigravityQuotaParser
                 return (Array.Empty<AntigravityQuotaBucket>(), null);
             }
 
-            var buckets = new List<AntigravityQuotaBucket>();
-            foreach (var group in groups.EnumerateArray())
-            {
-                var groupLabel = NonEmpty(String(group, "displayName")) ?? "";
-                if (!group.TryGetProperty("buckets", out var rows)
-                    || rows.ValueKind != JsonValueKind.Array) continue;
-                foreach (var row in rows.EnumerateArray())
-                {
-                    // A disabled bucket is one the account cannot use at
-                    // all; rendering it as "100% left" would invent headroom.
-                    if (row.TryGetProperty("disabled", out var disabled)
-                        && disabled.ValueKind == JsonValueKind.True) continue;
-                    if (NonEmpty(String(row, "bucketId")) is not { } bucketId) continue;
-                    var resetAt = Timestamp(row, "resetTime");
-                    // The server's JSON leaves a zero out: a bucket with a
-                    // reset time and no remainingFraction at all is spent.
-                    // With neither, or with one that can't be read, the row
-                    // is dropped rather than claiming 100% headroom.
-                    double remaining;
-                    if (Fraction(row, "remainingFraction") is { } fraction) remaining = fraction;
-                    else if (resetAt is not null && !row.TryGetProperty("remainingFraction", out _)) remaining = 0;
-                    else continue;
-                    buckets.Add(new AntigravityQuotaBucket(
-                        bucketId,
-                        groupLabel,
-                        NonEmpty(String(row, "window")),
-                        Math.Min(1, Math.Max(0, 1 - remaining)),
-                        resetAt));
-                }
-            }
-            return (buckets, NonEmpty(String(envelope, "description")));
+            return ReadGroups(envelope, groups, fromCli: false);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// agy --print /usage --output-format json reports the same pools using
+    /// snake_case. Only the structured reply to the built-in command is quota.
+    internal static AntigravityQuotaSnapshot? ParseCliUsage(string output)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(output);
+            var root = doc.RootElement;
+            if (String(root, "status") != "SUCCESS"
+                || !root.TryGetProperty("num_turns", out var turns) || Number(turns) != 0
+                || Object(root, "command") is not { } command || String(command, "name") != "usage"
+                || Object(command, "data") is not { } data
+                || !data.TryGetProperty("groups", out var groups) || groups.ValueKind != JsonValueKind.Array)
+                return null;
+            var (buckets, note) = ReadGroups(data, groups, fromCli: true);
+            return buckets.Count == 0 ? null : new AntigravityQuotaSnapshot(buckets, note: note);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static (IReadOnlyList<AntigravityQuotaBucket> Buckets, string? Note) ReadGroups(
+        JsonElement envelope, JsonElement groups, bool fromCli)
+    {
+        var fractionKey = fromCli ? "remaining_fraction" : "remainingFraction";
+        var buckets = new List<AntigravityQuotaBucket>();
+        foreach (var group in groups.EnumerateArray())
+        {
+            var groupLabel = NonEmpty(String(group, fromCli ? "name" : "displayName")) ?? "";
+            if (group.ValueKind != JsonValueKind.Object || !group.TryGetProperty("buckets", out var rows)
+                || rows.ValueKind != JsonValueKind.Array) continue;
+            foreach (var row in rows.EnumerateArray())
+            {
+                // A disabled bucket is one the account cannot use at
+                // all; rendering it as "100% left" would invent headroom.
+                if (row.ValueKind != JsonValueKind.Object) continue;
+                if (row.TryGetProperty("disabled", out var disabled)
+                    && disabled.ValueKind == JsonValueKind.True) continue;
+                if (NonEmpty(String(row, fromCli ? "id" : "bucketId")) is not { } bucketId) continue;
+                var resetAt = Timestamp(row, fromCli ? "reset_time" : "resetTime");
+                // The server's JSON leaves a zero out: a bucket with a
+                // reset time and no remainingFraction at all is spent.
+                // With neither, or with one that can't be read, the row
+                // is dropped rather than claiming 100% headroom.
+                double remaining;
+                if (Fraction(row, fractionKey) is { } fraction && double.IsFinite(fraction)) remaining = fraction;
+                else if (!fromCli && resetAt is not null && !row.TryGetProperty(fractionKey, out _)) remaining = 0;
+                else continue;
+                buckets.Add(new AntigravityQuotaBucket(
+                    bucketId,
+                    groupLabel,
+                    NonEmpty(String(row, "window")),
+                    Math.Min(1, Math.Max(0, 1 - remaining)),
+                    resetAt));
+            }
+        }
+        return (buckets, NonEmpty(String(envelope, "description")));
     }
 
     /// `GetUserStatus` → identity and tier. The tier comes from

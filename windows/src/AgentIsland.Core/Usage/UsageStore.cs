@@ -25,6 +25,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     private DateTimeOffset? _claudeUpdatedAt;
     private DateTimeOffset? _codexUpdatedAt;
     private DateTimeOffset? _lastAttemptedAt;
+    private DateTimeOffset? _codexAttemptedAt;
+    private DateTimeOffset? _lastPollAttemptedAt;
     private string? _refreshWarning;
     private bool _loading;
     private bool _claudeReauthInProgress;
@@ -35,6 +37,9 @@ public sealed class UsageStore : INotifyPropertyChanged
     private string? _codexLogin;
 
     private bool _refreshFetchesClaude;
+    private bool _refreshFetchesCodex;
+    private Dictionary<Model.DisplayProvider, bool>? _lastShown;
+    private bool _visibilityMonitorArmed;
 
     /// Whether each provider's latest fetch came back empty-handed; the
     /// footer warning is made from both, whichever one was just fetched.
@@ -81,6 +86,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     {
         if (restore)
         {
+            ClaudeShown = () => Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Claude);
+            CodexShown = () => Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex);
             SaveSnapshot = SaveCachedSnapshot;
             AutoSwitch = MaybeAutoSwitchCodex;
             BeforeRefresh = KickOtherProviders;
@@ -104,6 +111,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     internal Func<CancellationToken, Task<AppUsage>> CodexFetcher { get; set; } = UsageFetcher.FetchCodex;
     internal Func<CancellationToken, Task<AppUsage>> ClaudeFetcher { get; set; } = UsageFetcher.FetchClaude;
     internal Func<string?> CodexLogin { get; set; } = CodexCredentials.CurrentLogin;
+    internal Func<bool> ClaudeShown { get; set; } = () => true;
+    internal Func<bool> CodexShown { get; set; } = () => true;
     internal Action<AppUsage, AppUsage, bool, bool, string?> SaveSnapshot { get; set; } = (_, _, _, _, _) => { };
     internal Action<AppUsage> AutoSwitch { get; set; } = _ => { };
     internal Action BeforeRefresh { get; set; } = () => { };
@@ -115,6 +124,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     public DateTimeOffset? ClaudeUpdatedAt { get => _claudeUpdatedAt; private set { _claudeUpdatedAt = value; Raise(nameof(ClaudeUpdatedAt)); } }
     public DateTimeOffset? CodexUpdatedAt { get => _codexUpdatedAt; private set { _codexUpdatedAt = value; Raise(nameof(CodexUpdatedAt)); } }
     public DateTimeOffset? LastAttemptedAt { get => _lastAttemptedAt; private set { _lastAttemptedAt = value; Raise(nameof(LastAttemptedAt)); } }
+    public DateTimeOffset? CodexAttemptedAt { get => _codexAttemptedAt; private set { _codexAttemptedAt = value; Raise(nameof(CodexAttemptedAt)); } }
     public string? RefreshWarning { get => _refreshWarning; private set { _refreshWarning = value; Raise(nameof(RefreshWarning)); } }
     public bool Loading { get => _loading; private set { _loading = value; Raise(nameof(Loading)); } }
 
@@ -134,7 +144,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     public void RefreshIfStale()
     {
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
-        if ((LastAttemptedAt ?? LastUpdated) is { } last && DateTimeOffset.Now - last < interval) return;
+        if ((_lastPollAttemptedAt ?? LastAttemptedAt ?? LastUpdated) is { } last && DateTimeOffset.Now - last < interval) return;
         Refresh();
     }
 
@@ -147,39 +157,60 @@ public sealed class UsageStore : INotifyPropertyChanged
         var claudeToo = Loading && _refreshFetchesClaude;
         _refreshCts?.Cancel();
         Loading = false;
-        Refresh(fetchClaude: claudeToo);
+        Refresh(fetchClaude: claudeToo, fetchCodex: true);
     }
 
-    public void Refresh() => Refresh(fetchClaude: true);
+    public void Refresh() => Refresh(fetchClaude: true, fetchCodex: true);
 
-    /// Codex alone when only Codex asked for it — a switch, an auto-switch,
-    /// a Codex reset — so Claude keeps its poll cadence: Anthropic
-    /// rate-limits the usage endpoint hard, and walking three spent Codex
-    /// accounts used to ask it four times in ten seconds.
-    private void Refresh(bool fetchClaude)
+    /// Fetches only the shown providers among those asked for. A hidden agent's
+    /// quota queries, token refreshes and account rotations stay completely off.
+    internal void Refresh(bool fetchClaude, bool fetchCodex = true)
     {
+        var wantClaude = fetchClaude && ClaudeShown();
+        var wantCodex = fetchCodex && CodexShown();
+
         // Self-heal instead of early-return when a refresh has been "in
         // flight" for minutes: a wedged one (faulted task, socket dead after
         // sleep) used to latch Loading forever, freezing usage — and with it
         // reset detection and auto-resume — until the app was relaunched.
-        // A Codex-only refresh in flight is superseded by one that needs
-        // Claude, or the poll would skip Claude for a whole interval.
-        if (Loading && (_refreshFetchesClaude || !fetchClaude)
-            && DateTimeOffset.Now - _refreshStartedAt < TimeSpan.FromMinutes(2)) return;
+        // A single-provider refresh in flight is superseded when the other
+        // shown provider now needs a fetch too.
+        if (Loading
+            && (!wantClaude || _refreshFetchesClaude)
+            && (!wantCodex || _refreshFetchesCodex)
+            && DateTimeOffset.Now - _refreshStartedAt < TimeSpan.FromMinutes(2))
+        {
+            return;
+        }
+        if (Loading)
+        {
+            wantClaude |= _refreshFetchesClaude && ClaudeShown();
+            wantCodex |= _refreshFetchesCodex && CodexShown();
+        }
 
+        if (fetchClaude && fetchCodex) _lastPollAttemptedAt = DateTimeOffset.Now;
         BeforeRefresh();
+
+        if (!wantClaude && !wantCodex)
+        {
+            if (Loading && !_refreshFetchesClaude && !_refreshFetchesCodex) Loading = false;
+            RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
+            return;
+        }
 
         Loading = true;
         _refreshStartedAt = DateTimeOffset.Now;
-        _refreshFetchesClaude = fetchClaude;
-        if (fetchClaude) LastAttemptedAt = _refreshStartedAt;
+        _refreshFetchesClaude = wantClaude;
+        _refreshFetchesCodex = wantCodex;
+        if (wantClaude) LastAttemptedAt = _refreshStartedAt;
+        if (wantCodex) CodexAttemptedAt = _refreshStartedAt;
         _refreshCts?.Cancel();
         var cts = new CancellationTokenSource();
         _refreshCts = cts;
         // The Codex numbers are for the login in auth.json as the fetch
         // starts; if another is signed in by the time they land, they are
         // another account's.
-        var codexLogin = CodexLogin();
+        var codexLogin = wantCodex ? CodexLogin() : null;
         _refreshTask = Task.Run(async () =>
         {
             try
@@ -189,9 +220,9 @@ public sealed class UsageStore : INotifyPropertyChanged
                 // request instead of letting it run to its own timeout. The
                 // fetchers retry a transient network failure themselves; a
                 // failed reply (429, 403, a lost sign-in) is never asked again.
-                var codexTask = CodexFetcher(cts.Token);
-                var claudeTask = fetchClaude ? ClaudeFetcher(cts.Token) : null;
-                var codexResult = await codexTask;
+                var codexTask = wantCodex ? CodexFetcher(cts.Token) : null;
+                var claudeTask = wantClaude ? ClaudeFetcher(cts.Token) : null;
+                var codexResult = codexTask is null ? null : await codexTask;
                 var claudeResult = claudeTask is null ? null : await claudeTask;
 
                 await UiThread.InvokeAsync(() =>
@@ -206,18 +237,23 @@ public sealed class UsageStore : INotifyPropertyChanged
                         return;
                     }
 
-                    var codexCurrent = string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
-                    if (codexCurrent) _codexFailed = IsErrorOnly(codexResult);
-                    if (claudeResult is not null) _claudeFailed = IsErrorOnly(claudeResult);
-                    var mergedCodex = codexCurrent ? CommitCodex(codexResult, codexLogin) : Codex;
-                    if (claudeResult is not null) Claude = MergedUsage(Claude, claudeResult);
-                    SaveSnapshot(Claude, mergedCodex, claudeResult is not null, codexCurrent, _codexLogin);
+                    var commitClaude = claudeResult is not null && ClaudeShown();
+                    var commitCodex = codexResult is not null && CodexShown()
+                        && string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
+                    if (commitCodex) _codexFailed = IsErrorOnly(codexResult!);
+                    if (commitClaude) _claudeFailed = IsErrorOnly(claudeResult!);
+                    var mergedCodex = commitCodex ? CommitCodex(codexResult!, codexLogin) : Codex;
+                    if (commitClaude) Claude = MergedUsage(Claude, claudeResult!);
+                    if (commitClaude || commitCodex)
+                    {
+                        SaveSnapshot(Claude, mergedCodex, commitClaude, commitCodex, _codexLogin);
+                    }
                     RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
                     var now = DateTimeOffset.Now;
-                    if (claudeResult is not null) RecordSuccessfulUpdate(claude: true, claudeResult, now);
-                    if (codexCurrent) RecordSuccessfulUpdate(claude: false, codexResult, now);
+                    if (commitClaude) RecordSuccessfulUpdate(claude: true, claudeResult!, now);
+                    if (commitCodex) RecordSuccessfulUpdate(claude: false, codexResult!, now);
                     Loading = false;
-                    if (codexCurrent) AutoSwitch(mergedCodex);
+                    if (commitCodex) AutoSwitch(mergedCodex);
                 });
             }
             catch
@@ -258,6 +294,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// until a reading drops back under 100%.
     private void MaybeAutoSwitchCodex(AppUsage usage)
     {
+        if (!CodexShown()) return;
         if (!CodexAccountSwitcher.AutoSwitchEnabled) return;
         switch (ReadCodexQuota(usage, DateTimeOffset.Now))
         {
@@ -285,7 +322,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (!CodexAccountSwitcher.Activate(next)) return;
         _codexAutoSwitchTried.Add(next.Label);
         CodexAutoSwitched = next.Label;
-        Refresh(fetchClaude: false);
+        Refresh(fetchClaude: false, fetchCodex: true);
     }
 
     internal enum CodexQuotaReading
@@ -432,7 +469,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (ClaudeReauthInProgress) return true;
         if (Trigger.CLILocator.PathFor(TriggerTool.Claude) is not { } cli) return false;
         var initialStamp = ClaudeCredentials.CredentialsModificationStamp();
-        if (!TerminalLauncher.RunVisible(cli, "/login", "Edgelings — Claude login")) return false;
+        if (!TerminalLauncher.RunVisible(cli, "/login", "Limen — Claude login")) return false;
         ClaudeReauthInProgress = true;
         _ = Task.Run(async () =>
         {
@@ -484,8 +521,8 @@ public sealed class UsageStore : INotifyPropertyChanged
             SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: true, _codexLogin);
             _codexFailed = IsErrorOnly(fetched);
             RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
-            LastAttemptedAt = DateTimeOffset.Now;
-            RecordSuccessfulUpdate(claude: false, fetched, LastAttemptedAt.Value);
+            CodexAttemptedAt = DateTimeOffset.Now;
+            RecordSuccessfulUpdate(claude: false, fetched, CodexAttemptedAt.Value);
             CodexReauthInProgress = false;
         });
     }
@@ -495,6 +532,9 @@ public sealed class UsageStore : INotifyPropertyChanged
     public void StartAutoRefresh()
     {
         StopAutoRefresh();
+        _lastShown = SnapshotShown();
+        Model.ProviderVisibilityStore.Shared.PropertyChanged += OnVisibilityChanged;
+        _visibilityMonitorArmed = true;
         Refresh();
         ArmTimer();
         ArmResetEdgeTimer();
@@ -527,12 +567,51 @@ public sealed class UsageStore : INotifyPropertyChanged
         _resetEdgeTimer?.Stop();
         _resetEdgeTimer = null;
         RefreshIntervalStore.Shared.PropertyChanged -= OnIntervalChanged;
+        if (_visibilityMonitorArmed)
+        {
+            Model.ProviderVisibilityStore.Shared.PropertyChanged -= OnVisibilityChanged;
+            _visibilityMonitorArmed = false;
+        }
         if (_networkMonitorArmed)
         {
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _networkMonitorArmed = false;
         }
         if (_powerMonitorArmed && OperatingSystem.IsWindows()) DisarmSystemEvents();
+    }
+
+    private static Dictionary<Model.DisplayProvider, bool> SnapshotShown() =>
+        Model.DisplayProviders.All.ToDictionary(p => p, Model.ProviderVisibilityStore.Shared.IsShown);
+
+    private void OnVisibilityChanged(object? sender, PropertyChangedEventArgs e) =>
+        UiThread.Post(HandleVisibilityChange);
+
+    /// Aborts in-flight requests whose providers were just hidden, and fetches
+    /// any provider that just went from hidden to shown.
+    internal void HandleVisibilityChange()
+    {
+        CancelIfHidden();
+        RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
+        var current = SnapshotShown();
+        var previous = _lastShown;
+        _lastShown = current;
+        if (previous is null) return;
+        foreach (var (provider, shown) in current)
+        {
+            if (shown && previous.TryGetValue(provider, out var wasShown) && !wasShown)
+            {
+                Model.AgentReports.RefreshNow(provider);
+            }
+        }
+    }
+
+    internal void CancelIfHidden()
+    {
+        if (!Loading) return;
+        var stillWanted = (_refreshFetchesClaude && ClaudeShown()) || (_refreshFetchesCodex && CodexShown());
+        if (stillWanted) return;
+        _refreshCts?.Cancel();
+        Loading = false;
     }
 
     /// Refresh on unlock, the macOS screenIsUnlocked mirror: the timers keep
@@ -591,13 +670,11 @@ public sealed class UsageStore : INotifyPropertyChanged
             var previous = _lastResetEdgeCheck;
             _lastResetEdgeCheck = now;
             bool Passed(DateTimeOffset? reset) => reset is { } at && previous < at && at <= now;
-            if (Passed(Claude.FiveHour.ResetAt) || Passed(Claude.Weekly.ResetAt))
+            var claudeReset = ClaudeShown() && (Passed(Claude.FiveHour.ResetAt) || Passed(Claude.Weekly.ResetAt));
+            var codexReset = CodexShown() && (Passed(Codex.FiveHour.ResetAt) || Passed(Codex.Weekly.ResetAt));
+            if (claudeReset || codexReset)
             {
-                Refresh();
-            }
-            else if (Passed(Codex.FiveHour.ResetAt) || Passed(Codex.Weekly.ResetAt))
-            {
-                Refresh(fetchClaude: false);
+                Refresh(fetchClaude: claudeReset, fetchCodex: codexReset);
             }
         };
         _resetEdgeTimer.Start();

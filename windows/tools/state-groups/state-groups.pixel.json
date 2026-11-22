@@ -197,6 +197,13 @@
         "secondIfNoTool": "orbit"
       }
     },
+    "antigravity/eraser": {
+      "busy": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "thinking"
+      }
+    },
     "antigravity/balloon": {
       "busy": {
         "main": "working",
@@ -237,6 +244,23 @@
         "main": "working",
         "second": "tool",
         "secondIfNoTool": "thinking"
+      }
+    },
+    "grok/sharpener": {
+      "think": {
+        "main": "thinking",
+        "second": "tool",
+        "secondIfNoTool": "streaming"
+      },
+      "do": {
+        "main": "working",
+        "second": "tool",
+        "secondIfNoTool": "running"
+      },
+      "team": {
+        "main": "spawning",
+        "second": "tool",
+        "secondIfNoTool": "orbit"
       }
     },
     "grok/ring": {

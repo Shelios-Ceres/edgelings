@@ -5,9 +5,10 @@ namespace AgentIsland.Cost;
 
 /// Reconstructs Grok spend from the local CLI session logs. Grok is the one
 /// provider that ships its own dollar figure: each `turn_completed` update
-/// carries usage.costUsdTicks (USD * 1e-9, verified 158652000 ticks = $0.159),
-/// so the event's SelfReportedCostUSD is set directly and OVERRIDES the Pricing
-/// table downstream — Grok dollars are never guessed.
+/// carries usage.costUsdTicks (xAI API ticks: 1 USD = 10^10 ticks, USD * 1e-10,
+/// so 158652000 ticks = $0.0158652), so the event's SelfReportedCostUSD is set
+/// directly and OVERRIDES the Pricing table downstream — Grok dollars are
+/// never guessed.
 ///
 ///   %USERPROFILE%\.grok\sessions\&lt;url-encoded cwd&gt;\&lt;uuid&gt;\updates.jsonl
 ///
@@ -101,10 +102,11 @@ public static class GrokLogReader
         var input = totalInput - cachedRead - cacheCreation;
         if (totalInput == 0 && outputTokens == 0) return;
 
-        // Grok reports cost in ticks of USD * 1e-9. Absent ticks stay null
-        // rather than being priced from a table Grok has no entry in.
+        // Grok reports cost in xAI ticks: 1 USD = 10^10 ticks (USD * 1e-10).
+        // Absent ticks stay null rather than being priced from a table Grok
+        // has no entry in.
         var cost = Jsonl.GetLong(fields, "costUsdTicks") is { } ticks
-            ? ticks * 1e-9
+            ? ticks * 1e-10
             : (double?)null;
 
         // Dedup key pins the model: a multi-model turn shares one prompt_id

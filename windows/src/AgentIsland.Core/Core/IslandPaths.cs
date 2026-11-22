@@ -10,12 +10,12 @@ namespace AgentIsland.Core;
 ///   ~/Library/Application Support/AgentIsland   -> %APPDATA%\AgentIsland
 ///   ~/Library/Caches/dev.agentisland...         -> %LOCALAPPDATA%\AgentIsland\cache
 ///
-/// On macOS the same names resolve to the Mac's own folders: Edgelings keeps
-/// settings in ~/Library/Application Support/Edgelings and caches in
-/// ~/Library/Caches/Edgelings, and Application Support stands in for both
+/// On macOS the same names resolve to the Mac's own folders: Limen keeps
+/// settings in ~/Library/Application Support/Limen and caches in
+/// ~/Library/Caches/Limen, and Application Support stands in for both
 /// AppData roots (.NET would answer ~/.config and ~/.local/share).
 ///
-/// RootOverride (EDGELINGS_ROOT in the environment) moves the whole home to
+/// RootOverride (LIMEN_ROOT in the environment) moves the whole home to
 /// <root>/home, with every app and agent folder beneath it. The agents' own
 /// overrides (CODEX_HOME, GROK_HOME, KIMI_CODE_HOME, CLAUDE_CONFIG_DIR) still
 /// win when set, so a test or bench that sets the root clears them first.
@@ -23,7 +23,8 @@ namespace AgentIsland.Core;
 /// macOS app can pass it through the bridge.
 public static class IslandPaths
 {
-    private static string? _root = NormalizeRoot(Environment.GetEnvironmentVariable("EDGELINGS_ROOT"));
+    private static string? _root = NormalizeRoot(
+        Environment.GetEnvironmentVariable("LIMEN_ROOT") ?? Environment.GetEnvironmentVariable("EDGELINGS_ROOT"));
 
     /// Where a test or a bench keeps its whole world; null means the real one.
     public static string? RootOverride
@@ -151,15 +152,16 @@ public static class IslandPaths
     /// log appended as zstd frames to session.v4.jsonl.zstd.
     public static string DeepSeekSessionsRoot => Path.Combine(Home, ".dsh", "sessions");
 
-    /// Settings and the crash log. Before the rename to Edgelings these were
-    /// under "AgentIsland"; AppDataMigration copies them across once.
-    public static string AppSupportDir => Path.Combine(RoamingAppData, "Edgelings");
+    /// Settings and the crash log. Before the rename to Limen these lived
+    /// under "Edgelings" (and before that, "AgentIsland"); AppDataMigration
+    /// copies them across once.
+    public static string AppSupportDir => Path.Combine(RoamingAppData, "Limen");
     public static string SettingsFile => Path.Combine(AppSupportDir, "settings.json");
 
-    /// Caches: %LOCALAPPDATA%\Edgelings\cache, ~/Library/Caches/Edgelings on macOS.
+    /// Caches: %LOCALAPPDATA%\Limen\cache, ~/Library/Caches/Limen on macOS.
     public static string CacheDir => CacheDirOverride ?? (OperatingSystem.IsMacOS()
-        ? Path.Combine(Home, "Library", "Caches", "Edgelings")
-        : Path.Combine(LocalAppData, "Edgelings", "cache"));
+        ? Path.Combine(Home, "Library", "Caches", "Limen")
+        : Path.Combine(LocalAppData, "Limen", "cache"));
 
     /// Another cache folder while the real home is read: the diagnostic reads
     /// the user's agent data but must not write into the app's own caches.
@@ -170,8 +172,14 @@ public static class IslandPaths
 
     /// Where the Claude and Grok hooks keep their signal folders. On Windows
     /// that is the Agent Island folder, where installs made before the rename
-    /// point; the Mac app never had one, so it uses its own.
+    /// point; the Mac app uses its own folder.
     public static string HooksDir => OperatingSystem.IsMacOS() ? AppSupportDir : LegacyAppSupportDir;
+
+    /// Edgelings' folders, before the rename to Limen.
+    public static string PreviousAppSupportDir => Path.Combine(RoamingAppData, "Edgelings");
+    public static string PreviousCacheDir => OperatingSystem.IsMacOS()
+        ? Path.Combine(Home, "Library", "Caches", "Edgelings")
+        : Path.Combine(LocalAppData, "Edgelings", "cache");
 
     /// Agent Island's folders, left in place by the migration. The Claude and
     /// Grok hooks' signal folders and Grok's hook script stay in the first:

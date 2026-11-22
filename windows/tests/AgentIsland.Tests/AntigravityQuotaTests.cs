@@ -32,6 +32,10 @@ public static class AntigravityQuotaTests
         var tests = new (string Name, Action Test)[]
         {
             ("the parser keeps all five buckets of a Pro account", TestParsesFiveBuckets),
+            ("only CLI versions with a built-in print-mode /usage are queried", TestCliVersions),
+            ("the CLI invocation runs headless with isolated profile and auto-update disabled", TestCliStartInfo),
+            ("refresh cadence keeps the 120s background floor and 1-minute manual floor", TestRefreshCadence),
+            ("the CLI usage reply supplies real quota windows", TestCliUsage),
             ("the main group fills the 5-hour and weekly slots", TestSlots),
             ("a snapshot with no 5-hour bucket keeps one weekly window", TestSingleWindow),
             ("a snapshot with no Gemini bucket falls back to its first", TestNoGemini),
@@ -45,6 +49,9 @@ public static class AntigravityQuotaTests
             ("only Antigravity's own language server is asked, never Windsurf's or Codeium's", TestLanguageServerOwner),
             ("a port is traced to the process listening on it", TestPortOwner),
             ("a process's CSRF token is read once, and looked for again only after a while", TestCsrfTokenIsRemembered),
+            ("a quoted or equals-separated CSRF token is still read from the command line", TestParseCsrfToken),
+            ("a CSRF retry surfaces its real failure instead of reporting 401", TestCsrfRetrySurfacesRealReply),
+            ("discovery skips a 401-only port when another Antigravity port authenticates", TestDiscoverPrefersAuthenticatedPort),
             ("a helper that hangs is stopped at its timeout", TestHelperTimeout),
         };
         foreach (var (name, test) in tests)
@@ -91,6 +98,60 @@ public static class AntigravityQuotaTests
         Expect(buckets[4].GroupLabel, "Gemini 4 Argon");
         Expect(buckets[1].PeriodSeconds, 5.0 * 3600);
         Expect(note is not null, "Google's note comes along");
+    }
+
+    private static void TestCliVersions()
+    {
+        foreach (var version in new[] { null, "", "unknown", "1.1.10", "1.1.11-beta" })
+            Expect(!AntigravityCliQuota.SupportsUsage(version), "unsupported CLI: " + version);
+        foreach (var version in new[] { "1.1.11", "1.5.14", "2.0.0" })
+            Expect(AntigravityCliQuota.SupportsUsage(version), "supported CLI: " + version);
+    }
+
+    private static void TestCliStartInfo()
+    {
+        var exe = Path.Combine(Path.GetTempPath(), "agy.exe");
+        var iso = Path.Combine(Path.GetTempPath(), "limen-agy-iso-test");
+        var start = AntigravityCliQuota.StartInfo(exe, "--print /usage", iso);
+        Expect(!start.UseShellExecute, "never shell-execute agy");
+        Expect(start.CreateNoWindow, "never create a console window");
+        Expect(start.WindowStyle, System.Diagnostics.ProcessWindowStyle.Hidden);
+        Expect(start.RedirectStandardInput && start.RedirectStandardOutput && start.RedirectStandardError, "all three streams redirected");
+        Expect(start.Environment["AGY_CLI_DISABLE_AUTO_UPDATE"], "true");
+        Expect(start.Environment["USERPROFILE"], iso);
+        Expect(start.Environment["HOME"], iso);
+        Expect(start.Environment["ANTIGRAVITY_GEMINI_DIR"], Path.Combine(iso, ".gemini"));
+        Expect(!AntigravityCliQuota.IsolatedHomeDir.Equals(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), StringComparison.OrdinalIgnoreCase),
+            "default isolated home never points at the real user profile");
+    }
+
+    private static void TestRefreshCadence()
+    {
+        Expect(AntigravityUsageStore.EffectiveFloor(manual: false), TimeSpan.FromSeconds(120));
+        Expect(AntigravityUsageStore.EffectiveFloor(manual: true), TimeSpan.FromMinutes(1));
+    }
+
+    private static void TestCliUsage()
+    {
+        const string reply = """
+            {"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"description":"shared pools","groups":[
+              {"name":"Gemini Models","buckets":[
+                {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.96,"reset_time":"2026-11-28T11:39:48Z"},
+                {"id":"gemini-5h","window":"5h","remaining_fraction":0},
+                {"id":"credit","remaining_amount":10,"reset_time":"2026-11-28T11:39:48Z"},
+                {"id":"disabled","disabled":true,"remaining_fraction":1}]}]}}}
+            """;
+        var snapshot = AntigravityQuotaParser.ParseCliUsage(reply)!;
+        Expect(snapshot.Buckets.Count, 2);
+        Expect(snapshot.GeminiPools.ShortWindow!.UsedPercent, 1.0);
+        Expect(Math.Round(snapshot.GeminiPools.LongWindow!.UsedPercent, 2), 0.04);
+        Expect(snapshot.GeminiPools.LongWindow.ResetAt, DateTimeOffset.Parse("2026-11-28T11:39:48Z"));
+        Expect(snapshot.Note, "shared pools");
+        foreach (var invalid in new[] { "{}", "not json", reply.Replace("SUCCESS", "ERROR"),
+            reply.Replace("\"usage\"", "\"credits\""), reply.Replace("\"num_turns\":0", "\"num_turns\":1"),
+            reply.Replace("remaining_fraction", "unknown_field") })
+            Expect(AntigravityQuotaParser.ParseCliUsage(invalid) is null, "no fresh quota from an invalid reply");
     }
 
     private static void TestSlots()
@@ -181,6 +242,126 @@ public static class AntigravityQuotaTests
         }
     }
 
+    private static void TestParseCsrfToken()
+    {
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token abc-123 --port 1"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token=abc-123 --port 1"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token \"abc-123\" --port 1"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token=\"abc-123\" --port 1"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe \"--csrf_token=abc-123\" --port 1"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token 'abc-123'"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token='abc-123'"), "abc-123");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --csrf_token \"\" --port 1") is null, "empty quotes carry no token");
+        Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --port 1") is null, "missing flag returns null");
+    }
+
+    private static void TestCsrfRetrySurfacesRealReply()
+    {
+        var prevCall = AntigravityLanguageServer.CallRpc;
+        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var prevRead = AntigravityLanguageServer.ReadCommandLine;
+        try
+        {
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            var pid = Environment.ProcessId;
+            AntigravityLanguageServer.ResolvePortOwner = _ => pid;
+            AntigravityLanguageServer.ReadCommandLine = _ => "language_server.exe --csrf_token tok-1";
+
+            // Authenticated retry succeeds.
+            AntigravityLanguageServer.CallRpc = (_, _, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                token == "tok-1"
+                    ? new AntigravityLanguageServer.Reply(200, Array.Empty<byte>())
+                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+            var ok = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
+            Expect(ok?.Status, 200);
+
+            // Authenticated retry returns 503: must surface 503, not the initial 401.
+            AntigravityLanguageServer.CallRpc = (_, _, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                token == "tok-1"
+                    ? new AntigravityLanguageServer.Reply(503, Array.Empty<byte>())
+                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+            var backendErr = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
+            Expect(backendErr?.Status, 503);
+
+            // Authenticated retry times out (null): must surface null, not the initial 401.
+            AntigravityLanguageServer.CallRpc = (_, _, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                token == "tok-1"
+                    ? null
+                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+            var timedOut = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
+            Expect(timedOut is null, "a timed-out retry returns null instead of 401");
+
+            // No token available: stays 401.
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.ReadCommandLine = _ => "language_server.exe --port 50001";
+            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+            var noToken = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
+            Expect(noToken?.Status, 401);
+        }
+        finally
+        {
+            AntigravityLanguageServer.CallRpc = prevCall;
+            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.ReadCommandLine = prevRead;
+            AntigravityLanguageServer.ForgetCsrfTokens();
+        }
+    }
+
+    private static void TestDiscoverPrefersAuthenticatedPort()
+    {
+        var prevCall = AntigravityLanguageServer.CallRpc;
+        var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
+        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
+        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var prevRead = AntigravityLanguageServer.ReadCommandLine;
+        try
+        {
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+
+            // Port 51001 rejects everything with 401 (no token); port 51002 authenticates with its own token.
+            AntigravityLanguageServer.ListAntigravityProcessIds = () => new List<int> { 101, 102 };
+            AntigravityLanguageServer.ListListeningPorts = pid => pid == 101 ? new List<int> { 51001 } : new List<int> { 51002 };
+            AntigravityLanguageServer.ResolvePortOwner = port => port == 51001 ? 101 : port == 51002 ? 102 : null;
+            AntigravityLanguageServer.ReadCommandLine = pid => pid == 102 ? "language_server.exe --csrf_token \"good-tok\"" : "Antigravity.exe";
+            AntigravityLanguageServer.CallRpc = (_, port, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                port == 51002 && token == "good-tok"
+                    ? new AntigravityLanguageServer.Reply(200, Array.Empty<byte>())
+                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+
+            var discovered = AntigravityLanguageServer.Discover().GetAwaiter().GetResult();
+            Expect(discovered, (int?)51002);
+
+            // When only a 401 port exists, Discover returns it as a fallback without pinning it,
+            // so a later ready port is picked up immediately.
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            var cliStarted = false;
+            AntigravityLanguageServer.ListAntigravityProcessIds = () => cliStarted ? new List<int> { 101, 103 } : new List<int> { 101 };
+            AntigravityLanguageServer.ListListeningPorts = pid => pid == 101 ? new List<int> { 51001 } : new List<int> { 51003 };
+            AntigravityLanguageServer.ResolvePortOwner = port => port == 51001 ? 101 : port == 51003 ? 103 : null;
+            AntigravityLanguageServer.CallRpc = (_, port, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                port == 51003
+                    ? new AntigravityLanguageServer.Reply(200, Array.Empty<byte>())
+                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+
+            Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult(), (int?)51001);
+            cliStarted = true;
+            Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult(), (int?)51003);
+        }
+        finally
+        {
+            AntigravityLanguageServer.CallRpc = prevCall;
+            AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
+            AntigravityLanguageServer.ListListeningPorts = prevPorts;
+            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.ReadCommandLine = prevRead;
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+        }
+    }
+
     private static void TestHelperTimeout()
     {
         var quick = AntigravityLanguageServer.Output(new System.Diagnostics.ProcessStartInfo
@@ -266,6 +447,9 @@ public static class AntigravityQuotaTests
         Expect(meters[2].Value, "75%");
         Expect(meters.Select(m => m.CardLabel).SequenceEqual(new[] { "5h", "Week", "Argon" }), "the hover card says Argon");
         Expect(meters[2].Label, "Gemini 4 Argon");
+        Expect(StatusCards.CardLabelOf("Gemini 4 Carbon"), "Carbon");
+        Expect(StatusCards.CardLabelOf("Gemini 4 Neon"), "Neon");
+        Expect(StatusCards.CardLabelOf("Gemini 4 Hydrogen"), "Hydrog");
         Expect(StatusCards.CardLabelOf("Gemini Ultra Premium"), "Premiu");
         Expect(meters.All(m => m.Resets is not null || m.Value != "—"), "every pool is read");
         Expect(!meters.Any(m => m.Label.Contains("Claude") || m.Label.Contains("GPT")), "Claude and GPT stay out");

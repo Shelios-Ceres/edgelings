@@ -204,19 +204,25 @@ public static class AgentReports
     /// A fetch now instead of at the next poll, for the provider's own store.
     public static void RefreshNow(DisplayProvider provider)
     {
+        if (!ProviderVisibilityStore.Shared.IsShown(provider)) return;
         switch (provider)
         {
             case DisplayProvider.Claude:
-            case DisplayProvider.Codex:
                 // Anthropic rate-limits the usage endpoint hard: a manual
                 // refresh still asks at most once a minute.
-                if (UsageStore.Shared.LastAttemptedAt is not { } last || DateTimeOffset.Now - last > TimeSpan.FromMinutes(1))
+                if (UsageStore.Shared.LastAttemptedAt is not { } lastClaude || DateTimeOffset.Now - lastClaude > TimeSpan.FromMinutes(1))
                 {
-                    UsageStore.Shared.Refresh();
+                    UsageStore.Shared.Refresh(fetchClaude: true, fetchCodex: false);
+                }
+                break;
+            case DisplayProvider.Codex:
+                if (UsageStore.Shared.CodexAttemptedAt is not { } lastCodex || DateTimeOffset.Now - lastCodex > TimeSpan.FromMinutes(1))
+                {
+                    UsageStore.Shared.Refresh(fetchClaude: false, fetchCodex: true);
                 }
                 break;
             case DisplayProvider.Antigravity:
-                AntigravityUsageStore.Shared.KickRefresh();
+                AntigravityUsageStore.Shared.KickRefresh(manual: true);
                 break;
             case DisplayProvider.Grok:
                 GrokUsageStore.Shared.KickRefresh();

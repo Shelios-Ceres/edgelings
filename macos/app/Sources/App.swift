@@ -1,10 +1,10 @@
-// Edgelings for macOS: an accessory app (no Dock icon) with the edge drawer, a
+// Limen for macOS: an accessory app (no Dock icon) with the edge drawer, a
 // menu-bar item, and a Settings window.
 import AppKit
 import SwiftUI
 
 @main
-struct EdgelingsMain {
+struct LimenMain {
     @MainActor
     static func main() {
         let app = NSApplication.shared
@@ -73,8 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStatusItem()
         // For the real-screen check on a runner: write the diagnostic (with the CPU breakdown) to a file
         // after a while, so the numbers of a run that has been working can be read.
-        if let path = ProcessInfo.processInfo.environment["EDGELINGS_DIAG_FILE"] {
-            let after = Double(ProcessInfo.processInfo.environment["EDGELINGS_DIAG_AFTER"] ?? "") ?? 60
+        if let path = ProcessInfo.processInfo.environment["LIMEN_DIAG_FILE"] ?? ProcessInfo.processInfo.environment["EDGELINGS_DIAG_FILE"] {
+            let after = Double(ProcessInfo.processInfo.environment["LIMEN_DIAG_AFTER"] ?? ProcessInfo.processInfo.environment["EDGELINGS_DIAG_AFTER"] ?? "") ?? 60
             Timer.scheduledTimer(withTimeInterval: after, repeats: false) { _ in DiagnosticReport.write(to: path) }
         }
         quotaTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.refreshTooltip() }
@@ -97,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = MenuBarIcon.image(pixel: AppController.shared.frame?.isPixel ?? true)
         iconPixel = AppController.shared.frame?.isPixel ?? true
-        item.button?.toolTip = "Edgelings"
+        item.button?.toolTip = "Limen"
         let menu = NSMenu()
         menu.delegate = nil
         let toggle = NSMenuItem(title: AppStrings.t("Hide drawer"), action: #selector(toggleDrawer), keyEquivalent: "")
@@ -110,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settings)
         settingsItem = settings
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: AppStrings.t("Quit Edgelings"), action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: AppStrings.t("Quit Limen"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         quitItem = quit
@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func retitleTray() {
         toggleItem?.title = AppStrings.t(drawer.isShown ? "Hide drawer" : "Show drawer")
         settingsItem?.title = AppStrings.t("Settings…")
-        quitItem?.title = AppStrings.t("Quit Edgelings")
+        quitItem?.title = AppStrings.t("Quit Limen")
     }
     private var trayMenu: NSMenu?
     private var trayCardTimer: Timer?
@@ -171,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let meters = card.meters.map { "\($0.label) \($0.value)" }.joined(separator: " · ")
                 return meters.isEmpty ? card.name : "\(card.name): \(meters)"
             }
-            self?.statusItem?.button?.toolTip = lines.isEmpty ? "Edgelings" : lines.joined(separator: "\n")
+            self?.statusItem?.button?.toolTip = lines.isEmpty ? "Limen" : lines.joined(separator: "\n")
         }
     }
 
@@ -245,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(speech)
         menu.addItem(.separator())
         menu.addItem(item(AppStrings.t("Hide drawer"), #selector(toggleDrawer), "eye"))
-        menu.addItem(item(AppStrings.t("Quit Edgelings"), #selector(quit), "power"))
+        menu.addItem(item(AppStrings.t("Quit Limen"), #selector(quit), "power"))
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 

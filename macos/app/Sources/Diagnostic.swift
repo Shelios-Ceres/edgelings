@@ -1,4 +1,4 @@
-// "Copy diagnostic" and `Edgelings --diagnose`: what Core sees on this Mac, as
+// "Copy diagnostic" and `Limen --diagnose`: what Core sees on this Mac, as
 // ids, counts and states only. No window titles, session names, folders,
 // e-mail addresses or tokens.
 import AppKit
@@ -17,7 +17,7 @@ enum DiagnosticReport {
             default: return "-"
             }
         }
-        var lines = ["Edgelings diagnostic (ids, counts and states only)"]
+        var lines = ["Limen diagnostic (ids, counts and states only)"]
         if let error = report["error"] { return lines.joined(separator: "\n") + "\nCore answered with an error: \(value(error))" }
         lines.append("System: \(value(report["os"])), \(value(report["arch"]))")
         lines.append("SQLite: \(value(report["sqlite"]))")
@@ -141,7 +141,7 @@ enum DiagnosticReport {
         }
     }
 
-    /// The report as a file (see EDGELINGS_DIAG_FILE in App.swift).
+    /// The report as a file (see LIMEN_DIAG_FILE in App.swift).
     static func write(to path: String) {
         AppController.shared.request("windows", WindowSnapshot.request()) { _ in
             AppController.shared.request("diagnose", [:]) { report in
@@ -150,7 +150,7 @@ enum DiagnosticReport {
         }
     }
 
-    /// `Edgelings --diagnose`: prints the same text and exits.
+    /// `Limen --diagnose`: prints the same text and exits.
     static func printAndExit() -> Never {
         guard let bridge = AppController.shared.bridge else {
             print("Could not load the Core library.")
@@ -162,7 +162,7 @@ enum DiagnosticReport {
     }
 }
 
-/// `Edgelings --self-test`: asks Core for everything the UI reads and decodes
+/// `Limen --self-test`: asks Core for everything the UI reads and decodes
 /// it into the Swift models, so a shape that drifted shows up here and not as
 /// a silently empty window. Prints names and counts only.
 enum SelfTest {

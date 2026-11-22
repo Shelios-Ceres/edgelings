@@ -13,7 +13,8 @@ public sealed class LogParseCache
     internal sealed record EventDto(
         long Ts, string Model, long In, long Out, long Cc, long Cr,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResponseKey = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool IsFinalUsage = false)
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool IsFinalUsage = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] long Cc1h = 0)
     {
         // A year of events names a handful of models: one string each, not
         // one per event, for as long as the cache holds them.
@@ -133,6 +134,7 @@ public sealed class LogParseCache
     {
         ResponseKey = dto.ResponseKey,
         IsFinalUsage = dto.IsFinalUsage,
+        CacheCreation1hTokens = dto.Cc1h,
     };
 
     private static EventDto ToDto(TokenEvent tokenEvent) => new(
@@ -143,7 +145,8 @@ public sealed class LogParseCache
         tokenEvent.CacheCreationTokens,
         tokenEvent.CacheReadTokens,
         tokenEvent.ResponseKey,
-        tokenEvent.IsFinalUsage);
+        tokenEvent.IsFinalUsage,
+        tokenEvent.CacheCreation1hTokens);
 
     private void Load()
     {

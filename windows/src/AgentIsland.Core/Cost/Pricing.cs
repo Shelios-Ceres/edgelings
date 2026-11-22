@@ -1,41 +1,51 @@
 namespace AgentIsland.Cost;
 
-/// Hardcoded price table (USD per million tokens), snapshot 2026-10-11 of
+/// Hardcoded price table (USD per million tokens), refreshed 2026-11-22 from
 /// the first-party entries in LiteLLM's model_prices_and_context_window.json,
 /// with Moonshot's K3.1 Pro, K3 and K2.7 Code rows read from its pricing
 /// page (platform.kimi.ai/docs/pricing/chat) and Google's Gemini rows read
-/// from ai.google.dev/gemini-api/docs/pricing (Standard tier), both on
-/// 2026-10-26. DeepSeek's rows are its peak rates (api-docs.deepseek.com/
-/// quick_start/pricing, read 2026-10-27); outside its peak hours it bills half.
-/// Unknown models price at $0 (ccusage parity) and are surfaced so the UI
-/// can warn about unpriced spend. Moonshot and DeepSeek bill cache writes as
-/// ordinary input, so their creation rate is the input rate.
+/// from ai.google.dev/gemini-api/docs/pricing (Standard tier). DeepSeek's rows
+/// are its peak rates (api-docs.deepseek.com/quick_start/pricing); outside its
+/// peak hours it bills half. Unknown models price at $0 (ccusage parity) and
+/// are surfaced so the UI can warn about unpriced spend. Moonshot and DeepSeek
+/// bill cache writes as ordinary input, so their creation rate is the input rate.
 public static class Pricing
 {
-    private sealed record Price(double Input, double Output, double CacheCreation, double CacheRead);
+    private sealed record Price(double Input, double Output, double CacheCreation, double CacheRead, double? CacheCreation1h = null);
+
+    // Anthropic bills 5-minute ephemeral cache writes at 1.25x base input and
+    // 1-hour ephemeral cache writes at 2x base input across its catalog.
+    private static Price Anthropic(double input, double output, double cacheRead) =>
+        new(input, output, input * 1.25, cacheRead, input * 2.0);
 
     private static readonly Dictionary<string, Price> Table = new(StringComparer.OrdinalIgnoreCase)
     {
         // Anthropic
-        ["claude-fable-5-1"] = new(10, 50, 12.5, 0.25),
-        ["claude-fable-5"] = new(10, 50, 12.5, 1.0),
-        ["claude-mythos-5"] = new(10, 50, 12.5, 1.0),
-        ["claude-opus-5-5"] = new(4, 20, 5, 0.2),
-        ["claude-opus-5"] = new(5, 25, 6.25, 0.5),
-        ["claude-opus-4-8"] = new(5, 25, 6.25, 0.5),
-        ["claude-opus-4-7"] = new(5, 25, 6.25, 0.5),
-        ["claude-opus-4-6"] = new(5, 25, 6.25, 0.5),
-        ["claude-opus-4-5"] = new(5, 25, 6.25, 0.5),
-        ["claude-opus-4-1"] = new(15, 75, 18.75, 1.5),
-        ["claude-sonnet-5-5"] = new(2, 10, 2.5, 0.1),
-        ["claude-sonnet-5"] = new(2, 10, 2.5, 0.2),
-        ["claude-haiku-5-5"] = new(0.1, 0.5, 0.125, 0.01),
-        ["claude-sonnet-4-6"] = new(3, 15, 3.75, 0.3),
-        ["claude-sonnet-4-5"] = new(3, 15, 3.75, 0.3),
-        ["claude-haiku-4-5"] = new(1, 5, 1.25, 0.1),
+        ["claude-fable-5-2"] = Anthropic(8, 40, 0.2),
+        ["claude-fable-5-1"] = Anthropic(10, 50, 0.25),
+        ["claude-fable-5"] = Anthropic(10, 50, 1.0),
+        ["claude-mythos-5-2"] = Anthropic(8, 40, 0.2),
+        ["claude-mythos-5-1"] = Anthropic(10, 50, 0.25),
+        ["claude-mythos-5"] = Anthropic(10, 50, 1.0),
+        ["claude-opus-5-5"] = Anthropic(4, 20, 0.2),
+        ["claude-opus-5"] = Anthropic(5, 25, 0.5),
+        ["claude-opus-4-8"] = Anthropic(5, 25, 0.5),
+        ["claude-opus-4-7"] = Anthropic(5, 25, 0.5),
+        ["claude-opus-4-6"] = Anthropic(5, 25, 0.5),
+        ["claude-opus-4-5"] = Anthropic(5, 25, 0.5),
+        ["claude-opus-4-1"] = Anthropic(15, 75, 1.5),
+        ["claude-sonnet-5-5"] = Anthropic(2, 10, 0.1),
+        ["claude-sonnet-5"] = Anthropic(2, 10, 0.2),
+        ["claude-haiku-5-5"] = Anthropic(0.1, 0.5, 0.01),
+        ["claude-sonnet-4-6"] = Anthropic(3, 15, 0.3),
+        ["claude-sonnet-4-5"] = Anthropic(3, 15, 0.3),
+        ["claude-haiku-4-5"] = Anthropic(1, 5, 0.1),
         // OpenAI
-        ["gpt-6-astra"] = new(10, 50, 12.5, 1.0),
+        ["gpt-6.2-astra"] = new(8, 40, 10, 0.4),
+        ["gpt-6.2-sol"] = new(2, 10, 2.5, 0.1),
         ["gpt-6.1-sol"] = new(2, 10, 2.5, 0.1),
+        ["gpt-6.1-terra"] = new(1, 5, 1.25, 0.05),
+        ["gpt-6-astra"] = new(10, 50, 12.5, 1.0),
         ["gpt-6-sol"] = new(2, 10, 2.5, 0.2),
         ["gpt-6-luna"] = new(0.1, 0.5, 0.125, 0.01),
         ["gpt-5.6"] = new(4, 20, 5, 0.4),
@@ -48,11 +58,15 @@ public static class Pricing
         ["gpt-5.1"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5.3-codex"] = new(1.75, 14, 1.75, 0.175),
+        ["gpt-5.3-codex-spark"] = new(1.75, 14, 1.75, 0.175),
         ["gpt-5.2-codex"] = new(1.75, 14, 1.75, 0.175),
         ["gpt-5.1-codex"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5.1-codex-max"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5.1-codex-mini"] = new(0.25, 2, 0.25, 0.025),
         ["gpt-5-codex"] = new(1.25, 10, 1.25, 0.125),
+        // Codex's Guardian auto-review model is included free on Codex accounts
+        // and does not consume quota; keep it known at $0 rather than unpriced.
+        ["codex-auto-review"] = new(0, 0, 0, 0),
         ["gpt-5.4-mini"] = new(0.75, 4.5, 0.75, 0.075),
         ["gpt-5.4-nano"] = new(0.2, 1.25, 0.2, 0.02),
         ["gpt-5-mini"] = new(0.25, 2, 0.25, 0.025),
@@ -88,9 +102,18 @@ public static class Pricing
         ["deepseek-v4-pro"] = new(1.32, 3.96, 1.32, 0.044),
         ["deepseek-v4-flash"] = new(0.3, 1.2, 0.3, 0.006),
         ["deepseek-flash"] = new(0.3, 1.2, 0.3, 0.006),
+        // Google Gemini (models without a scheduled price change; implicit caching
+        // has no write charge, so creation is the input rate).
+        ["gemini-4-neon"] = new(3, 15, 3, 0.15),
+        ["gemini-4-hydrogen"] = new(1.5, 7.5, 1.5, 0.075),
+        // Antigravity Orchestrator internal routing aliases: Neon planner and Hydrogen worker.
+        ["gemini-pro-orchestrator-neon"] = new(3, 15, 3, 0.15),
+        ["gemini-flash-worker-agy"] = new(1.5, 7.5, 1.5, 0.075),
+        ["gemini-3.5-flash-lite"] = new(0.3, 2.5, 0.3, 0.03),
+        ["gemini-3.1-flash-lite"] = new(0.25, 1.5, 0.25, 0.025),
     };
 
-    // Models whose price changes on a date: Google announced both rises ahead
+    // Models whose price changes on a date: Google announced these rises ahead
     // of time. Each list starts at MinValue and the last row whose date has
     // passed applies, by the event's own time. Rates change at midnight
     // Pacific time, which is UTC-8 on both dates. Gemini's implicit caching
@@ -103,6 +126,17 @@ public static class Pricing
             (MidnightPacific(2027, 1, 1), new Price(1.5, 7.5, 1.5, 0.15)),
         },
         ["gemini-4-argon"] = new[]
+        {
+            (DateTimeOffset.MinValue, new Price(2, 10, 2, 0.1)),
+            (MidnightPacific(2026, 12, 1), new Price(4, 20, 4, 0.2)),
+        },
+        // Antigravity Orchestrator (Argon) planner alias.
+        ["gemini-pro-orchestrator-g1-pro"] = new[]
+        {
+            (DateTimeOffset.MinValue, new Price(2, 10, 2, 0.1)),
+            (MidnightPacific(2026, 12, 1), new Price(4, 20, 4, 0.2)),
+        },
+        ["gemini-4-carbon"] = new[]
         {
             (DateTimeOffset.MinValue, new Price(2, 10, 2, 0.1)),
             (MidnightPacific(2026, 12, 1), new Price(4, 20, 4, 0.2)),
@@ -146,9 +180,13 @@ public static class Pricing
     public static double Cost(TokenEvent tokenEvent)
     {
         if (!TryPrice(tokenEvent, out var price)) return 0;
+        var cc1h = Math.Clamp(tokenEvent.CacheCreation1hTokens, 0, tokenEvent.CacheCreationTokens);
+        var cc5m = tokenEvent.CacheCreationTokens - cc1h;
+        var cc1hRate = price.CacheCreation1h ?? price.CacheCreation;
         return (tokenEvent.InputTokens * price.Input
                 + tokenEvent.OutputTokens * price.Output
-                + tokenEvent.CacheCreationTokens * price.CacheCreation
+                + cc5m * price.CacheCreation
+                + cc1h * cc1hRate
                 + tokenEvent.CacheReadTokens * price.CacheRead) / 1_000_000.0;
     }
 

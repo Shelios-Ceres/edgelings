@@ -87,7 +87,7 @@ internal static class MenuHost
     {
         if (_window is not null) return;
         _root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        _window = new Window { Content = _root, SystemBackdrop = new TransparentBackdrop(), Title = "Edgelings menu" };
+        _window = new Window { Content = _root, SystemBackdrop = new TransparentBackdrop(), Title = "Limen menu" };
         _hwnd = WindowNative.GetWindowHandle(_window);
         var presenter = OverlappedPresenter.Create();
         presenter.SetBorderAndTitleBar(false, false);
@@ -96,7 +96,8 @@ internal static class MenuHost
         presenter.IsMinimizable = false;
         presenter.IsAlwaysOnTop = true;
         _window.AppWindow.SetPresenter(presenter);
-        _window.AppWindow.IsShownInSwitchers = false;
+        try { _window.AppWindow.IsShownInSwitchers = false; }
+        catch (Exception error) when (error is NotImplementedException or System.Runtime.InteropServices.COMException) { }
         var style = (long)Win32.GetWindowLongPtr(_hwnd, Win32.GwlExStyle);
         Win32.SetWindowLongPtr(_hwnd, Win32.GwlExStyle, (IntPtr)(style | Win32.WsExToolWindow));
         var noBorder = unchecked((int)0xFFFFFFFE);

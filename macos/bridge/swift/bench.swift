@@ -33,7 +33,7 @@ let mode = args[1], path = args[2], home = args[3]
 let versionRequest = "{\"method\":\"version\"}"
 // The bench keeps Core's whole world (settings, parse cache, agent folders)
 // under a temp root, so it never rewrites the real ones.
-let benchRoot = NSTemporaryDirectory() + "edgelings-bench-" + UUID().uuidString
+let benchRoot = NSTemporaryDirectory() + "limen-bench-" + UUID().uuidString
 let configureRequest = "{\"method\":\"configure\",\"root\":\"\(benchRoot)\"}"
 let scanRequest = "{\"method\":\"scan\",\"kimiHome\":\"\(home)\",\"lookbackDays\":60}"
 

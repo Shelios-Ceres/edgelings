@@ -30,7 +30,7 @@ public static class CharacterHostTests
     /// the throwing bot has no frame for those ticks (the drawer keeps its last), and it draws again after.
     private static void TestAThrowingBotKeepsTheLoopGoing()
     {
-        var folder = Path.Combine(Path.GetTempPath(), "edgelings-stub-engine-" + Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(Path.GetTempPath(), "limen-stub-engine-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try
         {

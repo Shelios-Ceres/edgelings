@@ -3,7 +3,7 @@ using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
-/// The move from Agent Island's folders to Edgelings'. Temp folders only.
+/// The move from Edgelings' and Agent Island's folders to Limen's. Temp folders only.
 public static class AppDataMigrationTests
 {
     public static void RunAll()
@@ -16,6 +16,7 @@ public static class AppDataMigrationTests
             ("migration: a copy that was cut short is redone and its leftover removed", HalfDoneRecovers),
             ("migration: nothing to do without an old folder, or when the new one exists", NothingToDo),
             ("migration: the cache folder is copied the same way, creating its parent", CacheFolder),
+            ("migration: Edgelings wins over Agent Island when both exist, and Agent Island is used alone", PrefersEdgelingsThenAgentIsland),
             ("migration: the hooks still use the old signal folders", HooksStayPut),
         };
         foreach (var (name, test) in tests)
@@ -57,12 +58,12 @@ public static class AppDataMigrationTests
         try
         {
             var old = OldFolder(root);
-            var fresh = Path.Combine(root, "Edgelings");
+            var fresh = Path.Combine(root, "Limen");
             Expect(AppDataMigration.Migrate(old, fresh, App), true);
             Expect(File.ReadAllText(Path.Combine(fresh, "settings.json")), "{\"AgentIsland.drawer.side\":\"Left\"}");
             Expect(File.ReadAllText(Path.Combine(fresh, "crash.log")), "an old crash");
             Expect(string.Join(",", Directory.EnumerateFileSystemEntries(fresh).Select(Path.GetFileName).Order(StringComparer.Ordinal)), "crash.log,settings.json");
-            Expect(Directory.EnumerateDirectories(root, "Edgelings.migrating-*").Any(), false);
+            Expect(Directory.EnumerateDirectories(root, "Limen.migrating-*").Any(), false);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -73,7 +74,7 @@ public static class AppDataMigrationTests
         try
         {
             var old = OldFolder(root);
-            var fresh = Path.Combine(root, "Edgelings");
+            var fresh = Path.Combine(root, "Limen");
             Expect(AppDataMigration.Migrate(old, fresh, App), true);
             File.WriteAllText(Path.Combine(fresh, "settings.json"), "{\"changed\":true}");
             Expect(AppDataMigration.Migrate(old, fresh, App), false);
@@ -89,8 +90,8 @@ public static class AppDataMigrationTests
         {
             var old = OldFolder(root);
             var before = Snapshot(old);
-            AppDataMigration.Migrate(old, Path.Combine(root, "Edgelings"), App);
-            AppDataMigration.Migrate(old, Path.Combine(root, "Edgelings"), App);
+            AppDataMigration.Migrate(old, Path.Combine(root, "Limen"), App);
+            AppDataMigration.Migrate(old, Path.Combine(root, "Limen"), App);
             Expect(Snapshot(old), before);
             Expect(File.Exists(Path.Combine(old, "claude-hooks", "s1.json")) && File.Exists(Path.Combine(old, "grok-hook.ps1")), "the hooks' files are still there");
         }
@@ -104,9 +105,9 @@ public static class AppDataMigrationTests
         {
             var old = OldFolder(root);
             // What a copy cut short leaves: the sibling folder with one file, no new folder.
-            var leftover = Directory.CreateDirectory(Path.Combine(root, "Edgelings.migrating-deadbeef")).FullName;
+            var leftover = Directory.CreateDirectory(Path.Combine(root, "Limen.migrating-deadbeef")).FullName;
             File.WriteAllText(Path.Combine(leftover, "settings.json"), "{\"half");
-            var fresh = Path.Combine(root, "Edgelings");
+            var fresh = Path.Combine(root, "Limen");
             Expect(Directory.Exists(fresh), false);
             Expect(AppDataMigration.Migrate(old, fresh, App), true);
             Expect(File.ReadAllText(Path.Combine(fresh, "settings.json")), "{\"AgentIsland.drawer.side\":\"Left\"}");
@@ -120,7 +121,7 @@ public static class AppDataMigrationTests
         var root = Temp();
         try
         {
-            var fresh = Path.Combine(root, "Edgelings");
+            var fresh = Path.Combine(root, "Limen");
             Expect(AppDataMigration.Migrate(Path.Combine(root, "AgentIsland"), fresh, App), false);
             Expect(Directory.Exists(fresh), false);
             var old = OldFolder(root);
@@ -137,14 +138,34 @@ public static class AppDataMigrationTests
         var root = Temp();
         try
         {
-            var old = Path.Combine(root, "local", "AgentIsland", "cache");
+            var old = Path.Combine(root, "local", "Edgelings", "cache");
             Directory.CreateDirectory(old);
             File.WriteAllText(Path.Combine(old, "kimi-parse-cache.v4.json"), "{}");
             File.WriteAllText(Path.Combine(old, "antigravity-models.v1.json"), "{}");
-            var fresh = Path.Combine(root, "local", "Edgelings", "cache");
+            var fresh = Path.Combine(root, "local", "Limen", "cache");
             Expect(AppDataMigration.Migrate(old, fresh, _ => true), true);
             Expect(Directory.EnumerateFiles(fresh).Count(), 2);
             Expect(Directory.EnumerateFiles(old).Count(), 2);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static void PrefersEdgelingsThenAgentIsland()
+    {
+        var root = Temp();
+        try
+        {
+            var legacy = OldFolder(root);
+            var edgelings = Directory.CreateDirectory(Path.Combine(root, "Edgelings")).FullName;
+            File.WriteAllText(Path.Combine(edgelings, "settings.json"), "{\"from\":\"Edgelings\"}");
+            var fresh = Path.Combine(root, "Limen");
+            Expect(AppDataMigration.MigrateFirst(new[] { edgelings, legacy }, fresh, App), true);
+            Expect(File.ReadAllText(Path.Combine(fresh, "settings.json")), "{\"from\":\"Edgelings\"}");
+
+            Directory.Delete(fresh, recursive: true);
+            Directory.Delete(edgelings, recursive: true);
+            Expect(AppDataMigration.MigrateFirst(new[] { edgelings, legacy }, fresh, App), true);
+            Expect(File.ReadAllText(Path.Combine(fresh, "settings.json")), "{\"AgentIsland.drawer.side\":\"Left\"}");
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -153,14 +174,15 @@ public static class AppDataMigrationTests
     {
         var legacy = IslandPaths.LegacyAppSupportDir;
         Expect(Path.GetFileName(legacy), "AgentIsland");
-        Expect(Path.GetFileName(IslandPaths.AppSupportDir), "Edgelings");
-        // Windows keeps the hooks in Agent Island's folder; a Mac install never had one.
+        Expect(Path.GetFileName(IslandPaths.PreviousAppSupportDir), "Edgelings");
+        Expect(Path.GetFileName(IslandPaths.AppSupportDir), "Limen");
+        // Windows keeps the hooks in Agent Island's folder; a Mac install uses Limen's.
         var hooks = OperatingSystem.IsMacOS() ? IslandPaths.AppSupportDir : legacy;
         Expect(ClaudeHooks.SignalDirectory, Path.Combine(hooks, "claude-hooks"));
         Expect(GrokHooks.Signals, Path.Combine(hooks, "grok-hooks"));
         Expect(GrokHooks.Scripts, hooks);
         // Settings and caches moved; the hooks did not.
         Expect(IslandPaths.SettingsFile, Path.Combine(IslandPaths.AppSupportDir, "settings.json"));
-        Expect(Path.GetFileName(OperatingSystem.IsMacOS() ? IslandPaths.CacheDir : Path.GetDirectoryName(IslandPaths.CacheDir)), "Edgelings");
+        Expect(Path.GetFileName(OperatingSystem.IsMacOS() ? IslandPaths.CacheDir : Path.GetDirectoryName(IslandPaths.CacheDir)), "Limen");
     }
 }

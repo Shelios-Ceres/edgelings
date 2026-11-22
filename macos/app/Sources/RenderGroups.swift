@@ -3,7 +3,7 @@
 // agent plays its style's sample turn twice through the real engine, once as the drawer played it
 // before the groups (every phase its own state) and once through Core's GroupRotation, on a
 // 1/30 s clock; a frame is kept every two seconds, and groups-trace-<style>.txt lists each change
-// of state. `Edgelings --render-groups <folder>`.
+// of state. `Limen --render-groups <folder>`.
 import SwiftUI
 import AppKit
 

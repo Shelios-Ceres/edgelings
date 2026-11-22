@@ -31,7 +31,12 @@ public static class AntigravityCostTests
             ("a model id trims to its longest price key", FamilyTrim),
             ("Gemini 3.8 Flash changes price at midnight Pacific on 2027-01-01", FlashDated),
             ("Gemini 4 Argon changes price at midnight Pacific on 2026-12-01", ArgonDated),
+            ("Gemini 4 Carbon, Neon, Hydrogen and Flash-Lite price at their published rates", NewGeminiModels),
             ("an unnamed step reads in the language of the page that shows it", UnnamedInShownLanguage),
+            ("a step carrying an inline model resolves without asking a server", InlineModelNamed),
+            ("SYSTEM CHECKPOINT compaction steps with tokens are counted", CheckpointCounted),
+            ("distinct model calls reusing a step_index are not dropped", ReusedStepIndexPreserved),
+            ("Orchestrator Neon, Argon and Hydrogen worker aliases price and name cleanly", OrchestratorAliases),
         };
         try
         {
@@ -48,7 +53,7 @@ public static class AntigravityCostTests
         Console.WriteLine("AntigravityCostTests GREEN");
     }
 
-    private static string Step(int index, string created, long? input, long? cacheRead, long? output, string source = "MODEL", string type = "PLANNER_RESPONSE")
+    private static string Step(int index, string created, long? input, long? cacheRead, long? output, string source = "MODEL", string type = "PLANNER_RESPONSE", string? model = null)
     {
         var fields = new List<string>
         {
@@ -57,6 +62,7 @@ public static class AntigravityCostTests
         if (input is { } i) fields.Add($"\"input_tokens\":{i}");
         if (cacheRead is { } c) fields.Add($"\"cache_read_tokens\":{c}");
         if (output is { } o) fields.Add($"\"output_tokens\":{o}");
+        if (model is { Length: > 0 } m) fields.Add($"\"model\":\"{m}\"");
         fields.Add("\"thinking\":\"hmm\"");
         return "{" + string.Join(",", fields) + "}";
     }
@@ -232,7 +238,11 @@ public static class AntigravityCostTests
     private static void FamilyTrim()
     {
         Expect(Pricing.Family("gemini-4-argon-trial"), "gemini-4-argon");
+        Expect(Pricing.Family("gemini-4-carbon-high"), "gemini-4-carbon");
+        Expect(Pricing.Family("gemini-4-neon-preview"), "gemini-4-neon");
+        Expect(Pricing.Family("gemini-4-hydrogen-fast"), "gemini-4-hydrogen");
         Expect(Pricing.Family("gemini-3.8-flash-n"), "gemini-3.8-flash");
+        Expect(Pricing.Family("gemini-3.8-flash-tiered"), "gemini-3.8-flash");
         Expect(Pricing.Family("gemini-4-argon"), "gemini-4-argon");
         Expect(Pricing.Family("claude-opus-5-5-thinking"), "claude-opus-5-5");
         Expect(Pricing.Family("claude-opus-5-thinking"), "claude-opus-5");
@@ -264,6 +274,25 @@ public static class AntigravityCostTests
         Expect(Math.Abs(Million("gemini-4-argon", At) - (2 + 10 + 0.1)) < 1e-9, "October's rates");
     }
 
+    private static void NewGeminiModels()
+    {
+        var before = new DateTimeOffset(2026, 12, 1, 7, 59, 0, TimeSpan.Zero);
+        var after = new DateTimeOffset(2026, 12, 1, 8, 0, 0, TimeSpan.Zero);
+        Expect(Math.Abs(Million("gemini-4-carbon", before) - (2 + 10 + 0.1)) < 1e-9, "Carbon through 2026-11-30: 2, 10, 0.10");
+        Expect(Math.Abs(Million("gemini-4-carbon", after) - (4 + 20 + 0.2)) < 1e-9, "Carbon from 2026-12-01: 4, 20, 0.20");
+        Expect(Math.Abs(Million("gemini-4-neon", At) - (3 + 15 + 0.15)) < 1e-9, "Neon: 3, 15, 0.15");
+        Expect(Math.Abs(Million("gemini-4-hydrogen", At) - (1.5 + 7.5 + 0.075)) < 1e-9, "Hydrogen: 1.5, 7.5, 0.075");
+        Expect(Math.Abs(Million("gemini-3.5-flash-lite", At) - (0.3 + 2.5 + 0.03)) < 1e-9, "3.5 Flash-Lite: 0.3, 2.5, 0.03");
+        Expect(Math.Abs(Million("gemini-3.1-flash-lite", At) - (0.25 + 1.5 + 0.025)) < 1e-9, "3.1 Flash-Lite: 0.25, 1.5, 0.025");
+
+        var names = AntigravityLogReader.ModelNames();
+        Expect(names["gemini-4-carbon"], "Gemini 4 Carbon");
+        Expect(names["gemini-4-neon"], "Gemini 4 Neon");
+        Expect(names["gemini-4-hydrogen"], "Gemini 4 Hydrogen");
+        Expect(names["gemini-3.5-flash-lite"], "Gemini 3.5 Flash-Lite");
+        Expect(names["gemini-3.1-flash-lite"], "Gemini 3.1 Flash-Lite");
+    }
+
     private static void UnnamedInShownLanguage()
     {
         var language = L10n.Current;
@@ -283,5 +312,78 @@ public static class AntigravityCostTests
         {
             L10n.Current = language;
         }
+    }
+
+    private static void InlineModelNamed()
+    {
+        var step = AntigravityLogReader.Parse(
+            Step(10, "2026-11-20T12:00:00Z", 5000, 20000, 400, model: "gemini-4-neon-xhigh"), Conversation)!;
+        Expect(step.Model, "gemini-4-neon");
+        Expect(step.Dollars > 0, "inline model is priced immediately");
+        var asked = 0;
+        var resolved = new AntigravityModelMap(TempMap()).Resolve(new List<TokenEvent> { step }, _ =>
+        {
+            asked++;
+            return new AntigravityModelMap.Generations(true, null);
+        });
+        Expect(asked, 0);
+        Expect(resolved[0].Model, "gemini-4-neon");
+    }
+
+    private static void CheckpointCounted()
+    {
+        var checkpoint = AntigravityLogReader.Parse(
+            Step(156, "2026-11-16T18:21:28Z", 16606, 501769, 14376, source: "SYSTEM", type: "CHECKPOINT"), Conversation);
+        Expect(checkpoint is not null, "SYSTEM CHECKPOINT with tokens must be counted");
+        Expect(checkpoint!.InputTokens, 16606L);
+        Expect(checkpoint.CacheReadTokens, 501769L);
+        Expect(checkpoint.OutputTokens, 14376L);
+        Expect(AntigravityLogReader.Parse(
+            Step(157, "2026-11-16T18:21:29Z", null, null, null, source: "SYSTEM", type: "CHECKPOINT"), Conversation) is null,
+            "CHECKPOINT with no tokens is skipped");
+    }
+
+    private static void ReusedStepIndexPreserved()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "island-ag-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "brain", Conversation, ".system_generated", "logs");
+        Directory.CreateDirectory(logs);
+        try
+        {
+            var path = Path.Combine(logs, "transcript_full.jsonl");
+            File.WriteAllLines(path, new[]
+            {
+                Step(79, "2026-11-13T11:30:50Z", 243574, 0, 149),
+                Step(79, "2026-11-13T11:30:50Z", 243574, 0, 149), // exact duplicate -> dropped
+                Step(79, "2026-11-13T11:31:06Z", 2486, 243829, 1194), // second real call reusing step_index -> kept
+                Step(156, "2026-11-16T18:21:28Z", 16606, 501769, 14376, source: "SYSTEM", type: "CHECKPOINT"),
+            });
+            var steps = AntigravityLogReader.ParseFile(path);
+            Expect(steps.Count, 3);
+            Expect(steps.Sum(s => s.InputTokens), 243574L + 2486L + 16606L);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void OrchestratorAliases()
+    {
+        var before = new DateTimeOffset(2026, 12, 1, 7, 59, 0, TimeSpan.Zero);
+        var after = new DateTimeOffset(2026, 12, 1, 8, 0, 0, TimeSpan.Zero);
+        Expect(Pricing.Family("gemini-pro-orchestrator-neon"), "gemini-pro-orchestrator-neon");
+        Expect(Pricing.Family("gemini-flash-worker-agy"), "gemini-flash-worker-agy");
+        Expect(Pricing.Family("gemini-pro-orchestrator-g1-pro"), "gemini-pro-orchestrator-g1-pro");
+
+        Expect(Math.Abs(Million("gemini-pro-orchestrator-neon", At) - (3 + 15 + 0.15)) < 1e-9, "Orchestrator Neon prices at Neon rates");
+        Expect(Math.Abs(Million("gemini-flash-worker-agy", At) - (1.5 + 7.5 + 0.075)) < 1e-9, "Orchestrator Worker prices at Hydrogen rates");
+        Expect(Math.Abs(Million("gemini-pro-orchestrator-g1-pro", before) - (2 + 10 + 0.1)) < 1e-9, "Orchestrator Argon before 2026-12-01");
+        Expect(Math.Abs(Million("gemini-pro-orchestrator-g1-pro", after) - (4 + 20 + 0.2)) < 1e-9, "Orchestrator Argon from 2026-12-01");
+
+        var names = AntigravityLogReader.ModelNames();
+        Expect(names["gemini-pro-orchestrator-neon"], "Orchestrator (Neon)");
+        Expect(names["gemini-pro-orchestrator-g1-pro"], "Orchestrator (Argon)");
+        Expect(names["gemini-flash-worker-agy"], "Orchestrator Worker (Hydrogen)");
     }
 }

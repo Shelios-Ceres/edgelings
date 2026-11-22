@@ -23,7 +23,7 @@ jobs:
 
       # Signed with allow-jit, as the app is: without it JavaScriptCore runs as an interpreter (about 3.5x slower).
       - name: Sign the runner with the app's entitlement
-        run: codesign --force -s - --entitlements macos/app/Edgelings.entitlements jsc-run
+        run: codesign --force -s - --entitlements macos/app/Limen.entitlements jsc-run
 
       - name: Time and diff the engines on JavaScriptCore
         timeout-minutes: 15

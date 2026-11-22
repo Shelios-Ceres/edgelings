@@ -136,7 +136,7 @@ internal sealed class FrameFilm : Window
                 },
                 new TextBlock
                 {
-                    Text = "Edgelings — Settings",
+                    Text = "Limen — Settings",
                     Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
                     VerticalAlignment = VerticalAlignment.Center,
                     Foreground = ClassicTokens.Brush(active ? "Text" : "Text3", dark),

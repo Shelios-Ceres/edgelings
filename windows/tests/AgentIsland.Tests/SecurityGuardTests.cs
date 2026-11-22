@@ -61,7 +61,7 @@ public static class SecurityGuardTests
 
     private static void TestMacScript()
     {
-        var script = TerminalLauncher.MacScript("/Users/o'neil/My Tools/claude", "/login", "Edgelings Claude login");
+        var script = TerminalLauncher.MacScript("/Users/o'neil/My Tools/claude", "/login", "Limen Claude login");
         Expect(script.StartsWith("#!/bin/bash\n", StringComparison.Ordinal), "a bash script");
         Expect(script.Contains("'/Users/o'\\''neil/My Tools/claude' /login\n", StringComparison.Ordinal), "the path is one shell word, its quote escaped: " + script);
         Expect(script.Contains("You can close this window", StringComparison.Ordinal), "the window says when it is done");

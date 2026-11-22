@@ -188,7 +188,7 @@ internal sealed partial class DrawerWindow : Window
 
     public DrawerWindow()
     {
-        Title = "Edgelings";
+        Title = "Limen";
         _hwnd = WindowNative.GetWindowHandle(this);
         _queue = DispatcherQueue;
         _reducedMotion = Motion.ReducedMotion;
@@ -236,8 +236,9 @@ internal sealed partial class DrawerWindow : Window
         _presenter.IsMinimizable = false;
         _presenter.IsAlwaysOnTop = true;
         AppWindow.SetPresenter(_presenter);
-        AppWindow.IsShownInSwitchers = false;
-        AppWindow.Title = "Edgelings";
+        try { AppWindow.IsShownInSwitchers = false; }
+        catch (Exception error) when (error is NotImplementedException or System.Runtime.InteropServices.COMException) { }
+        AppWindow.Title = "Limen";
         var style = (long)Win32.GetWindowLongPtr(_hwnd, Win32.GwlExStyle);
         Win32.SetWindowLongPtr(_hwnd, Win32.GwlExStyle, (IntPtr)(style | Win32.WsExToolWindow | Win32.WsExNoActivate));
         var noRounding = 1;

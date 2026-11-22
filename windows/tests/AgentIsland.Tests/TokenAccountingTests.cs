@@ -25,6 +25,7 @@ public static class TokenAccountingTests
             ("a valid empty log is cached normally", ValidEmptyLog),
             ("a file changing during parsing is retried", ChangingFile),
             ("compressed log open failures reach the cache", CompressedReadFailure),
+            ("Claude 1-hour cache creation tokens parse and survive cache reload", Claude1hCacheRoundTrip),
         };
         foreach (var (name, test) in tests)
         {
@@ -156,6 +157,33 @@ public static class TokenAccountingTests
         try { _ = DeepSeekLogReader.ParseFile(path); }
         catch (IOException) { return; }
         throw new Exception("compressed cost-reader failure was silently turned into an empty log");
+    }
+
+    private static void Claude1hCacheRoundTrip()
+    {
+        using var fixture = new Fixture();
+        var line = JsonSerializer.Serialize(new
+        {
+            type = "assistant", timestamp = At, requestId = "request-1h",
+            message = new
+            {
+                id = "message-1h", model = "claude-opus-5-5", stop_reason = "end_turn",
+                usage = new
+                {
+                    input_tokens = 10, output_tokens = 200,
+                    cache_creation_input_tokens = 1_000_000,
+                    cache_read_input_tokens = 0,
+                    cache_creation = new { ephemeral_1h_input_tokens = 800_000, ephemeral_5m_input_tokens = 200_000 },
+                },
+            },
+        });
+        var path = fixture.Write("claude-1h.jsonl", line);
+        var cold = fixture.Cache().Walk(new[] { path }, Cutoff, ClaudeLogReader.ParseFile).Single();
+        var warm = fixture.Cache().Walk(new[] { path }, Cutoff, _ => throw new Exception("cache miss")).Single();
+        Expect(cold.CacheCreationTokens == 1_000_000 && cold.CacheCreation1hTokens == 800_000, "1h cache tokens parsed from usage.cache_creation");
+        Expect(warm.CacheCreation1hTokens == 800_000, "1h cache tokens survive cache reload");
+        // Expected: (10 * 4 + 200 * 20 + 200_000 * 5 + 800_000 * 8) / 1_000_000 = 7.40404
+        Expect(Math.Abs(warm.Dollars - 7.40404) < 1e-9, $"expected 7.40404, got {warm.Dollars}");
     }
 
     private static string Claude(string id, long output, bool final = false, int seconds = 0) => JsonSerializer.Serialize(new

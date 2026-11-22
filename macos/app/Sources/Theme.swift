@@ -134,7 +134,7 @@ enum PixelFace {
 
     private static func load(_ file: String) -> String? {
         let folder = Bundle.main.resourceURL?.appendingPathComponent("Fonts")
-        let url = (ProcessInfo.processInfo.environment["EDGELINGS_FONTS"].map { URL(fileURLWithPath: $0) } ?? folder)?.appendingPathComponent(file)
+        let url = ((ProcessInfo.processInfo.environment["LIMEN_FONTS"] ?? ProcessInfo.processInfo.environment["EDGELINGS_FONTS"]).map { URL(fileURLWithPath: $0) } ?? folder)?.appendingPathComponent(file)
         guard let url else { return nil }
         var error: Unmanaged<CFError>?
         _ = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)

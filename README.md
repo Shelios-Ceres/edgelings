@@ -1,6 +1,6 @@
 <div align="center">
 
-# Edgelings
+# Limen
 
 **Little bots at the edge of your screen that keep an eye on your AI coding agents.**
 
@@ -10,7 +10,7 @@ One bot per agent. It shows what the agent is doing, says so when it needs you, 
 
 </div>
 
-Edgelings grew out of [Agent Island](https://github.com/PurryTam/agent-island) by Tristan Tang (MIT). The Windows app is the main thing here. The macOS app is still Agent Island as it was, see [macOS](#macos).
+Limen grew out of [Agent Island](https://github.com/PurryTam/agent-island) by Tristan Tang (MIT). The Windows app is the main thing here. The macOS app is still Agent Island as it was, see [macOS](#macos).
 
 <p align="center">
   <img src="docs/media/edgelings/drawer.png" alt="The same drawer of seven bots in Pixel and Classic styles, on a light and a dark background" width="620">
@@ -64,7 +64,7 @@ The pictures are rendered offscreen by the app's own preview tools from made-up 
 
 ## Get it
 
-There are no releases of Edgelings yet. Build it from source (Windows 10 version 1809 or later, x64; the .NET 10 SDK):
+There are no releases of Limen yet. Build it from source (Windows 10 version 1809 or later, x64; the .NET 10 SDK):
 
 ```powershell
 dotnet build windows/src/AgentIsland.WinUI/AgentIsland.WinUI.csproj -c Release -p:Platform=x64
@@ -72,17 +72,17 @@ dotnet run --project windows/tests/AgentIsland.Tests -c Release
 .\windows\build.ps1
 ```
 
-The last command publishes a self-contained build and zips it as `windows\dist\Edgelings-<version>-win-x64.zip`. Unzip it and run `Edgelings.exe`.
+The last command publishes a self-contained build and zips it as `windows\dist\Limen-<version>-win-x64.zip`. Unzip it and run `Limen.exe`.
 
-Every push that changes the Windows code also builds a test package in GitHub Actions, and the workflow can be run by hand from the Actions tab: open the run and download `Edgelings-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
+Every push that changes the Windows code also builds a test package in GitHub Actions, and the workflow can be run by hand from the Actions tab: open the run and download `Limen-win-x64-test` under Artifacts (you need to be signed in to GitHub). The Windows builds are not code-signed.
 
-The app is called Edgelings since the rename (its exe, settings folder and startup entry too); the code projects keep their old names. They live under `windows/`: `AgentIsland.Core` holds everything below the UI (scanning, usage, cost) and `AgentIsland.WinUI` the app. [windows/README.md](windows/README.md) has the layout and [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md) the design notes for the drawer.
+The app is called Limen since the rename (its exe, settings folder and startup entry too); the code projects keep their old names. They live under `windows/`: `AgentIsland.Core` holds everything below the UI (scanning, usage, cost) and `AgentIsland.WinUI` the app. [windows/README.md](windows/README.md) has the layout and [docs/windows-drawer-themes.md](docs/windows-drawer-themes.md) the design notes for the drawer.
 
 ## Privacy
 
-Edgelings runs on your PC and has no account, analytics, crash upload or update check of its own.
+Limen runs on your PC and has no account, analytics, crash upload or update check of its own.
 
-**What it reads, locally:** each agent's session logs and settings, to tell what it is doing. That is `~/.claude` (and Claude Desktop's session folders), `~/.codex`, `~/.kimi-code` (including the mailbox folder, where it only lists file names), `~/.gemini` for Antigravity, `~/.grok`, `~/.dsh` for DeepSeek Harness, and Cursor's `state.vscdb` (opened read-only). Costs are worked out from these logs. A crash log is written to `%APPDATA%\AgentIsland`.
+**What it reads, locally:** each agent's session logs and settings, to tell what it is doing. That is `~/.claude` (and Claude Desktop's session folders), `~/.codex`, `~/.kimi-code` (including the mailbox folder, where it only lists file names), `~/.gemini` for Antigravity, `~/.grok`, `~/.dsh` for DeepSeek Harness, and Cursor's `state.vscdb` (opened read-only). Costs are worked out from these logs. A crash log is written to `%APPDATA%\Limen`.
 
 **What it sends, and with whose credentials:** only quota and plan requests (and token refreshes) to each agent's own service, using the sign-in the agent already stored on your PC:
 
@@ -92,7 +92,7 @@ Edgelings runs on your PC and has no account, analytics, crash upload or update 
 | Codex | `chatgpt.com` | `~/.codex/auth.json` |
 | Grok | `cli-chat-proxy.grok.com`, token refresh at `auth.x.ai` | `~/.grok/auth.json` |
 | Cursor | `api2.cursor.sh` | the token in Cursor's own database |
-| Kimi Code | `api.kimi.com` | `~/.kimi-code/credentials/kimi-code.json` (never refreshed by Edgelings) |
+| Kimi Code | `api.kimi.com` | `~/.kimi-code/credentials/kimi-code.json` (never refreshed by Limen) |
 
 Kimi Code's desktop app server and Antigravity's language server are asked over loopback (`127.0.0.1`) only. Nothing is uploaded anywhere else.
 
@@ -100,7 +100,7 @@ Kimi Code's desktop app server and Antigravity's language server are asked over 
 
 - When a Claude or Grok token is refreshed, the new token is written back to that agent's own sign-in file.
 - Switching Codex accounts, or the opt-in auto-switch, writes `~/.codex/auth.json`.
-- Two optional switches, both off by default, install an observe-only hook so Edgelings can tell a permission prompt is open: a Notification hook in `~/.claude/settings.json` (the first change keeps a `.agentisland.bak` copy) and a hook file under `~/.grok/hooks`. A hook has no say over permissions.
+- Two optional switches, both off by default, install an observe-only hook so Limen can tell a permission prompt is open: a Notification hook in `~/.claude/settings.json` (the first change keeps a `.agentisland.bak` copy) and a hook file under `~/.grok/hooks`. A hook has no say over permissions.
 - Launch at login, if you turn it on, adds a `Run` entry for the current user.
 
 ## macOS

@@ -1,25 +1,46 @@
 namespace AgentIsland.Core;
 
-/// The app was Agent Island and kept its settings in %APPDATA%\AgentIsland and
-/// its caches in %LOCALAPPDATA%\AgentIsland\cache. As Edgelings it uses
-/// %APPDATA%\Edgelings and %LOCALAPPDATA%\Edgelings\cache. On first start the
-/// old files are copied to the new folders, once. The old folders are never
-/// changed, moved or deleted: the Claude and Grok hooks keep their signal
-/// folders there, and an Agent Island build that still runs keeps using it.
+/// The app was Agent Island (%APPDATA%\AgentIsland, %LOCALAPPDATA%\AgentIsland\cache)
+/// and then Edgelings (%APPDATA%\Edgelings, %LOCALAPPDATA%\Edgelings\cache). As
+/// Limen it uses %APPDATA%\Limen and %LOCALAPPDATA%\Limen\cache (on macOS,
+/// ~/Library/Application Support/Limen and ~/Library/Caches/Limen). On first
+/// start the newest prior folder's files are copied to the new folders, once.
+/// Old folders are never changed, moved or deleted: the Claude and Grok hooks
+/// keep their signal folders in AgentIsland on Windows, and an older build that
+/// still runs keeps using its own folder.
 public static class AppDataMigration
 {
     /// Files that belong to the hooks and stay where they are.
     private static bool IsAppFile(string name) =>
         !name.Equals("grok-hook.ps1", StringComparison.OrdinalIgnoreCase)
+        && !name.Equals("grok-hook.sh", StringComparison.OrdinalIgnoreCase)
         && !name.Contains(".tmp-", StringComparison.OrdinalIgnoreCase);
 
     /// Copies settings and the crash log, then the caches. Safe to call on every start.
     public static void Run()
     {
-        // The Mac app is new: it has no Agent Island folders to bring across.
-        if (OperatingSystem.IsMacOS()) return;
-        Migrate(IslandPaths.LegacyAppSupportDir, IslandPaths.AppSupportDir, IsAppFile);
-        Migrate(IslandPaths.LegacyCacheDir, IslandPaths.CacheDir, _ => true);
+        MigrateFirst(
+            OperatingSystem.IsMacOS()
+                ? new[] { IslandPaths.PreviousAppSupportDir }
+                : new[] { IslandPaths.PreviousAppSupportDir, IslandPaths.LegacyAppSupportDir },
+            IslandPaths.AppSupportDir,
+            IsAppFile);
+        MigrateFirst(
+            OperatingSystem.IsMacOS()
+                ? new[] { IslandPaths.PreviousCacheDir }
+                : new[] { IslandPaths.PreviousCacheDir, IslandPaths.LegacyCacheDir },
+            IslandPaths.CacheDir,
+            _ => true);
+    }
+
+    internal static bool MigrateFirst(IEnumerable<string> oldDirs, string newDir, Func<string, bool> include)
+    {
+        foreach (var oldDir in oldDirs)
+        {
+            if (Migrate(oldDir, newDir, include)) return true;
+            if (Directory.Exists(newDir)) return false;
+        }
+        return false;
     }
 
     /// Copies the files directly in oldDir (not its folders) to newDir, only

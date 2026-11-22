@@ -47,26 +47,26 @@ jobs:
 
       - name: Assemble, universal and ad-hoc signed
         run: |
-          mkdir -p out/Edgelings-diagnose
-          lipo -create out/diag-arm64 out/diag-x86_64 -output out/Edgelings-diagnose/edgelings-diagnose
-          lipo -create out/aot-arm64/AgentIslandBridge.dylib out/aot-x64/AgentIslandBridge.dylib -output out/Edgelings-diagnose/AgentIslandBridge.dylib
-          cp macos/diagnose/HOW-TO-RUN.md out/Edgelings-diagnose/HOW-TO-RUN.md
-          codesign --force -s - out/Edgelings-diagnose/AgentIslandBridge.dylib
-          codesign --force -s - out/Edgelings-diagnose/edgelings-diagnose
-          lipo -info out/Edgelings-diagnose/edgelings-diagnose out/Edgelings-diagnose/AgentIslandBridge.dylib
-          ls -l out/Edgelings-diagnose
+          mkdir -p out/Limen-diagnose
+          lipo -create out/diag-arm64 out/diag-x86_64 -output out/Limen-diagnose/limen-diagnose
+          lipo -create out/aot-arm64/AgentIslandBridge.dylib out/aot-x64/AgentIslandBridge.dylib -output out/Limen-diagnose/AgentIslandBridge.dylib
+          cp macos/diagnose/HOW-TO-RUN.md out/Limen-diagnose/HOW-TO-RUN.md
+          codesign --force -s - out/Limen-diagnose/AgentIslandBridge.dylib
+          codesign --force -s - out/Limen-diagnose/limen-diagnose
+          lipo -info out/Limen-diagnose/limen-diagnose out/Limen-diagnose/AgentIslandBridge.dylib
+          ls -l out/Limen-diagnose
 
       - name: Run it here (a runner has no agents, but the whole path must work)
         run: |
-          cd out/Edgelings-diagnose
-          ./edgelings-diagnose | tee ../diagnose-runner.txt
-          ./edgelings-diagnose --json > ../diagnose-runner.json
+          cd out/Limen-diagnose
+          ./limen-diagnose | tee ../diagnose-runner.txt
+          ./limen-diagnose --json > ../diagnose-runner.json
           { echo '```'; cat ../diagnose-runner.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Edgelings-diagnose
-          path: out/Edgelings-diagnose
+          name: Limen-diagnose
+          path: out/Limen-diagnose
 
       - uses: actions/upload-artifact@v4
         with:

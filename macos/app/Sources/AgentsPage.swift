@@ -312,7 +312,7 @@ struct AgentCard: View {
         let description = agent.id == "claude"
             ? store.t("Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up.")
             : conflict
-                ? store.t("A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Edgelings', so this stays off.")
+                ? store.t("A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Limen's, so this stays off.")
                 : store.t("Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up.")
         return IconRow(store: store, glyph: "E8D7", symbol: "lock.shield", title: store.t("Permission prompts"), subtitle: description) {
             KitToggle(store: store, isOn: on) { wanted in
@@ -356,7 +356,7 @@ enum BrandMarks {
     static func image(_ id: String) -> NSImage? {
         if let known = cache[id] { return known }
         let file = id == "codex" ? "openai" : id
-        let base = ProcessInfo.processInfo.environment["EDGELINGS_MARKS"] ?? Bundle.main.resourceURL?.appendingPathComponent("Marks").path ?? ""
+        let base = ProcessInfo.processInfo.environment["LIMEN_MARKS"] ?? ProcessInfo.processInfo.environment["EDGELINGS_MARKS"] ?? Bundle.main.resourceURL?.appendingPathComponent("Marks").path ?? ""
         guard let image = NSImage(contentsOfFile: base + "/mark-\(file).png") else { return nil }
         cache[id] = image
         return image

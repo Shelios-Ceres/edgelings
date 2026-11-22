@@ -17,9 +17,9 @@ enum Power {
 
     static var lowPowerMode: Bool { ProcessInfo.processInfo.isLowPowerModeEnabled }
 
-    /// On battery, in Low Power Mode, or (for the runner's saver measurement) EDGELINGS_ASSUME_BATTERY=1.
+    /// On battery, in Low Power Mode, or (for the runner's saver measurement) LIMEN_ASSUME_BATTERY=1.
     static var onBattery: Bool {
-        if ProcessInfo.processInfo.environment["EDGELINGS_ASSUME_BATTERY"] == "1" { return true }
+        if (ProcessInfo.processInfo.environment["LIMEN_ASSUME_BATTERY"] ?? ProcessInfo.processInfo.environment["EDGELINGS_ASSUME_BATTERY"]) == "1" { return true }
         let now = ProcessInfo.processInfo.systemUptime
         if now - cached.at > 3 || cached.at == 0 {
             cached = (now, source() == "Battery Power" || lowPowerMode)

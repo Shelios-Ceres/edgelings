@@ -17,6 +17,7 @@ public static class OtherTokenAccountingTests
             ("Kimi copied usage counts once across files and cache reload", KimiCopies),
             ("Kimi distinct agents and calls retain their counts", KimiDistinctCalls),
             ("Kimi records without identity are not guessed to be duplicates", KimiLegacy),
+            ("Kimi Work copied sessions without agentId deduplicate across files", KimiWorkAnonymousCopies),
             ("Grok input includes cached reads and writes only once", GrokCategories),
             ("Grok stays readable during active writes", GrokActiveWriter),
             ("Grok reports read failure instead of false zero", GrokReadFailure),
@@ -60,6 +61,18 @@ public static class OtherTokenAccountingTests
         Expect(KimiLogReader.ParseFile(path).Count == 2, "missing agent identity must not merge unrelated records");
     }
 
+    private static void KimiWorkAnonymousCopies()
+    {
+        using var fixture = new Fixture();
+        var a = fixture.Write("conv-a.jsonl", Kimi(null, 0), Kimi(null, 10));
+        var b = fixture.Write("conv-b.jsonl", Kimi(null, 0), Kimi(null, 10), Kimi(null, 20));
+        var files = new[] { a, b };
+        var cold = fixture.Cache().Walk(files, DateTimeOffset.Now.AddDays(-1), KimiLogReader.ParseFile);
+        var warm = fixture.Cache().Walk(files, DateTimeOffset.Now.AddDays(-1), _ => throw new Exception("unexpected cache miss"));
+        Expect(KimiLogReader.Deduplicate(cold).Count == 3, "copied Kimi Work records missing agentId must count once across files");
+        Expect(KimiLogReader.Deduplicate(warm).Count == 3, "warm cache must preserve cross-file deduplication for anonymous Kimi Work records");
+    }
+
     private static void GrokCategories()
     {
         using var fixture = new Fixture();
@@ -68,7 +81,7 @@ public static class OtherTokenAccountingTests
         Expect(token.InputTokens == 60 && token.CacheCreationTokens == 40 && token.CacheReadTokens == 900,
             "Grok's 1,000 input tokens already include 900 reads and 40 writes");
         Expect(token.WireTokens == 1050 && token.BillableTokens == 150, "all and cache-excluded totals must each count input once");
-        Expect(Math.Abs(token.Dollars - 0.158652) < 1e-10, "provider-reported dollar cost must be preserved");
+        Expect(Math.Abs(token.Dollars - 0.0158652) < 1e-10, "provider-reported dollar cost must use xAI's 1e-10 USD/tick scale");
     }
 
     private static void GrokActiveWriter()

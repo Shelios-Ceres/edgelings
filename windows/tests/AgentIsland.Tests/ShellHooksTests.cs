@@ -42,7 +42,7 @@ public static class ShellHooksTests
         Expect(ClaudeHooks.Install(root), true);
         var handler = root["hooks"]!["Notification"]![0]!["hooks"]![0]!;
         Expect(handler["shell"] is null, "no powershell field");
-        Expect(handler["command"]!.GetValue<string>().Contains("Edgelings/claude-hooks", StringComparison.Ordinal), "the marker is in the command");
+        Expect(handler["command"]!.GetValue<string>().Contains("Limen/claude-hooks", StringComparison.Ordinal), "the marker is in the command");
         Expect(handler["command"]!.GetValue<string>().Contains(signals, StringComparison.Ordinal), "the command writes to the signal folder");
         Expect(ClaudeHooks.Contains(root), true);
         Expect(ClaudeHooks.Uninstall(root), true);
@@ -96,7 +96,7 @@ public static class ShellHooksTests
             ["notificationType"] = "permission_prompt",
             ["message"] = "TOP-SECRET prompt text",
         }.ToJsonString();
-        Run("/bin/sh", new[] { Path.Combine(scripts, "grok-hook.sh") }, input, ("EDGELINGS_GROK_SIGNALS", signals));
+        Run("/bin/sh", new[] { Path.Combine(scripts, "grok-hook.sh") }, input, ("LIMEN_GROK_SIGNALS", signals));
         var file = Path.Combine(signals, "grok-1.json");
         Expect(File.Exists(file), "the marker was written");
         var text = File.ReadAllText(file);
@@ -107,12 +107,12 @@ public static class ShellHooksTests
 
     private static void WithClaude(Action<string, string> test)
     {
-        var root = Path.Combine(Path.GetTempPath(), "edgelings-shellhook-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "limen-shellhook-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var before = (ClaudeHooks.UseShell, ClaudeHooks.SettingsFileOverride, ClaudeHooks.SignalDirectory);
         ClaudeHooks.UseShell = true;
         ClaudeHooks.SettingsFileOverride = Path.Combine(root, "settings.json");
-        ClaudeHooks.SignalDirectory = Path.Combine(root, "Library", "Application Support", "Edgelings", "claude-hooks");
+        ClaudeHooks.SignalDirectory = Path.Combine(root, "Library", "Application Support", "Limen", "claude-hooks");
         try
         {
             test(ClaudeHooks.SettingsFileOverride, ClaudeHooks.SignalDirectory);
@@ -126,7 +126,7 @@ public static class ShellHooksTests
 
     private static void WithGrok(Action<string, string, string> test)
     {
-        var root = Path.Combine(Path.GetTempPath(), "edgelings-shellgrok-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "limen-shellgrok-" + Guid.NewGuid().ToString("N"));
         var (hooks, scripts, signals) = (Path.Combine(root, "hooks"), Path.Combine(root, "scripts"), Path.Combine(root, "signals"));
         Directory.CreateDirectory(signals);
         var before = (GrokHooks.UseShell, GrokHooks.HooksDirectory, GrokHooks.ScriptDirectory, GrokHooks.SignalDirectory);

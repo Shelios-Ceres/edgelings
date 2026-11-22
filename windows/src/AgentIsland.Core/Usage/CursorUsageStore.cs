@@ -116,6 +116,7 @@ public sealed class CursorUsageStore : GuestUsageStore
     public void KickRefresh()
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Cursor)) return;
+        if (!ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor)) return;
         if (!TryStart(MinAttemptGap)) return;
         _ = Task.Run(async () =>
         {

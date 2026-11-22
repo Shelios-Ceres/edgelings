@@ -1,4 +1,4 @@
-// `Edgelings --render <folder>`: draws the app's screens offscreen from
+// `Limen --render <folder>`: draws the app's screens offscreen from
 // synthetic data and writes PNGs, so the design chats can check them next to
 // the Windows renders and CI can prove the drawing works with no screen. No
 // Core, no agent, no network and nothing of the user's is read.

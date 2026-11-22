@@ -3,9 +3,9 @@ import Foundation
 /// Walks the local Grok CLI session logs and emits a TokenEvent for every
 /// completed turn. Grok is the one provider that SHIPS ITS OWN COST: each
 /// `turn_completed` update carries a `usage` object with `costUsdTicks`
-/// (USD × 1e-9, verified: 158652000 ticks = $0.159), so the event's
-/// `selfReportedCostUSD` is set directly and OVERRIDES the Pricing table
-/// downstream — Grok dollars are never guessed from a rate snapshot.
+/// (xAI API ticks: 1 USD = 10^10 ticks, USD × 1e-10, so 158652000 ticks = $0.0158652),
+/// so the event's `selfReportedCostUSD` is set directly and OVERRIDES the
+/// Pricing table downstream — Grok dollars are never guessed from a rate snapshot.
 ///
 ///   ~/.grok/sessions/<url-encoded cwd>/<uuid>/updates.jsonl
 ///
@@ -107,9 +107,9 @@ enum GrokLogReader {
         let cachedRead = fields["cachedReadTokens"] as? Int ?? 0
         if input == 0 && output == 0 && cachedRead == 0 { return }
 
-        // Grok self-reports cost in ticks of USD × 1e-9. Absent ticks stay nil
-        // rather than being priced from a table Grok has no entry in.
-        let cost = (fields["costUsdTicks"] as? Int).map { Double($0) * 1e-9 }
+        // Grok self-reports cost in xAI ticks (1 USD = 10^10 ticks, USD × 1e-10).
+        // Absent ticks stay nil rather than being priced from a table Grok has no entry in.
+        let cost = (fields["costUsdTicks"] as? Int).map { Double($0) * 1e-10 }
 
         // Dedup key pins the model too: a multi-model turn shares one prompt_id
         // across its per-model events, so keying on prompt_id alone would drop

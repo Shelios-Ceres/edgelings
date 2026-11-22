@@ -8,8 +8,8 @@ namespace AgentIsland.Cost;
 /// zero-token bookkeeping lines are skipped.
 public static class ClaudeLogReader
 {
-    // v2 re-reads first-fragment counts and keeps response identity in cache.
-    private static readonly LogParseCache Cache = new(TriggerTool.Claude, "claude-parse-cache.v2.json");
+    // v3 adds Anthropic 1-hour ephemeral cache creation counts (ephemeral_1h_input_tokens).
+    private static readonly LogParseCache Cache = new(TriggerTool.Claude, "claude-parse-cache.v3.json");
 
     public static List<TokenEvent> Scan(int lookbackDays)
     {
@@ -53,6 +53,9 @@ public static class ClaudeLogReader
             var input = Jsonl.GetLong(usage, "input_tokens") ?? 0;
             var outputTokens = Jsonl.GetLong(usage, "output_tokens") ?? 0;
             var cacheCreation = Jsonl.GetLong(usage, "cache_creation_input_tokens") ?? 0;
+            var cacheCreation1h = cacheCreation > 0 && Jsonl.GetObject(usage, "cache_creation") is { } ccDetail
+                ? Math.Clamp(Jsonl.GetLong(ccDetail, "ephemeral_1h_input_tokens") ?? 0, 0, cacheCreation)
+                : 0;
             var cacheRead = Jsonl.GetLong(usage, "cache_read_input_tokens") ?? 0;
             if (input == 0 && outputTokens == 0 && cacheCreation == 0 && cacheRead == 0) continue;
 
@@ -70,6 +73,7 @@ public static class ClaudeLogReader
             {
                 ResponseKey = dedupKey,
                 IsFinalUsage = Jsonl.GetString(message, "stop_reason") is { Length: > 0 },
+                CacheCreation1hTokens = cacheCreation1h,
             });
         }
         // Within-file dedup happens here so the cache stores clean events;

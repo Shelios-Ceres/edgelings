@@ -84,6 +84,7 @@ public sealed class GrokUsageStore : GuestUsageStore
     public void KickRefresh()
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
+        if (!ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Grok)) return;
         if (!TryStart(MinAttemptGap)) return;
         RunFetch<GrokUsageFetcher.Outcome>(() => GrokUsageFetcher.Fetch(), message => new GrokUsageFetcher.Outcome.Failed(message), Apply);
     }

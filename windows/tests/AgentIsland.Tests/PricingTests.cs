@@ -20,6 +20,8 @@ public static class PricingTests
             ("DeepSeek's peak windows have exact edges", DeepSeekPeakEdges),
             ("DeepSeek weekends are off-peak and other models never halve", DeepSeekWeekendAndOthers),
             ("DeepSeek Harness events price through the same rule", DeepSeekHarness),
+            ("Anthropic Fable 5.2 and 1-hour cache writes price at 2x base input", AnthropicFableAnd1hCache),
+            ("Codex GPT-6.2/6.1-terra/Spark price at list rates and auto-review is known free", CodexNewModels),
         };
         foreach (var (name, test) in tests)
         {
@@ -109,5 +111,35 @@ public static class PricingTests
         Expect(Pricing.IsKnown("kimi-code/kimi-for-coding"), "K2.8 Preview is priced");
         Rate("kimi-code/kimi-for-coding", 1, 4, 1, 0.25);
         Rate("kimi-code/k3", 3, 15, 3, 0.3);
+    }
+
+    private static void AnthropicFableAnd1hCache()
+    {
+        // Fable 5.2: $8 in, $40 out, $10 5m cache write, $16 1h cache write, $0.20 cache read.
+        Expect(Pricing.IsKnown("claude-fable-5-2"), "claude-fable-5-2 is known");
+        Rate("claude-fable-5-2", 8, 40, 10, 0.2);
+
+        // Full 1-hour cache write on Opus 5.5 ($4 in -> $8 1h write vs $5 5m write).
+        var opus5m = new TokenEvent(TriggerTool.Claude, At, "claude-opus-5-5", 0, 0, 1_000_000, 0);
+        var opus1h = opus5m with { CacheCreation1hTokens = 1_000_000 };
+        var opusMixed = opus5m with { CacheCreation1hTokens = 600_000 };
+        var opusOver = opus5m with { CacheCreation1hTokens = 5_000_000 };
+        Expect(Math.Abs(Pricing.Cost(opus5m) - 5.0) < 1e-9, "Opus 5.5 5m cache write is $5/M");
+        Expect(Math.Abs(Pricing.Cost(opus1h) - 8.0) < 1e-9, "Opus 5.5 1h cache write is $8/M (2x)");
+        Expect(Math.Abs(Pricing.Cost(opusMixed) - (0.4 * 5.0 + 0.6 * 8.0)) < 1e-9, "mixed 5m + 1h cache writes split accurately");
+        Expect(Math.Abs(Pricing.Cost(opusOver) - 8.0) < 1e-9, "1h subset clamps to total cache creation");
+
+        var fable1h = new TokenEvent(TriggerTool.Claude, At, "claude-fable-5-2", 0, 0, 1_000_000, 0) { CacheCreation1hTokens = 1_000_000 };
+        Expect(Math.Abs(Pricing.Cost(fable1h) - 16.0) < 1e-9, "Fable 5.2 1h cache write is $16/M");
+    }
+
+    private static void CodexNewModels()
+    {
+        Rate("gpt-6.2-astra", 8, 40, 10, 0.4);
+        Rate("gpt-6.2-sol", 2, 10, 2.5, 0.1);
+        Rate("gpt-6.1-terra", 1, 5, 1.25, 0.05);
+        Rate("gpt-5.3-codex-spark", 1.75, 14, 1.75, 0.175);
+        Expect(Pricing.IsKnown("codex-auto-review"), "codex-auto-review is known (free Guardian reviewer)");
+        Expect(Math.Abs(Million("codex-auto-review")) < 1e-9, "codex-auto-review bills $0");
     }
 }

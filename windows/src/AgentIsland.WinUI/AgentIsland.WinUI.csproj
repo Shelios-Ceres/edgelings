@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Edgelings on WinUI 3 (Windows App SDK, unpackaged, self-contained).
+  <!-- Limen on WinUI 3 (Windows App SDK, unpackaged, self-contained).
        The drawer draws its characters with Win2D on its own vsync loop; the
        settings, cost and report windows are native WinUI. Everything below
        the UI comes from AgentIsland.Core. -->
@@ -9,9 +9,9 @@
     <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AgentIsland.WinUI</RootNamespace>
-    <AssemblyName>Edgelings</AssemblyName>
-    <Product>Edgelings</Product>
-    <AssemblyTitle>Edgelings</AssemblyTitle>
+    <AssemblyName>Limen</AssemblyName>
+    <Product>Limen</Product>
+    <AssemblyTitle>Limen</AssemblyTitle>
     <Description>Little bots at the edge of your screen that watch your AI coding agents</Description>
     <Version>2.1.2</Version>
     <Platforms>x64</Platforms>

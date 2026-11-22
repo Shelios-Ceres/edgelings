@@ -1,8 +1,8 @@
-// edgelings-uitest: drives the real Edgelings.app on a real (runner) screen.
+// limen-uitest: drives the real Limen.app on a real (runner) screen.
 //
-//   edgelings-uitest <Edgelings.app> <out-folder> <synthetic-root> [--seconds 60]
+//   limen-uitest <Limen.app> <out-folder> <synthetic-root> [--seconds 60]
 //
-// It launches the app with EDGELINGS_ROOT on a synthetic home, finds the
+// It launches the app with LIMEN_ROOT on a synthetic home, finds the
 // drawer, its hover card, Settings, the menu and the menu-bar item through
 // CGWindowListCopyWindowInfo (owner, layer, bounds only: never a title), drives
 // them with real CGEvent mouse input, saves a screenshot at each step and the
@@ -35,7 +35,7 @@ struct WindowInfo: Codable {
 
 let arguments = CommandLine.arguments
 guard arguments.count >= 4 else {
-    print("usage: edgelings-uitest <Edgelings.app> <out-folder> <synthetic-root> [--seconds 60]")
+    print("usage: limen-uitest <Limen.app> <out-folder> <synthetic-root> [--seconds 60]")
     exit(2)
 }
 let appPath = arguments[1]
@@ -150,11 +150,11 @@ func prepareHome() {
 }
 
 func launch(extra: [String: String] = [:], log: String) -> Process? {
-    let executable = "\(appPath)/Contents/MacOS/Edgelings"
+    let executable = "\(appPath)/Contents/MacOS/Limen"
     let process = Process()
     process.executableURL = URL(fileURLWithPath: executable)
     var environment = ProcessInfo.processInfo.environment
-    environment["EDGELINGS_ROOT"] = rootFolder
+    environment["LIMEN_ROOT"] = rootFolder
     for (key, value) in extra { environment[key] = value }
     process.environment = environment
     FileManager.default.createFile(atPath: log, contents: nil)
@@ -363,13 +363,13 @@ func fullScreenCheck() {
     for on in [false, true] {
         let label = on ? "on" : "off"
         let root = "\(rootFolder)-fullscreen-\(label)"
-        let support = "\(root)/home/Library/Application Support/Edgelings"
+        let support = "\(root)/home/Library/Application Support/Limen"
         try? FileManager.default.createDirectory(atPath: support, withIntermediateDirectories: true)
         try? Data("{\"AgentIsland.drawer.overFullscreen\": \(on)}".utf8).write(to: URL(fileURLWithPath: "\(support)/settings.json"))
         for folder in [".claude/projects", ".codex/sessions", ".kimi-code/sessions", ".dsh/sessions"] {
             try? FileManager.default.createDirectory(atPath: "\(root)/home/\(folder)", withIntermediateDirectories: true)
         }
-        guard let run = launch(extra: ["EDGELINGS_ROOT": root], log: "\(outFolder)/app-fullscreen-\(label).log") else { continue }
+        guard let run = launch(extra: ["LIMEN_ROOT": root], log: "\(outFolder)/app-fullscreen-\(label).log") else { continue }
         let runPid = run.processIdentifier
         defer { if run.isRunning { kill(runPid, SIGKILL); run.waitUntilExit() } }
         guard waitFor(30, { drawer(pid: runPid) != nil }) else {
@@ -378,7 +378,7 @@ func fullScreenCheck() {
         }
         let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 640, height: 400), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.collectionBehavior = [.fullScreenPrimary]
-        window.title = "edgelings-uitest"
+        window.title = "limen-uitest"
         window.makeKeyAndOrderFront(nil)
         shared.activate(ignoringOtherApps: true)
         spin(1)
@@ -420,7 +420,7 @@ func chinesePass() {
     for folder in [".claude/projects", ".codex/sessions", ".kimi-code/sessions", ".dsh/sessions"] {
         try? FileManager.default.createDirectory(atPath: "\(root)/home/\(folder)", withIntermediateDirectories: true)
     }
-    guard let run = launch(extra: ["EDGELINGS_ROOT": root, "AGENTISLAND_LANG": "zh"], log: "\(outFolder)/app-zh.log") else { return }
+    guard let run = launch(extra: ["LIMEN_ROOT": root, "AGENTISLAND_LANG": "zh"], log: "\(outFolder)/app-zh.log") else { return }
     let runPid = run.processIdentifier
     defer { if run.isRunning { kill(runPid, SIGKILL); run.waitUntilExit() } }
     guard waitFor(30, { drawer(pid: runPid) != nil }), let panel = drawer(pid: runPid) else {
@@ -520,13 +520,13 @@ func vmmapSummary(_ pid: Int32, to path: String) {
 func memoryPass() {
     for (label, language, theme) in [("en-pixel", "en", "Pixel"), ("zh-pixel", "zh", "Pixel"), ("en-classic", "en", "Classic"), ("zh-classic", "zh", "Classic")] {
         let root = "\(rootFolder)-mem-\(label)"
-        let support = "\(root)/home/Library/Application Support/Edgelings"
+        let support = "\(root)/home/Library/Application Support/Limen"
         try? FileManager.default.createDirectory(atPath: support, withIntermediateDirectories: true)
         try? Data("{\"AgentIsland.drawer.theme\": \"\(theme)\"}".utf8).write(to: URL(fileURLWithPath: "\(support)/settings.json"))
         for folder in [".claude/projects", ".codex/sessions", ".kimi-code/sessions", ".dsh/sessions"] {
             try? FileManager.default.createDirectory(atPath: "\(root)/home/\(folder)", withIntermediateDirectories: true)
         }
-        guard let run = launch(extra: ["EDGELINGS_ROOT": root, "AGENTISLAND_LANG": language, "EDGELINGS_IGNORE_REDUCE_MOTION": "1"], log: "\(outFolder)/app-mem-\(label).log") else { continue }
+        guard let run = launch(extra: ["LIMEN_ROOT": root, "AGENTISLAND_LANG": language, "LIMEN_IGNORE_REDUCE_MOTION": "1"], log: "\(outFolder)/app-mem-\(label).log") else { continue }
         let runPid = run.processIdentifier
         defer { if run.isRunning { kill(runPid, SIGKILL); run.waitUntilExit() } }
         guard waitFor(30, { drawer(pid: runPid) != nil }), let panel = drawer(pid: runPid) else {
@@ -579,11 +579,11 @@ func measure(label: String, extra: [String: String]) {
     if run.isRunning { kill(run.processIdentifier, SIGKILL); run.waitUntilExit() }
 }
 
-measure(label: "default", extra: ["EDGELINGS_DIAG_FILE": "\(outFolder)/diagnostic-default.txt", "EDGELINGS_DIAG_AFTER": "\(max(measureSeconds, 20))"])
-measure(label: "battery-saver", extra: ["EDGELINGS_ASSUME_BATTERY": "1"])
+measure(label: "default", extra: ["LIMEN_DIAG_FILE": "\(outFolder)/diagnostic-default.txt", "LIMEN_DIAG_AFTER": "\(max(measureSeconds, 20))"])
+measure(label: "battery-saver", extra: ["LIMEN_ASSUME_BATTERY": "1"])
 // A home with the data sizes of a real developer Mac (make-big-home.py): the same app, calm.
 if let at = arguments.firstIndex(of: "--big-root"), at + 1 < arguments.count {
-    measure(label: "big-home", extra: ["EDGELINGS_ROOT": arguments[at + 1], "EDGELINGS_IGNORE_REDUCE_MOTION": "1", "EDGELINGS_DIAG_FILE": "\(outFolder)/diagnostic-big-home.txt", "EDGELINGS_DIAG_AFTER": "\(max(measureSeconds, 20))"])
+    measure(label: "big-home", extra: ["LIMEN_ROOT": arguments[at + 1], "LIMEN_IGNORE_REDUCE_MOTION": "1", "LIMEN_DIAG_FILE": "\(outFolder)/diagnostic-big-home.txt", "LIMEN_DIAG_AFTER": "\(max(measureSeconds, 20))"])
 }
 
 if let data = try? JSONEncoder().encode(steps) { try? data.write(to: URL(fileURLWithPath: "\(outFolder)/uitest.json")) }

@@ -14,7 +14,7 @@ public static class IslandPathsTests
             ("paths: a root override puts the home, the app's folders and every agent beneath it", RootMovesEverything),
             ("paths: the app's own folders are the platform's (Application Support and Caches on a Mac)", PlatformFolders),
             ("paths: Cursor's database and the Claude Desktop folder follow the platform", AgentFolders),
-            ("paths: the hooks' signal folders stay at Agent Island's folder on Windows, Edgelings' on a Mac", HooksFolder),
+            ("paths: the hooks' signal folders stay at Agent Island's folder on Windows, Limen's on a Mac", HooksFolder),
         };
         foreach (var (name, test) in tests)
         {
@@ -27,7 +27,7 @@ public static class IslandPathsTests
     private static void WithRoot(Action<string> body)
     {
         var before = IslandPaths.RootOverride;
-        var root = Path.Combine(Path.GetTempPath(), "edgelings-paths-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "limen-paths-" + Guid.NewGuid().ToString("N"));
         IslandPaths.RootOverride = root;
         try
         {
@@ -64,17 +64,17 @@ public static class IslandPathsTests
     {
         WithRoot(root =>
         {
-            Expect(Path.GetFileName(IslandPaths.AppSupportDir), "Edgelings");
+            Expect(Path.GetFileName(IslandPaths.AppSupportDir), "Limen");
             Expect(IslandPaths.SettingsFile, Path.Combine(IslandPaths.AppSupportDir, "settings.json"));
             if (OperatingSystem.IsMacOS())
             {
-                Expect(IslandPaths.AppSupportDir, Path.Combine(root, "home", "Library", "Application Support", "Edgelings"));
-                Expect(IslandPaths.CacheDir, Path.Combine(root, "home", "Library", "Caches", "Edgelings"));
+                Expect(IslandPaths.AppSupportDir, Path.Combine(root, "home", "Library", "Application Support", "Limen"));
+                Expect(IslandPaths.CacheDir, Path.Combine(root, "home", "Library", "Caches", "Limen"));
             }
             else
             {
-                Expect(IslandPaths.AppSupportDir, Path.Combine(root, "home", "AppData", "Roaming", "Edgelings"));
-                Expect(IslandPaths.CacheDir, Path.Combine(root, "home", "AppData", "Local", "Edgelings", "cache"));
+                Expect(IslandPaths.AppSupportDir, Path.Combine(root, "home", "AppData", "Roaming", "Limen"));
+                Expect(IslandPaths.CacheDir, Path.Combine(root, "home", "AppData", "Local", "Limen", "cache"));
             }
         });
     }

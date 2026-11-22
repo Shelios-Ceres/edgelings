@@ -149,7 +149,7 @@ internal sealed partial class SettingsWindow : Window
     /// open page: when the window opens, and again on every switch.
     private void Build()
     {
-        var title = "Edgelings — " + L10n.Tr("Settings");
+        var title = "Limen — " + L10n.Tr("Settings");
         var root = Content is null
             ? Shell.Chrome.Apply(this, title, 980, 720, 720, 520, Rescaled)
             : Shell.Chrome.Restyle(this, title);

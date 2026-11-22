@@ -23,7 +23,7 @@ public static class ClaudeHooks
     /// its PowerShell ones. Off unless the host turns it on.
     public static bool UseShell { get; set; }
 
-    private static string Marker => UseShell ? "Edgelings/claude-hooks" : WindowsMarker;
+    private static string Marker => UseShell ? "Limen/claude-hooks" : WindowsMarker;
     private const string Matcher = PermissionPrompt + "|" + ElicitationDialog;
     private static readonly TimeSpan PromptLifetime = TimeSpan.FromHours(2);
 
@@ -167,7 +167,9 @@ public static class ClaudeHooks
     private static bool IsOurs(JsonNode? group) =>
         group?["hooks"] is JsonArray handlers
         && handlers.Any(h => h?["command"]?.GetValueKind() == JsonValueKind.String
-            && h["command"]!.GetValue<string>().Contains(Marker, StringComparison.Ordinal));
+            && h["command"]!.GetValue<string>() is var command
+            && (command.Contains(Marker, StringComparison.Ordinal)
+                || (UseShell && command.Contains("Edgelings/claude-hooks", StringComparison.Ordinal))));
 
     // MARK: - Signals
 

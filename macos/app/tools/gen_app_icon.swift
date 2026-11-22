@@ -1,4 +1,4 @@
-// Draws Edgelings' app icon: the Pixel robot head on a macOS rounded-square
+// Draws Limen's app icon: the Pixel robot head on a macOS rounded-square
 // plate, at every size an .icns needs. The grids and colours are the Pixel
 // design chat's (robot-head-grids.json, copied from
 // windows/notes/pixel-icon-20261014/v2/grids.json); no mouth at any size and the

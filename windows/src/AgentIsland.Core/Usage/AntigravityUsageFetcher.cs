@@ -1,9 +1,8 @@
 namespace AgentIsland.Usage;
 
-/// Antigravity quota fetch: local language server only. The Google cloud
-/// endpoints other tools document are a verified dead end (see
-/// AntigravityLanguageServer's header), so there is no token refresh, no
-/// OAuth plumbing, and no network beyond loopback here.
+/// Prefer the running app's quota and identity. Newer Windows desktop
+/// versions keep their RPC private; agy's built-in /usage command can
+/// report the signed-in CLI account's quota independently.
 public static class AntigravityUsageFetcher
 {
     public abstract record Outcome
@@ -11,11 +10,9 @@ public static class AntigravityUsageFetcher
         /// Buckets plus identity. Email/tier ride along so the store never
         /// needs a second call.
         public sealed record Success(
-            AntigravityQuotaSnapshot Snapshot, string? Email) : Outcome;
+            AntigravityQuotaSnapshot Snapshot, string? Email, bool FromCli = false) : Outcome;
 
-        /// Antigravity is installed but no process is running — the embedded
-        /// server is the only quota source, so there is nothing to read
-        /// until agy (or the IDE) starts.
+        /// No running server or compatible CLI is available.
         public sealed record NotRunning : Outcome;
 
         public sealed record NotInstalled : Outcome;
@@ -28,13 +25,19 @@ public static class AntigravityUsageFetcher
         if (!AntigravityCredentials.Detected) return new Outcome.NotInstalled();
 
         var port = await AntigravityLanguageServer.Discover().ConfigureAwait(false);
-        if (port is not { } livePort) return new Outcome.NotRunning();
+        if (port is not { } livePort) return AntigravityCliQuota.TryFetch() ?? new Outcome.NotRunning();
 
         var summary = await CallWithCsrfRetry(
             "RetrieveUserQuotaSummary", livePort, "{}").ConfigureAwait(false);
-        if (summary is null) return new Outcome.Failed("quota call failed");
+        if (summary is null)
+        {
+            AntigravityLanguageServer.ForgetCachedPort();
+            return new Outcome.Failed("quota call failed");
+        }
         if (summary.Status != 200)
         {
+            AntigravityLanguageServer.ForgetCachedPort();
+            if (summary.Status == 401 && AntigravityCliQuota.TryFetch() is { } cli) return cli;
             return new Outcome.Failed($"quota HTTP {summary.Status}");
         }
         if (AntigravityQuotaParser.ParseQuotaSummary(summary.Body) is not { } parsed)
@@ -65,18 +68,18 @@ public static class AntigravityUsageFetcher
     /// says the plain call was refused — a strictly additive retry on a path
     /// that already failed — and only from the process that owns the port:
     /// no other process's token is ever sent to it.
-    private static async Task<AntigravityLanguageServer.Reply?> CallWithCsrfRetry(
+    internal static async Task<AntigravityLanguageServer.Reply?> CallWithCsrfRetry(
         string method, int port, string body)
     {
-        var reply = await AntigravityLanguageServer.Call(method, port, body).ConfigureAwait(false);
+        var reply = await AntigravityLanguageServer
+            .CallRpc(method, port, body, null, 6).ConfigureAwait(false);
         if (reply is not { Status: 401 }) return reply;
-        if (AntigravityLanguageServer.PortOwner(port) is not { } pid
+        if (AntigravityLanguageServer.ResolvePortOwner(port) is not { } pid
             || AntigravityLanguageServer.CsrfToken(pid) is not { Length: > 0 } token)
         {
             return reply;
         }
-        var retried = await AntigravityLanguageServer
-            .Call(method, port, body, token).ConfigureAwait(false);
-        return retried is { Status: 200 } ? retried : reply;
+        return await AntigravityLanguageServer
+            .CallRpc(method, port, body, token, 6).ConfigureAwait(false);
     }
 }

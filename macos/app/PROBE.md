@@ -1,4 +1,4 @@
-# Edgelings: read-only probe
+# Limen: read-only probe
 
 Run these in Terminal (or let your agent run them) and paste the output into your report. Every command only lists **names, counts and times**. None opens a file, and none prints anything from inside a file. Please do not add `cat`, `head` or `tail` on any file under `~/.kimi-code`, `~/Library/Application Support` or anywhere else: those can hold conversations and sign-in tokens.
 
@@ -28,7 +28,7 @@ ls ~/.kimi-code/server ~/.kimi-code/server/instances 2>&1 | head
 find ~/.kimi-code/sessions -name wire.jsonl -mtime -1 | wc -l
 ```
 
-The last line counts session logs changed in the last 24 hours. Run it while a Kimi Code session is working; a non-zero number means the logs are where Edgelings looks.
+The last line counts session logs changed in the last 24 hours. Run it while a Kimi Code session is working; a non-zero number means the logs are where Limen looks.
 
 ## 4. Does the Kimi desktop app keep its own folder?
 
@@ -54,11 +54,11 @@ pmset -g batt | head -1
 sqlite3 -readonly ~/Library/Application\ Support/Cursor/User/globalStorage/state.vscdb "select count(*) from cursorDiskKV where key like 'bubbleId:%' and instr(value,'tokenCount')>0;"
 ```
 
-This prints one number: how many Cursor messages carry a token count at all. The Edgelings diagnostic prints the same facts, so you can skip this one.
+This prints one number: how many Cursor messages carry a token count at all. The Limen diagnostic prints the same facts, so you can skip this one.
 
 ## 7. The Kimi desktop app's Kimi Work data (if you have the Kimi client)
 
-Edgelings reads Kimi Work conversations as Kimi sessions. On Windows they live under `kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\sessions`; this finds where they are on a Mac. Names only (the folders are named with ids, which is fine to paste).
+Limen reads Kimi Work conversations as Kimi sessions. On Windows they live under `kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\sessions`; this finds where they are on a Mac. Names only (the folders are named with ids, which is fine to paste).
 
 ```sh
 ls ~/Library/Application\ Support | grep -i -E 'kimi|moonshot'

@@ -4,7 +4,7 @@ import Foundation
 
 enum AppStrings {
     static let keys = [
-        "Settings…", "Quit Edgelings", "Show drawer", "Hide drawer", "Lock position", "Unlock position",
+        "Settings…", "Quit Limen", "Show drawer", "Hide drawer", "Lock position", "Unlock position",
         "Move to left edge", "Move to right edge", "Classic characters", "Pixel characters", "Character lines",
         "Shown agents", "Look", "Locked in place.\nRight-click to unlock.",
         "Today", "This month", "+{0} more",

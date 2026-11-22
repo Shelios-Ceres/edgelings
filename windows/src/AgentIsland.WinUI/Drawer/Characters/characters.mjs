@@ -1389,295 +1389,375 @@ function pxProp(cv, back, p, a, pal, c) {
   };
 })();
 
-// MARK: - Antigravity · the balloon
+// MARK: - Antigravity · the eraser
 //
-// A hot-air balloon, drawn from Codex's own concept Aeri (a floating blue
-// "A" with a cream face band, a coral mouth and four satellites) rather than
-// traced from it: Aeri floats, so this one flies. Her four satellites (blue,
-// coral, yellow, green) become the gores of its envelope, curving in at the
-// crown and the skirt; her face band runs round its middle, with her coral
-// mouth on it when it's happy; a wicker basket hangs below with a sandbag each side. Its
-// gores turn while it thinks, its burner flares while it works, its envelope
-// sags onto the basket when it fails, and it lands to rest. (The user's
-// pick, 2026-10-17, over round 4's rainbow "A", which is kept in retired/.)
+// A four-colour rubber eraser in a cream cardboard sleeve, drawn as the desk
+// partner to Codex's spiral notebook: the notebook writes, the eraser lifts
+// mistakes clean off the page, and in zero gravity its rainbow shavings float up
+// instead of falling. It shares the notebook's navy ink line, cream paper,
+// cobalt stripe and little ink limbs, while its rounded rubber crown wears
+// the four colours of Antigravity's gores (blue, coral, gold, green). Crumbs
+// drift up while it thinks, it scrubs side to side while it works, tucks its
+// rubber head down into its sleeve to sleep, wears a brass clasp when locked,
+// and picks up a grey lead smudge when something fails. (2026-11-20.)
 
 (() => {
-  const GORES = [['#4D96EB', '#B7D5F5', '#3A7BC8'], ['#E77C65', '#F6B4A6', '#C9604B'], ['#F2BB55', '#FBE2AE', '#D49A33'], ['#56AB78', '#A9DDBB', '#3F8A5D']];
-  const DIM_GORES = [['#9EA6B4', '#C7CCD6', '#868E9C'], ['#B2A9A6', '#D3CDCB', '#988F8C'], ['#BDB4A1', '#DCD6CA', '#A39A88'], ['#A3ABA5', '#C9CFCB', '#8A928C']];
-  const FACE = '#FFF2D8', DIM_FACE = '#D9D2C4', INK = '#263349', MOUTH = '#E77C65';
-  const WICKER = '#D9A04A', WICKER_DARK = '#A8742E', RIM = '#7A5226', BAG = '#E6D3AE', BAG_DARK = '#BFA77A', BURNER = '#8D94A6';
-  const DIM_WICKER = '#B8AE9C', DIM_RIM = '#8E8678';
-  const FLAME = ['#F2BB55', '#E77C65'];
-  const X0 = 5, Y0 = 3;
-  // The envelope's rows, [first, last] cell from its left edge: a round
-  // crown, widest a third of the way down, tapering to the skirt.
-  const ENVELOPE = [[4, 7], [2, 9], [1, 10], [0, 11], [0, 11], [0, 11], [0, 11], [1, 10], [2, 9], [3, 8], [4, 7]];
-  // Let down (failed, broken): squat and slumped onto the basket.
-  const SAGGED = [[3, 8], [1, 10], [0, 11], [0, 11], [0, 11], [1, 10], [3, 8]];
-  const FACE_ROWS = [4, 5, 6];
-  const MINI = ['.##.', '####', '####', '.##.', '.#..'];
+  const COVER = '#FFF2D8', SHADE = '#EADBBE', WHITE = '#FFFFFF', INK = '#263349';
+  const BLUE = '#4D96EB', BLUE_D = '#3166A4', LIGHT = '#B7D5F5';
+  const CORAL = '#E77C65', GOLD = '#F2BB55', GOLD_DARK = '#C9922E', GREEN = '#56AB78', SMUDGE = '#8D94A6';
+  const DIM_COVER = '#D9D2C4', DIM_SHADE = '#C8C0B0', DIM_WHITE = '#ECE9E0';
+  const DIM_BLUE = '#7E92AD', DIM_BLUE_D = '#5F7390', DIM_LIGHT = '#AEBBD0';
+  const DIM_CORAL = '#B48E86', DIM_GOLD = '#BEB5A0', DIM_GREEN = '#87A192';
+  const X0 = 6, Y0 = 8, W = 10, H = 7;
+  const CRUMBS = [BLUE, CORAL, GOLD, GREEN];
+  const MINI = ['bryg', 'cccc', 'bbbb'];
   const pal = {
-    main: GORES[0][0], body: GORES[0][0], dark: INK, light: GORES[0][1], accent: MOUTH,
-    mini: (cv, x, y) => { cv.glyph(MINI, x, y, GORES[0][0]); cv.put(x + 2, y + 1, GORES[1][0]); cv.put(x + 2, y + 2, GORES[1][0]); cv.put(x + 1, y + 4, WICKER); },
+    main: BLUE, body: COVER, dark: INK, light: LIGHT, accent: CORAL, ink: INK, paper: WHITE,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, BLUE, { b: BLUE, r: CORAL, y: GOLD, g: GREEN, c: COVER }),
   };
+  const ARMS = { out: [1, 3], up: [1, 1], high: [1, 0], wave: [1, 1], down: [1, 4], tap: [2, 5] };
 
-  function balloon(cv, p, c) {
+  function eraser(cv, p, c) {
     const dim = p.dim > 0.5;
     const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy);
-    const sag = p.sag > 0.5;
-    const rows = sag ? SAGGED : ENVELOPE;
-    // A sagging envelope slumps down onto the basket.
-    const top = y0 + (sag ? ENVELOPE.length - SAGGED.length + 2 : 0);
-    const spin = rnd(p.spin ?? 0);
-    const gores = dim ? DIM_GORES : GORES;
-    const faceRows = sag ? [2, 3, 4] : FACE_ROWS;
-    rows.forEach(([a, b], j) => {
-      const w = b - a + 1;
-      for (let i = a; i <= b; i++) {
-        // The gores curve in at the crown and the skirt: each row splits its
-        // own width four ways.
-        const g = gores[((Math.floor((i - a) * 4 / w) + spin) % 4 + 4) % 4];
-        const shine = !sag && ((j === 1 && i === 3) || (j === 2 && i === 2) || (j === 3 && i === 1));
-        const color = faceRows.includes(j) ? (dim ? DIM_FACE : FACE) : shine ? g[1] : j === rows.length - 1 ? g[2] : g[0];
-        cv.put(x0 + i, top + j, color);
+    const M = dim ? {
+      B: DIM_BLUE, l: DIM_LIGHT, R: DIM_CORAL, Y: DIM_GOLD, G: DIM_GREEN,
+      C: DIM_COVER, S: DIM_SHADE, W: DIM_WHITE, D: DIM_BLUE_D, K: INK,
+    } : {
+      B: BLUE, l: LIGHT, R: CORAL, Y: GOLD, G: GREEN,
+      C: COVER, S: SHADE, W: WHITE, D: BLUE_D, K: INK,
+    };
+    const cells = [];
+    const putRows = (rows, rx, ry) => {
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        for (let i = 0; i < row.length; i++) {
+          const col = M[row[i]];
+          if (col) { cv.put(rx + i, ry + j, col); cells.push([rx + i, ry + j]); }
+        }
       }
-    });
-    // Ropes and the burner, the basket and its sandbags.
-    const bottom = y0 + 13;
-    if (!sag) {
-      for (const i of [4, 7]) { cv.put(x0 + i, y0 + 11, p.lock ? BURNER : INK); cv.put(x0 + i, y0 + 12, INK); }
-      cv.rect(x0 + 5, y0 + 12, 2, 1, BURNER);
-      if (p.smoke) {
-        // A puff from the dead burner, drifting out past the right rope.
-        const u = frac(c.T / 1.6);
-        if (u < 0.8) cv.rect(x0 + 8 + rnd(u * 2), y0 + 11 - rnd(u * 2), 2, 1, '#BDB7B4');
-      }
-      if (p.flame) {
-        const f = Math.floor(c.T * 8) % 2;
-        cv.put(x0 + 5, y0 + 11, FLAME[f]); cv.put(x0 + 6, y0 + 11, FLAME[1 - f]);
-      }
+    };
+    // Rounded four-colour rubber head above the sleeve; tucked down in to sleep.
+    const rubber = p.tucked > 0.5
+      ? ['.lRRYYG.', 'BBRRYYGG']
+      : ['.lRRYYG.', 'BBRRYYGG', 'BBRRYYGG'];
+    putRows(rubber, x0 + 1, y0 - rubber.length);
+    // Cream cardboard sleeve with a dark U-notched lip and a Mono blue-and-white band.
+    putRows([
+      'KKKBBBBKKK',
+      'CCCCCCCCCS',
+      'CCCCCCCCCS',
+      'CCCCCCCCCS',
+      'CCCCCCCCCS',
+      'BBBBBBBBDD',
+      'WWWWWWWWCC',
+    ], x0, y0);
+    cv.outline(cells, INK);
+    // Feet, under the outline.
+    const legs = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [0, 0], tuck: [0, 0], sit: [0, 0] }[p.legs] ?? [1, 1];
+    if (legs[0]) cv.rect(x0 + 1, y0 + H + 1, 2, 1, INK);
+    if (legs[1]) cv.rect(x0 + 7, y0 + H + 1, 2, 1, INK);
+    // Little ink arms on each side, like the notebook's.
+    for (const [side, mode] of [[-1, p.armL], [1, p.armR]]) {
+      const [inward, row] = ARMS[mode] ?? ARMS.out;
+      cv.rect(side < 0 ? x0 - 3 + inward : x0 + W + 2 - inward, y0 + row, 1, 2, INK);
     }
-    cv.rect(x0 + 3, bottom, 6, 1, dim ? DIM_RIM : RIM);
-    for (let i = 0; i < 6; i++) cv.put(x0 + 3 + i, bottom + 1, dim ? DIM_WICKER : i % 2 ? WICKER_DARK : WICKER);
-    cv.rect(x0 + 3, bottom + 2, 6, 1, dim ? DIM_RIM : WICKER_DARK);
-    for (const x of [x0 + 2, x0 + 9]) { cv.put(x, bottom, dim ? DIM_WICKER : BAG); cv.put(x, bottom + 1, dim ? DIM_WICKER : BAG_DARK); }
-    // Locked: a steel padlock hangs on the basket's front, its shackle round the
-    // burner, so it can't take off.
-    if (p.lock && !sag) {
-      cv.rect(x0 + 4, bottom, 4, 2, '#B9BECB');
-      cv.rect(x0 + 4, bottom + 1, 4, 1, BURNER);
-      cv.put(x0 + 5, bottom, INK);
-      cv.put(x0 + 5, bottom + 1, INK);
+    // Locked: a brass clasp shut over the sleeve, matching the notebook's.
+    if (p.clasp > 0.5) {
+      cv.rect(x0 + 3, y0 + 3, 4, 3, dim ? DIM_GOLD : GOLD);
+      cv.rect(x0 + 3, y0 + 5, 4, 1, dim ? DIM_GOLD : GOLD_DARK);
+      cv.rect(x0 + 4, y0 + 3, 2, 2, INK);
     }
-    const eyeRow = top + faceRows[0];
-    const eyes = [[x0 + 3, eyeRow], [x0 + 8, eyeRow]];
+    // Failed / broken: a grey pencil-lead smudge across the sleeve.
+    if (p.smudge > 0.5) {
+      cv.rect(x0 + 3, y0 + 4, 3, 1, SMUDGE);
+      cv.put(x0 + 5, y0 + 3, SMUDGE);
+    }
+    const eyes = [[x0 + 2, y0 + 2], [x0 + 7, y0 + 2]];
     pxEyes(cv, eyes, c, p.eyes, INK);
-    // The coral mouth shows only when it's happy (the user, 2026-10-19).
-    if (c.eye.happy > 0.5) cv.rect(x0 + 5, eyeRow + 2, 2, 1, dim ? '#B2A9A6' : MOUTH);
-    return { x0, y0: top, eyes, mid: x0 + 6, top, left: x0, right: x0 + 11, ground: bottom + 2, midY: top + 5, front: top + 7, pageX: x0 + 2 };
+    if (c.eye.happy > 0.5) cv.rect(x0 + 4, y0 + 4, 2, 1, dim ? DIM_CORAL : CORAL);
+    const top = y0 - rubber.length - 1;
+    return { x0, y0, eyes, hands: true, mid: x0 + 5, top, left: x0 - 1, right: x0 + W, ground: y0 + H + 1, midY: y0 + 2, front: y0 + 4, pageX: x0 + 1 };
   }
 
   CHARACTERS.antigravity = {
     name: 'Antigravity',
     swatch: 0x3D7BF5,
-    fidgets: ['spin', 'puff', 'hop'],
+    fidgets: ['crumbs', 'scrub', 'hop'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, spin: 0, flame: 0, sag: 0, lock: 0, smoke: 0 },
+    rest: { ...PIXEL_REST, tucked: 0, clasp: 0, smudge: 0, crumbs: 'idle' },
     pose(s, t, T) {
       const b = basePose(s, t, T);
-      // Rising and sinking on the air, a cell at a time.
-      const ride = frac(T / 3) < 0.5 ? 0 : -1;
       switch (s) {
-        case 'idle': return { ...b, dy: ride };
-        // Thinking: the envelope turns slowly, gore by gore.
-        case 'thinking': return { ...b, dy: ride, spin: Math.floor(t / 0.6) % 4, look: [0, -1], prop: '' };
-        // Busy: the burner flares.
-        case 'writing': case 'working': case 'running': return { ...b, dy: 0, flame: 2, prop: s === 'working' ? b.prop : '' };
-        case 'failed': return { ...b, sag: t > 0.3 ? 1 : 0, dy: 0 };
-        case 'broken': return { ...b, sag: 1, dy: 0 };
-        // Offline: the burner has gone out; it hangs low, smoke drifting off.
-        case 'offline': return { ...b, dy: 1, smoke: 1, prop: '' };
-        // Locked: a padlock on the burner, so it can't take off; landed.
-        case 'locked': return { ...b, dy: 1, lock: 1, prop: '', look: [0, 1] };
-        // Asleep (its app away) it has landed, basket on the ground.
-        case 'resting': return { ...b, dy: 1 };
-        // Out of quota: landed too, rising a cell on each slow breath.
-        case 'sleeping': return { ...b, dy: b.dy - 1 };
-        // Fidgets: one full turn; a puff of the burner and a lift.
-        case 'spin': return { ...b, spin: t > 0.4 && t < 2.0 ? Math.floor((t - 0.4) / 0.4) + 1 : 0, happy: t > 0.4 && t < 2.0 ? 1 : 0, gazeW: 0 };
-        case 'puff': return { ...b, flame: t > 0.3 && t < 1.2 ? 2 : 0, dy: t > 0.6 && t < 1.8 ? -1 : 0, look: [0, -1], gazeW: 0 };
+        // Thinking: four-colour eraser crumbs drift upward in zero gravity.
+        case 'thinking':
+          return { ...b, armR: frac(t / 2.4) < 0.5 ? 'up' : 'out', look: [1, -1], gazeW: 0.1, crumbs: 'rise', prop: '', propT: t };
+        // Busy / editing: scrubs briskly side to side, shavings floating up.
+        case 'writing': case 'working': {
+          const rub = Math.floor(t * 8) % 2;
+          return { ...b, dx: rub ? 1 : -1, dy: 0, armL: rub ? 'tap' : 'down', armR: rub ? 'down' : 'tap', eyes: 'focus', look: [0, 1], gazeW: 0, crumbs: 'scrub', prop: '', propT: t };
+        }
+        case 'failed': return { ...b, smudge: t > 0.25 ? 1 : 0, crumbs: 'none' };
+        case 'broken': return { ...b, smudge: 1, crumbs: 'none' };
+        case 'offline': return { ...b, crumbs: 'still' };
+        case 'locked': return { ...b, clasp: 1, crumbs: 'none', prop: '', look: [0, 1] };
+        case 'resting': return { ...b, dy: 1, tucked: 1, crumbs: 'none' };
+        case 'sleeping': return { ...b, crumbs: 'none' };
+        // Fidgets: a zero-G rainbow crumb pop, and a happy little desk rub.
+        case 'crumbs':
+          return { ...b, armR: t > 0.3 && t < 1.8 ? 'up' : 'out', happy: t > 0.3 && t < 1.9 ? 1 : 0, crumbs: t > 0.2 && t < 2.2 ? 'arc' : 'idle', propT: t, gazeW: 0 };
+        case 'scrub': {
+          const on = t > 0.25 && t < 1.85, rub = Math.floor(t * 8) % 2;
+          return { ...b, dx: on ? (rub ? 1 : -1) : 0, armL: on && rub ? 'up' : 'out', armR: on && !rub ? 'up' : 'out', happy: on ? 1 : 0, crumbs: on ? 'scrub' : 'idle', propT: t, gazeW: 0 };
+        }
         default: return b;
       }
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q, c) => balloon(g, q, c), c);
-      pxProp(cv, back, q, a, pal, c);
+      const { q, cv, a } = settled(p, (g, s, q, c) => eraser(g, q, c), c);
+      const putCrumb = (x, y, col) => { if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, col); };
+      if (q.crumbs === 'idle') {
+        const lift = frac(c.T / 1.8) < 0.5 ? 0 : -1;
+        putCrumb(a.x0 + 10, a.y0 - 3 + lift, CORAL);
+        putCrumb(a.x0 + 11, a.y0 - 1, GOLD);
+      } else if (q.crumbs === 'still') {
+        putCrumb(a.x0 + 10, a.y0 - 2, SMUDGE);
+        putCrumb(a.x0 + 11, a.y0 - 1, '#AEB4C0');
+      } else if (q.crumbs === 'rise') {
+        const step = Math.floor(q.propT * 4) % 4;
+        putCrumb(a.x0 + 10, a.y0 - 4 + (step % 2), CRUMBS[step]);
+        putCrumb(a.x0 + 11, a.y0 - 2 + ((step + 1) % 2), CRUMBS[(step + 1) % 4]);
+        putCrumb(a.x0 - 1, a.y0 - 3 + ((step + 1) % 2), CRUMBS[(step + 2) % 4]);
+      } else if (q.crumbs === 'scrub') {
+        const k = Math.floor(q.propT * 6) % 2;
+        putCrumb(a.x0 - 2, a.y0 - 2 + k, BLUE);
+        putCrumb(a.x0 + 11, a.y0 - 3 + (1 - k), CORAL);
+        putCrumb(a.x0 + 10, a.y0 - 4 + k, GREEN);
+      } else if (q.crumbs === 'arc') {
+        const step = Math.floor(q.propT * 5) % 4;
+        const spots = [[a.x0, a.y0 - 4], [a.x0 + 3, a.y0 - 5], [a.x0 + 6, a.y0 - 5], [a.x0 + 9, a.y0 - 4]];
+        for (let i = 0; i < 4; i++) putCrumb(spots[i][0], spots[i][1] - (i === step ? 1 : 0), CRUMBS[i]);
+      }
+      if (q.prop) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
-// MARK: - Grok · the slashed ring
+// MARK: - Grok · the black-hole sharpener
 //
-// Grok's own ⊘ as a character, in the Grok Bot spirit: a black ring round a
-// pale face, the slash passing behind it and out at both ends, dark pill
-// eyes and no limbs. Its eyes do the talking: three dots walk across them
-// while it thinks, they go wide to search, turn into a "!" to ask and close
-// in sleep. It searches with a ring that steps outward, wears a planet's
-// ring for the web, rides a flame to run and swirls inward to compact.
-// (Round 4, 2026-10-15: the user's pick over a solid orb; round 3's ring
-// bot with antenna and legs retired.)
+// A matte-obsidian desk sharpener with a circular black-hole mouth, a silver
+// diagonal slash blade, a warm cream shavings drawer that holds its face, and
+// a brass hand-crank on the side — completing the desk stationery trio beside
+// Codex's notebook and Antigravity's eraser. Gold and silver sparks orbit the
+// mouth while it thinks, the crank spins and cream-gold shavings fly out while
+// it works, shavings swirl inward to compact, it folds the crank flat to rest,
+// wears a brass clasp when locked, and shows a red blade jam when something
+// fails. (2026-11-21.)
 
 (() => {
-  const INK = '#0B0B0C', DIM_INK = '#5A5A60', FACE = '#F4F4F1', DIM_FACE = '#CFCFCB', DOT = '#B4B4B0';
-  // Centred in the box, so the slash reaches two cells out at both ends and
-  // stays inside the drawer's circle.
-  const CX = 11, CY = 11;
-  const MINI = ['..#.#', '.###.', '#w#w#', '#www#', '.###.', '#....'];
+  const COVER = '#FFF2D8', SHADE = '#EADBBE', WHITE = '#FFFFFF', INK = '#263349';
+  const OBS = '#242731', OBS_M = '#393E4F', OBS_H = '#586077', VOID = '#101218';
+  const SILVER = '#DCE0EA', SILVER_D = '#8F96A8', GOLD = '#F5BE2E', GOLD_D = '#C9922E';
+  const CORAL = '#E77C65', RED = '#D9534F';
+  const DIM_COVER = '#DDD8CD', DIM_SHADE = '#C6C0B2';
+  const DIM_OBS = '#4B505E', DIM_OBS_M = '#636978', DIM_OBS_H = '#7C8292', DIM_VOID = '#2E323C';
+  const DIM_SILVER = '#B4B9C4', DIM_SILVER_D = '#888E9B', DIM_GOLD = '#B8A473', DIM_GOLD_D = '#8F7E58';
+  const X0 = 5, Y0 = 6, W = 11, H = 9;
+  const MINI = ['.sv.', 'kcck', 'oooo'];
   const pal = {
-    main: INK, body: INK, dark: INK, light: '#9A9AA0', accent: INK,
-    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { w: FACE }),
+    main: OBS, body: COVER, dark: INK, light: SILVER, accent: GOLD, ink: INK, paper: WHITE,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { s: SILVER, v: VOID, c: COVER, o: OBS }),
   };
-  const lookOf = c => [c.eye.lx, c.eye.ly];
+  const ARMS = { out: [1, 4], up: [1, 2], high: [1, 1], wave: [1, 2], down: [1, 5], tap: [2, 5] };
 
-  // Pill eyes, 2 wide and `h` tall, centred on cx + 0.5; they morph with the
-  // mood and the phase.
-  function pillEyes(cv, cx, cy, p, c, ink, dim, h) {
-    const [lx, ly] = lookOf(c);
-    const top = cy - 2 + ly;
-    const xs = [cx - 3 + lx, cx + 2 + lx];
-    const e = c.eye;
-    if (p.face === 'dots') {
-      // Thinking: three dots across the face, the lit one walking.
-      const k = Math.floor(p.propT * 4) % 3;
-      [cx - 4, cx, cx + 4].forEach((x, i) => cv.rect(x + lx, cy - 1 + ly, 2, 2, i === k ? ink : dim));
-      return;
-    }
-    if (p.face === 'bang') {
-      cv.rect(cx, cy - 4, 2, 4, ink);
-      cv.rect(cx, cy + 1, 2, 2, ink);
-      return;
-    }
-    xs.forEach((x, i) => {
-      const right = i === 1;
-      const mood = e.cross > 0.5 ? 'cross' : (e.happy > 0.5 || (right && e.wink > 0.5)) ? 'happy' : e.sleep > 0.5 ? 'closed'
-        : e.open < 0.45 ? 'blink' : p.eyes;
-      if (mood === 'cross') for (const [dx, dy] of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, 2], [1, 2], [-1, 3], [2, 3]]) cv.put(x + dx, top + dy, ink);
-      else if (mood === 'happy') for (const [dx, dy] of [[-1, 2], [0, 1], [1, 1], [2, 2]]) cv.put(x + dx, top + dy, ink);
-      else if (mood === 'content') for (const [dx, dy] of [[-1, 2], [0, 3], [1, 3], [2, 2]]) cv.put(x + dx, top + dy, ink);
-      else if (mood === 'closed') cv.rect(x - (right ? 0 : 1), top + 3, 3, 1, ink);
-      // Resting holds the eyes half-closed, the shape of a blink.
-      else if (mood === 'blink' || mood === 'rest') cv.rect(x, top + 2, 2, 1, ink);
-      else if (mood === 'focus') cv.rect(x, top + 1, 2, 2, ink);
-      else if (mood === 'wide') cv.rect(x, top - 1, 2, h + 1, ink);
-      else if (mood === 'sad') { cv.rect(x, top + 2, 2, 2, ink); cv.put(right ? x : x + 1, top + 1, ink); }
-      else cv.rect(x, top, 2, h, ink);
-    });
-  }
+  function sharpener(cv, p, c) {
+    const dim = p.dim > 0.5, low = p.tucked > 0.5;
+    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy) + (low ? 1 : 0);
+    const M = dim ? {
+      O: DIM_OBS, o: DIM_OBS_M, h: DIM_OBS_H, V: DIM_VOID,
+      S: DIM_SILVER, s: DIM_SILVER_D, C: DIM_COVER, c: DIM_SHADE,
+      G: DIM_GOLD, g: DIM_GOLD_D,
+    } : {
+      O: OBS, o: OBS_M, h: OBS_H, V: VOID,
+      S: SILVER, s: SILVER_D, C: COVER, c: SHADE,
+      G: GOLD, g: GOLD_D,
+    };
+    const cells = [];
+    const putRows = (rows, rx, ry) => {
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        for (let i = 0; i < row.length; i++) {
+          const col = M[row[i]];
+          if (col) { cv.put(rx + i, ry + j, col); cells.push([rx + i, ry + j]); }
+        }
+      }
+    };
+    // Circular black-hole crown with a silver slash rim; tucks down when resting.
+    const crown = low
+      ? ['..oSVVSs..']
+      : ['...oSSo...', '..oVVVSo..', '.oSVVVGo..'];
+    putRows(crown, x0 + 1, y0 - crown.length);
+    // Obsidian casing around a warm cream front drawer.
+    const body = low ? [
+      'hOOOOOOOOOo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCco',
+      'Occccccccco',
+      'oOOOOOOOOOo',
+      '.OOOOOOOOO.',
+    ] : [
+      'hOOOOOOOOOo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCco',
+      'OccccGcccco',
+      'oOOOOOOOOOo',
+      'oOooooooOOo',
+      '.OOOOOOOOO.',
+    ];
+    putRows(body, x0, y0);
+    cv.outline(cells, INK);
 
-  function ring(cv, p, c) {
-    const cx = CX + rnd(p.dx), cy = CY + rnd(p.dy) - rnd(p.lift);
-    const dim = p.dim > 0.5;
-    const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
-    const inner = p.sq > 0.5 ? 3.4 : 4.5;
-    // The slash, behind the face: out past the ring at both ends.
-    for (const [dx, dy] of [[5, -5], [6, -6], [-5, 5], [-6, 6]]) cv.put(cx + dx, cy + dy, ink);
-    cv.shape((x, y) => Math.hypot(x - cx - 0.5, y - cy - 0.5) <= 6.5, cx - 7, cy - 7, 15, 15, (x, y) => {
-      const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
-      if (d < inner) return face;
-      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + Math.floor(c.T * 6)) % 2) return face;
-      return ink;
-    });
-    if (p.glow && Math.floor(c.T * 4) % 2) cv.put(cx + 5, cy - 7, '#F5BE2E');
-    pillEyes(cv, cx, cy, p, c, ink, DOT, 3);
-    return { mid: cx, top: cy - 8, left: cx - 7, right: cx + 8, ground: cy + 8, midY: cy, front: cy + 1, eyes: [[cx - 3, cy - 2], [cx + 2, cy - 2]], cx, cy, hands: false };
+    // Diagonal metallic blade slash across the upper-right casing.
+    if (!low) {
+      cv.put(x0 + 9, y0, M.S);
+      cv.put(x0 + 8, y0 + 1, M.s);
+      cv.put(x0 + 10, y0 - 1, M.S);
+    }
+
+    // Side hand-crank on the right: folds flat when resting/sleeping, spins when working.
+    const crankY = y0 + (low ? 2 : 3);
+    cv.rect(x0 + W, crankY, 2, 1, M.s);
+    if (p.crank === 'fold' || low) {
+      cv.put(x0 + W + 2, crankY, M.g);
+    } else {
+      const phase = p.crank === 'spin' ? Math.floor(p.propT * 10) % 4
+        : p.crank === 'tick' ? Math.floor(p.propT * 3) % 2
+        : 0;
+      const ky = phase === 0 ? crankY - 2 : phase === 1 ? crankY : phase === 2 ? crankY + 1 : crankY - 1;
+      cv.rect(x0 + W + 2, Math.min(crankY, ky), 1, Math.abs(ky - crankY) + 1, M.S);
+      cv.rect(x0 + W + 2, ky, 2, 2, M.G);
+      cv.put(x0 + W + 3, ky + 1, M.g);
+    }
+
+    // Feet under the outline.
+    const bodyH = body.length;
+    const legs = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [0, 0], tuck: [0, 0], sit: [0, 0] }[p.legs] ?? [1, 1];
+    if (legs[0]) cv.rect(x0 + 2, y0 + bodyH + 1, 2, 1, INK);
+    if (legs[1]) cv.rect(x0 + 7, y0 + bodyH + 1, 2, 1, INK);
+
+    // Left ink arm (right side carries the hand crank).
+    if (!low) {
+      const [inward, row] = ARMS[p.armL] ?? ARMS.out;
+      cv.rect(x0 - 3 + inward, y0 + row, 1, 2, INK);
+    }
+
+    // Locked: brass clasp over the drawer.
+    if (p.clasp > 0.5) {
+      cv.rect(x0 + 4, y0 + 3, 4, 3, M.G);
+      cv.rect(x0 + 4, y0 + 5, 4, 1, M.g);
+      cv.rect(x0 + 5, y0 + 3, 2, 2, INK);
+    }
+
+    // Failed / broken: red jam bar on the drawer and blade sparks.
+    if (p.jam > 0.5) {
+      cv.rect(x0 + 3, y0 + 5, 5, 1, RED);
+      if (!low) {
+        if (safe(x0 + 3, y0 - 4)) cv.put(x0 + 3, y0 - 4, RED);
+        if (safe(x0 + 8, y0 - 4)) cv.put(x0 + 8, y0 - 4, RED);
+      }
+    }
+
+    const eyeY = y0 + (low ? 1 : 2);
+    const eyes = [[x0 + 3, eyeY], [x0 + 7, eyeY]];
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    if (c.eye.happy > 0.5) {
+      cv.put(x0 + 2, eyeY + 2, dim ? '#B48E86' : CORAL);
+      cv.put(x0 + 8, eyeY + 2, dim ? '#B48E86' : CORAL);
+    }
+    const top = y0 - crown.length - 1;
+    return { x0, y0, eyes, hands: true, mid: x0 + 5, top, left: x0 - 1, right: x0 + W + 2, ground: y0 + bodyH + 1, midY: y0 + 3, front: y0 + 4, pageX: x0 + 1 };
   }
 
   CHARACTERS.grok = {
     name: 'Grok',
     swatch: 0x0B0B0C,
-    fidgets: ['wink', 'hop', 'peek'],
+    fidgets: ['crank', 'shave', 'hop'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, face: '', glow: 0, lift: 0, dashed: 0 },
+    rest: { ...PIXEL_REST, tucked: 0, clasp: 0, jam: 0, crank: 'idle', shave: 'idle' },
     pose(s, t, T) {
       const b = basePose(s, t, T);
       switch (s) {
-        case 'thinking': return { ...b, face: 'dots', glow: 1, prop: '' };
-        case 'searching': return { ...b, dx: 0, legs: 'stand', eyes: 'wide', prop: 'radar' };
-        case 'web': return { ...b, dy: 0, prop: 'planet' };
-        case 'running': return { ...b, lift: 2 + (Math.floor(t * 10) % 2), dy: 0, prop: 'flame' };
-        case 'compacting': return { ...b, prop: 'swirl' };
-        case 'asking': return { ...b, face: 'bang', prop: '' };
-        case 'approving': return { ...b, glow: 1 };
-        case 'offline': return { ...b, dashed: 1, prop: '' };
-        case 'locked': return { ...b, prop: 'shackle', look: [0, -1] };
-        case 'finished': return { ...b, glow: 1 };
-        case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, gazeW: 0.3 };
+        case 'thinking':
+          return { ...b, armL: frac(t / 2.4) < 0.5 ? 'up' : 'out', look: [0, -1], gazeW: 0.1, crank: 'tick', shave: 'orbit', prop: '', propT: t };
+        case 'working': case 'writing': case 'running': {
+          const shake = Math.floor(t * 12) % 2;
+          return { ...b, dx: shake, dy: 0, armL: shake ? 'tap' : 'down', eyes: 'focus', look: [0, 1], gazeW: 0, crank: 'spin', shave: 'fly', prop: '', propT: t };
+        }
+        case 'compacting':
+          return { ...b, crank: 'spin', shave: 'swirl', prop: '', propT: t };
+        case 'failed': return { ...b, jam: t > 0.25 ? 1 : 0, shave: 'none' };
+        case 'broken': return { ...b, jam: 1, shave: 'none' };
+        case 'offline': return { ...b, crank: 'idle', shave: 'still' };
+        case 'locked': return { ...b, clasp: 1, crank: 'fold', shave: 'none', prop: '', look: [0, 1] };
+        case 'resting': return { ...b, dy: 1, tucked: 1, crank: 'fold', shave: 'none' };
+        case 'sleeping': return { ...b, crank: 'fold', shave: 'none' };
+        case 'crank': {
+          const on = t > 0.2 && t < 1.9;
+          return { ...b, armL: on ? 'up' : 'out', happy: on ? 1 : 0, crank: on ? 'spin' : 'idle', shave: on ? 'fly' : 'idle', propT: t, gazeW: 0 };
+        }
+        case 'shave': {
+          const on = t > 0.2 && t < 2.1;
+          return { ...b, armL: on ? 'high' : 'out', happy: t > 0.3 && t < 1.9 ? 1 : 0, crank: on ? 'tick' : 'idle', shave: on ? 'arc' : 'idle', propT: t, gazeW: 0 };
+        }
         default: return b;
       }
     },
     draw(p, c) {
       const back = canvas();
-      const { q, cv, a } = settled(p, (g, s, q, c) => ring(g, q, c), c);
+      const { q, cv, a } = settled(p, (g, s, q, c) => sharpener(g, q, c), c);
+      const putBit = (x, y, col) => { if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, col); };
       const t = q.propT;
-      // Rings, lines and sparks show only where the circle allows.
-      const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
-      switch (q.prop) {
-        case 'radar': {
-          // A ring steps outward from the body, then again.
-          const k = Math.floor(t * 4) % 3;
-          const r = [7.2, 8.2, 9.2][k];
-          for (let x = 0; x < GRID; x++) for (let y = 0; y < GRID; y++) {
-            const d = Math.hypot(x + 0.5 - a.cx - 0.5, y + 0.5 - a.cy - 0.5);
-            if (Math.abs(d - r) < 0.5 && !cv.has(x, y)) dot(k === 2 ? back : cv, x, y, k === 0 ? '#8D8C94' : '#B9B9C0');
-          }
-          break;
+      if (q.shave === 'idle') {
+        if (frac(c.T / 2.2) < 0.5) putBit(a.x0 + 9, a.y0 - 3, GOLD);
+      } else if (q.shave === 'still') {
+        putBit(a.x0 + 3, a.y0 - 3, SILVER_D);
+        putBit(a.x0 + 8, a.y0 - 3, SILVER_D);
+      } else if (q.shave === 'orbit') {
+        const f = Math.floor(t * 4) % 4;
+        const pts = [[a.x0 + 2, a.y0 - 3], [a.x0 + 4, a.y0 - 4], [a.x0 + 8, a.y0 - 4], [a.x0 + 10, a.y0 - 3]];
+        putBit(pts[f][0], pts[f][1], GOLD);
+        putBit(pts[(f + 2) % 4][0], pts[(f + 2) % 4][1], SILVER);
+      } else if (q.shave === 'fly') {
+        const f = Math.floor(t * 8) % 3;
+        putBit(a.x0 + 2, a.y0 - 4 + (f % 2), GOLD);
+        putBit(a.x0 + 1, a.y0 - 3, COVER);
+        putBit(a.x0 + 9, a.y0 - 4 + ((f + 1) % 2), COVER);
+        putBit(a.x0 + 10, a.y0 - 3, GOLD);
+      } else if (q.shave === 'swirl') {
+        for (let i = 0; i < 4; i++) {
+          const u = frac(steps(t, 8) / 1.1 + i / 4);
+          const ang = i * 90 + u * 220;
+          const r = lerp(6, 2, u);
+          putBit(rnd(a.mid + Math.sin(rad(ang)) * r), rnd(a.y0 - 2 - Math.cos(rad(ang)) * (r * 0.5)), i % 2 ? GOLD : COVER);
         }
-        case 'planet': {
-          const y = a.cy + 1;
-          for (let x = 0; x < GRID; x++) {
-            const inFace = Math.abs(x - a.cx) <= 6;
-            dot(inFace ? cv : back, x, inFace ? y + 1 : y, INK);
-          }
-          const m = Math.floor(t * 6) % 26;
-          const mx = m < 13 ? m * 2 - 2 : (25 - m) * 2 - 2;
-          for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(m < 13 ? cv : back, mx + dx, (m < 13 ? y + 2 : y - 2) + dy, '#9A9AA0');
-          break;
-        }
-        case 'flame':
-          for (let i = 0; i < 3; i++) {
-            const flick = (Math.floor(t * 12) + i) % 2;
-            dot(cv, a.cx - 1 + i, a.cy + 7, '#F5BE2E');
-            dot(cv, a.cx - 1 + i, a.cy + 8 + flick, '#F2832B');
-            if (i === 1) dot(cv, a.cx, a.cy + 9 + flick, '#F2483B');
-          }
-          break;
-        case 'shackle': {
-          // A padlock's shackle over the ring, so the whole bot reads as a lock.
-          const steel = '#8D8C94';
-          for (let x = a.cx - 2; x <= a.cx + 3; x++) dot(cv, x, a.cy - 8, steel);
-          for (const x of [a.cx - 2, a.cx + 3]) dot(cv, x, a.cy - 7, steel);
-          break;
-        }
-        case 'swirl':
-          for (let i = 0; i < 6; i++) {
-            const u = frac(steps(t, 8) / 1.1 + i / 6);
-            const ang = i * 60 + u * 220;
-            const r = lerp(9, 4, u);
-            dot(cv, rnd(a.cx + 0.5 + Math.sin(rad(ang)) * r), rnd(a.cy + 0.5 - Math.cos(rad(ang)) * r), INK);
-          }
-          break;
-        default:
-          pxProp(cv, back, q, a, pal, c);
+      } else if (q.shave === 'arc') {
+        const step = Math.floor(t * 5) % 4;
+        const spots = [[a.x0 + 1, a.y0 - 4], [a.x0 + 4, a.y0 - 5], [a.x0 + 7, a.y0 - 5], [a.x0 + 10, a.y0 - 4]];
+        for (let i = 0; i < 4; i++) putBit(spots[i][0], spots[i][1] - (i === step ? 1 : 0), i % 2 ? GOLD : COVER);
       }
+      if (q.prop) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
 // Cursor shares Grok's subscription, so it has no character of its own any
-// more (the user, 2026-10-19): it draws Grok's ring.
+// more (the user, 2026-10-19): it draws Grok's sharpener (and looks).
 CHARACTERS.cursor = CHARACTERS.grok;
 
 // MARK: - Kimi Code · the pixel blob and its terminal
@@ -2812,6 +2892,135 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   });
 })();
 
+// MARK: - Antigravity · the balloon
+//
+// A hot-air balloon, drawn from Codex's own concept Aeri (a floating blue
+// "A" with a cream face band, a coral mouth and four satellites) rather than
+// traced from it: Aeri floats, so this one flies. Her four satellites (blue,
+// coral, yellow, green) become the gores of its envelope, curving in at the
+// crown and the skirt; her face band runs round its middle, with her coral
+// mouth on it when it's happy; a wicker basket hangs below with a sandbag each side. Its
+// gores turn while it thinks, its burner flares while it works, its envelope
+// sags onto the basket when it fails, and it lands to rest. (The user's
+// pick, 2026-10-17, over round 4's rainbow "A", which is kept in retired/.)
+
+(() => {
+  const GORES = [['#4D96EB', '#B7D5F5', '#3A7BC8'], ['#E77C65', '#F6B4A6', '#C9604B'], ['#F2BB55', '#FBE2AE', '#D49A33'], ['#56AB78', '#A9DDBB', '#3F8A5D']];
+  const DIM_GORES = [['#9EA6B4', '#C7CCD6', '#868E9C'], ['#B2A9A6', '#D3CDCB', '#988F8C'], ['#BDB4A1', '#DCD6CA', '#A39A88'], ['#A3ABA5', '#C9CFCB', '#8A928C']];
+  const FACE = '#FFF2D8', DIM_FACE = '#D9D2C4', INK = '#263349', MOUTH = '#E77C65';
+  const WICKER = '#D9A04A', WICKER_DARK = '#A8742E', RIM = '#7A5226', BAG = '#E6D3AE', BAG_DARK = '#BFA77A', BURNER = '#8D94A6';
+  const DIM_WICKER = '#B8AE9C', DIM_RIM = '#8E8678';
+  const FLAME = ['#F2BB55', '#E77C65'];
+  const X0 = 5, Y0 = 3;
+  // The envelope's rows, [first, last] cell from its left edge: a round
+  // crown, widest a third of the way down, tapering to the skirt.
+  const ENVELOPE = [[4, 7], [2, 9], [1, 10], [0, 11], [0, 11], [0, 11], [0, 11], [1, 10], [2, 9], [3, 8], [4, 7]];
+  // Let down (failed, broken): squat and slumped onto the basket.
+  const SAGGED = [[3, 8], [1, 10], [0, 11], [0, 11], [0, 11], [1, 10], [3, 8]];
+  const FACE_ROWS = [4, 5, 6];
+  const MINI = ['.##.', '####', '####', '.##.', '.#..'];
+  const pal = {
+    main: GORES[0][0], body: GORES[0][0], dark: INK, light: GORES[0][1], accent: MOUTH,
+    mini: (cv, x, y) => { cv.glyph(MINI, x, y, GORES[0][0]); cv.put(x + 2, y + 1, GORES[1][0]); cv.put(x + 2, y + 2, GORES[1][0]); cv.put(x + 1, y + 4, WICKER); },
+  };
+
+  function balloon(cv, p, c) {
+    const dim = p.dim > 0.5;
+    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy);
+    const sag = p.sag > 0.5;
+    const rows = sag ? SAGGED : ENVELOPE;
+    // A sagging envelope slumps down onto the basket.
+    const top = y0 + (sag ? ENVELOPE.length - SAGGED.length + 2 : 0);
+    const spin = rnd(p.spin ?? 0);
+    const gores = dim ? DIM_GORES : GORES;
+    const faceRows = sag ? [2, 3, 4] : FACE_ROWS;
+    rows.forEach(([a, b], j) => {
+      const w = b - a + 1;
+      for (let i = a; i <= b; i++) {
+        // The gores curve in at the crown and the skirt: each row splits its
+        // own width four ways.
+        const g = gores[((Math.floor((i - a) * 4 / w) + spin) % 4 + 4) % 4];
+        const shine = !sag && ((j === 1 && i === 3) || (j === 2 && i === 2) || (j === 3 && i === 1));
+        const color = faceRows.includes(j) ? (dim ? DIM_FACE : FACE) : shine ? g[1] : j === rows.length - 1 ? g[2] : g[0];
+        cv.put(x0 + i, top + j, color);
+      }
+    });
+    // Ropes and the burner, the basket and its sandbags.
+    const bottom = y0 + 13;
+    if (!sag) {
+      for (const i of [4, 7]) { cv.put(x0 + i, y0 + 11, p.lock ? BURNER : INK); cv.put(x0 + i, y0 + 12, INK); }
+      cv.rect(x0 + 5, y0 + 12, 2, 1, BURNER);
+      if (p.smoke) {
+        // A puff from the dead burner, drifting out past the right rope.
+        const u = frac(c.T / 1.6);
+        if (u < 0.8) cv.rect(x0 + 8 + rnd(u * 2), y0 + 11 - rnd(u * 2), 2, 1, '#BDB7B4');
+      }
+      if (p.flame) {
+        const f = Math.floor(c.T * 8) % 2;
+        cv.put(x0 + 5, y0 + 11, FLAME[f]); cv.put(x0 + 6, y0 + 11, FLAME[1 - f]);
+      }
+    }
+    cv.rect(x0 + 3, bottom, 6, 1, dim ? DIM_RIM : RIM);
+    for (let i = 0; i < 6; i++) cv.put(x0 + 3 + i, bottom + 1, dim ? DIM_WICKER : i % 2 ? WICKER_DARK : WICKER);
+    cv.rect(x0 + 3, bottom + 2, 6, 1, dim ? DIM_RIM : WICKER_DARK);
+    for (const x of [x0 + 2, x0 + 9]) { cv.put(x, bottom, dim ? DIM_WICKER : BAG); cv.put(x, bottom + 1, dim ? DIM_WICKER : BAG_DARK); }
+    // Locked: a steel padlock hangs on the basket's front, its shackle round the
+    // burner, so it can't take off.
+    if (p.lock && !sag) {
+      cv.rect(x0 + 4, bottom, 4, 2, '#B9BECB');
+      cv.rect(x0 + 4, bottom + 1, 4, 1, BURNER);
+      cv.put(x0 + 5, bottom, INK);
+      cv.put(x0 + 5, bottom + 1, INK);
+    }
+    const eyeRow = top + faceRows[0];
+    const eyes = [[x0 + 3, eyeRow], [x0 + 8, eyeRow]];
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    // The coral mouth shows only when it's happy (the user, 2026-10-19).
+    if (c.eye.happy > 0.5) cv.rect(x0 + 5, eyeRow + 2, 2, 1, dim ? '#B2A9A6' : MOUTH);
+    return { x0, y0: top, eyes, mid: x0 + 6, top, left: x0, right: x0 + 11, ground: bottom + 2, midY: top + 5, front: top + 7, pageX: x0 + 2 };
+  }
+
+  addLook('antigravity', 'balloon', 'Balloon', {
+    name: 'Antigravity',
+    swatch: 0x3D7BF5,
+    fidgets: ['spin', 'puff', 'hop'],
+    cycle: PIXEL_CYCLE,
+    rest: { ...PIXEL_REST, spin: 0, flame: 0, sag: 0, lock: 0, smoke: 0 },
+    pose(s, t, T) {
+      const b = basePose(s, t, T);
+      // Rising and sinking on the air, a cell at a time.
+      const ride = frac(T / 3) < 0.5 ? 0 : -1;
+      switch (s) {
+        case 'idle': return { ...b, dy: ride };
+        // Thinking: the envelope turns slowly, gore by gore.
+        case 'thinking': return { ...b, dy: ride, spin: Math.floor(t / 0.6) % 4, look: [0, -1], prop: '' };
+        // Busy: the burner flares.
+        case 'writing': case 'working': case 'running': return { ...b, dy: 0, flame: 2, prop: s === 'working' ? b.prop : '' };
+        case 'failed': return { ...b, sag: t > 0.3 ? 1 : 0, dy: 0 };
+        case 'broken': return { ...b, sag: 1, dy: 0 };
+        // Offline: the burner has gone out; it hangs low, smoke drifting off.
+        case 'offline': return { ...b, dy: 1, smoke: 1, prop: '' };
+        // Locked: a padlock on the burner, so it can't take off; landed.
+        case 'locked': return { ...b, dy: 1, lock: 1, prop: '', look: [0, 1] };
+        // Asleep (its app away) it has landed, basket on the ground.
+        case 'resting': return { ...b, dy: 1 };
+        // Out of quota: landed too, rising a cell on each slow breath.
+        case 'sleeping': return { ...b, dy: b.dy - 1 };
+        // Fidgets: one full turn; a puff of the burner and a lift.
+        case 'spin': return { ...b, spin: t > 0.4 && t < 2.0 ? Math.floor((t - 0.4) / 0.4) + 1 : 0, happy: t > 0.4 && t < 2.0 ? 1 : 0, gazeW: 0 };
+        case 'puff': return { ...b, flame: t > 0.3 && t < 1.2 ? 2 : 0, dy: t > 0.6 && t < 1.8 ? -1 : 0, look: [0, -1], gazeW: 0 };
+        default: return b;
+      }
+    },
+    draw(p, c) {
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => balloon(g, q, c), c);
+      pxProp(cv, back, q, a, pal, c);
+      return pixels(back, c, 0.7) + pixels(cv, c);
+    },
+  });
+})();
+
 // MARK: - Antigravity · the pixel rainbow
 //
 // Antigravity's "A" as a pixel arch in rainbow stripes, hovering a couple
@@ -3523,6 +3732,145 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
         return true;
       }
       return false;
+    },
+  });
+})();
+
+// MARK: - Grok · the slashed ring (former default, kept as a selectable look)
+
+(() => {
+  const INK = '#0B0B0C', DIM_INK = '#5A5A60', FACE = '#F4F4F1', DIM_FACE = '#CFCFCB', DOT = '#B4B4B0';
+  const CX = 11, CY = 11;
+  const MINI = ['..#.#', '.###.', '#w#w#', '#www#', '.###.', '#....'];
+  const pal = {
+    main: INK, body: INK, dark: INK, light: '#9A9AA0', accent: INK,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { w: FACE }),
+  };
+  const lookOf = c => [c.eye.lx, c.eye.ly];
+
+  function pillEyes(cv, cx, cy, p, c, ink, dim, h) {
+    const [lx, ly] = lookOf(c);
+    const top = cy - 2 + ly;
+    const xs = [cx - 3 + lx, cx + 2 + lx];
+    const e = c.eye;
+    if (p.face === 'dots') {
+      const k = Math.floor(p.propT * 4) % 3;
+      [cx - 4, cx, cx + 4].forEach((x, i) => cv.rect(x + lx, cy - 1 + ly, 2, 2, i === k ? ink : dim));
+      return;
+    }
+    if (p.face === 'bang') {
+      cv.rect(cx, cy - 4, 2, 4, ink);
+      cv.rect(cx, cy + 1, 2, 2, ink);
+      return;
+    }
+    xs.forEach((x, i) => {
+      const right = i === 1;
+      const mood = e.cross > 0.5 ? 'cross' : (e.happy > 0.5 || (right && e.wink > 0.5)) ? 'happy' : e.sleep > 0.5 ? 'closed'
+        : e.open < 0.45 ? 'blink' : p.eyes;
+      if (mood === 'cross') for (const [dx, dy] of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, 2], [1, 2], [-1, 3], [2, 3]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'happy') for (const [dx, dy] of [[-1, 2], [0, 1], [1, 1], [2, 2]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'content') for (const [dx, dy] of [[-1, 2], [0, 3], [1, 3], [2, 2]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'closed') cv.rect(x - (right ? 0 : 1), top + 3, 3, 1, ink);
+      else if (mood === 'blink' || mood === 'rest') cv.rect(x, top + 2, 2, 1, ink);
+      else if (mood === 'focus') cv.rect(x, top + 1, 2, 2, ink);
+      else if (mood === 'wide') cv.rect(x, top - 1, 2, h + 1, ink);
+      else if (mood === 'sad') { cv.rect(x, top + 2, 2, 2, ink); cv.put(right ? x : x + 1, top + 1, ink); }
+      else cv.rect(x, top, 2, h, ink);
+    });
+  }
+
+  function ring(cv, p, c) {
+    const cx = CX + rnd(p.dx), cy = CY + rnd(p.dy) - rnd(p.lift);
+    const dim = p.dim > 0.5;
+    const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
+    const inner = p.sq > 0.5 ? 3.4 : 4.5;
+    for (const [dx, dy] of [[5, -5], [6, -6], [-5, 5], [-6, 6]]) cv.put(cx + dx, cy + dy, ink);
+    cv.shape((x, y) => Math.hypot(x - cx - 0.5, y - cy - 0.5) <= 6.5, cx - 7, cy - 7, 15, 15, (x, y) => {
+      const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
+      if (d < inner) return face;
+      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + Math.floor(c.T * 6)) % 2) return face;
+      return ink;
+    });
+    if (p.glow && Math.floor(c.T * 4) % 2) cv.put(cx + 5, cy - 7, '#F5BE2E');
+    pillEyes(cv, cx, cy, p, c, ink, DOT, 3);
+    return { mid: cx, top: cy - 8, left: cx - 7, right: cx + 8, ground: cy + 8, midY: cy, front: cy + 1, eyes: [[cx - 3, cy - 2], [cx + 2, cy - 2]], cx, cy, hands: false };
+  }
+
+  addLook('grok', 'ring', 'Slashed ring', {
+    name: 'Grok',
+    swatch: 0x0B0B0C,
+    fidgets: ['wink', 'hop', 'peek'],
+    cycle: PIXEL_CYCLE,
+    rest: { ...PIXEL_REST, face: '', glow: 0, lift: 0, dashed: 0 },
+    pose(s, t, T) {
+      const b = basePose(s, t, T);
+      switch (s) {
+        case 'thinking': return { ...b, face: 'dots', glow: 1, prop: '' };
+        case 'searching': return { ...b, dx: 0, legs: 'stand', eyes: 'wide', prop: 'radar' };
+        case 'web': return { ...b, dy: 0, prop: 'planet' };
+        case 'running': return { ...b, lift: 2 + (Math.floor(t * 10) % 2), dy: 0, prop: 'flame' };
+        case 'compacting': return { ...b, prop: 'swirl' };
+        case 'asking': return { ...b, face: 'bang', prop: '' };
+        case 'approving': return { ...b, glow: 1 };
+        case 'offline': return { ...b, dashed: 1, prop: '' };
+        case 'locked': return { ...b, prop: 'shackle', look: [0, -1] };
+        case 'finished': return { ...b, glow: 1 };
+        case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, gazeW: 0.3 };
+        default: return b;
+      }
+    },
+    draw(p, c) {
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => ring(g, q, c), c);
+      const t = q.propT;
+      const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
+      switch (q.prop) {
+        case 'radar': {
+          const k = Math.floor(t * 4) % 3;
+          const r = [7.2, 8.2, 9.2][k];
+          for (let x = 0; x < GRID; x++) for (let y = 0; y < GRID; y++) {
+            const d = Math.hypot(x + 0.5 - a.cx - 0.5, y + 0.5 - a.cy - 0.5);
+            if (Math.abs(d - r) < 0.5 && !cv.has(x, y)) dot(k === 2 ? back : cv, x, y, k === 0 ? '#8D8C94' : '#B9B9C0');
+          }
+          break;
+        }
+        case 'planet': {
+          const y = a.cy + 1;
+          for (let x = 0; x < GRID; x++) {
+            const inFace = Math.abs(x - a.cx) <= 6;
+            dot(inFace ? cv : back, x, inFace ? y + 1 : y, INK);
+          }
+          const m = Math.floor(t * 6) % 26;
+          const mx = m < 13 ? m * 2 - 2 : (25 - m) * 2 - 2;
+          for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(m < 13 ? cv : back, mx + dx, (m < 13 ? y + 2 : y - 2) + dy, '#9A9AA0');
+          break;
+        }
+        case 'flame':
+          for (let i = 0; i < 3; i++) {
+            const flick = (Math.floor(t * 12) + i) % 2;
+            dot(cv, a.cx - 1 + i, a.cy + 7, '#F5BE2E');
+            dot(cv, a.cx - 1 + i, a.cy + 8 + flick, '#F2832B');
+            if (i === 1) dot(cv, a.cx, a.cy + 9 + flick, '#F2483B');
+          }
+          break;
+        case 'shackle': {
+          const steel = '#8D8C94';
+          for (let x = a.cx - 2; x <= a.cx + 3; x++) dot(cv, x, a.cy - 8, steel);
+          for (const x of [a.cx - 2, a.cx + 3]) dot(cv, x, a.cy - 7, steel);
+          break;
+        }
+        case 'swirl':
+          for (let i = 0; i < 6; i++) {
+            const u = frac(steps(t, 8) / 1.1 + i / 6);
+            const ang = i * 60 + u * 220;
+            const r = lerp(9, 4, u);
+            dot(cv, rnd(a.cx + 0.5 + Math.sin(rad(ang)) * r), rnd(a.cy + 0.5 - Math.cos(rad(ang)) * r), INK);
+          }
+          break;
+        default:
+          pxProp(cv, back, q, a, pal, c);
+      }
+      return pixels(back, c, 0.7) + pixels(cv, c);
     },
   });
 })();
@@ -4481,8 +4829,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
 for (const [kind, id, name] of [
   ['claude', 'clawd', 'Clawd'],
   ['codex', 'notebook', 'Notebook'],
-  ['antigravity', 'balloon', 'Balloon'],
-  ['grok', 'ring', 'Slashed ring'],
+  ['antigravity', 'eraser', 'Eraser'],
+  ['grok', 'sharpener', 'Sharpener'],
   ['kimi', 'blob', 'Blob and terminal'],
   ['deepseek', 'whale', 'Whale'],
 ]) addLook(kind, id, name, CHARACTERS[kind], true);

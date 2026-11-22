@@ -8,7 +8,7 @@ final class AppController {
     static let shared = AppController()
 
     let bridge: CoreBridge?
-    private let coreQueue = DispatchQueue(label: "dev.edgelings.core", qos: .userInitiated)
+    private let coreQueue = DispatchQueue(label: "dev.limen.core", qos: .userInitiated)
     private var timer: Timer?
     private var polling = false
     private var polls = 0
@@ -27,7 +27,7 @@ final class AppController {
 
     private init() {
         bridge = CoreBridge(libraryPath: AppController.libraryPath())
-        if bridge == nil { NSLog("Edgelings: Core library did not load") }
+        if bridge == nil { NSLog("Limen: Core library did not load") }
         // The bundled SQLite lives beside the Core dylib; Core is told where.
         let folder = URL(fileURLWithPath: AppController.libraryPath()).deletingLastPathComponent().path
         bridge?.request("configure", ["native": folder])
@@ -47,7 +47,7 @@ final class AppController {
 
     /// Where the bundled character engines are.
     static func enginesDirectory() -> String {
-        if let override = ProcessInfo.processInfo.environment["EDGELINGS_ENGINES"] { return override }
+        if let override = ProcessInfo.processInfo.environment["LIMEN_ENGINES"] ?? ProcessInfo.processInfo.environment["EDGELINGS_ENGINES"] { return override }
         return Bundle.main.resourceURL?.appendingPathComponent("Characters").path ?? "Characters"
     }
 
@@ -88,7 +88,7 @@ final class AppController {
                 guard let self else { return }
                 self.polling = false
                 guard let decoded else {
-                    if let error = reply["error"] { NSLog("Edgelings: frame failed: \(error)") }
+                    if let error = reply["error"] { NSLog("Limen: frame failed: \(error)") }
                     return
                 }
                 self.frame = decoded

@@ -1,4 +1,4 @@
-// `Edgelings --bench-loop [--scale 2] [--rounds 300] [--max-busy N] [--max-calm N]`:
+// `Limen --bench-loop [--scale 2] [--rounds 300] [--max-busy N] [--max-calm N]`:
 // what the drawer's loop costs per frame, stage by stage, with seven characters
 // at a Retina backing scale. It runs the real engines on JavaScriptCore and the
 // real SvgCanvas into bitmaps the size the drawer uses, then turns the per-frame

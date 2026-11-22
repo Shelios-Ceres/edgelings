@@ -30,7 +30,7 @@ public static class Program
         return 0;
     }
 
-    /// Two live copies sharing %APPDATA%\Edgelings corrupt each other's
+    /// Two live copies sharing %APPDATA%\Limen corrupt each other's
     /// preferences, so a second launch bows out. The WPF app used the
     /// same mutex, so the two never ran together.
     private static bool ClaimSingleInstance()
@@ -74,15 +74,15 @@ public static class Program
         return true;
     }
 
-    // Agent Island's names first, then Edgelings'.
-    private static readonly string[] MutexNames = { @"Local\AgentIsland.SingleInstance", @"Local\Edgelings.SingleInstance" };
-    private static readonly string[] RelaunchNames = { @"Local\AgentIsland.Relaunch", @"Local\Edgelings.Relaunch" };
+    // Agent Island's and Edgelings' names first, then Limen's.
+    private static readonly string[] MutexNames = { @"Local\AgentIsland.SingleInstance", @"Local\Edgelings.SingleInstance", @"Local\Limen.SingleInstance" };
+    private static readonly string[] RelaunchNames = { @"Local\AgentIsland.Relaunch", @"Local\Edgelings.Relaunch", @"Local\Limen.Relaunch" };
     private static readonly List<Mutex> _singleInstance = new();
     private static readonly List<EventWaitHandle> _relaunch = new();
     // Held so the waits go on for the life of the app.
     private static readonly List<RegisteredWaitHandle> _relaunchWaits = new();
 
-    /// Knocks on every copy that listens: an Agent Island build on its old name, an Edgelings one on either.
+    /// Knocks on every copy that listens: an older build on its old name, a Limen one on any.
     private static void Knock()
     {
         foreach (var name in RelaunchNames)

@@ -16,8 +16,11 @@ namespace AgentIsland.Cost;
 public static class KimiLogReader
 {
     // v3 carries usage identity so copied session histories count only once;
-    // v4 tags the memory plugin's background runs.
-    private static readonly LogParseCache Cache = new(TriggerTool.Kimi, "kimi-parse-cache.v4.json");
+    // v4 tags the memory plugin's background runs;
+    // v5 keys Kimi Work records missing agentId by per-file occurrence so
+    // copied sessions deduplicate across files without collapsing within-file
+    // legacy records.
+    private static readonly LogParseCache Cache = new(TriggerTool.Kimi, "kimi-parse-cache.v5.json");
 
     /// The model id the Usage & cost page lists the memory plugin's background
     /// runs under (shown as "Memory (background)", see ProviderCostSummary.NameOf).
@@ -182,15 +185,27 @@ public static class KimiLogReader
     private static string? PricedAs(string model, IReadOnlyDictionary<string, string> providerModels) =>
         providerModels.TryGetValue(model, out var priced) && !Pricing.IsKnown(model) ? priced : null;
 
+    private const string AnonymousKeyPrefix = "anon:";
+
     internal static List<TokenEvent> ParseFile(string path)
     {
         var output = new List<TokenEvent>();
+        var anonymousCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         // Tool results and appended messages dominate the log; only usage
         // records matter, and the substring guard skips the rest before any
         // JSON parse.
         foreach (var line in LogLines.Read(path, maxLength: 100_000, mustContain: "\"usage.record\""))
         {
-            if (Parse(line) is { } tokenEvent) output.Add(tokenEvent);
+            if (Parse(line) is not { } tokenEvent) continue;
+            if (tokenEvent.ResponseKey is { } key && key.StartsWith(AnonymousKeyPrefix, StringComparison.Ordinal))
+            {
+                // Preserve duplicate timestamps within a single legacy log
+                // while still deduplicating copied Kimi Work sessions across files.
+                var occurrence = anonymousCounts.GetValueOrDefault(key);
+                anonymousCounts[key] = occurrence + 1;
+                tokenEvent = tokenEvent with { ResponseKey = $"{key}#{occurrence}" };
+            }
+            output.Add(tokenEvent);
         }
         if (output.Count > 0 && KimiMemoryRuns.IsMemoryRunLog(path))
         {
@@ -215,9 +230,12 @@ public static class KimiLogReader
         var model = Jsonl.GetString(root, "model") ?? "kimi";
         var agent = Jsonl.GetString(root, "agentId");
         var scope = Jsonl.GetString(root, "usageScope");
+        var shape = $"{ms.ToString("R", CultureInfo.InvariantCulture)}|{model}|{input}|{output}|{cacheCreation}|{cacheRead}";
         var key = agent is { Length: > 0 } && scope is { Length: > 0 }
-            ? $"{agent.Length}:{agent}{scope.Length}:{scope}|{ms.ToString("R", CultureInfo.InvariantCulture)}|{model}|{input}|{output}|{cacheCreation}|{cacheRead}"
-            : null;
+            ? $"{agent.Length}:{agent}{scope.Length}:{scope}|{shape}"
+            : scope is { Length: > 0 }
+                ? $"{AnonymousKeyPrefix}{scope.Length}:{scope}|{shape}"
+                : null;
         return new TokenEvent(
             TriggerTool.Kimi,
             DateTimeOffset.FromUnixTimeMilliseconds((long)ms),

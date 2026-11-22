@@ -58,6 +58,8 @@ function rng(seed) {
 // MARK: - SVG
 
 const n = v => {
+  // A whole number prints as itself (the rounding below leaves it alone).
+  if ((v | 0) === v) return String(v);
   const r = Math.round(v * 100) / 100;
   return r === 0 ? '0' : String(r);
 };
@@ -133,6 +135,8 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true, look: lookId 
   let pokeAt = -99;
   let rimWidth = rim ? 0.9 : 0;
   let pose = null;
+  // The layers pixels() drew last frame, in the order it drew them.
+  const memo = { layers: [], at: 0, body: null, misses: 0, rest: 0, hits: 0, draws: 0 };
 
   const poseOf = s => ({ ...rest, ...def.pose(s.state, s.t, T, k) });
 
@@ -195,9 +199,13 @@ export function createBot(kind, { seed = 1, tempo = 1, rim = true, look: lookId 
       const q = T - blinkAt;
       const blink = shown.blink > 0.5 && q < 0.17 ? bump(q / 0.17) : 0;
       const eye = { look: [look[0], look[1]] };
+      eye.lx = clamp(rnd(look[0] * 1.3), -1, 1);
+      eye.ly = clamp(rnd(look[1] * 1.2), -1, 1);
+      eye.ly1 = clamp(rnd(look[1]), -1, 1);
       for (const key of EYE_KEYS) eye[key] = shown[key];
       eye.open = shown.open * (1 - blink);
-      const c = { T, id, rim: rimWidth, eye, k };
+      const c = { T, id, rim: rimWidth, eye, k, memo };
+      memo.at = 0;
       const body = def.draw(shown, c);
       // A click makes the character hop a whole pixel (2 DIP), so pixel art
       // stays on its grid.
@@ -232,29 +240,62 @@ const steps = (t, fps) => Math.floor(t * fps) / fps;
 // Integer steps from a to b as u runs 0..1: a walk, one pixel at a time.
 const stepsTo = (u, a, b) => Math.round(lerp(a, b, clamp(u)));
 
+// A cell's key in a canvas's Map: one integer for a whole-number cell (every
+// cell the characters paint), the "x,y" text for anything else, so an odd
+// coordinate stays a cell of its own as it always was. The Map keeps its
+// insertion order whatever the key, so the order cells are visited in, and so
+// the SVG, is what the text keys gave.
+const CELL_BASE = 1024;
+const cellKey = (x, y) => (x | 0) === x && (y | 0) === y && x > -CELL_BASE && x < CELL_BASE && y > -CELL_BASE && y < CELL_BASE
+  ? ((y + CELL_BASE) << 11) | (x + CELL_BASE) : `${x},${y}`;
+// An odd cell's text key, read back into its two numbers once.
+const ODD_XY = new Map();
+const oddXY = k => {
+  let xy = ODD_XY.get(k);
+  if (!xy) {
+    if (ODD_XY.size > 4096) ODD_XY.clear();
+    const [x, y] = k.split(',');
+    ODD_XY.set(k, xy = [Number(x), Number(y)]);
+  }
+  return xy;
+};
+// ...and its 8 neighbours' keys, in NEIGHBORS_8's order (odd as well).
+const oddRing = k => {
+  const xy = oddXY(k);
+  return xy.ring ??= [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].map(([dx, dy]) => cellKey(xy[0] + dx, xy[1] + dy));
+};
+const cellX = k => typeof k === 'number' ? (k & 2047) - CELL_BASE : oddXY(k)[0];
+const cellY = k => typeof k === 'number' ? (k >> 11) - CELL_BASE : oddXY(k)[1];
+const NEIGHBORS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+const NEIGHBORS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 // A pixel canvas: cells keyed by column and row; later paint wins.
 function canvas() {
   const cells = new Map();
   const put = (x, y, color) => {
     if (x < -2 || x > GRID + 1 || y < -2 || y > GRID + 1 || !color) return;
-    cells.set(`${x},${y}`, color);
+    cells.set(cellKey(x, y), color);
   };
   const cv = {
     cells,
     put,
-    has: (x, y) => cells.has(`${x},${y}`),
-    get: (x, y) => cells.get(`${x},${y}`),
-    clear: (x, y) => cells.delete(`${x},${y}`),
+    has: (x, y) => cells.has(cellKey(x, y)),
+    get: (x, y) => cells.get(cellKey(x, y)),
+    clear: (x, y) => cells.delete(cellKey(x, y)),
     rect(x, y, w, h, color) {
       for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, color);
     },
     // Rows of characters: '#' takes `color`, '.' is empty, other letters map.
     glyph(rows, x, y, color, map = {}, flip = false) {
-      rows.forEach((row, j) => [...row].forEach((ch, i) => {
-        const cx = flip ? x + row.length - 1 - i : x + i;
-        if (ch === '#') put(cx, y + j, color);
-        else if (ch !== '.') put(cx, y + j, map[ch] ?? '#FFFFFF');
-      }));
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        for (let i = 0; i < row.length; i++) {
+          const ch = row[i];
+          const cx = flip ? x + row.length - 1 - i : x + i;
+          if (ch === '#') put(cx, y + j, color);
+          else if (ch !== '.') put(cx, y + j, map[ch] ?? '#FFFFFF');
+        }
+      }
     },
     // Every cell whose centre passes `inside(x, y)` within the box.
     shape(inside, x0, y0, w, h, color) {
@@ -266,10 +307,13 @@ function canvas() {
     },
     // A darker line just outside the given cells, for pale bodies on pale walls.
     outline(list, color) {
-      const mine = new Set(list.map(([x, y]) => `${x},${y}`));
-      for (const [x, y] of list) {
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const k = `${x + dx},${y + dy}`;
+      const mine = new Set();
+      for (let i = 0; i < list.length; i++) mine.add(cellKey(list[i][0], list[i][1]));
+      for (let i = 0; i < list.length; i++) {
+        const x = list[i][0], y = list[i][1];
+        for (let j = 0; j < 4; j++) {
+          const dx = NEIGHBORS_4[j][0], dy = NEIGHBORS_4[j][1];
+          const k = cellKey(x + dx, y + dy);
           if (!mine.has(k) && !cells.has(k)) put(x + dx, y + dy, color);
         }
       }
@@ -278,45 +322,209 @@ function canvas() {
   return cv;
 }
 
+// A row's cell columns in ascending order. Sorting rows is the hot loop, and
+// a comparator sort is slow in some script engines; the rows are short.
+function sortRow(xs) {
+  for (let i = 1; i < xs.length; i++) {
+    const v = xs[i];
+    let j = i - 1;
+    while (j >= 0 && xs[j] > v) { xs[j + 1] = xs[j]; j--; }
+    xs[j + 1] = v;
+  }
+}
+
+// The cells round a canvas's cells (their 8 neighbours that hold no cell),
+// as cell keys in the order they are first met walking the cells in order.
+// Whole-number cells, all a canvas holds but for a few odd frames, are
+// marked on a small grid instead of looked up in a Map and a Set.
+const RING_W = 40;
+// A cell (or a ring cell) is marked with the current stamp, so nothing needs clearing between frames.
+const RING_CELLS = new Int32Array(RING_W * RING_W);
+const RING_SEEN = new Int32Array(RING_W * RING_W);
+let ringStamp = 0;
+function ringOf(cells) {
+  const cell = RING_CELLS, seen = RING_SEEN, out = [];
+  // Stamps count up on every call; before they pass what an Int32Array holds, start the marks afresh.
+  if (ringStamp === 0x7FFFFFFF) { RING_CELLS.fill(0); RING_SEEN.fill(0); ringStamp = 0; }
+  const stamp = ++ringStamp;
+  let odd = null;
+  cells.forEach((color, key) => {
+    if (typeof key === 'number') cell[((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6] = stamp;
+  });
+  cells.forEach((color, key) => {
+    if (typeof key !== 'number') {
+      const ring = oddRing(key);
+      for (let i = 0; i < 8; i++) {
+        const k = ring[i];
+        if (!cells.has(k) && !(odd ??= new Set()).has(k)) { odd.add(k); out.push(k); }
+      }
+      return;
+    }
+    const at = ((key >> 11) - CELL_BASE + 6) * RING_W + (key & 2047) - CELL_BASE + 6;
+    for (let i = 0; i < 8; i++) {
+      const next = at + RING_STEP[i];
+      if (cell[next] !== stamp && seen[next] !== stamp) {
+        seen[next] = stamp;
+        out.push(key + RING_KEY_STEP[i]);
+      }
+    }
+  });
+  return out;
+}
+// The neighbours in NEIGHBORS_8's order, as steps on the grid and on cell keys.
+const RING_STEP = NEIGHBORS_8.map(([dx, dy]) => dy * RING_W + dx);
+const RING_KEY_STEP = NEIGHBORS_8.map(([dx, dy]) => (dy << 11) + dx);
+
+// A list of cell keys as path data: row by row in the order rows first
+// appear, each row's cells in ascending order with neighbours merged into one
+// rectangle. A row of whole-number cells is a 32-bit mask (columns -4 to 27),
+// so the merging is a scan of bits; anything else takes the general route.
+const ROW_MASKS = new Int32Array(64);
+const RUN_TEXT = new Map();
+function runsOf(list) {
+  const order = [];
+  let whole = true;
+  for (const key of list) {
+    if (typeof key !== 'number') { whole = false; break; }
+    const row = (key >> 11) - 1000, col = (key & 2047) - 1020;
+    if (row < 0 || row > 63 || col < 0 || col > 31) { whole = false; break; }
+    if (ROW_MASKS[row] === 0) order.push(row);
+    ROW_MASKS[row] |= 1 << col;
+  }
+  if (!whole) {
+    for (const row of order) ROW_MASKS[row] = 0;
+    return runsMixed(list);
+  }
+  let d = '';
+  for (const row of order) {
+    const y = row - 24;
+    const mask = ROW_MASKS[row];
+    ROW_MASKS[row] = 0;
+    let col = 0;
+    while (col < 32) {
+      if ((mask & (1 << col)) === 0) { col++; continue; }
+      let end = col;
+      while (end < 31 && (mask & (1 << (end + 1))) !== 0) end++;
+      const start = col - 4;
+      // A run's text depends only on where it starts, how long it is and its row.
+      const id = (y + 8) * 4096 + (start + 8) * 64 + (end - col);
+      let text = RUN_TEXT.get(id);
+      if (text === undefined) {
+        text = `${M(start * PX, y * PX)}H${n((end - 3) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+        RUN_TEXT.set(id, text);
+      }
+      d += text;
+      col = end + 1;
+    }
+  }
+  return d;
+}
+
+// The rows of a list holding odd cells, as runsGeneral() reads them: rows in
+// the order they first appear, each row's cells ascending. A row of whole
+// cells within the mask's columns keeps the mask; any other row is sorted.
+function runsMixed(list) {
+  const rows = new Map();
+  for (const key of list) {
+    let x, y;
+    if (typeof key === 'number') { x = (key & 2047) - CELL_BASE; y = (key >> 11) - CELL_BASE; } else [x, y] = oddXY(key);
+    let r = rows.get(y);
+    if (!r) rows.set(y, r = { mask: 0, xs: null });
+    const col = x + 4;
+    if (r.xs === null && (x | 0) === x && (y | 0) === y && col >= 0 && col <= 31) r.mask |= 1 << col;
+    else (r.xs ??= []).push(x);
+  }
+  let d = '';
+  for (const [y, r] of rows) {
+    if (r.xs === null) { d += maskRuns(y, r.mask); continue; }
+    const xs = r.xs;
+    for (let col = 0; col < 32; col++) if (r.mask & (1 << col)) xs.push(col - 4);
+    sortRow(xs);
+    let start = xs[0], prev = xs[0];
+    for (let i = 1; i <= xs.length; i++) {
+      if (i < xs.length && xs[i] === prev + 1) { prev = xs[i]; continue; }
+      d += `${M(start * PX, y * PX)}H${n((prev + 1) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      start = prev = xs[i];
+    }
+  }
+  return d;
+}
+
+// One row's runs from its bit mask (columns -4 to 27).
+function maskRuns(y, mask) {
+  let d = '', col = 0;
+  while (col < 32) {
+    if ((mask & (1 << col)) === 0) { col++; continue; }
+    let end = col;
+    while (end < 31 && (mask & (1 << (end + 1))) !== 0) end++;
+    const start = col - 4;
+    const id = (y + 8) * 4096 + (start + 8) * 64 + (end - col);
+    let text = RUN_TEXT.get(id);
+    if (text === undefined) {
+      text = `${M(start * PX, y * PX)}H${n((end - 3) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      RUN_TEXT.set(id, text);
+    }
+    d += text;
+    col = end + 1;
+  }
+  return d;
+}
+
+function runsGeneral(list) {
+  const rows = new Map();
+  for (const key of list) {
+    const y = cellY(key);
+    let xs = rows.get(y);
+    if (!xs) rows.set(y, xs = []);
+    xs.push(cellX(key));
+  }
+  let d = '';
+  for (const [y, xs] of rows) {
+    sortRow(xs);
+    let start = xs[0], prev = xs[0];
+    for (let i = 1; i <= xs.length; i++) {
+      if (i < xs.length && xs[i] === prev + 1) { prev = xs[i]; continue; }
+      d += `${M(start * PX, y * PX)}H${n((prev + 1) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
+      start = prev = xs[i];
+    }
+  }
+  return d;
+}
+
 // Cells to SVG: an optional white sticker outline, then one path per colour
 // with each row's runs merged.
+// Pixel motion is stepped, so most frames repeat the last one. A layer's
+// SVG depends only on its cells (keys and colours, in the canvas's order),
+// the rim and the opacity, so a layer whose cells match the same layer last
+// frame reuses that frame's text. The cells are copied, not kept, since a
+// canvas could still change after it is drawn.
 function pixels(cv, c, opacity = 1) {
+  const memo = c.memo;
+  if (!memo) return drawPixels(cv, c, opacity);
+  const i = memo.at++;
+  const last = memo.layers[i], cells = cv.cells;
+  if (last && last.rim === c.rim && last.opacity === opacity && last.keys.length === cells.size) {
+    let j = 0, same = true;
+    for (const [key, color] of cells) {
+      if (last.keys[j] !== key || last.colors[j] !== color) { same = false; break; }
+      j++;
+    }
+    if (same) return last.out;
+  }
+  const out = drawPixels(cv, c, opacity);
+  memo.layers[i] = { rim: c.rim, opacity, keys: [...cells.keys()], colors: [...cells.values()], out };
+  return out;
+}
+function drawPixels(cv, c, opacity) {
   const byColor = new Map();
-  for (const [key, color] of cv.cells) {
-    if (!byColor.has(color)) byColor.set(color, []);
-    byColor.get(color).push(key.split(',').map(Number));
-  }
-  const runs = list => {
-    const rows = new Map();
-    for (const [x, y] of list) {
-      if (!rows.has(y)) rows.set(y, []);
-      rows.get(y).push(x);
-    }
-    let d = '';
-    for (const [y, xs] of rows) {
-      xs.sort((a, b) => a - b);
-      let start = xs[0], prev = xs[0];
-      for (let i = 1; i <= xs.length; i++) {
-        if (i < xs.length && xs[i] === prev + 1) { prev = xs[i]; continue; }
-        d += `${M(start * PX, y * PX)}H${n((prev + 1) * PX)}V${n((y + 1) * PX)}H${n(start * PX)}Z`;
-        start = prev = xs[i];
-      }
-    }
-    return d;
-  };
+  cv.cells.forEach((color, key) => {
+    let list = byColor.get(color);
+    if (!list) byColor.set(color, list = []);
+    list.push(key);
+  });
   let out = '';
-  if (c.rim) {
-    const ring = new Map();
-    for (const key of cv.cells.keys()) {
-      const [x, y] = key.split(',').map(Number);
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
-        const k = `${x + dx},${y + dy}`;
-        if (!cv.cells.has(k)) ring.set(k, [x + dx, y + dy]);
-      }
-    }
-    out += path(runs([...ring.values()]), F(RIM) + O(0.92));
-  }
-  for (const [color, list] of byColor) out += path(runs(list), F(color));
+  if (c.rim) out += path(runsOf(ringOf(cv.cells)), F(RIM) + O(0.92));
+  byColor.forEach((list, color) => { out += path(runsOf(list), F(color)); });
   return group(O(opacity), out);
 }
 
@@ -332,29 +540,51 @@ const SAFE = (() => {
   return Array.from({ length: GRID }, (_, y) => Array.from({ length: GRID }, (_, x) =>
     [-1, 0, 1].every(i => [-1, 0, 1].every(j => inside(x + i, y + j)))));
 })();
-const safe = (x, y) => SAFE[y]?.[x] === true;
-const allSafe = cv => [...cv.cells.keys()].every(k => { const [x, y] = k.split(',').map(Number); return safe(x, y); });
+const SAFE_FLAT = Uint8Array.from(SAFE.flat(), v => (v ? 1 : 0));
+const safe = (x, y) => (x | 0) === x && (y | 0) === y && x >= 0 && y >= 0 && x < GRID && y < GRID && SAFE_FLAT[y * GRID + x] === 1;
+const allSafe = cv => {
+  let all = true;
+  cv.cells.forEach((color, k) => { if (all && !safe(cellX(k), cellY(k))) all = false; });
+  return all;
+};
 
 // The smallest whole-cell shift that brings every cell inside, preferring
 // sideways steps toward the middle, and a spot clear of `clear` (the body)
 // before any spot at all.
-function fitShift(cells, clear) {
-  const fits = (dx, dy) => cells.every(([x, y]) => safe(x + dx, y + dy));
-  if (fits(0, 0)) return [0, 0];
-  const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
-  const sx = (Math.min(...xs) + Math.max(...xs) + 1) / 2 > GRID / 2 ? -1 : 1;
-  const sy = (Math.min(...ys) + Math.max(...ys) + 1) / 2 > GRID / 2 ? -1 : 1;
-  const free = (dx, dy) => cells.every(([x, y]) => !clear.has(x + dx, y + dy));
-  for (const strict of clear ? [true, false] : [false]) {
+// Which shifts fit the circle depends only on the cells' places, so the
+// fitting ones are listed once per shape, in the order they are tried.
+const FITS = new Map();
+function fittingShifts(cells) {
+  let key = '';
+  for (let i = 0; i < cells.length; i++) key += cells[i][0] + ',' + cells[i][1] + ';';
+  let list = FITS.get(key);
+  if (list) return list;
+  const fits = (dx, dy) => {
+    for (let i = 0; i < cells.length; i++) if (!safe(cells[i][0] + dx, cells[i][1] + dy)) return false;
+    return true;
+  };
+  list = [];
+  if (fits(0, 0)) list.zero = true;
+  else {
+    const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
+    const sx = (Math.min(...xs) + Math.max(...xs) + 1) / 2 > GRID / 2 ? -1 : 1;
+    const sy = (Math.min(...ys) + Math.max(...ys) + 1) / 2 > GRID / 2 ? -1 : 1;
     for (let d = 1; d <= 12; d++) {
       for (let i = d; i >= 0; i--) {
-        for (const [dx, dy] of [[sx * i, sy * (d - i)], [sx * i, -sy * (d - i)]]) {
-          if (fits(dx, dy) && (!strict || free(dx, dy))) return [dx, dy];
-        }
+        for (const [dx, dy] of [[sx * i, sy * (d - i)], [sx * i, -sy * (d - i)]]) if (fits(dx, dy)) list.push([dx, dy]);
       }
     }
   }
-  return [0, 0];
+  if (FITS.size > 2048) FITS.clear();
+  FITS.set(key, list);
+  return list;
+}
+function fitShift(cells, clear) {
+  const list = fittingShifts(cells);
+  if (list.zero) return [0, 0];
+  const free = (dx, dy) => cells.every(([x, y]) => !clear.has(x + dx, y + dy));
+  if (clear) for (const [dx, dy] of list) if (free(dx, dy)) return [dx, dy];
+  return list.length ? list[0] : [0, 0];
 }
 
 // Paints `draw` into `into`, moved as little as it takes to fit the circle.
@@ -364,19 +594,27 @@ function fitShift(cells, clear) {
 function fitDraw(into, draw, clear = into) {
   const tmp = canvas();
   draw(tmp);
-  const cells = [...tmp.cells].map(([k, color]) => { const [x, y] = k.split(',').map(Number); return [x, y, color]; });
+  const cells = [];
+  tmp.cells.forEach((color, k) => { cells.push([cellX(k), cellY(k), color]); });
   if (!cells.length) return;
   const [dx, dy] = fitShift(cells, clear);
-  const moved = cells.map(([x, y, color]) => [x + dx, y + dy, color]);
+  const moved = [];
+  for (let i = 0; i < cells.length; i++) moved.push([cells[i][0] + dx, cells[i][1] + dy, cells[i][2]]);
   if (clear) {
-    const own = new Set(moved.map(([x, y]) => `${x},${y}`));
+    const own = new Set();
+    for (let i = 0; i < moved.length; i++) own.add(cellKey(moved[i][0], moved[i][1]));
     const ring = [];
-    for (const [x, y] of moved) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-      if (!own.has(`${x + i},${y + j}`)) ring.push([x + i, y + j]);
+    for (let m = 0; m < moved.length; m++) {
+      const x = moved[m][0], y = moved[m][1];
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        if (!own.has(cellKey(x + i, y + j))) ring.push([x + i, y + j]);
+      }
     }
-    if (ring.some(([x, y]) => clear.has(x, y))) for (const [x, y] of ring) if (safe(x, y)) into.put(x, y, '#FFFFFF');
+    let touches = false;
+    for (let i = 0; i < ring.length && !touches; i++) touches = clear.has(ring[i][0], ring[i][1]);
+    if (touches) for (let i = 0; i < ring.length; i++) if (safe(ring[i][0], ring[i][1])) into.put(ring[i][0], ring[i][1], '#FFFFFF');
   }
-  for (const [x, y, color] of moved) into.put(x, y, color);
+  for (let i = 0; i < moved.length; i++) into.put(moved[i][0], moved[i][1], moved[i][2]);
 }
 
 // The pose's body offset, cut back until the body fits: each bot gets the
@@ -391,6 +629,156 @@ function settle(p, draw) {
     if (allSafe(test)) return q;
   }
   return { ...p, dx: 0, dy: 0, lift: 0 };
+}
+
+// settle(), keeping the body it drew: the body drawn on fresh canvases at
+// the offset that fits, with what its drawing returned. A body that needs no
+// settling is drawn once, as before; one that does is no longer drawn twice.
+// The body draws must not read anything they did not paint themselves.
+// Every body reads dx, dy and lift only through rnd(), so two tries that
+// round alike draw alike: a try that rounds like one that failed fails too
+// and isn't drawn, and the zero fallback keeps the zero try's drawing.
+function settledRun(p, draw, c, rec) {
+  const at = (q, k) => {
+    const cv = canvas(), s = canvas();
+    if (!rec) return { q, cv, s, a: draw(cv, s, q, c) };
+    const log = [];
+    rec.tries.push({ k, log });
+    const i = rec.tries.length - 1;
+    return { q, cv, s, a: draw(cv, s, traced(q, 0, [], log, rec), traced(c, 1, [], log, rec)), i };
+  };
+  if (!p.dx && !p.dy && !p.lift) return at(p, 1);
+  const failed = new Map();
+  for (const k of [1, 0.75, 0.5, 0.25, 0]) {
+    const q = k === 1 ? p : { ...p, dx: p.dx * k, dy: p.dy * k, lift: (p.lift ?? 0) * k };
+    const key = `${rnd(q.dx)},${rnd(q.dy)},${rnd(q.lift)}`;
+    if (failed.has(key)) continue;
+    const tried = at(q, k);
+    if (allSafe(tried.cv)) return tried;
+    failed.set(key, tried);
+  }
+  const zero = failed.get('0,0,0');
+  const q = { ...p, dx: 0, dy: 0, lift: 0 };
+  if (zero) {
+    if (rec) rec.zero = true;
+    return { ...zero, q };
+  }
+  return at(q, 'z');
+}
+
+// The body memo. A body's drawing depends only on what it reads of the pose
+// and the frame: the bodies are pure, and the closures that call them hold
+// nothing else that changes (Clawd's colour is passed along as `extra`). So
+// the reads of a frame that drew are logged, through proxies, with the values
+// they gave. A later frame whose pose and frame give the same value at every
+// logged read takes the same branches, makes the same tries and draws the
+// same cells, and gets copies of them instead. Which tries are made and
+// skipped follows from the pose's own offsets, which are part of the key. A
+// body whose reads keep changing (a clock it draws from) isn't logged for a
+// while, and draws as before.
+const MEMO_MISSES = 6;
+const MEMO_REST = 48;
+const TRACED = new WeakSet();
+const ARRAY = { tag: 'array' }, OBJECT = { tag: 'object' }, HAS = { tag: 'has' }, HAS_NOT = { tag: 'has not' };
+function traced(obj, root, path, log, rec) {
+  const kids = new Map();
+  const px = new Proxy(obj, {
+    get(o, key) {
+      const v = o[key];
+      if (typeof key !== 'string') return v;
+      if (v !== null && typeof v === 'object') {
+        log.push(root, path, key, Array.isArray(v) ? ARRAY : OBJECT);
+        let kid = kids.get(key);
+        if (!kid || kid.of !== v) kids.set(key, kid = { of: v, px: traced(v, root, path.concat(key), log, rec) });
+        return kid.px;
+      }
+      if (typeof v === 'function') rec.bad = true;
+      log.push(root, path, key, v);
+      return v;
+    },
+    has(o, key) {
+      const v = key in o;
+      if (typeof key === 'string') log.push(root, path, key, v ? HAS : HAS_NOT); else rec.bad = true;
+      return v;
+    },
+    ownKeys(o) { rec.bad = true; return Reflect.ownKeys(o); },
+    set(o, key, v) { rec.bad = true; o[key] = v; return true; },
+    deleteProperty(o, key) { rec.bad = true; return delete o[key]; },
+    defineProperty(o, key, d) { rec.bad = true; return Reflect.defineProperty(o, key, d); },
+  });
+  TRACED.add(px);
+  TRACE_OF.set(px, { o: obj, root, path, log });
+  return px;
+}
+const TRACE_OF = new WeakMap();
+// f(c.T), logged as f's value: f must be a pure function of the clock, made once.
+function when(c, f) {
+  const tr = TRACE_OF.get(c);
+  if (!tr) return f(c.T);
+  const v = f(tr.o.T);
+  tr.log.push(tr.root, tr.path, f, v);
+  return v;
+}
+const SEA_PHASE = T => Math.floor(T / 0.75);
+const CARET_BLINK = T => frac(T / 1.05) < 0.55;
+const BLOCK_BOB = [0, 1, 2, 3].map(i => T => frac(T / 2.4 + i * 0.27) < 0.5);
+const tryPose = (p, k) => k === 1 ? p : k === 'z' ? { ...p, dx: 0, dy: 0, lift: 0 } : { ...p, dx: p.dx * k, dy: p.dy * k, lift: (p.lift ?? 0) * k };
+function readsMatch(log, q, c) {
+  for (let i = 0; i < log.length; i += 4) {
+    let o = log[i] === 0 ? q : c;
+    const path = log[i + 1];
+    for (let j = 0; j < path.length; j++) o = o[path[j]];
+    const key = log[i + 2], want = log[i + 3];
+    if (typeof key === 'function') { if (!Object.is(key(o.T), want)) return false; continue; }
+    if (want === HAS || want === HAS_NOT) { if ((key in o) !== (want === HAS)) return false; continue; }
+    const v = o[key];
+    if (want === ARRAY) { if (!Array.isArray(v)) return false; continue; }
+    if (want === OBJECT) { if (v === null || typeof v !== 'object' || Array.isArray(v)) return false; continue; }
+    if (!Object.is(v, want)) return false;
+  }
+  return true;
+}
+// A plain copy of what a body returned; anything that isn't plain data
+// can't be kept.
+function plain(v, rec) {
+  if (v === null || typeof v !== 'object') { if (typeof v === 'function') rec.bad = true; return v; }
+  if (TRACED.has(v)) rec.bad = true;
+  if (Array.isArray(v)) return v.map(x => plain(x, rec));
+  if (Object.getPrototypeOf(v) !== Object.prototype) { rec.bad = true; return v; }
+  const out = {};
+  for (const key in v) out[key] = plain(v[key], rec);
+  return out;
+}
+const cellsOf = cv => ({ keys: [...cv.cells.keys()], colors: [...cv.cells.values()] });
+function canvasOf(saved) {
+  const cv = canvas();
+  for (let i = 0; i < saved.keys.length; i++) cv.cells.set(saved.keys[i], saved.colors[i]);
+  return cv;
+}
+function settled(p, draw, c = null, extra = undefined) {
+  const memo = c && c.memo;
+  if (!memo) return settledRun(p, draw, c, null);
+  const last = memo.body;
+  if (last && Object.is(last.dx, p.dx) && Object.is(last.dy, p.dy) && Object.is(last.lift, p.lift) && Object.is(last.extra, extra)
+    && last.tries.every(t => readsMatch(t.log, tryPose(p, t.k), c))) {
+    memo.misses = 0;
+    memo.hits++;
+    return { q: tryPose(p, last.k), cv: canvasOf(last.cv), s: canvasOf(last.s), a: plain(last.a, {}) };
+  }
+  memo.body = null;
+  memo.draws++;
+  if (memo.rest > 0) { memo.rest--; return settledRun(p, draw, c, null); }
+  if (++memo.misses > MEMO_MISSES) { memo.misses = 0; memo.rest = MEMO_REST; return settledRun(p, draw, c, null); }
+  const rec = { tries: [], zero: false, bad: false };
+  const out = settledRun(p, draw, c, rec);
+  const a = plain(out.a, rec);
+  if (!rec.bad) {
+    // The winner is the last try made, or the zero fallback, which keeps the
+    // zero try's drawing under a pose with no offsets at all.
+    const won = rec.zero ? out.i : rec.tries.length - 1;
+    memo.body = { dx: p.dx, dy: p.dy, lift: p.lift, extra, tries: rec.tries, k: rec.zero ? 'z' : rec.tries[won].k, cv: cellsOf(out.cv), s: cellsOf(out.s), a };
+  }
+  return out;
 }
 
 // MARK: - Glyphs
@@ -427,8 +815,8 @@ const PIX = {
 // glance a pixel toward the pointer and change shape with the mood.
 function pxEyes(cv, at, c, mode, color, look = true) {
   const e = c.eye;
-  const lx = look ? clamp(rnd(e.look[0] * 1.3), -1, 1) : 0;
-  const ly = look ? clamp(rnd(e.look[1] * 1.2), -1, 1) : 0;
+  const lx = look ? e.lx : 0;
+  const ly = look ? e.ly : 0;
   const m = e.cross > 0.5 ? 'x' : e.happy > 0.5 ? 'happy' : e.sleep > 0.5 ? 'closed' : e.open < 0.45 ? 'blink' : mode;
   at.forEach(([x0, y0], i) => {
     const side = i === 0 ? -1 : 1;
@@ -827,9 +1215,8 @@ function pxProp(cv, back, p, a, pal, c) {
     },
     draw(p, c) {
       const color = p.dim > 0.5 ? DULL : ORANGE;
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => clawd(g, q, c, color));
-      const a = clawd(cv, q, c, color);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => clawd(g, q, c, color), c, color);
       const body = { ...pal, body: color };
       if (q.prop === 'think') fitDraw(cv, g => g.glyph(SPINNER[Math.floor(q.propT * 7) % SPINNER.length], a.mid - 2, a.top - 7, ORANGE));
       else if (q.prop === 'stall') fitDraw(cv, g => {
@@ -963,9 +1350,8 @@ function pxProp(cv, back, p, a, pal, c) {
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => notebook(g, q, c));
-      const a = notebook(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => notebook(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -1003,298 +1389,375 @@ function pxProp(cv, back, p, a, pal, c) {
   };
 })();
 
-// MARK: - Antigravity · the balloon
+// MARK: - Antigravity · the eraser
 //
-// A hot-air balloon, drawn from Codex's own concept Aeri (a floating blue
-// "A" with a cream face band, a coral mouth and four satellites) rather than
-// traced from it: Aeri floats, so this one flies. Her four satellites (blue,
-// coral, yellow, green) become the gores of its envelope, curving in at the
-// crown and the skirt; her face band runs round its middle, with her coral
-// mouth on it when it's happy; a wicker basket hangs below with a sandbag each side. Its
-// gores turn while it thinks, its burner flares while it works, its envelope
-// sags onto the basket when it fails, and it lands to rest. (The user's
-// pick, 2026-10-17, over round 4's rainbow "A", which is kept in retired/.)
+// A four-colour rubber eraser in a cream cardboard sleeve, drawn as the desk
+// partner to Codex's spiral notebook: the notebook writes, the eraser lifts
+// mistakes clean off the page, and in zero gravity its rainbow shavings float up
+// instead of falling. It shares the notebook's navy ink line, cream paper,
+// cobalt stripe and little ink limbs, while its rounded rubber crown wears
+// the four colours of Antigravity's gores (blue, coral, gold, green). Crumbs
+// drift up while it thinks, it scrubs side to side while it works, tucks its
+// rubber head down into its sleeve to sleep, wears a brass clasp when locked,
+// and picks up a grey lead smudge when something fails. (2026-11-20.)
 
 (() => {
-  const GORES = [['#4D96EB', '#B7D5F5', '#3A7BC8'], ['#E77C65', '#F6B4A6', '#C9604B'], ['#F2BB55', '#FBE2AE', '#D49A33'], ['#56AB78', '#A9DDBB', '#3F8A5D']];
-  const DIM_GORES = [['#9EA6B4', '#C7CCD6', '#868E9C'], ['#B2A9A6', '#D3CDCB', '#988F8C'], ['#BDB4A1', '#DCD6CA', '#A39A88'], ['#A3ABA5', '#C9CFCB', '#8A928C']];
-  const FACE = '#FFF2D8', DIM_FACE = '#D9D2C4', INK = '#263349', MOUTH = '#E77C65';
-  const WICKER = '#D9A04A', WICKER_DARK = '#A8742E', RIM = '#7A5226', BAG = '#E6D3AE', BAG_DARK = '#BFA77A', BURNER = '#8D94A6';
-  const DIM_WICKER = '#B8AE9C', DIM_RIM = '#8E8678';
-  const FLAME = ['#F2BB55', '#E77C65'];
-  const X0 = 5, Y0 = 3;
-  // The envelope's rows, [first, last] cell from its left edge: a round
-  // crown, widest a third of the way down, tapering to the skirt.
-  const ENVELOPE = [[4, 7], [2, 9], [1, 10], [0, 11], [0, 11], [0, 11], [0, 11], [1, 10], [2, 9], [3, 8], [4, 7]];
-  // Let down (failed, broken): squat and slumped onto the basket.
-  const SAGGED = [[3, 8], [1, 10], [0, 11], [0, 11], [0, 11], [1, 10], [3, 8]];
-  const FACE_ROWS = [4, 5, 6];
-  const MINI = ['.##.', '####', '####', '.##.', '.#..'];
+  const COVER = '#FFF2D8', SHADE = '#EADBBE', WHITE = '#FFFFFF', INK = '#263349';
+  const BLUE = '#4D96EB', BLUE_D = '#3166A4', LIGHT = '#B7D5F5';
+  const CORAL = '#E77C65', GOLD = '#F2BB55', GOLD_DARK = '#C9922E', GREEN = '#56AB78', SMUDGE = '#8D94A6';
+  const DIM_COVER = '#D9D2C4', DIM_SHADE = '#C8C0B0', DIM_WHITE = '#ECE9E0';
+  const DIM_BLUE = '#7E92AD', DIM_BLUE_D = '#5F7390', DIM_LIGHT = '#AEBBD0';
+  const DIM_CORAL = '#B48E86', DIM_GOLD = '#BEB5A0', DIM_GREEN = '#87A192';
+  const X0 = 6, Y0 = 8, W = 10, H = 7;
+  const CRUMBS = [BLUE, CORAL, GOLD, GREEN];
+  const MINI = ['bryg', 'cccc', 'bbbb'];
   const pal = {
-    main: GORES[0][0], body: GORES[0][0], dark: INK, light: GORES[0][1], accent: MOUTH,
-    mini: (cv, x, y) => { cv.glyph(MINI, x, y, GORES[0][0]); cv.put(x + 2, y + 1, GORES[1][0]); cv.put(x + 2, y + 2, GORES[1][0]); cv.put(x + 1, y + 4, WICKER); },
+    main: BLUE, body: COVER, dark: INK, light: LIGHT, accent: CORAL, ink: INK, paper: WHITE,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, BLUE, { b: BLUE, r: CORAL, y: GOLD, g: GREEN, c: COVER }),
   };
+  const ARMS = { out: [1, 3], up: [1, 1], high: [1, 0], wave: [1, 1], down: [1, 4], tap: [2, 5] };
 
-  function balloon(cv, p, c) {
+  function eraser(cv, p, c) {
     const dim = p.dim > 0.5;
     const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy);
-    const sag = p.sag > 0.5;
-    const rows = sag ? SAGGED : ENVELOPE;
-    // A sagging envelope slumps down onto the basket.
-    const top = y0 + (sag ? ENVELOPE.length - SAGGED.length + 2 : 0);
-    const spin = rnd(p.spin ?? 0);
-    const gores = dim ? DIM_GORES : GORES;
-    const faceRows = sag ? [2, 3, 4] : FACE_ROWS;
-    rows.forEach(([a, b], j) => {
-      const w = b - a + 1;
-      for (let i = a; i <= b; i++) {
-        // The gores curve in at the crown and the skirt: each row splits its
-        // own width four ways.
-        const g = gores[((Math.floor((i - a) * 4 / w) + spin) % 4 + 4) % 4];
-        const shine = !sag && ((j === 1 && i === 3) || (j === 2 && i === 2) || (j === 3 && i === 1));
-        const color = faceRows.includes(j) ? (dim ? DIM_FACE : FACE) : shine ? g[1] : j === rows.length - 1 ? g[2] : g[0];
-        cv.put(x0 + i, top + j, color);
+    const M = dim ? {
+      B: DIM_BLUE, l: DIM_LIGHT, R: DIM_CORAL, Y: DIM_GOLD, G: DIM_GREEN,
+      C: DIM_COVER, S: DIM_SHADE, W: DIM_WHITE, D: DIM_BLUE_D, K: INK,
+    } : {
+      B: BLUE, l: LIGHT, R: CORAL, Y: GOLD, G: GREEN,
+      C: COVER, S: SHADE, W: WHITE, D: BLUE_D, K: INK,
+    };
+    const cells = [];
+    const putRows = (rows, rx, ry) => {
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        for (let i = 0; i < row.length; i++) {
+          const col = M[row[i]];
+          if (col) { cv.put(rx + i, ry + j, col); cells.push([rx + i, ry + j]); }
+        }
       }
-    });
-    // Ropes and the burner, the basket and its sandbags.
-    const bottom = y0 + 13;
-    if (!sag) {
-      for (const i of [4, 7]) { cv.put(x0 + i, y0 + 11, p.lock ? BURNER : INK); cv.put(x0 + i, y0 + 12, INK); }
-      cv.rect(x0 + 5, y0 + 12, 2, 1, BURNER);
-      if (p.smoke) {
-        // A puff from the dead burner, drifting out past the right rope.
-        const u = frac(c.T / 1.6);
-        if (u < 0.8) cv.rect(x0 + 8 + rnd(u * 2), y0 + 11 - rnd(u * 2), 2, 1, '#BDB7B4');
-      }
-      if (p.flame) {
-        const f = Math.floor(c.T * 8) % 2;
-        cv.put(x0 + 5, y0 + 11, FLAME[f]); cv.put(x0 + 6, y0 + 11, FLAME[1 - f]);
-      }
+    };
+    // Rounded four-colour rubber head above the sleeve; tucked down in to sleep.
+    const rubber = p.tucked > 0.5
+      ? ['.lRRYYG.', 'BBRRYYGG']
+      : ['.lRRYYG.', 'BBRRYYGG', 'BBRRYYGG'];
+    putRows(rubber, x0 + 1, y0 - rubber.length);
+    // Cream cardboard sleeve with a dark U-notched lip and a Mono blue-and-white band.
+    putRows([
+      'KKKBBBBKKK',
+      'CCCCCCCCCS',
+      'CCCCCCCCCS',
+      'CCCCCCCCCS',
+      'CCCCCCCCCS',
+      'BBBBBBBBDD',
+      'WWWWWWWWCC',
+    ], x0, y0);
+    cv.outline(cells, INK);
+    // Feet, under the outline.
+    const legs = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [0, 0], tuck: [0, 0], sit: [0, 0] }[p.legs] ?? [1, 1];
+    if (legs[0]) cv.rect(x0 + 1, y0 + H + 1, 2, 1, INK);
+    if (legs[1]) cv.rect(x0 + 7, y0 + H + 1, 2, 1, INK);
+    // Little ink arms on each side, like the notebook's.
+    for (const [side, mode] of [[-1, p.armL], [1, p.armR]]) {
+      const [inward, row] = ARMS[mode] ?? ARMS.out;
+      cv.rect(side < 0 ? x0 - 3 + inward : x0 + W + 2 - inward, y0 + row, 1, 2, INK);
     }
-    cv.rect(x0 + 3, bottom, 6, 1, dim ? DIM_RIM : RIM);
-    for (let i = 0; i < 6; i++) cv.put(x0 + 3 + i, bottom + 1, dim ? DIM_WICKER : i % 2 ? WICKER_DARK : WICKER);
-    cv.rect(x0 + 3, bottom + 2, 6, 1, dim ? DIM_RIM : WICKER_DARK);
-    for (const x of [x0 + 2, x0 + 9]) { cv.put(x, bottom, dim ? DIM_WICKER : BAG); cv.put(x, bottom + 1, dim ? DIM_WICKER : BAG_DARK); }
-    // Locked: a steel padlock hangs on the basket's front, its shackle round the
-    // burner, so it can't take off.
-    if (p.lock && !sag) {
-      cv.rect(x0 + 4, bottom, 4, 2, '#B9BECB');
-      cv.rect(x0 + 4, bottom + 1, 4, 1, BURNER);
-      cv.put(x0 + 5, bottom, INK);
-      cv.put(x0 + 5, bottom + 1, INK);
+    // Locked: a brass clasp shut over the sleeve, matching the notebook's.
+    if (p.clasp > 0.5) {
+      cv.rect(x0 + 3, y0 + 3, 4, 3, dim ? DIM_GOLD : GOLD);
+      cv.rect(x0 + 3, y0 + 5, 4, 1, dim ? DIM_GOLD : GOLD_DARK);
+      cv.rect(x0 + 4, y0 + 3, 2, 2, INK);
     }
-    const eyeRow = top + faceRows[0];
-    const eyes = [[x0 + 3, eyeRow], [x0 + 8, eyeRow]];
+    // Failed / broken: a grey pencil-lead smudge across the sleeve.
+    if (p.smudge > 0.5) {
+      cv.rect(x0 + 3, y0 + 4, 3, 1, SMUDGE);
+      cv.put(x0 + 5, y0 + 3, SMUDGE);
+    }
+    const eyes = [[x0 + 2, y0 + 2], [x0 + 7, y0 + 2]];
     pxEyes(cv, eyes, c, p.eyes, INK);
-    // The coral mouth shows only when it's happy (the user, 2026-10-19).
-    if (c.eye.happy > 0.5) cv.rect(x0 + 5, eyeRow + 2, 2, 1, dim ? '#B2A9A6' : MOUTH);
-    return { x0, y0: top, eyes, mid: x0 + 6, top, left: x0, right: x0 + 11, ground: bottom + 2, midY: top + 5, front: top + 7, pageX: x0 + 2 };
+    if (c.eye.happy > 0.5) cv.rect(x0 + 4, y0 + 4, 2, 1, dim ? DIM_CORAL : CORAL);
+    const top = y0 - rubber.length - 1;
+    return { x0, y0, eyes, hands: true, mid: x0 + 5, top, left: x0 - 1, right: x0 + W, ground: y0 + H + 1, midY: y0 + 2, front: y0 + 4, pageX: x0 + 1 };
   }
 
   CHARACTERS.antigravity = {
     name: 'Antigravity',
     swatch: 0x3D7BF5,
-    fidgets: ['spin', 'puff', 'hop'],
+    fidgets: ['crumbs', 'scrub', 'hop'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, spin: 0, flame: 0, sag: 0, lock: 0, smoke: 0 },
+    rest: { ...PIXEL_REST, tucked: 0, clasp: 0, smudge: 0, crumbs: 'idle' },
     pose(s, t, T) {
       const b = basePose(s, t, T);
-      // Rising and sinking on the air, a cell at a time.
-      const ride = frac(T / 3) < 0.5 ? 0 : -1;
       switch (s) {
-        case 'idle': return { ...b, dy: ride };
-        // Thinking: the envelope turns slowly, gore by gore.
-        case 'thinking': return { ...b, dy: ride, spin: Math.floor(t / 0.6) % 4, look: [0, -1], prop: '' };
-        // Busy: the burner flares.
-        case 'writing': case 'working': case 'running': return { ...b, dy: 0, flame: 2, prop: s === 'working' ? b.prop : '' };
-        case 'failed': return { ...b, sag: t > 0.3 ? 1 : 0, dy: 0 };
-        case 'broken': return { ...b, sag: 1, dy: 0 };
-        // Offline: the burner has gone out; it hangs low, smoke drifting off.
-        case 'offline': return { ...b, dy: 1, smoke: 1, prop: '' };
-        // Locked: a padlock on the burner, so it can't take off; landed.
-        case 'locked': return { ...b, dy: 1, lock: 1, prop: '', look: [0, 1] };
-        // Asleep (its app away) it has landed, basket on the ground.
-        case 'resting': return { ...b, dy: 1 };
-        // Out of quota: landed too, rising a cell on each slow breath.
-        case 'sleeping': return { ...b, dy: b.dy - 1 };
-        // Fidgets: one full turn; a puff of the burner and a lift.
-        case 'spin': return { ...b, spin: t > 0.4 && t < 2.0 ? Math.floor((t - 0.4) / 0.4) + 1 : 0, happy: t > 0.4 && t < 2.0 ? 1 : 0, gazeW: 0 };
-        case 'puff': return { ...b, flame: t > 0.3 && t < 1.2 ? 2 : 0, dy: t > 0.6 && t < 1.8 ? -1 : 0, look: [0, -1], gazeW: 0 };
+        // Thinking: four-colour eraser crumbs drift upward in zero gravity.
+        case 'thinking':
+          return { ...b, armR: frac(t / 2.4) < 0.5 ? 'up' : 'out', look: [1, -1], gazeW: 0.1, crumbs: 'rise', prop: '', propT: t };
+        // Busy / editing: scrubs briskly side to side, shavings floating up.
+        case 'writing': case 'working': {
+          const rub = Math.floor(t * 8) % 2;
+          return { ...b, dx: rub ? 1 : -1, dy: 0, armL: rub ? 'tap' : 'down', armR: rub ? 'down' : 'tap', eyes: 'focus', look: [0, 1], gazeW: 0, crumbs: 'scrub', prop: '', propT: t };
+        }
+        case 'failed': return { ...b, smudge: t > 0.25 ? 1 : 0, crumbs: 'none' };
+        case 'broken': return { ...b, smudge: 1, crumbs: 'none' };
+        case 'offline': return { ...b, crumbs: 'still' };
+        case 'locked': return { ...b, clasp: 1, crumbs: 'none', prop: '', look: [0, 1] };
+        case 'resting': return { ...b, dy: 1, tucked: 1, crumbs: 'none' };
+        case 'sleeping': return { ...b, crumbs: 'none' };
+        // Fidgets: a zero-G rainbow crumb pop, and a happy little desk rub.
+        case 'crumbs':
+          return { ...b, armR: t > 0.3 && t < 1.8 ? 'up' : 'out', happy: t > 0.3 && t < 1.9 ? 1 : 0, crumbs: t > 0.2 && t < 2.2 ? 'arc' : 'idle', propT: t, gazeW: 0 };
+        case 'scrub': {
+          const on = t > 0.25 && t < 1.85, rub = Math.floor(t * 8) % 2;
+          return { ...b, dx: on ? (rub ? 1 : -1) : 0, armL: on && rub ? 'up' : 'out', armR: on && !rub ? 'up' : 'out', happy: on ? 1 : 0, crumbs: on ? 'scrub' : 'idle', propT: t, gazeW: 0 };
+        }
         default: return b;
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => balloon(g, q, c));
-      const a = balloon(cv, q, c);
-      pxProp(cv, back, q, a, pal, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => eraser(g, q, c), c);
+      const putCrumb = (x, y, col) => { if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, col); };
+      if (q.crumbs === 'idle') {
+        const lift = frac(c.T / 1.8) < 0.5 ? 0 : -1;
+        putCrumb(a.x0 + 10, a.y0 - 3 + lift, CORAL);
+        putCrumb(a.x0 + 11, a.y0 - 1, GOLD);
+      } else if (q.crumbs === 'still') {
+        putCrumb(a.x0 + 10, a.y0 - 2, SMUDGE);
+        putCrumb(a.x0 + 11, a.y0 - 1, '#AEB4C0');
+      } else if (q.crumbs === 'rise') {
+        const step = Math.floor(q.propT * 4) % 4;
+        putCrumb(a.x0 + 10, a.y0 - 4 + (step % 2), CRUMBS[step]);
+        putCrumb(a.x0 + 11, a.y0 - 2 + ((step + 1) % 2), CRUMBS[(step + 1) % 4]);
+        putCrumb(a.x0 - 1, a.y0 - 3 + ((step + 1) % 2), CRUMBS[(step + 2) % 4]);
+      } else if (q.crumbs === 'scrub') {
+        const k = Math.floor(q.propT * 6) % 2;
+        putCrumb(a.x0 - 2, a.y0 - 2 + k, BLUE);
+        putCrumb(a.x0 + 11, a.y0 - 3 + (1 - k), CORAL);
+        putCrumb(a.x0 + 10, a.y0 - 4 + k, GREEN);
+      } else if (q.crumbs === 'arc') {
+        const step = Math.floor(q.propT * 5) % 4;
+        const spots = [[a.x0, a.y0 - 4], [a.x0 + 3, a.y0 - 5], [a.x0 + 6, a.y0 - 5], [a.x0 + 9, a.y0 - 4]];
+        for (let i = 0; i < 4; i++) putCrumb(spots[i][0], spots[i][1] - (i === step ? 1 : 0), CRUMBS[i]);
+      }
+      if (q.prop) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
-// MARK: - Grok · the slashed ring
+// MARK: - Grok · the black-hole sharpener
 //
-// Grok's own ⊘ as a character, in the Grok Bot spirit: a black ring round a
-// pale face, the slash passing behind it and out at both ends, dark pill
-// eyes and no limbs. Its eyes do the talking: three dots walk across them
-// while it thinks, they go wide to search, turn into a "!" to ask and close
-// in sleep. It searches with a ring that steps outward, wears a planet's
-// ring for the web, rides a flame to run and swirls inward to compact.
-// (Round 4, 2026-10-15: the user's pick over a solid orb; round 3's ring
-// bot with antenna and legs retired.)
+// A matte-obsidian desk sharpener with a circular black-hole mouth, a silver
+// diagonal slash blade, a warm cream shavings drawer that holds its face, and
+// a brass hand-crank on the side — completing the desk stationery trio beside
+// Codex's notebook and Antigravity's eraser. Gold and silver sparks orbit the
+// mouth while it thinks, the crank spins and cream-gold shavings fly out while
+// it works, shavings swirl inward to compact, it folds the crank flat to rest,
+// wears a brass clasp when locked, and shows a red blade jam when something
+// fails. (2026-11-21.)
 
 (() => {
-  const INK = '#0B0B0C', DIM_INK = '#5A5A60', FACE = '#F4F4F1', DIM_FACE = '#CFCFCB', DOT = '#B4B4B0';
-  // Centred in the box, so the slash reaches two cells out at both ends and
-  // stays inside the drawer's circle.
-  const CX = 11, CY = 11;
-  const MINI = ['..#.#', '.###.', '#w#w#', '#www#', '.###.', '#....'];
+  const COVER = '#FFF2D8', SHADE = '#EADBBE', WHITE = '#FFFFFF', INK = '#263349';
+  const OBS = '#242731', OBS_M = '#393E4F', OBS_H = '#586077', VOID = '#101218';
+  const SILVER = '#DCE0EA', SILVER_D = '#8F96A8', GOLD = '#F5BE2E', GOLD_D = '#C9922E';
+  const CORAL = '#E77C65', RED = '#D9534F';
+  const DIM_COVER = '#DDD8CD', DIM_SHADE = '#C6C0B2';
+  const DIM_OBS = '#4B505E', DIM_OBS_M = '#636978', DIM_OBS_H = '#7C8292', DIM_VOID = '#2E323C';
+  const DIM_SILVER = '#B4B9C4', DIM_SILVER_D = '#888E9B', DIM_GOLD = '#B8A473', DIM_GOLD_D = '#8F7E58';
+  const X0 = 5, Y0 = 6, W = 11, H = 9;
+  const MINI = ['.sv.', 'kcck', 'oooo'];
   const pal = {
-    main: INK, body: INK, dark: INK, light: '#9A9AA0', accent: INK,
-    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { w: FACE }),
+    main: OBS, body: COVER, dark: INK, light: SILVER, accent: GOLD, ink: INK, paper: WHITE,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { s: SILVER, v: VOID, c: COVER, o: OBS }),
   };
-  const lookOf = c => [clamp(rnd(c.eye.look[0] * 1.3), -1, 1), clamp(rnd(c.eye.look[1] * 1.2), -1, 1)];
+  const ARMS = { out: [1, 4], up: [1, 2], high: [1, 1], wave: [1, 2], down: [1, 5], tap: [2, 5] };
 
-  // Pill eyes, 2 wide and `h` tall, centred on cx + 0.5; they morph with the
-  // mood and the phase.
-  function pillEyes(cv, cx, cy, p, c, ink, dim, h) {
-    const [lx, ly] = lookOf(c);
-    const top = cy - 2 + ly;
-    const xs = [cx - 3 + lx, cx + 2 + lx];
-    const e = c.eye, t = p.propT;
-    if (p.face === 'dots') {
-      // Thinking: three dots across the face, the lit one walking.
-      const k = Math.floor(t * 4) % 3;
-      [cx - 4, cx, cx + 4].forEach((x, i) => cv.rect(x + lx, cy - 1 + ly, 2, 2, i === k ? ink : dim));
-      return;
-    }
-    if (p.face === 'bang') {
-      cv.rect(cx, cy - 4, 2, 4, ink);
-      cv.rect(cx, cy + 1, 2, 2, ink);
-      return;
-    }
-    xs.forEach((x, i) => {
-      const right = i === 1;
-      const mood = e.cross > 0.5 ? 'cross' : (e.happy > 0.5 || (right && e.wink > 0.5)) ? 'happy' : e.sleep > 0.5 ? 'closed'
-        : e.open < 0.45 ? 'blink' : p.eyes;
-      if (mood === 'cross') for (const [dx, dy] of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, 2], [1, 2], [-1, 3], [2, 3]]) cv.put(x + dx, top + dy, ink);
-      else if (mood === 'happy') for (const [dx, dy] of [[-1, 2], [0, 1], [1, 1], [2, 2]]) cv.put(x + dx, top + dy, ink);
-      else if (mood === 'content') for (const [dx, dy] of [[-1, 2], [0, 3], [1, 3], [2, 2]]) cv.put(x + dx, top + dy, ink);
-      else if (mood === 'closed') cv.rect(x - (right ? 0 : 1), top + 3, 3, 1, ink);
-      // Resting holds the eyes half-closed, the shape of a blink.
-      else if (mood === 'blink' || mood === 'rest') cv.rect(x, top + 2, 2, 1, ink);
-      else if (mood === 'focus') cv.rect(x, top + 1, 2, 2, ink);
-      else if (mood === 'wide') cv.rect(x, top - 1, 2, h + 1, ink);
-      else if (mood === 'sad') { cv.rect(x, top + 2, 2, 2, ink); cv.put(right ? x : x + 1, top + 1, ink); }
-      else cv.rect(x, top, 2, h, ink);
-    });
-  }
+  function sharpener(cv, p, c) {
+    const dim = p.dim > 0.5, low = p.tucked > 0.5;
+    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy) + (low ? 1 : 0);
+    const M = dim ? {
+      O: DIM_OBS, o: DIM_OBS_M, h: DIM_OBS_H, V: DIM_VOID,
+      S: DIM_SILVER, s: DIM_SILVER_D, C: DIM_COVER, c: DIM_SHADE,
+      G: DIM_GOLD, g: DIM_GOLD_D,
+    } : {
+      O: OBS, o: OBS_M, h: OBS_H, V: VOID,
+      S: SILVER, s: SILVER_D, C: COVER, c: SHADE,
+      G: GOLD, g: GOLD_D,
+    };
+    const cells = [];
+    const putRows = (rows, rx, ry) => {
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        for (let i = 0; i < row.length; i++) {
+          const col = M[row[i]];
+          if (col) { cv.put(rx + i, ry + j, col); cells.push([rx + i, ry + j]); }
+        }
+      }
+    };
+    // Circular black-hole crown with a silver slash rim; tucks down when resting.
+    const crown = low
+      ? ['..oSVVSs..']
+      : ['...oSSo...', '..oVVVSo..', '.oSVVVGo..'];
+    putRows(crown, x0 + 1, y0 - crown.length);
+    // Obsidian casing around a warm cream front drawer.
+    const body = low ? [
+      'hOOOOOOOOOo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCco',
+      'Occccccccco',
+      'oOOOOOOOOOo',
+      '.OOOOOOOOO.',
+    ] : [
+      'hOOOOOOOOOo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCCo',
+      'OCCCCCCCCco',
+      'OccccGcccco',
+      'oOOOOOOOOOo',
+      'oOooooooOOo',
+      '.OOOOOOOOO.',
+    ];
+    putRows(body, x0, y0);
+    cv.outline(cells, INK);
 
-  function ring(cv, p, c) {
-    const cx = CX + rnd(p.dx), cy = CY + rnd(p.dy) - rnd(p.lift);
-    const dim = p.dim > 0.5;
-    const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
-    const inner = p.sq > 0.5 ? 3.4 : 4.5;
-    const tick = Math.floor(c.T * 6);
-    // The slash, behind the face: out past the ring at both ends.
-    for (const [dx, dy] of [[5, -5], [6, -6], [-5, 5], [-6, 6]]) cv.put(cx + dx, cy + dy, ink);
-    cv.shape((x, y) => Math.hypot(x - cx - 0.5, y - cy - 0.5) <= 6.5, cx - 7, cy - 7, 15, 15, (x, y) => {
-      const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
-      if (d < inner) return face;
-      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + tick) % 2) return face;
-      return ink;
-    });
-    if (p.glow && Math.floor(c.T * 4) % 2) cv.put(cx + 5, cy - 7, '#F5BE2E');
-    pillEyes(cv, cx, cy, p, c, ink, DOT, 3);
-    return { mid: cx, top: cy - 8, left: cx - 7, right: cx + 8, ground: cy + 8, midY: cy, front: cy + 1, eyes: [[cx - 3, cy - 2], [cx + 2, cy - 2]], cx, cy, hands: false };
+    // Diagonal metallic blade slash across the upper-right casing.
+    if (!low) {
+      cv.put(x0 + 9, y0, M.S);
+      cv.put(x0 + 8, y0 + 1, M.s);
+      cv.put(x0 + 10, y0 - 1, M.S);
+    }
+
+    // Side hand-crank on the right: folds flat when resting/sleeping, spins when working.
+    const crankY = y0 + (low ? 2 : 3);
+    cv.rect(x0 + W, crankY, 2, 1, M.s);
+    if (p.crank === 'fold' || low) {
+      cv.put(x0 + W + 2, crankY, M.g);
+    } else {
+      const phase = p.crank === 'spin' ? Math.floor(p.propT * 10) % 4
+        : p.crank === 'tick' ? Math.floor(p.propT * 3) % 2
+        : 0;
+      const ky = phase === 0 ? crankY - 2 : phase === 1 ? crankY : phase === 2 ? crankY + 1 : crankY - 1;
+      cv.rect(x0 + W + 2, Math.min(crankY, ky), 1, Math.abs(ky - crankY) + 1, M.S);
+      cv.rect(x0 + W + 2, ky, 2, 2, M.G);
+      cv.put(x0 + W + 3, ky + 1, M.g);
+    }
+
+    // Feet under the outline.
+    const bodyH = body.length;
+    const legs = { stand: [1, 1], walk1: [0, 1], walk2: [1, 0], jump: [0, 0], tuck: [0, 0], sit: [0, 0] }[p.legs] ?? [1, 1];
+    if (legs[0]) cv.rect(x0 + 2, y0 + bodyH + 1, 2, 1, INK);
+    if (legs[1]) cv.rect(x0 + 7, y0 + bodyH + 1, 2, 1, INK);
+
+    // Left ink arm (right side carries the hand crank).
+    if (!low) {
+      const [inward, row] = ARMS[p.armL] ?? ARMS.out;
+      cv.rect(x0 - 3 + inward, y0 + row, 1, 2, INK);
+    }
+
+    // Locked: brass clasp over the drawer.
+    if (p.clasp > 0.5) {
+      cv.rect(x0 + 4, y0 + 3, 4, 3, M.G);
+      cv.rect(x0 + 4, y0 + 5, 4, 1, M.g);
+      cv.rect(x0 + 5, y0 + 3, 2, 2, INK);
+    }
+
+    // Failed / broken: red jam bar on the drawer and blade sparks.
+    if (p.jam > 0.5) {
+      cv.rect(x0 + 3, y0 + 5, 5, 1, RED);
+      if (!low) {
+        if (safe(x0 + 3, y0 - 4)) cv.put(x0 + 3, y0 - 4, RED);
+        if (safe(x0 + 8, y0 - 4)) cv.put(x0 + 8, y0 - 4, RED);
+      }
+    }
+
+    const eyeY = y0 + (low ? 1 : 2);
+    const eyes = [[x0 + 3, eyeY], [x0 + 7, eyeY]];
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    if (c.eye.happy > 0.5) {
+      cv.put(x0 + 2, eyeY + 2, dim ? '#B48E86' : CORAL);
+      cv.put(x0 + 8, eyeY + 2, dim ? '#B48E86' : CORAL);
+    }
+    const top = y0 - crown.length - 1;
+    return { x0, y0, eyes, hands: true, mid: x0 + 5, top, left: x0 - 1, right: x0 + W + 2, ground: y0 + bodyH + 1, midY: y0 + 3, front: y0 + 4, pageX: x0 + 1 };
   }
 
   CHARACTERS.grok = {
     name: 'Grok',
     swatch: 0x0B0B0C,
-    fidgets: ['wink', 'hop', 'peek'],
+    fidgets: ['crank', 'shave', 'hop'],
     cycle: PIXEL_CYCLE,
-    rest: { ...PIXEL_REST, face: '', glow: 0, lift: 0, dashed: 0 },
+    rest: { ...PIXEL_REST, tucked: 0, clasp: 0, jam: 0, crank: 'idle', shave: 'idle' },
     pose(s, t, T) {
       const b = basePose(s, t, T);
       switch (s) {
-        case 'thinking': return { ...b, face: 'dots', glow: 1, prop: '' };
-        case 'searching': return { ...b, dx: 0, legs: 'stand', eyes: 'wide', prop: 'radar' };
-        case 'web': return { ...b, dy: 0, prop: 'planet' };
-        case 'running': return { ...b, lift: 2 + (Math.floor(t * 10) % 2), dy: 0, prop: 'flame' };
-        case 'compacting': return { ...b, prop: 'swirl' };
-        case 'asking': return { ...b, face: 'bang', prop: '' };
-        case 'approving': return { ...b, glow: 1 };
-        case 'offline': return { ...b, dashed: 1, prop: '' };
-        case 'locked': return { ...b, prop: 'shackle', look: [0, -1] };
-        case 'finished': return { ...b, glow: 1 };
-        case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, gazeW: 0.3 };
+        case 'thinking':
+          return { ...b, armL: frac(t / 2.4) < 0.5 ? 'up' : 'out', look: [0, -1], gazeW: 0.1, crank: 'tick', shave: 'orbit', prop: '', propT: t };
+        case 'working': case 'writing': case 'running': {
+          const shake = Math.floor(t * 12) % 2;
+          return { ...b, dx: shake, dy: 0, armL: shake ? 'tap' : 'down', eyes: 'focus', look: [0, 1], gazeW: 0, crank: 'spin', shave: 'fly', prop: '', propT: t };
+        }
+        case 'compacting':
+          return { ...b, crank: 'spin', shave: 'swirl', prop: '', propT: t };
+        case 'failed': return { ...b, jam: t > 0.25 ? 1 : 0, shave: 'none' };
+        case 'broken': return { ...b, jam: 1, shave: 'none' };
+        case 'offline': return { ...b, crank: 'idle', shave: 'still' };
+        case 'locked': return { ...b, clasp: 1, crank: 'fold', shave: 'none', prop: '', look: [0, 1] };
+        case 'resting': return { ...b, dy: 1, tucked: 1, crank: 'fold', shave: 'none' };
+        case 'sleeping': return { ...b, crank: 'fold', shave: 'none' };
+        case 'crank': {
+          const on = t > 0.2 && t < 1.9;
+          return { ...b, armL: on ? 'up' : 'out', happy: on ? 1 : 0, crank: on ? 'spin' : 'idle', shave: on ? 'fly' : 'idle', propT: t, gazeW: 0 };
+        }
+        case 'shave': {
+          const on = t > 0.2 && t < 2.1;
+          return { ...b, armL: on ? 'high' : 'out', happy: t > 0.3 && t < 1.9 ? 1 : 0, crank: on ? 'tick' : 'idle', shave: on ? 'arc' : 'idle', propT: t, gazeW: 0 };
+        }
         default: return b;
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => ring(g, q, c));
-      const a = ring(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => sharpener(g, q, c), c);
+      const putBit = (x, y, col) => { if (safe(x, y) && !cv.has(x, y)) cv.put(x, y, col); };
       const t = q.propT;
-      // Rings, lines and sparks show only where the circle allows.
-      const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
-      switch (q.prop) {
-        case 'radar': {
-          // A ring steps outward from the body, then again.
-          const k = Math.floor(t * 4) % 3;
-          const r = [7.2, 8.2, 9.2][k];
-          for (let x = 0; x < GRID; x++) for (let y = 0; y < GRID; y++) {
-            const d = Math.hypot(x + 0.5 - a.cx - 0.5, y + 0.5 - a.cy - 0.5);
-            if (Math.abs(d - r) < 0.5 && !cv.has(x, y)) dot(k === 2 ? back : cv, x, y, k === 0 ? '#8D8C94' : '#B9B9C0');
-          }
-          break;
+      if (q.shave === 'idle') {
+        if (frac(c.T / 2.2) < 0.5) putBit(a.x0 + 9, a.y0 - 3, GOLD);
+      } else if (q.shave === 'still') {
+        putBit(a.x0 + 3, a.y0 - 3, SILVER_D);
+        putBit(a.x0 + 8, a.y0 - 3, SILVER_D);
+      } else if (q.shave === 'orbit') {
+        const f = Math.floor(t * 4) % 4;
+        const pts = [[a.x0 + 2, a.y0 - 3], [a.x0 + 4, a.y0 - 4], [a.x0 + 8, a.y0 - 4], [a.x0 + 10, a.y0 - 3]];
+        putBit(pts[f][0], pts[f][1], GOLD);
+        putBit(pts[(f + 2) % 4][0], pts[(f + 2) % 4][1], SILVER);
+      } else if (q.shave === 'fly') {
+        const f = Math.floor(t * 8) % 3;
+        putBit(a.x0 + 2, a.y0 - 4 + (f % 2), GOLD);
+        putBit(a.x0 + 1, a.y0 - 3, COVER);
+        putBit(a.x0 + 9, a.y0 - 4 + ((f + 1) % 2), COVER);
+        putBit(a.x0 + 10, a.y0 - 3, GOLD);
+      } else if (q.shave === 'swirl') {
+        for (let i = 0; i < 4; i++) {
+          const u = frac(steps(t, 8) / 1.1 + i / 4);
+          const ang = i * 90 + u * 220;
+          const r = lerp(6, 2, u);
+          putBit(rnd(a.mid + Math.sin(rad(ang)) * r), rnd(a.y0 - 2 - Math.cos(rad(ang)) * (r * 0.5)), i % 2 ? GOLD : COVER);
         }
-        case 'planet': {
-          const y = a.cy + 1;
-          for (let x = 0; x < GRID; x++) {
-            const inFace = Math.abs(x - a.cx) <= 6;
-            dot(inFace ? cv : back, x, inFace ? y + 1 : y, INK);
-          }
-          const m = Math.floor(t * 6) % 26;
-          const mx = m < 13 ? m * 2 - 2 : (25 - m) * 2 - 2;
-          for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(m < 13 ? cv : back, mx + dx, (m < 13 ? y + 2 : y - 2) + dy, '#9A9AA0');
-          break;
-        }
-        case 'flame':
-          for (let i = 0; i < 3; i++) {
-            const flick = (Math.floor(t * 12) + i) % 2;
-            dot(cv, a.cx - 1 + i, a.cy + 7, '#F5BE2E');
-            dot(cv, a.cx - 1 + i, a.cy + 8 + flick, '#F2832B');
-            if (i === 1) dot(cv, a.cx, a.cy + 9 + flick, '#F2483B');
-          }
-          break;
-        case 'shackle': {
-          // A padlock's shackle over the ring, so the whole bot reads as a lock.
-          const steel = '#8D8C94';
-          for (let x = a.cx - 2; x <= a.cx + 3; x++) dot(cv, x, a.cy - 8, steel);
-          for (const x of [a.cx - 2, a.cx + 3]) dot(cv, x, a.cy - 7, steel);
-          break;
-        }
-        case 'swirl':
-          for (let i = 0; i < 6; i++) {
-            const u = frac(steps(t, 8) / 1.1 + i / 6);
-            const ang = i * 60 + u * 220;
-            const r = lerp(9, 4, u);
-            dot(cv, rnd(a.cx + 0.5 + Math.sin(rad(ang)) * r), rnd(a.cy + 0.5 - Math.cos(rad(ang)) * r), INK);
-          }
-          break;
-        default:
-          pxProp(cv, back, q, a, pal, c);
+      } else if (q.shave === 'arc') {
+        const step = Math.floor(t * 5) % 4;
+        const spots = [[a.x0 + 1, a.y0 - 4], [a.x0 + 4, a.y0 - 5], [a.x0 + 7, a.y0 - 5], [a.x0 + 10, a.y0 - 4]];
+        for (let i = 0; i < 4; i++) putBit(spots[i][0], spots[i][1] - (i === step ? 1 : 0), i % 2 ? GOLD : COVER);
       }
+      if (q.prop) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
   };
 })();
 
 // Cursor shares Grok's subscription, so it has no character of its own any
-// more (the user, 2026-10-19): it draws Grok's ring.
+// more (the user, 2026-10-19): it draws Grok's sharpener (and looks).
 CHARACTERS.cursor = CHARACTERS.grok;
 
 // MARK: - Kimi Code · the pixel blob and its terminal
@@ -1349,7 +1812,7 @@ CHARACTERS.cursor = CHARACTERS.grok;
     // Resting: a quiet prompt, dimmed, with no caret.
     if (!red && p.term !== 'yn' && p.term !== 'lock' && p.term !== 'check') cv.glyph(CHEV, x0, row - 1, p.term === 'rest' ? '#55708F' : ink);
     let caret = x0 + 3;
-    const blink = frac(c.T / 1.05) < 0.55;
+    const blink = when(c, CARET_BLINK);
     switch (p.term) {
       case 'dots':
         for (let i = 0; i < 3; i++) cv.put(caret + i * 2, row, Math.floor(t * 5) % 3 === i ? ink : '#55708F');
@@ -1441,10 +1904,9 @@ CHARACTERS.cursor = CHARACTERS.grok;
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => blob(g, q, c));
+      const back = canvas();
+      const { q, cv, a: b } = settled(p, (g, s, q, c) => blob(g, q, c), c);
       const t = q.propT;
-      const b = blob(cv, q, c);
       terminal(cv, q, c, t);
       const a = { mid: b.cx, top: b.top, left: b.cx - 6, right: b.cx + 6, ground: TERM.y + TERM.h, midY: rnd(b.cy), front: rnd(b.cy), eyes: b.eyes };
       // A nose bubble while it sleeps, a question mark while it's locked,
@@ -1649,7 +2111,8 @@ CHARACTERS.cursor = CHARACTERS.grok;
           break;
         }
         case 'bricks': {
-          const u = q.propU * 4;
+          // Blending in from a pose with a negative propU starts at the start.
+          const u = (q.propU < 0 ? 0 : q.propU) * 4;
           const SPOTS = [[4, 6], [6, 6], [5, 4]];
           const brick = ([x, y], light) => { cv.rect(x, y, 2, 2, WATER); cv.put(x, y, light ? '#FFFFFF' : '#C9D6FF'); };
           if (u >= 3.4) {
@@ -1708,7 +2171,7 @@ function moodOf(c, mode) {
 // pointer and change shape with the mood.
 function blockEyes(cv, at, c, mode, color, w = 2) {
   const e = c.eye;
-  const lx = clamp(rnd(e.look[0] * 1.3), -1, 1), ly = clamp(rnd(e.look[1] * 1.2), -1, 1);
+  const lx = e.lx, ly = e.ly;
   const m = moodOf(c, mode);
   at.forEach(([x0, y0], i) => {
     const x = x0 + lx, y = y0 + ly, right = i === 1;
@@ -1737,9 +2200,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       return (poses && poses(s, t, T, b)) ?? b;
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => body(g, q, c));
-      const a = body(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => body(g, q, c), c);
       if (!(props && props(cv, back, q, a, c))) pxProp(cv, back, q, a, pal, c);
       return pixels(back, c, 0.7) + pixels(cv, c);
     },
@@ -1809,9 +2271,9 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   // round corners only, which breaks the logo's stroke into dots on the
   // cloud's diagonal edges.
   function outline8(cv, list, color) {
-    const mine = new Set(list.map(([x, y]) => `${x},${y}`));
+    const mine = new Set(list.map(([x, y]) => cellKey(x, y)));
     for (const [x, y] of list) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!mine.has(`${x + dx},${y + dy}`) && !cv.has(x + dx, y + dy)) cv.put(x + dx, y + dy, color);
+      if (!mine.has(cellKey(x + dx, y + dy)) && !cv.has(x + dx, y + dy)) cv.put(x + dx, y + dy, color);
     }
   }
 
@@ -1836,7 +2298,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     if (p.thin > 0.5) {
       const tick = Math.floor(c.T * 3);
       for (const [k, color] of [...cv.cells]) {
-        const [x, y] = k.split(',').map(Number);
+        const x = cellX(k), y = cellY(k);
         if (color === line && (x + y + tick) % 3 === 0) cv.clear(x, y);
       }
     }
@@ -1869,9 +2331,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => cloud(g, q, c));
-      const a = cloud(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => cloud(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'think': {
@@ -2019,9 +2480,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => cloud(g, q, c));
-      const a = cloud(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => cloud(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'think': case 'stall': {
@@ -2170,9 +2630,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => folio(g, q, c));
-      const a = folio(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => folio(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -2273,9 +2732,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => scroll(g, q, c));
-      const a = scroll(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => scroll(g, q, c), c);
       const t = q.propT;
       switch (q.prop) {
         case 'dots': {
@@ -2434,6 +2892,135 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   });
 })();
 
+// MARK: - Antigravity · the balloon
+//
+// A hot-air balloon, drawn from Codex's own concept Aeri (a floating blue
+// "A" with a cream face band, a coral mouth and four satellites) rather than
+// traced from it: Aeri floats, so this one flies. Her four satellites (blue,
+// coral, yellow, green) become the gores of its envelope, curving in at the
+// crown and the skirt; her face band runs round its middle, with her coral
+// mouth on it when it's happy; a wicker basket hangs below with a sandbag each side. Its
+// gores turn while it thinks, its burner flares while it works, its envelope
+// sags onto the basket when it fails, and it lands to rest. (The user's
+// pick, 2026-10-17, over round 4's rainbow "A", which is kept in retired/.)
+
+(() => {
+  const GORES = [['#4D96EB', '#B7D5F5', '#3A7BC8'], ['#E77C65', '#F6B4A6', '#C9604B'], ['#F2BB55', '#FBE2AE', '#D49A33'], ['#56AB78', '#A9DDBB', '#3F8A5D']];
+  const DIM_GORES = [['#9EA6B4', '#C7CCD6', '#868E9C'], ['#B2A9A6', '#D3CDCB', '#988F8C'], ['#BDB4A1', '#DCD6CA', '#A39A88'], ['#A3ABA5', '#C9CFCB', '#8A928C']];
+  const FACE = '#FFF2D8', DIM_FACE = '#D9D2C4', INK = '#263349', MOUTH = '#E77C65';
+  const WICKER = '#D9A04A', WICKER_DARK = '#A8742E', RIM = '#7A5226', BAG = '#E6D3AE', BAG_DARK = '#BFA77A', BURNER = '#8D94A6';
+  const DIM_WICKER = '#B8AE9C', DIM_RIM = '#8E8678';
+  const FLAME = ['#F2BB55', '#E77C65'];
+  const X0 = 5, Y0 = 3;
+  // The envelope's rows, [first, last] cell from its left edge: a round
+  // crown, widest a third of the way down, tapering to the skirt.
+  const ENVELOPE = [[4, 7], [2, 9], [1, 10], [0, 11], [0, 11], [0, 11], [0, 11], [1, 10], [2, 9], [3, 8], [4, 7]];
+  // Let down (failed, broken): squat and slumped onto the basket.
+  const SAGGED = [[3, 8], [1, 10], [0, 11], [0, 11], [0, 11], [1, 10], [3, 8]];
+  const FACE_ROWS = [4, 5, 6];
+  const MINI = ['.##.', '####', '####', '.##.', '.#..'];
+  const pal = {
+    main: GORES[0][0], body: GORES[0][0], dark: INK, light: GORES[0][1], accent: MOUTH,
+    mini: (cv, x, y) => { cv.glyph(MINI, x, y, GORES[0][0]); cv.put(x + 2, y + 1, GORES[1][0]); cv.put(x + 2, y + 2, GORES[1][0]); cv.put(x + 1, y + 4, WICKER); },
+  };
+
+  function balloon(cv, p, c) {
+    const dim = p.dim > 0.5;
+    const x0 = X0 + rnd(p.dx), y0 = Y0 + rnd(p.dy);
+    const sag = p.sag > 0.5;
+    const rows = sag ? SAGGED : ENVELOPE;
+    // A sagging envelope slumps down onto the basket.
+    const top = y0 + (sag ? ENVELOPE.length - SAGGED.length + 2 : 0);
+    const spin = rnd(p.spin ?? 0);
+    const gores = dim ? DIM_GORES : GORES;
+    const faceRows = sag ? [2, 3, 4] : FACE_ROWS;
+    rows.forEach(([a, b], j) => {
+      const w = b - a + 1;
+      for (let i = a; i <= b; i++) {
+        // The gores curve in at the crown and the skirt: each row splits its
+        // own width four ways.
+        const g = gores[((Math.floor((i - a) * 4 / w) + spin) % 4 + 4) % 4];
+        const shine = !sag && ((j === 1 && i === 3) || (j === 2 && i === 2) || (j === 3 && i === 1));
+        const color = faceRows.includes(j) ? (dim ? DIM_FACE : FACE) : shine ? g[1] : j === rows.length - 1 ? g[2] : g[0];
+        cv.put(x0 + i, top + j, color);
+      }
+    });
+    // Ropes and the burner, the basket and its sandbags.
+    const bottom = y0 + 13;
+    if (!sag) {
+      for (const i of [4, 7]) { cv.put(x0 + i, y0 + 11, p.lock ? BURNER : INK); cv.put(x0 + i, y0 + 12, INK); }
+      cv.rect(x0 + 5, y0 + 12, 2, 1, BURNER);
+      if (p.smoke) {
+        // A puff from the dead burner, drifting out past the right rope.
+        const u = frac(c.T / 1.6);
+        if (u < 0.8) cv.rect(x0 + 8 + rnd(u * 2), y0 + 11 - rnd(u * 2), 2, 1, '#BDB7B4');
+      }
+      if (p.flame) {
+        const f = Math.floor(c.T * 8) % 2;
+        cv.put(x0 + 5, y0 + 11, FLAME[f]); cv.put(x0 + 6, y0 + 11, FLAME[1 - f]);
+      }
+    }
+    cv.rect(x0 + 3, bottom, 6, 1, dim ? DIM_RIM : RIM);
+    for (let i = 0; i < 6; i++) cv.put(x0 + 3 + i, bottom + 1, dim ? DIM_WICKER : i % 2 ? WICKER_DARK : WICKER);
+    cv.rect(x0 + 3, bottom + 2, 6, 1, dim ? DIM_RIM : WICKER_DARK);
+    for (const x of [x0 + 2, x0 + 9]) { cv.put(x, bottom, dim ? DIM_WICKER : BAG); cv.put(x, bottom + 1, dim ? DIM_WICKER : BAG_DARK); }
+    // Locked: a steel padlock hangs on the basket's front, its shackle round the
+    // burner, so it can't take off.
+    if (p.lock && !sag) {
+      cv.rect(x0 + 4, bottom, 4, 2, '#B9BECB');
+      cv.rect(x0 + 4, bottom + 1, 4, 1, BURNER);
+      cv.put(x0 + 5, bottom, INK);
+      cv.put(x0 + 5, bottom + 1, INK);
+    }
+    const eyeRow = top + faceRows[0];
+    const eyes = [[x0 + 3, eyeRow], [x0 + 8, eyeRow]];
+    pxEyes(cv, eyes, c, p.eyes, INK);
+    // The coral mouth shows only when it's happy (the user, 2026-10-19).
+    if (c.eye.happy > 0.5) cv.rect(x0 + 5, eyeRow + 2, 2, 1, dim ? '#B2A9A6' : MOUTH);
+    return { x0, y0: top, eyes, mid: x0 + 6, top, left: x0, right: x0 + 11, ground: bottom + 2, midY: top + 5, front: top + 7, pageX: x0 + 2 };
+  }
+
+  addLook('antigravity', 'balloon', 'Balloon', {
+    name: 'Antigravity',
+    swatch: 0x3D7BF5,
+    fidgets: ['spin', 'puff', 'hop'],
+    cycle: PIXEL_CYCLE,
+    rest: { ...PIXEL_REST, spin: 0, flame: 0, sag: 0, lock: 0, smoke: 0 },
+    pose(s, t, T) {
+      const b = basePose(s, t, T);
+      // Rising and sinking on the air, a cell at a time.
+      const ride = frac(T / 3) < 0.5 ? 0 : -1;
+      switch (s) {
+        case 'idle': return { ...b, dy: ride };
+        // Thinking: the envelope turns slowly, gore by gore.
+        case 'thinking': return { ...b, dy: ride, spin: Math.floor(t / 0.6) % 4, look: [0, -1], prop: '' };
+        // Busy: the burner flares.
+        case 'writing': case 'working': case 'running': return { ...b, dy: 0, flame: 2, prop: s === 'working' ? b.prop : '' };
+        case 'failed': return { ...b, sag: t > 0.3 ? 1 : 0, dy: 0 };
+        case 'broken': return { ...b, sag: 1, dy: 0 };
+        // Offline: the burner has gone out; it hangs low, smoke drifting off.
+        case 'offline': return { ...b, dy: 1, smoke: 1, prop: '' };
+        // Locked: a padlock on the burner, so it can't take off; landed.
+        case 'locked': return { ...b, dy: 1, lock: 1, prop: '', look: [0, 1] };
+        // Asleep (its app away) it has landed, basket on the ground.
+        case 'resting': return { ...b, dy: 1 };
+        // Out of quota: landed too, rising a cell on each slow breath.
+        case 'sleeping': return { ...b, dy: b.dy - 1 };
+        // Fidgets: one full turn; a puff of the burner and a lift.
+        case 'spin': return { ...b, spin: t > 0.4 && t < 2.0 ? Math.floor((t - 0.4) / 0.4) + 1 : 0, happy: t > 0.4 && t < 2.0 ? 1 : 0, gazeW: 0 };
+        case 'puff': return { ...b, flame: t > 0.3 && t < 1.2 ? 2 : 0, dy: t > 0.6 && t < 1.8 ? -1 : 0, look: [0, -1], gazeW: 0 };
+        default: return b;
+      }
+    },
+    draw(p, c) {
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => balloon(g, q, c), c);
+      pxProp(cv, back, q, a, pal, c);
+      return pixels(back, c, 0.7) + pixels(cv, c);
+    },
+  });
+})();
+
 // MARK: - Antigravity · the pixel rainbow
 //
 // Antigravity's "A" as a pixel arch in rainbow stripes, hovering a couple
@@ -2538,9 +3125,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => arch(g, canvas(), q, c));
-      const a = arch(cv, shade, q, c);
+      const back = canvas();
+      const { q, cv, s: shade, a } = settled(p, (g, s, q, c) => arch(g, s, q, c), c);
       const t = q.propT;
       // Single-cell particles only show where the circle allows.
       const dot = (x, y, color) => { if (safe(x, y)) cv.put(x, y, color); };
@@ -2756,9 +3342,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => body(g, canvas(), q, c));
-      const a = body(cv, shade, q, c);
+      const back = canvas();
+      const { q, cv, s: shade, a } = settled(p, (g, s, q, c) => body(g, s, q, c), c);
       satellites(cv, q, c, a);
       if (q.prop === 'sparks') pxProp(cv, back, q, a, { ...pal, main: SAT[2] }, c);
       else pxProp(cv, back, q, a, pal, c);
@@ -2807,7 +3392,6 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
 
   function blocks(cv, shadowCv, p, c) {
     const dim = p.dim > 0.5;
-    const T = c.T;
     const snap = clamp(p.snap ?? 0), fall = clamp(p.fall ?? 0), spread = rnd(p.spread ?? 0);
     const placed = BLOCKS.map((b, i) => {
       // Where it is: floating, clicked together, or fallen, in whole cells.
@@ -2820,7 +3404,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       if (fall < 1) {
         x += rnd(p.dx); y += rnd(p.dy);
         // Antigravity: each block bobs on its own beat while they float.
-        if (p.bob && snap < 0.5) y -= frac(T / 2.4 + i * 0.27) < 0.5 ? 0 : 1;
+        if (p.bob && snap < 0.5) y -= when(c, BLOCK_BOB[i]) ? 0 : 1;
         // Thinking: they drift apart, a cell each way.
         x += [0, -spread, spread, 0][i]; y += [-spread, 0, 0, spread][i];
         // Walking: the legs take turns stepping up.
@@ -2828,7 +3412,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
         // The plank sliding in and out while it builds.
         if (i === 3) x += rnd(p.bar ?? 0);
       }
-      const lost = p.lost > 0.5 && (i + Math.floor(T * 2)) % 2;
+      const lost = p.lost > 0.5 && (i + Math.floor(c.T * 2)) % 2;
       return { ...b, cells: tipped ? b.lying : b.cells, x, y, colors: dim || lost ? DIM : b.col };
     });
     // Its fidget: the two legs trade places, colours and all.
@@ -2878,9 +3462,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas(), shade = canvas();
-      const q = settle(p, (g, q) => blocks(g, canvas(), q, c));
-      const a = blocks(cv, shade, q, c);
+      const back = canvas();
+      const { q, cv, s: shade, a } = settled(p, (g, s, q, c) => blocks(g, s, q, c), c);
       if (q.prop === 'strap') {
         // A steel strap round the clicked-together blocks, a padlock on it.
         cv.rect(6, 12, 10, 1, '#8D94A6');
@@ -2980,9 +3563,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => kite(g, q, c));
-      const a = kite(cv, q, c);
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => kite(g, q, c), c);
       if (q.prop === 'stake') {
         // A wooden stake at the end of its tail, the tail tied fast to it.
         const x = a.mid + 3;
@@ -3082,12 +3664,12 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     }
     // Wrapped in kelp to rest, so it doesn't drift.
     if (p.kelp) for (let i = 4; i < 18; i++) if (cv.has(x + i, y + 9 + (i % 3 === 0 ? 1 : 0))) cv.put(x + i, y + 9 + (i % 3 === 0 ? 1 : 0), KELP);
-    const mine = [...cv.cells.keys()].map(k => k.split(',').map(Number));
+    const mine = [...cv.cells.keys()].map(k => [cellX(k), cellY(k)]);
     cv.outline(mine, INK);
     // The sea round it, never over it: rows 13 to 17, drifting slowly;
     // still and grey when it's offline.
     const still = p.sea === 'still';
-    const phase = still ? 0 : Math.floor(c.T / 0.75);
+    const phase = still ? 0 : when(c, SEA_PHASE);
     for (let r = 13; r <= 17; r++) for (let i = 2; i < 20; i++) {
       if (!safe(i, r) || cv.has(i, r)) continue;
       if (still ? r % 2 === 0 : (i + r + phase) % 4 === 0) continue;
@@ -3154,6 +3736,145 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   });
 })();
 
+// MARK: - Grok · the slashed ring (former default, kept as a selectable look)
+
+(() => {
+  const INK = '#0B0B0C', DIM_INK = '#5A5A60', FACE = '#F4F4F1', DIM_FACE = '#CFCFCB', DOT = '#B4B4B0';
+  const CX = 11, CY = 11;
+  const MINI = ['..#.#', '.###.', '#w#w#', '#www#', '.###.', '#....'];
+  const pal = {
+    main: INK, body: INK, dark: INK, light: '#9A9AA0', accent: INK,
+    mini: (cv, x, y) => cv.glyph(MINI, x, y, INK, { w: FACE }),
+  };
+  const lookOf = c => [c.eye.lx, c.eye.ly];
+
+  function pillEyes(cv, cx, cy, p, c, ink, dim, h) {
+    const [lx, ly] = lookOf(c);
+    const top = cy - 2 + ly;
+    const xs = [cx - 3 + lx, cx + 2 + lx];
+    const e = c.eye;
+    if (p.face === 'dots') {
+      const k = Math.floor(p.propT * 4) % 3;
+      [cx - 4, cx, cx + 4].forEach((x, i) => cv.rect(x + lx, cy - 1 + ly, 2, 2, i === k ? ink : dim));
+      return;
+    }
+    if (p.face === 'bang') {
+      cv.rect(cx, cy - 4, 2, 4, ink);
+      cv.rect(cx, cy + 1, 2, 2, ink);
+      return;
+    }
+    xs.forEach((x, i) => {
+      const right = i === 1;
+      const mood = e.cross > 0.5 ? 'cross' : (e.happy > 0.5 || (right && e.wink > 0.5)) ? 'happy' : e.sleep > 0.5 ? 'closed'
+        : e.open < 0.45 ? 'blink' : p.eyes;
+      if (mood === 'cross') for (const [dx, dy] of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, 2], [1, 2], [-1, 3], [2, 3]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'happy') for (const [dx, dy] of [[-1, 2], [0, 1], [1, 1], [2, 2]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'content') for (const [dx, dy] of [[-1, 2], [0, 3], [1, 3], [2, 2]]) cv.put(x + dx, top + dy, ink);
+      else if (mood === 'closed') cv.rect(x - (right ? 0 : 1), top + 3, 3, 1, ink);
+      else if (mood === 'blink' || mood === 'rest') cv.rect(x, top + 2, 2, 1, ink);
+      else if (mood === 'focus') cv.rect(x, top + 1, 2, 2, ink);
+      else if (mood === 'wide') cv.rect(x, top - 1, 2, h + 1, ink);
+      else if (mood === 'sad') { cv.rect(x, top + 2, 2, 2, ink); cv.put(right ? x : x + 1, top + 1, ink); }
+      else cv.rect(x, top, 2, h, ink);
+    });
+  }
+
+  function ring(cv, p, c) {
+    const cx = CX + rnd(p.dx), cy = CY + rnd(p.dy) - rnd(p.lift);
+    const dim = p.dim > 0.5;
+    const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
+    const inner = p.sq > 0.5 ? 3.4 : 4.5;
+    for (const [dx, dy] of [[5, -5], [6, -6], [-5, 5], [-6, 6]]) cv.put(cx + dx, cy + dy, ink);
+    cv.shape((x, y) => Math.hypot(x - cx - 0.5, y - cy - 0.5) <= 6.5, cx - 7, cy - 7, 15, 15, (x, y) => {
+      const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
+      if (d < inner) return face;
+      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + Math.floor(c.T * 6)) % 2) return face;
+      return ink;
+    });
+    if (p.glow && Math.floor(c.T * 4) % 2) cv.put(cx + 5, cy - 7, '#F5BE2E');
+    pillEyes(cv, cx, cy, p, c, ink, DOT, 3);
+    return { mid: cx, top: cy - 8, left: cx - 7, right: cx + 8, ground: cy + 8, midY: cy, front: cy + 1, eyes: [[cx - 3, cy - 2], [cx + 2, cy - 2]], cx, cy, hands: false };
+  }
+
+  addLook('grok', 'ring', 'Slashed ring', {
+    name: 'Grok',
+    swatch: 0x0B0B0C,
+    fidgets: ['wink', 'hop', 'peek'],
+    cycle: PIXEL_CYCLE,
+    rest: { ...PIXEL_REST, face: '', glow: 0, lift: 0, dashed: 0 },
+    pose(s, t, T) {
+      const b = basePose(s, t, T);
+      switch (s) {
+        case 'thinking': return { ...b, face: 'dots', glow: 1, prop: '' };
+        case 'searching': return { ...b, dx: 0, legs: 'stand', eyes: 'wide', prop: 'radar' };
+        case 'web': return { ...b, dy: 0, prop: 'planet' };
+        case 'running': return { ...b, lift: 2 + (Math.floor(t * 10) % 2), dy: 0, prop: 'flame' };
+        case 'compacting': return { ...b, prop: 'swirl' };
+        case 'asking': return { ...b, face: 'bang', prop: '' };
+        case 'approving': return { ...b, glow: 1 };
+        case 'offline': return { ...b, dashed: 1, prop: '' };
+        case 'locked': return { ...b, prop: 'shackle', look: [0, -1] };
+        case 'finished': return { ...b, glow: 1 };
+        case 'wink': return { ...b, wink: t > 0.2 && t < 1.3 ? 1 : 0, gazeW: 0.3 };
+        default: return b;
+      }
+    },
+    draw(p, c) {
+      const back = canvas();
+      const { q, cv, a } = settled(p, (g, s, q, c) => ring(g, q, c), c);
+      const t = q.propT;
+      const dot = (into, x, y, color) => { if (safe(x, y)) into.put(x, y, color); };
+      switch (q.prop) {
+        case 'radar': {
+          const k = Math.floor(t * 4) % 3;
+          const r = [7.2, 8.2, 9.2][k];
+          for (let x = 0; x < GRID; x++) for (let y = 0; y < GRID; y++) {
+            const d = Math.hypot(x + 0.5 - a.cx - 0.5, y + 0.5 - a.cy - 0.5);
+            if (Math.abs(d - r) < 0.5 && !cv.has(x, y)) dot(k === 2 ? back : cv, x, y, k === 0 ? '#8D8C94' : '#B9B9C0');
+          }
+          break;
+        }
+        case 'planet': {
+          const y = a.cy + 1;
+          for (let x = 0; x < GRID; x++) {
+            const inFace = Math.abs(x - a.cx) <= 6;
+            dot(inFace ? cv : back, x, inFace ? y + 1 : y, INK);
+          }
+          const m = Math.floor(t * 6) % 26;
+          const mx = m < 13 ? m * 2 - 2 : (25 - m) * 2 - 2;
+          for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(m < 13 ? cv : back, mx + dx, (m < 13 ? y + 2 : y - 2) + dy, '#9A9AA0');
+          break;
+        }
+        case 'flame':
+          for (let i = 0; i < 3; i++) {
+            const flick = (Math.floor(t * 12) + i) % 2;
+            dot(cv, a.cx - 1 + i, a.cy + 7, '#F5BE2E');
+            dot(cv, a.cx - 1 + i, a.cy + 8 + flick, '#F2832B');
+            if (i === 1) dot(cv, a.cx, a.cy + 9 + flick, '#F2483B');
+          }
+          break;
+        case 'shackle': {
+          const steel = '#8D8C94';
+          for (let x = a.cx - 2; x <= a.cx + 3; x++) dot(cv, x, a.cy - 8, steel);
+          for (const x of [a.cx - 2, a.cx + 3]) dot(cv, x, a.cy - 7, steel);
+          break;
+        }
+        case 'swirl':
+          for (let i = 0; i < 6; i++) {
+            const u = frac(steps(t, 8) / 1.1 + i / 6);
+            const ang = i * 60 + u * 220;
+            const r = lerp(9, 4, u);
+            dot(cv, rnd(a.cx + 0.5 + Math.sin(rad(ang)) * r), rnd(a.cy + 0.5 - Math.cos(rad(ang)) * r), INK);
+          }
+          break;
+        default:
+          pxProp(cv, back, q, a, pal, c);
+      }
+      return pixels(back, c, 0.7) + pixels(cv, c);
+    },
+  });
+})();
+
 // MARK: - Grok · the ring bot (round 3, refitted)
 //
 // Grok's slashed ring as a little robot: a black pixel ring round a pale
@@ -3184,14 +3905,13 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     const dim = p.dim > 0.5;
     const ink = dim ? DIM_INK : INK, face = dim ? DIM_FACE : FACE;
     const inner = p.sq > 0.5 ? 3.0 : 4.1;
-    const tick = Math.floor(c.T * 6);
     cv.shape((x, y) => {
       const d = Math.hypot(x - cx - 0.5, y - cy - 0.5);
       return d <= 5.5;
     }, cx - 6, cy - 6, 13, 13, (x, y) => {
       const d = Math.hypot(x + 0.5 - cx - 0.5, y + 0.5 - cy - 0.5);
       if (d < inner) return face;
-      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + tick) % 2) return face;
+      if (p.dashed && (Math.floor(Math.atan2(y - cy, x - cx) / (TAU / 16)) + Math.floor(c.T * 6)) % 2) return face;
       return ink;
     });
     // Legs and arm nubs.
@@ -3251,9 +3971,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       }
     },
     draw(p, c) {
-      const back = canvas(), cv = canvas();
-      const q = settle(p, (g, q) => ringBot(g, canvas(), q, c));
-      const a = ringBot(cv, back, q, c);
+      const { q, cv, s: back, a } = settled(p, (g, s, q, c) => ringBot(g, s, q, c), c);
       const t = q.propT;
       const [kx, ky] = a.knob;
       // Single cells show only where the circle allows.
@@ -3414,7 +4132,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
       // A mortar right of it; three thumps of the mallet (raised over its
       // ear, halfway, down), the mochi a size bigger after each, then the
       // finished mochi sparkles. Steam rises all the while.
-      const v = q.propU, k = Math.floor(v / 0.24), w = frac(v / 0.24);
+      // Blending in from a pose with no or a negative propU starts at the start.
+      const v = q.propU > 0 ? q.propU : 0, k = Math.floor(v / 0.24), w = frac(v / 0.24);
       const size = k < 3 ? k + (w >= 0.6 ? 1 : 0) : 3;
       const shape = [['M'], ['MM'], ['.MM.', 'MMMS'], ['.MM.', 'MMMM', 'MMMS']][size];
       const mx = shape[0].length > 2 ? 15 : 16, my = 14 - shape.length;
@@ -3482,7 +4201,6 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   const MINI = ['####', '#nn#', '####', '#..#'];
   function body(cv, p, c) {
     const x = rnd(p.dx), y = 2 + rnd(p.dy) - rnd(p.lift ?? 0);
-    const t = p.propT, T = c.T;
     const dim = p.dim > 0.5, red = p.screen === 'red';
     art(cv, ART, x, y, { L: dim ? DULL : SHINE, B: dim ? DULL : BLUE, D: dim ? DULL_D : DEEP, N: red ? RED : NAVY, G: red ? '#E0605A' : GLARE, E: LED, A: NAVY, d: p.dotLit ? LIT : DOT });
     if (!p.dotLit) cv.put(x + 11, y, dim ? DULL : SHINE);
@@ -3491,23 +4209,23 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
     if (liftL) { for (const i of [6, 7, 8]) cv.clear(x + i, y + 16); cv.put(x + 6, y + 15, NAVY); }
     if (liftR) { for (const i of [13, 14, 15]) cv.clear(x + i, y + 16); cv.put(x + 15, y + 15, NAVY); }
     // The power light: green, amber breathing in standby, red when locked or failed.
-    cv.put(x + 15, y + 13, p.standby ? (Math.floor(T / 1.4) % 2 ? AMBER : DEEP) : p.screen === 'lock' || red ? RED_LED : p.screen === 'static' ? DEEP : LED);
+    cv.put(x + 15, y + 13, p.standby ? (Math.floor(c.T / 1.4) % 2 ? AMBER : DEEP) : p.screen === 'lock' || red ? RED_LED : p.screen === 'static' ? DEEP : LED);
     const eyes = [[x + 8, y + 7], [x + 12, y + 7]];
     switch (p.screen) {
       case 'dots': {
         // Thinking: the eyes become three dots, the lit one walking.
-        const k = Math.floor(t * 4) % 3;
+        const k = Math.floor(p.propT * 4) % 3;
         for (let i = 0; i < 3; i++) cv.rect(x + 7 + i * 3, y + 8, 2, 2, i === k ? EYE : CODE);
         break;
       }
       case 'code':
         blockEyes(cv, eyes.map(([ex, ey]) => [ex, ey - 1]), c, 'focus', EYE);
-        cv.rect(x + 7, y + 11, [5, 8, 3, 7, 6, 4][Math.floor(t * 6) % 6], 1, CODE);
+        cv.rect(x + 7, y + 11, [5, 8, 3, 7, 6, 4][Math.floor(p.propT * 6) % 6], 1, CODE);
         break;
       case 'static':
         // Offline: snow on the screen, no face.
         for (let j = 7; j <= 11; j++) for (let i = 6; i <= 15; i++) {
-          const v = hash(i * 31 + j * 7 + Math.floor(T * 8) * 131);
+          const v = hash(i * 31 + j * 7 + Math.floor(c.T * 8) * 131);
           if (v > 0.62) cv.put(x + i, y + j, v > 0.85 ? '#C9D6E6' : '#55708F');
         }
         break;
@@ -3745,7 +4463,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   const MINI = ['.##.', '#vv#', '#vv#', '.##.'];
   function body(cv, p, c) {
     const x = rnd(p.dx), y = 3 + rnd(p.dy) - rnd(p.lift ?? 0);
-    const dim = p.dim > 0.5, T = c.T;
+    const dim = p.dim > 0.5;
     art(cv, ART, x, y, { O: INK, W: dim ? DIM_SUIT : SUIT, S: SHADE, V: VISOR, P: PACK, K: INK });
     // Walking: a boot lifts.
     if (p.legs === 'walk1' || p.legs === 'jump') for (let i = 6; i <= 9; i++) cv.clear(x + i, y + 15);
@@ -3767,7 +4485,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
         for (let i = 0; i < 3; i++) cv.rect(x + 7 + i * 3, y + 6, 2, 2, i === k ? EYE : GLINT);
       } else if (p.visor === 'static') {
         for (let j = 4; j <= 9; j++) for (let i = 5; i <= 16; i++) {
-          const v = hash(i * 31 + j * 7 + Math.floor(T * 8) * 131);
+          const v = hash(i * 31 + j * 7 + Math.floor(c.T * 8) * 131);
           if (v > 0.66 && cv.get(x + i, y + j) === VISOR) cv.put(x + i, y + j, v > 0.86 ? '#C9C9CF' : '#4A4A52');
         }
       } else if (p.visor === 'dark') blockEyes(cv, eyes, c, 'closed', DARK);
@@ -4025,7 +4743,7 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   const MINI = ['#.#', '###', 'w#w', '###'];
   function eyesOf(cv, x, y, c, mode) {
     const e = c.eye;
-    const lx = clamp(rnd(e.look[0] * 1.3), -1, 1), ly = clamp(rnd(e.look[1]), -1, 1);
+    const lx = e.lx, ly = e.ly1;
     const m = moodOf(c, mode);
     [[x + 6, y + 5], [x + 12, y + 5]].forEach(([X, Y], i) => {
       const mm = i === 1 && e.wink > 0.5 ? 'happy' : m;
@@ -4044,10 +4762,10 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
   }
   function body(cv, p, c) {
     const x = rnd(p.dx), y = 3 + rnd(p.dy) - rnd(p.lift ?? 0);
-    const dim = p.dim > 0.5, T = c.T;
+    const dim = p.dim > 0.5;
     // Antennae: up, or drooping out to the sides.
     const tipColor = i => {
-      if (p.tips === 'lost') return i === 0 && Math.floor(T * 2) % 2 ? RED : GREY;
+      if (p.tips === 'lost') return i === 0 && Math.floor(c.T * 2) % 2 ? RED : GREY;
       if (p.tips === 'turn') return Math.floor(p.propT * 2.5) % 2 === i ? GOLD : DIM_GOLD;
       if (p.tips === 'flash') return Math.floor(p.propT * 8) % 2 ? '#FFF2C2' : GOLD;
       if (p.tips === 'beep') return Math.floor(p.propT * 4) % 3 === i ? '#FFF2C2' : GOLD;
@@ -4111,8 +4829,8 @@ function lookBot(kind, id, name, swatch, body, pal, { poses, props, fidgets = ['
 for (const [kind, id, name] of [
   ['claude', 'clawd', 'Clawd'],
   ['codex', 'notebook', 'Notebook'],
-  ['antigravity', 'balloon', 'Balloon'],
-  ['grok', 'ring', 'Slashed ring'],
+  ['antigravity', 'eraser', 'Eraser'],
+  ['grok', 'sharpener', 'Sharpener'],
   ['kimi', 'blob', 'Blob and terminal'],
   ['deepseek', 'whale', 'Whale'],
 ]) addLook(kind, id, name, CHARACTERS[kind], true);

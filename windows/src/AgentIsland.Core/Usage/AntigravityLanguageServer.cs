@@ -42,6 +42,18 @@ public static class AntigravityLanguageServer
     private static int _cachedPort;
     private static int _cachedPid;
 
+    /// Test seams for discovery and RPC calls.
+    internal static Func<string, int, string, string?, double, Task<Reply?>> CallRpc = Call;
+    internal static Func<List<int>> ListAntigravityProcessIds = AntigravityProcessIds;
+    internal static Func<int, List<int>> ListListeningPorts = ListeningPorts;
+    internal static Func<int, int?> ResolvePortOwner = PortOwner;
+
+    internal static void ForgetCachedPort()
+    {
+        _cachedPort = 0;
+        _cachedPid = 0;
+    }
+
     public static async Task<Reply?> Call(
         string method,
         int port,
@@ -76,6 +88,8 @@ public static class AntigravityLanguageServer
         }
     }
 
+    private enum ProbeResult { Dead, Unauthorized, Ready }
+
     /// Ports are assigned at launch and written nowhere, so they are found
     /// by walking the running Antigravity processes' listening sockets —
     /// GetExtendedTcpTable in-process; shelling out to netstat on every
@@ -85,36 +99,56 @@ public static class AntigravityLanguageServer
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
         var cached = _cachedPort;
         var cachedPid = _cachedPid;
+        int? unauthorizedPort = null;
         // Still the same server's port: one Antigravity let go of can be taken
         // by another product's language server, which answers just the same.
-        if (cached > 0 && PortOwner(cached) == cachedPid && await IsAlive(cached).ConfigureAwait(false)) return cached;
-        foreach (var pid in AntigravityProcessIds())
+        if (cached > 0 && ResolvePortOwner(cached) == cachedPid)
         {
-            foreach (var port in ListeningPorts(pid))
+            var cachedState = await Probe(cached, cachedPid).ConfigureAwait(false);
+            if (cachedState == ProbeResult.Ready) return cached;
+            if (cachedState == ProbeResult.Unauthorized) unauthorizedPort = cached;
+        }
+        foreach (var pid in ListAntigravityProcessIds())
+        {
+            foreach (var port in ListListeningPorts(pid))
             {
                 if (port == cached && pid == cachedPid) continue;
-                if (await IsAlive(port).ConfigureAwait(false))
+                var state = await Probe(port, pid).ConfigureAwait(false);
+                if (state == ProbeResult.Ready)
                 {
                     _cachedPort = port;
                     _cachedPid = pid;
                     return port;
                 }
+                if (state == ProbeResult.Unauthorized) unauthorizedPort ??= port;
             }
         }
+        // Never pin a port that stayed 401: the next fetch re-scans so a newly
+        // started CLI or refreshed IDE server can take over immediately.
         _cachedPort = 0;
         _cachedPid = 0;
-        return null;
+        return unauthorizedPort;
     }
 
     /// `GetUnleashData` is the cheapest method that proves this is the RPC
     /// port rather than a sibling plain-HTTP port the process also opens.
-    /// 401 counts as alive: the port is right and only the token is missing.
-    private static async Task<bool> IsAlive(int port)
+    /// On a 401, retry once with the owning process's CSRF token so discovery
+    /// prefers a port that actually authenticates over one that only rejects.
+    private static async Task<ProbeResult> Probe(int port, int pid)
     {
-        var reply = await Call(
-            "GetUnleashData", port, "{\"wrapper_data\":{}}", timeoutSeconds: 2)
+        var reply = await CallRpc(
+            "GetUnleashData", port, "{\"wrapper_data\":{}}", null, 2)
             .ConfigureAwait(false);
-        return reply is { Status: 200 or 401 };
+        if (reply is { Status: 200 }) return ProbeResult.Ready;
+        if (reply is not { Status: 401 }) return ProbeResult.Dead;
+        if (CsrfToken(pid) is { Length: > 0 } token)
+        {
+            var retried = await CallRpc(
+                "GetUnleashData", port, "{\"wrapper_data\":{}}", token, 2)
+                .ConfigureAwait(false);
+            if (retried is { Status: 200 }) return ProbeResult.Ready;
+        }
+        return ProbeResult.Unauthorized;
     }
 
     /// Matches the CLI (whose real binary is `antigravity`, reached through
@@ -243,6 +277,7 @@ public static class AntigravityLanguageServer
 
     private const int AfInet = 2;
     private const int TcpTableOwnerPidListener = 3;
+    private static readonly uint LoopbackIpv4 = BitConverter.ToUInt32(new byte[] { 127, 0, 0, 1 });
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MibTcpRowOwnerPid
@@ -317,7 +352,11 @@ public static class AntigravityLanguageServer
                 rowPtr = IntPtr.Add(rowPtr, rowSize);
                 // LocalPort is in network byte order, low 16 bits.
                 var port = (int)(((row.LocalPort & 0xFF) << 8) | ((row.LocalPort >> 8) & 0xFF));
-                if (port > 0) listeners.Add(((int)row.OwningPid, port));
+                // Keep only listeners reachable on 127.0.0.1 (loopback or wildcard), matching ParseLsof.
+                if (port > 0 && (row.LocalAddr == 0 || row.LocalAddr == LoopbackIpv4))
+                {
+                    listeners.Add(((int)row.OwningPid, port));
+                }
             }
         }
         finally
@@ -389,19 +428,26 @@ public static class AntigravityLanguageServer
             }
         }
         var args = ReadCommandLine(pid);
-        string? token = null;
-        if (args is not null)
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(
-                args, "--csrf_token[=\\s]+([^\\s\"]+)");
-            token = match.Success ? match.Groups[1].Value : null;
-        }
+        var token = ParseCsrfToken(args);
         lock (TokenGate)
         {
             if (TokenByPid.Count >= 64) TokenByPid.Clear();
             TokenByPid[pid] = (started, token, token is null ? now + LookAgainAfter : null);
         }
         return token;
+    }
+
+    internal static string? ParseCsrfToken(string? commandLine)
+    {
+        if (string.IsNullOrEmpty(commandLine)) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(
+            commandLine, "--csrf_token(?:=|\\s+)(?:\"([^\"\\s]+)\"|'([^'\\s]+)'|([^\\s\"']+))");
+        if (!match.Success) return null;
+        for (var i = 1; i <= 3; i++)
+        {
+            if (match.Groups[i].Success) return match.Groups[i].Value;
+        }
+        return null;
     }
 
     private static DateTime? StartTime(int pid)
@@ -429,9 +475,12 @@ public static class AntigravityLanguageServer
             FileName = "powershell",
             Arguments = "-NoProfile -Command \"(Get-CimInstance Win32_Process -Filter \\\"ProcessId="
                 + pid + "\\\").CommandLine\"",
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
         }, CommandLineTimeout);
     }
 
@@ -444,13 +493,22 @@ public static class AntigravityLanguageServer
         {
             using var process = Process.Start(start);
             if (process is null) return null;
+            if (start.RedirectStandardInput)
+            {
+                try { process.StandardInput.Close(); } catch { }
+            }
             var output = process.StandardOutput.ReadToEndAsync();
+            var error = start.RedirectStandardError ? process.StandardError.ReadToEndAsync() : null;
             if (!process.WaitForExit(timeout))
             {
                 try { process.Kill(entireProcessTree: true); } catch { }
                 return null;
             }
             if (process.ExitCode != 0 || !output.Wait(TimeSpan.FromSeconds(2))) return null;
+            if (error is not null)
+            {
+                try { error.Wait(TimeSpan.FromSeconds(1)); } catch { }
+            }
             return output.Result.Trim();
         }
         catch

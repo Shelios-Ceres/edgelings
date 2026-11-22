@@ -241,7 +241,7 @@ public static class ClaudeKeychainTests
     private static void ThrowawayKeychain()
     {
         if (!OperatingSystem.IsMacOS()) return;
-        var folder = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "edgelings-keychain-" + Guid.NewGuid().ToString("N"))).FullName;
+        var folder = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "limen-keychain-" + Guid.NewGuid().ToString("N"))).FullName;
         var file = Path.Combine(folder, "throwaway.keychain-db");
         string? Security(params string[] arguments) => ClaudeKeychain.RunSecurity(arguments);
         try
@@ -249,7 +249,7 @@ public static class ClaudeKeychainTests
             Expect(Security("create-keychain", "-p", "throwaway", file) is not null, "create-keychain");
             Expect(Security("unlock-keychain", "-p", "throwaway", file) is not null, "unlock-keychain");
             Expect(Security("set-keychain-settings", file) is not null, "set-keychain-settings");
-            var service = "Edgelings-test-" + Guid.NewGuid().ToString("N");
+            var service = "Limen-test-" + Guid.NewGuid().ToString("N");
             Expect(Security("add-generic-password", "-s", service, "-a", "tester", "-w", Login("A", "R1"), file) is not null, "seed the item");
             var keychain = new ClaudeKeychain(ClaudeKeychain.RunSecurity, service, file);
             var item = keychain.Read() ?? throw new Exception("the seeded item was not read");

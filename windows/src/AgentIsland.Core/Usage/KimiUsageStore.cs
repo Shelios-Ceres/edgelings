@@ -71,6 +71,7 @@ public sealed class KimiUsageStore : GuestUsageStore
     /// either one syncs within seconds instead of at the next refresh.
     public void NoticeSignIn()
     {
+        if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Kimi)) return;
         if (KimiUsageFetcher.SignInStamp() is not { } stamp || stamp == _signInStamp) return;
         var first = _signInStamp is null;
         _signInStamp = stamp;
@@ -81,6 +82,7 @@ public sealed class KimiUsageStore : GuestUsageStore
     private void Kick(TimeSpan gap)
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Kimi)) return;
+        if (!ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Kimi)) return;
         if (!TryStart(gap)) return;
         RunFetch<KimiUsageFetcher.Outcome>(() => KimiUsageFetcher.Fetch(), message => new KimiUsageFetcher.Outcome.Failed(message), Apply);
     }

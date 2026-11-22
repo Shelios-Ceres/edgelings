@@ -65,7 +65,7 @@ public static class Program
         // Nor do they read or write any agent's or the app's real folders: the
         // whole home moves under a temp root, and the agents' own overrides
         // (which a suite sets for itself when it needs one) start cleared.
-        var world = Path.Combine(Path.GetTempPath(), "edgelings-test-root-" + Guid.NewGuid().ToString("N"));
+        var world = Path.Combine(Path.GetTempPath(), "limen-test-root-" + Guid.NewGuid().ToString("N"));
         IslandPaths.RootOverride = world;
         foreach (var variable in new[] { "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME", "CLAUDE_CONFIG_DIR" })
         {
@@ -100,6 +100,7 @@ public static class Program
                 ("ClaudeHooksTests", ClaudeHooksTests.RunAll, null),
                 ("CodexReplayGuardTests", CodexReplayGuardTests.RunAll, null),
                 ("CodexSwitchRefreshTests", CodexSwitchRefreshTests.RunAll, null),
+                ("HiddenProviderQuotaTests", HiddenProviderQuotaTests.RunAll, null),
                 ("UsageRetryTests", UsageRetryTests.RunAll, null),
                 ("CodexAutoSwitchReadingTests", CodexAutoSwitchReadingTests.RunAll, null),
                 ("CodexArchiveTests", CodexArchiveTests.RunAll, null),

@@ -27,9 +27,10 @@ internal sealed class AntigravityModelMap
 
     public AntigravityModelMap(string path) => _path = path;
 
-    /// Sets each event's model from the map, asking the servers about the
-    /// conversations that still have steps with none. A step nobody names
-    /// keeps the placeholder model, which has no price.
+    /// Sets each unnamed event's model from the map, asking the servers about
+    /// conversations that still have steps with none. Steps already named in
+    /// the transcript keep their model without querying a server. A step
+    /// nobody names keeps the placeholder model, which has no price.
     public List<TokenEvent> Resolve(List<TokenEvent> events, Func<string, Generations> ask)
     {
         lock (_gate)
@@ -38,7 +39,8 @@ internal sealed class AntigravityModelMap
             var dirty = false;
             foreach (var conversation in events.GroupBy(Conversation))
             {
-                var steps = conversation.ToList();
+                var steps = conversation.Where(step => step.Model == AntigravityLogReader.UnknownModel).ToList();
+                if (steps.Count == 0) continue;
                 if (!_models!.TryGetValue(conversation.Key, out var known))
                 {
                     known = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -59,7 +61,9 @@ internal sealed class AntigravityModelMap
                 dirty = true;
             }
             if (dirty) Save();
-            return events.Select(step => step with { Model = ModelOf(step) }).ToList();
+            return events.Select(step => step.Model != AntigravityLogReader.UnknownModel
+                ? step with { Model = Pricing.Family(step.Model) }
+                : step with { Model = ModelOf(step) }).ToList();
         }
     }
 

@@ -57,10 +57,10 @@ public static class GrokHooks
 
     /// The Mac script: the same marker, read with plutil (part of macOS). It
     /// keeps ids and a type, never text. The signal folder is the app's, or
-    /// EDGELINGS_GROK_SIGNALS where a host sets one.
+    /// LIMEN_GROK_SIGNALS where a host sets one.
     internal const string ShellScript = """
         #!/bin/sh
-        d="${EDGELINGS_GROK_SIGNALS:-$HOME/Library/Application Support/Edgelings/grok-hooks}"
+        d="${LIMEN_GROK_SIGNALS:-${EDGELINGS_GROK_SIGNALS:-$HOME/Library/Application Support/Limen/grok-hooks}}"
         mkdir -p "$d"
         i=$(cat)
         sid=$(printf '%s' "$i" | plutil -extract sessionId raw -o - - 2>/dev/null)
@@ -123,7 +123,7 @@ public static class GrokHooks
         {
             try
             {
-                if (Conflicts()) return $"{HookFileName} in {Hooks} is not Edgelings', so it was left alone.";
+                if (Conflicts()) return $"{HookFileName} in {Hooks} is not Limen's, so it was left alone.";
                 if (!installed)
                 {
                     if (File.Exists(HookPath)) File.Delete(HookPath);

@@ -56,6 +56,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Edgelings-win-x64-test
-          path: windows/dist/Edgelings-*.zip
+          name: Limen-win-x64-test
+          path: windows/dist/Limen-*.zip
           if-no-files-found: error

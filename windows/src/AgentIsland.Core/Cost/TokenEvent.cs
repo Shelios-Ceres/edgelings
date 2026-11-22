@@ -23,6 +23,10 @@ public sealed record TokenEvent(
     public string? ResponseKey { get; init; }
     public bool IsFinalUsage { get; init; }
 
+    /// Subset of <see cref="CacheCreationTokens"/> written to Anthropic's 1-hour
+    /// ephemeral cache (billed at 2x base input instead of 1.25x for 5-minute).
+    public long CacheCreation1hTokens { get; init; }
+
     /// The id to price this call under when it differs from <see cref="Model"/>:
     /// Kimi Code's table id for a connected provider's model ("deepseek/deepseek-flash")
     /// keeps its name, and the provider's own id ("deepseek-flash") has the price.

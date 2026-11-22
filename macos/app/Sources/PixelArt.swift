@@ -94,17 +94,18 @@ enum PixelArt {
 
     /// Each agent's default face, by agent id.
     static let faces: [String: PixelGrid] = [
-        "antigravity": PixelGrid(rows: ["...bcyg...", "..bbcyyg..", ".bbccyygg.", ".ffkffkff.", ".ffkffkff.", ".ffffffff.", "..bbcyyg..", "...bcyg...", "...k..k...", "...tttt..."], colors: ["b": 0x4D96EB, "c": 0xE77C65, "y": 0xF2BB55, "g": 0x56AB78, "f": 0xFFF2D8, "k": 0x263349, "t": 0xD9A04A]),
+        "antigravity": PixelGrid(rows: ["..lbrryg..", "..bbrryg..", ".kkbbbbkk.", ".kcccccck.", ".kckcckck.", ".kckcckck.", ".kbbbbbbk.", ".kkkkkkkk.", "..kk..kk..", ".........."], colors: ["l": 0xB7D5F5, "b": 0x4D96EB, "r": 0xE77C65, "y": 0xF2BB55, "g": 0x56AB78, "c": 0xFFF2D8, "k": 0x263349]),
         "claude": PixelGrid(rows: ["..........", "..........", ".oooooooo.", ".ookookoo.", "oookookooo", ".oooooooo.", ".oooooooo.", "..o.oo.o..", "..o.oo.o..", ".........."], colors: ["k": 0x2A1A14, "o": 0xD77757]),
         "codex": PixelGrid(rows: [".r.r.r.r..", "#########.", "#wwwwwbw#.", "#wkwwkbw#.", "#wkwwkbw#.", "#wwwwwbw#.", "#wwwwwbw#.", "#########.", "....g.....", ".........."], colors: ["#": 0x263349, "w": 0xFFF2D8, "k": 0x263349, "b": 0x4D96EB, "r": 0x8D94A6, "g": 0xF2BB55]),
         "deepseek": PixelGrid(rows: ["..........", "b.........", "bb...bbbb.", ".bbbbbbbbb", ".bbbbbbkbb", ".bbwwwwwbb", "..wwwwwww.", "...www....", "..........", ".........."], colors: ["b": 0x4D6BFE, "k": 0x14183A, "w": 0xDCE4FF]),
-        "grok": PixelGrid(rows: [".........k", "...kkkk.k.", "..kwwwwk..", ".kwwwwwwk.", ".kwkwwkwk.", ".kwkwwkwk.", ".kwwwwwwk.", "..kwwwwk..", ".k.kkkk...", "k........."], colors: ["k": 0x0B0B0C, "w": 0xF4F4F6]),
+        "grok": PixelGrid(rows: ["...osvs...", "..osvvgo..", ".kooooook.", ".kccccccks", ".kckcckckg", ".kckcckckg", ".kcccgcck.", ".kooooook.", "..kk..kk..", ".........."], colors: ["o": 0x242731, "v": 0x101218, "s": 0xDCE0EA, "g": 0xF5BE2E, "c": 0xFFF2D8, "k": 0x263349]),
         "kimi": PixelGrid(rows: ["..........", "...bbbb...", "..bbbbbb..", ".bbwbbwbb.", ".bbwbbwbb.", ".bbwbbwbb.", ".bbbbbbbb.", "..bbbbbb..", "...bbbb...", ".........."], colors: ["b": 0x2B8BFF, "w": 0xFFFFFF]),
     ]
 
     /// Faces of the looks other than the default, keyed "agent/look".
     static let lookFaces: [String: PixelGrid] = [
         "antigravity/aeri": PixelGrid(rows: ["....bb...y", "...bbbb...", "...b..b...", "..bffffb..", "g.fkffkf..", ".bffffffb.", ".bb....bbc", "bb......bb", "b........b", ".........."], colors: ["b": 0x4D96EB, "y": 0xF2BB55, "f": 0xFFF2D8, "g": 0x56AB78, "k": 0x263349, "c": 0xE77C65]),
+        "antigravity/balloon": PixelGrid(rows: ["...bcyg...", "..bbcyyg..", ".bbccyygg.", ".ffkffkff.", ".ffkffkff.", ".ffffffff.", "..bbcyyg..", "...bcyg...", "...k..k...", "...tttt..."], colors: ["b": 0x4D96EB, "c": 0xE77C65, "y": 0xF2BB55, "g": 0x56AB78, "f": 0xFFF2D8, "k": 0x263349, "t": 0xD9A04A]),
         "antigravity/blocks": PixelGrid(rows: ["..bbbbbb..", "..fkffkf..", "..fkffkf..", "..BBBBBB..", "..........", ".cc....gg.", ".cc.yy.gg.", "cc..yy..gg", "cc......gg", ".........."], colors: ["b": 0x4D96EB, "f": 0xFFF2D8, "k": 0x263349, "B": 0x3166A4, "c": 0xE77C65, "g": 0x56AB78, "y": 0xF2BB55]),
         "antigravity/kite": PixelGrid(rows: ["....lb....", "...llbb...", "..lllbbb..", ".ssssssss.", ".llkbbkbb.", "..llbbbb..", "...lbbb...", "....lb....", "....c.....", ".....y...."], colors: ["l": 0x7DB6F5, "b": 0x4D96EB, "s": 0xFFF2D8, "k": 0x263349, "c": 0xE77C65, "y": 0xF2BB55]),
         "antigravity/otter": PixelGrid(rows: ["..h....h..", ".hhhhhhhh.", "hhcccccchh", "hcckcckcch", "hcckcckcch", "hpccnnccph", ".hhcccchh.", "fffqyyqfff", ".ffffffff.", "ww.wwww.ww"], colors: ["h": 0xD9A04A, "c": 0xFFF2D8, "k": 0x263349, "p": 0xF6B4A6, "n": 0x263349, "f": 0xA8742E, "q": 0x7E5530, "y": 0xF2BB55, "w": 0x4D96EB]),
@@ -118,6 +119,7 @@ enum PixelArt {
         "grok/cat": PixelGrid(rows: [".k......k.", ".kek..kek.", ".kkkkkkkk.", ".kgkkkkgk.", ".kgkkkkgk.", ".kkkkpkkk.", "..kkkkkk..", "..kkkkwk.k", "..kkkwkkk.", "..ww..ww.."], colors: ["k": 0x0B0B0C, "e": 0x3A3A42, "g": 0xF5BE2E, "p": 0xE8849A, "w": 0xF4F4F1]),
         "grok/horizon": PixelGrid(rows: ["..........", "...kkkk...", "..kkkkkk.o", ".kkwkkwkoo", ".kkwkkwooy", ".kkkkoooyk", ".kkooyykk.", ".ooyykkk..", "oo.kkkk...", ".........."], colors: ["k": 0x0B0B0C, "o": 0xF2932B, "w": 0xFFFFFF, "y": 0xFFD66B]),
         "grok/martian": PixelGrid(rows: ["..g....g..", "...o..o...", ".oooooooo.", "offffffffo", "ofkkffkkfo", "ofkkffkkfo", ".offffffo.", "...oooo...", ".oooooooo.", "...o..o..."], colors: ["g": 0xF5BE2E, "o": 0x0B0B0C, "f": 0xF4F4F1, "k": 0x0B0B0C]),
+        "grok/ring": PixelGrid(rows: [".........k", "...kkkk.k.", "..kwwwwk..", ".kwwwwwwk.", ".kwkwwkwk.", ".kwkwwkwk.", ".kwwwwwwk.", "..kwwwwk..", ".k.kkkk...", "k........."], colors: ["k": 0x0B0B0C, "w": 0xF4F4F6]),
         "grok/ringbot": PixelGrid(rows: [".......kk.", "......k...", "...kkkk...", "..kwwwwk..", ".kwkwwkwk.", "kkwkwwkwkk", ".kwwwwwwk.", "..kwwwwk..", "...kkkk...", "...k..k..."], colors: ["k": 0x0B0B0C, "w": 0xEFEFEC]),
         "kimi/moonlet": PixelGrid(rows: ["..ss......", ".sbb......", "sbbb...dd.", "sbbb...dd.", "bbbbb.....", "bbbbbbb..b", "bwbbwbbbbb", "bwbbwbbbbb", ".pbbbbbpb.", "..DDDDDD.."], colors: ["s": 0x7DB8FF, "b": 0x2B8BFF, "d": 0x0B2C55, "w": 0xFFFFFF, "p": 0xFF9EC4, "D": 0x1F6FD6]),
         "kimi/rabbit": PixelGrid(rows: [".oo....oo.", ".ob....bo.", ".ob....bo.", ".owoooowo.", "owwwwwwwwo", "owkwwwwkwo", "owwwppwwwo", ".owwbbwwo.", ".owbbbbwo.", "..oooooo.."], colors: ["o": 0x0B2C55, "b": 0x2B8BFF, "w": 0xFFFFFF, "k": 0x0B2C55, "p": 0xFF7FA8]),

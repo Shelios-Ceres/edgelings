@@ -33,7 +33,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentIsland.Tests" />
-    <InternalsVisibleTo Include="Edgelings" />
+    <InternalsVisibleTo Include="Limen" />
   </ItemGroup>
 
 </Project>

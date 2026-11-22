@@ -28,13 +28,13 @@ Core now reads real state on a Mac. Swift only supplies what AppKit owns: window
 
 ### Folders
 
-One place resolves them all: `IslandPaths`. `EDGELINGS_ROOT` (or the bridge's `configure` call with `root`) moves the home and everything under it to `<root>/home`, so tests and benches never touch real folders. The test runner and the bench set it. The agents' own overrides (`CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, `CLAUDE_CONFIG_DIR`) still win when set. The diagnostic keeps only the caches elsewhere (`configure` with `cache`).
+One place resolves them all: `IslandPaths`. `LIMEN_ROOT` (or the bridge's `configure` call with `root`) moves the home and everything under it to `<root>/home`, so tests and benches never touch real folders. The test runner and the bench set it. The agents' own overrides (`CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, `CLAUDE_CONFIG_DIR`) still win when set. The diagnostic keeps only the caches elsewhere (`configure` with `cache`).
 
 | What | macOS path | Where it comes from |
 |---|---|---|
-| Edgelings settings, crash log | `~/Library/Application Support/Edgelings` | new for the Mac port |
-| Edgelings caches | `~/Library/Caches/Edgelings` | new |
-| Hooks' signal folders (`claude-hooks`, `grok-hooks`) | `~/Library/Application Support/Edgelings/` | Windows keeps its Agent Island folder; a Mac install never had one |
+| Limen settings, crash log | `~/Library/Application Support/Limen` | new for the Mac port |
+| Limen caches | `~/Library/Caches/Limen` | new |
+| Hooks' signal folders (`claude-hooks`, `grok-hooks`) | `~/Library/Application Support/Limen/` | Windows keeps its Agent Island folder; a Mac install uses Limen's |
 | Claude Code sessions | `~/.claude/projects`, `~/.config/claude/projects` (or `CLAUDE_CONFIG_DIR`) | upstream `Sources/`, Claude Code |
 | Claude Code login | Keychain item `Claude Code-credentials`, or `Claude Code-credentials-<8 hex>` | upstream `ClaudeCredentials.swift` |
 | Claude Desktop sessions | `~/Library/Application Support/Claude/claude-code-sessions` | upstream `SessionScanner.swift` (Windows' `Claude-Data` move does not apply) |
@@ -60,7 +60,7 @@ Swift side: `LaunchAtLogin` wraps `SMAppService.mainApp` (it works from a signed
 
 ### Claude's Keychain login
 
-`ClaudeKeychain` runs `/usr/bin/security` (each call has a deadline and is killed at it, because `security` can block for ever behind an authorization dialog). It finds the freshest Claude Code login among `Claude Code-credentials` and the suffixed items (an item counts only when it holds a token pair), and after a refresh writes the rotated pair **back into the item it came from**, only while that item still holds the refresh token that was sent, keeping every other field (the MCP logins beside it). The token URL, client id, `claude-code/X.Y.Z` User-Agent, beta header and the 403 handling are the Windows code's, unchanged. Nothing prints or logs a token. The JSON goes to `security add-generic-password -U -w` as an argument, as the upstream app does: for a moment it is visible to the same user's processes, behind the same trust boundary as the Keychain. The first time Edgelings touches Claude Code's item, macOS asks to allow `security`; "Always Allow" is expected.
+`ClaudeKeychain` runs `/usr/bin/security` (each call has a deadline and is killed at it, because `security` can block for ever behind an authorization dialog). It finds the freshest Claude Code login among `Claude Code-credentials` and the suffixed items (an item counts only when it holds a token pair), and after a refresh writes the rotated pair **back into the item it came from**, only while that item still holds the refresh token that was sent, keeping every other field (the MCP logins beside it). The token URL, client id, `claude-code/X.Y.Z` User-Agent, beta header and the 403 handling are the Windows code's, unchanged. Nothing prints or logs a token. The JSON goes to `security add-generic-password -U -w` as an argument, as the upstream app does: for a moment it is visible to the same user's processes, behind the same trust boundary as the Keychain. The first time Limen touches Claude Code's item, macOS asks to allow `security`; "Always Allow" is expected.
 
 Tests: the logic against an in-memory stand-in for `security` (everywhere), and on a Mac the same calls against a throwaway keychain file (`ClaudeKeychainTests`). The real login Keychain is never touched by a test or a bench.
 
@@ -72,22 +72,22 @@ Core runs the trim and AOT analyzers in every build, and the NativeAOT dylib bui
 
 Upstream's Mac app has no hooks. The Windows ones are PowerShell commands:
 
-- **Claude Code:** a `Notification` entry in `~/.claude/settings.json` whose command reads the hook's JSON from stdin and writes `{session_id, transcript_path, type, at}` to `<signal folder>/<session_id>.json`. On a Mac it needs a `sh` command (drop the `"shell": "powershell"` field), the signal folder `~/Library/Application Support/Edgelings/claude-hooks`, and a JSON reader that ships with macOS: `plutil -extract session_id raw -o - -` reads JSON from stdin. `date +%s` gives the stamp. `ClaudeHooks.Install` and its `Command` are the places to branch.
-- **Grok:** `~/.grok/hooks/…json` pointing at a script that does the same into `…/Edgelings/grok-hooks`. The script is PowerShell today; the `sh` version is the same few lines.
+- **Claude Code:** a `Notification` entry in `~/.claude/settings.json` whose command reads the hook's JSON from stdin and writes `{session_id, transcript_path, type, at}` to `<signal folder>/<session_id>.json`. On a Mac it needs a `sh` command (drop the `"shell": "powershell"` field), the signal folder `~/Library/Application Support/Limen/claude-hooks`, and a JSON reader that ships with macOS: `plutil -extract session_id raw -o - -` reads JSON from stdin. `date +%s` gives the stamp. `ClaudeHooks.Install` and its `Command` are the places to branch.
+- **Grok:** `~/.grok/hooks/…json` pointing at a script that does the same into `…/Limen/grok-hooks`. The script is PowerShell today; the `sh` version is the same few lines.
 - The scanners that read the signal folders (`ClaudeHooks`, `GrokHooks`) are file readers and already work on a Mac.
 - Installing either edits another agent's config, so it waits for the user's decision.
 
 ### The diagnostic tool
 
-`macos/diagnose` builds `edgelings-diagnose` (Swift, universal) beside the universal `AgentIslandBridge.dylib` (workflow `macOS diagnostic`, artifact `Edgelings-diagnose`, with `HOW-TO-RUN.md` for the friend). It prints each agent's presence, process, session count and phases, which logins exist, 30-day token totals, and with `--fetch` Claude's and Codex's quota windows. Ids, counts and states only; the CI run also executes it on the runner, so the whole path (dylib, libproc, windows, scan) is exercised.
+`macos/diagnose` builds `limen-diagnose` (Swift, universal) beside the universal `AgentIslandBridge.dylib` (workflow `macOS diagnostic`, artifact `Limen-diagnose`, with `HOW-TO-RUN.md` for the friend). It prints each agent's presence, process, session count and phases, which logins exist, 30-day token totals, and with `--fetch` Claude's and Codex's quota windows. Ids, counts and states only; the CI run also executes it on the runner, so the whole path (dylib, libproc, windows, scan) is exercised.
 
 ### Not verified (needs the friend's Mac)
 
 Everything that needs a real desktop and real agents: that each agent's process is recognised by name, that `minimized`/`hidden` match what the user sees, the Keychain prompt and write-back against the real Claude Code item, `SMAppService`, the wake/unlock notifications, and the "not verified" paths above.
 
-## Stages 2-4: the Edgelings app (`macos/app`)
+## Stages 2-4: the Limen app (`macos/app`)
 
-The Mac app: an accessory app (menu-bar icon, no Dock icon), bundle id `dev.edgelings.Edgelings`, universal, macOS 13+, ad-hoc signed. `macos/app/build-app.sh <arm64-aot> <x64-aot> <out>` assembles `Edgelings.app` (the Core dylib and `libe_sqlite3.dylib` in `Frameworks`, the two character engines in `Resources/Characters`, Ark Pixel and its OFL licence in `Resources/Fonts`). CI workflow `macOS app` builds it, starts it for 20 s, runs `--diagnose` from the bundle (SQLite must load), renders every screen offscreen and uploads the friend's zip.
+The Mac app: an accessory app (menu-bar icon, no Dock icon), bundle id `dev.limen.Limen`, universal, macOS 13+, ad-hoc signed. `macos/app/build-app.sh <arm64-aot> <x64-aot> <out>` assembles `Limen.app` (the Core dylib and `libe_sqlite3.dylib` in `Frameworks`, the two character engines in `Resources/Characters`, Ark Pixel and its OFL licence in `Resources/Fonts`). CI workflow `macOS app` builds it, starts it for 20 s, runs `--diagnose` from the bundle (SQLite must load), renders every screen offscreen and uploads the friend's zip.
 
 | Part | Where |
 |---|---|
@@ -97,8 +97,8 @@ The Mac app: an accessory app (menu-bar icon, no Dock icon), bundle id `dev.edge
 | Drawer panel, game loop, pointer, bubbles, hover card | `app/Sources/DrawerController.swift`, `Presenters.swift`, `CardView.swift` |
 | Kits and tokens | `Theme.swift`, `SettingsKit.swift` |
 | Settings and Usage & cost | `SettingsStore.swift`, `SettingsViews.swift`, `UsagePage.swift` |
-| Offscreen renders | `RenderMode.swift`, `RenderSettings.swift` (`Edgelings --render <folder>`) |
-| Diagnostic | `Diagnostic.swift` (`Edgelings --diagnose`, and Settings > General > Copy diagnostic) |
+| Offscreen renders | `RenderMode.swift`, `RenderSettings.swift` (`Limen --render <folder>`) |
+| Diagnostic | `Diagnostic.swift` (`Limen --diagnose`, and Settings > General > Copy diagnostic) |
 
 Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English and Simplified Chinese; the few Mac-only strings are in `MacStrings`. Both skins follow the app language; see "Pixel in Chinese" below.
 
@@ -110,20 +110,20 @@ Text is chosen in Core (`L10n`), so the Mac shows the Windows wording in English
 
 - **Presence by bundle:** a process counts as an agent by its libproc name, its image's file name, the `.app` bundle its main executable sits in (`MacAgentNames`), or Kimi Code's folder. The diagnostic lists what matched and who started it.
 - **Save battery** follows the power source (`platform/Power.swift`, IOKit) as well as Low Power Mode, and caps at 60 fps as Windows does.
-- **Loop cost:** `Edgelings --bench-loop --scale 2` times seven characters stage by stage (JavaScriptCore step, SVG parse, Core Graphics, blit) and turns it into a share of one core. CI uses it as a regression guard (busy 35 %, calm 25 %, any of three runs). `golden/SvgCanvas.swift` has a byte scanner for the engines' SVG, a path cache and a colour cache.
+- **Loop cost:** `Limen --bench-loop --scale 2` times seven characters stage by stage (JavaScriptCore step, SVG parse, Core Graphics, blit) and turns it into a share of one core. CI uses it as a regression guard (busy 35 %, calm 25 %, any of three runs). `golden/SvgCanvas.swift` has a byte scanner for the engines' SVG, a path cache and a colour cache.
 - **Pixel engine:** `windows/tests/engine-diff` holds the frozen engine and a differential test (Node, and JavaScriptCore in `macos-jsc.yml`) behind a 2.5-4x faster `characters.mjs` with byte-identical output.
 - **Sign in** writes a `.command` file under Application Support and opens it in Terminal (`TerminalLauncher`).
 - **Friend kit:** `app/HOW-TO-TEST.md`, `PROBE.md` (read-only commands) and `CHECKLIST.md` (two minutes for a person) are packed with the zip.
 
 ### Fixes 2 (after the second friend report)
 
-- **Where the time goes:** `CoreProfile` (Core: each agent's scan, the cost scans, the process table, presence, every bridge call) and `Perf` (the app: loop tick, JavaScriptCore step, SVG raster, drawer draw, hover poll, polls) are printed by the diagnostic ("CPU:" and "Where the time goes"). `bridge/make-big-home.py` writes a home with the data sizes of a real developer Mac (15,000 Antigravity files, 80 Kimi sessions, a Cursor ledger), and the real-screen step measures the app on it (`--big-root`, `EDGELINGS_DIAG_FILE` / `EDGELINGS_DIAG_AFTER` write the diagnostic to a file, `EDGELINGS_IGNORE_REDUCE_MOTION=1` keeps the runner's VM from holding the loop at 6 fps). The drawer view redraws only the characters that changed.
+- **Where the time goes:** `CoreProfile` (Core: each agent's scan, the cost scans, the process table, presence, every bridge call) and `Perf` (the app: loop tick, JavaScriptCore step, SVG raster, drawer draw, hover poll, polls) are printed by the diagnostic ("CPU:" and "Where the time goes"). `bridge/make-big-home.py` writes a home with the data sizes of a real developer Mac (15,000 Antigravity files, 80 Kimi sessions, a Cursor ledger), and the real-screen step measures the app on it (`--big-root`, `LIMEN_DIAG_FILE` / `LIMEN_DIAG_AFTER` write the diagnostic to a file, `LIMEN_IGNORE_REDUCE_MOTION=1` keeps the runner's VM from holding the loop at 6 fps). The drawer view redraws only the characters that changed.
 - **Kimi on a Mac:** `/Applications/Kimi.app` (the desktop client) counts for Kimi's presence and the Kimi Work sessions follow it; Kimi Code's own app (`kimi-code-app`) stays apart. The ChatGPT app's windows decide Codex's presence, as its embedded Codex is real Codex.
-- **In full screen** (Drawer page, both platforms): the panels join full-screen Spaces (`fullScreenAuxiliary`) only when the setting is on (`DrawerController.collectionBehavior`); off is the default. `edgelings-uitest` puts a window of its own into full screen and checks that the drawer stays out of that Space with the setting off and joins it with the setting on (it skips, with a note, on a runner that cannot enter full screen).
+- **In full screen** (Drawer page, both platforms): the panels join full-screen Spaces (`fullScreenAuxiliary`) only when the setting is on (`DrawerController.collectionBehavior`); off is the default. `limen-uitest` puts a window of its own into full screen and checks that the drawer stays out of that Space with the setting off and joins it with the setting on (it skips, with a note, on a runner that cannot enter full screen).
 
 ### Fixes 3 (after the third friend report, kit g)
 
-- **JavaScriptCore's JIT.** The app was ad-hoc signed with no entitlements, and the system JavaScriptCore then runs the character engines in its interpreter: a hot loop took about 100 ms for 2M iterations instead of 4, and the friend's lineup (Codex working, Kimi idle, two resting, 30 fps) cost 5.5 ms a tick on the runner instead of 1.5. `macos/app/Edgelings.entitlements` (`com.apple.security.cs.allow-jit`) is applied by `build-app.sh`, and `--self-test` fails if the JIT is off. `JSC_` environment options do nothing here: the system JavaScriptCore ignores them. The diagnostic prints the hot-loop time ("JIT looks on" or "off"), the engines' sha and the process's memory.
+- **JavaScriptCore's JIT.** The app was ad-hoc signed with no entitlements, and the system JavaScriptCore then runs the character engines in its interpreter: a hot loop took about 100 ms for 2M iterations instead of 4, and the friend's lineup (Codex working, Kimi idle, two resting, 30 fps) cost 5.5 ms a tick on the runner instead of 1.5. `macos/app/Limen.entitlements` (`com.apple.security.cs.allow-jit`) is applied by `build-app.sh`, and `--self-test` fails if the JIT is off. `JSC_` environment options do nothing here: the system JavaScriptCore ignores them. The diagnostic prints the hot-loop time ("JIT looks on" or "off"), the engines' sha and the process's memory.
 - **Release signing (stage 5).** A release build must keep this entitlement. If the hardened runtime (`codesign --options runtime`) is ever added, `allow-jit` is mandatory with it; notarisation needs the hardened runtime, so this applies as soon as the app is notarised.
 - **Full screen on a notched display.** On a MacBook Pro's built-in screen a full-screen window sits below the camera housing, so its bounds are the display minus `safeAreaInsets.top`. `FullScreenWatch` counts that form too while no menu bar is showing; the runner has no notch, so the self-test covers the geometry with samples.
 - **Memory.** On the runner the app idles at 53 to 57 MB (Chinese adds 0 to 2 MB), and opening Settings once adds about 40 MB at 1x that stays after the window closes (framework and cache growth; releasing the window made no difference). A measurement taken after visiting Settings reads about 40 MB (more at 2x) higher than one taken before.

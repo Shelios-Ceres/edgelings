@@ -5,7 +5,7 @@ using AgentIsland.Model;
 namespace AgentIsland.Usage;
 
 /// Antigravity's slice of the panel: the last quota snapshot read from its
-/// local language server, plus account identity. Timer-free — it rides
+/// local language server or CLI, plus account identity when available. It rides
 /// UsageStore.Refresh()'s cadence via KickRefresh() behind a 120s attempt
 /// floor, with a Preferences snapshot cache so relaunch (or Antigravity not
 /// running, the only time its quota is unreadable) doesn't blank the strip.
@@ -19,6 +19,7 @@ public sealed class AntigravityUsageStore : GuestUsageStore
     // limit and dropped every saved snapshot.
     private static TimeSpan CacheMaxAge => TimeSpan.FromDays(8);
     private static readonly TimeSpan MinAttemptGap = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan ManualMinGap = TimeSpan.FromMinutes(1);
 
     private AntigravityQuotaSnapshot? _snapshot;
     private string? _statusCaption;
@@ -72,11 +73,13 @@ public sealed class AntigravityUsageStore : GuestUsageStore
     public string? TierBadge =>
         AntigravityQuotaParser.CompactTierBadge(Snapshot?.TierLabel, Snapshot?.TierId);
 
-    public void KickRefresh()
+    internal static TimeSpan EffectiveFloor(bool manual) => manual ? ManualMinGap : MinAttemptGap;
+
+    public void KickRefresh(bool manual = false)
     {
-        if (!Detected) return;
+        if (!Detected && !ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Antigravity)) return;
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Antigravity)) return;
-        if (!TryStart(MinAttemptGap)) return;
+        if (!TryStart(EffectiveFloor(manual))) return;
         RunFetch<AntigravityUsageFetcher.Outcome>(() => AntigravityUsageFetcher.Fetch(), message => new AntigravityUsageFetcher.Outcome.Failed(message), Apply);
     }
 
@@ -87,15 +90,15 @@ public sealed class AntigravityUsageStore : GuestUsageStore
         {
             case AntigravityUsageFetcher.Outcome.Success success:
                 Snapshot = success.Snapshot;
-                if (success.Email is { Length: > 0 } email) AccountEmail = email;
+                // /usage does not identify the CLI account. It may differ
+                // from the desktop account recorded with the last snapshot.
+                if (success.FromCli || !string.IsNullOrEmpty(success.Email)) AccountEmail = success.Email;
                 StatusCaption = null;
                 LastUpdated = DateTimeOffset.Now;
                 Persist(success.Snapshot, AccountEmail);
                 break;
             case AntigravityUsageFetcher.Outcome.NotRunning:
-                // Not an error: the embedded server is the only quota
-                // source. Keep the last good numbers; the caption explains
-                // why they aren't moving.
+                // No source is available. Keep the last successful reading.
                 StatusCaption = Snapshot is null
                     ? L10n.Tr("Installed — run agy to sign in")
                     : null;
