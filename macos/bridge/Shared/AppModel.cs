@@ -54,11 +54,18 @@ public static class AppModel
     /// Starts Core's monitors, as the Windows app does at launch. Safe to call twice.
     public static string Start()
     {
+        UiThread.UseSerialQueue();
+        return UiThread.RunSerial(StartOnQueue);
+    }
+
+    private static string StartOnQueue()
+    {
         lock (Gate)
         {
             if (_started) return Ok();
             _started = true;
         }
+        AppDataMigration.Run();
         // The Mac app's hooks are `sh` (nothing is installed until the user flips a switch).
         ClaudeHooks.UseShell = true;
         GrokHooks.UseShell = true;

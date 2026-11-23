@@ -12,7 +12,7 @@ namespace AgentIsland.Usage;
 public static class AntigravityCredentials
 {
     public static string GeminiHome =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini");
+        Path.Combine(AgentIsland.Core.IslandPaths.Home, ".gemini");
 
     private static readonly string[] RootNames = { "antigravity", "antigravity-ide", "antigravity-cli" };
 

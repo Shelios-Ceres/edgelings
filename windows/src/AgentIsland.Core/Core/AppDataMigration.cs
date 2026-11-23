@@ -37,23 +37,39 @@ public static class AppDataMigration
     {
         foreach (var oldDir in oldDirs)
         {
-            if (Migrate(oldDir, newDir, include)) return true;
-            if (Directory.Exists(newDir)) return false;
+            if (Directory.Exists(oldDir)) return Migrate(oldDir, newDir, include);
         }
         return false;
     }
 
-    /// Copies the files directly in oldDir (not its folders) to newDir, only
-    /// when newDir doesn't exist and oldDir does. The copy is made in a
-    /// sibling folder and renamed into place, so newDir is either absent or
-    /// whole; a copy that was cut short leaves only a leftover that the next
-    /// start removes. Returns whether it copied.
+    /// Publishes a fresh directory as a unit, or backfills absent files in an
+    /// existing migration. A file already at the destination always wins.
     internal static bool Migrate(string oldDir, string newDir, Func<string, bool> include)
     {
         string? temp = null;
         try
         {
-            if (Directory.Exists(newDir) || !Directory.Exists(oldDir)) return false;
+            if (!Directory.Exists(oldDir)) return false;
+            if (Directory.Exists(newDir))
+            {
+                var copied = false;
+                foreach (var file in Directory.EnumerateFiles(oldDir))
+                {
+                    var name = Path.GetFileName(file);
+                    var destination = Path.Combine(newDir, name);
+                    if (!include(name) || File.Exists(destination)) continue;
+                    var staging = destination + ".tmp-" + Guid.NewGuid().ToString("N");
+                    try
+                    {
+                        File.Copy(file, staging);
+                        File.Move(staging, destination);
+                        copied = true;
+                    }
+                    catch (IOException) when (File.Exists(destination)) { }
+                    finally { File.Delete(staging); }
+                }
+                return copied;
+            }
             var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(newDir));
             if (string.IsNullOrEmpty(parent)) return false;
             var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(newDir));

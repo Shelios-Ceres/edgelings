@@ -70,6 +70,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     private Task? _refreshTask;
     private CancellationTokenSource? _codexReauthCts;
     private bool _networkMonitorArmed;
+    private readonly object _sessionGate = new();
     private bool _powerMonitorArmed;
     private bool _lastNetworkAvailable = true;
 
@@ -535,20 +536,23 @@ public sealed class UsageStore : INotifyPropertyChanged
         _lastShown = SnapshotShown();
         Model.ProviderVisibilityStore.Shared.PropertyChanged += OnVisibilityChanged;
         _visibilityMonitorArmed = true;
+        if (OperatingSystem.IsWindows()) ArmSystemEvents();
         Refresh();
         ArmTimer();
         ArmResetEdgeTimer();
         RefreshIntervalStore.Shared.PropertyChanged += OnIntervalChanged;
         StartNetworkMonitor();
-        // On a Mac the Swift side reports wake and unlock through HandleWake and HandleUnlock.
-        if (OperatingSystem.IsWindows()) ArmSystemEvents();
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void ArmSystemEvents()
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
-        Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
+        lock (_sessionGate)
+        {
+            Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
+            AntigravityCliQuota.SessionLocked = WindowsSession.IsLocked();
+        }
         _powerMonitorArmed = true;
     }
 
@@ -583,16 +587,20 @@ public sealed class UsageStore : INotifyPropertyChanged
     private static Dictionary<Model.DisplayProvider, bool> SnapshotShown() =>
         Model.DisplayProviders.All.ToDictionary(p => p, Model.ProviderVisibilityStore.Shared.IsShown);
 
-    private void OnVisibilityChanged(object? sender, PropertyChangedEventArgs e) =>
-        UiThread.Post(HandleVisibilityChange);
+    private void OnVisibilityChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        var current = SnapshotShown();
+        UiThread.Post(() => HandleVisibilityChange(current));
+    }
 
     /// Aborts in-flight requests whose providers were just hidden, and fetches
     /// any provider that just went from hidden to shown.
-    internal void HandleVisibilityChange()
+    private void HandleVisibilityChange(Dictionary<Model.DisplayProvider, bool> current)
     {
+        if (!current[Model.DisplayProvider.Antigravity]) AntigravityUsageStore.Shared.CancelPending();
+        if (!current[Model.DisplayProvider.Grok]) GrokUsageStore.Shared.CancelPending();
         CancelIfHidden();
         RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
-        var current = SnapshotShown();
         var previous = _lastShown;
         _lastShown = current;
         if (previous is null) return;
@@ -622,7 +630,17 @@ public sealed class UsageStore : INotifyPropertyChanged
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void OnSessionSwitch(object? sender, Microsoft.Win32.SessionSwitchEventArgs e)
     {
-        if (e.Reason != Microsoft.Win32.SessionSwitchReason.SessionUnlock) return;
+        lock (_sessionGate)
+        {
+            if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionLock)
+            {
+                AntigravityCliQuota.SessionLocked = true;
+                return;
+            }
+            if (e.Reason != Microsoft.Win32.SessionSwitchReason.SessionUnlock) return;
+            AntigravityCliQuota.SessionLocked = false;
+        }
+        UiThread.Post(AntigravityUsageStore.Shared.RetryAfterUnlock);
         HandleUnlock();
     }
 

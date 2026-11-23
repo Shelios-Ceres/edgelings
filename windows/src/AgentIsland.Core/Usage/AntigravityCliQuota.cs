@@ -28,6 +28,13 @@ internal static class AntigravityCliQuota
 
     // Test seams for deterministic offline/wake-grace verification.
     internal static Func<DateTimeOffset> Clock = () => DateTimeOffset.UtcNow;
+    private static bool? _sessionLocked;
+    internal static bool? SessionLocked
+    {
+        get { lock (WakeGate) return _sessionLocked; }
+        set { lock (WakeGate) _sessionLocked = value; }
+    }
+    internal static Func<long> UptimeMilliseconds = () => Environment.TickCount64;
     internal static Func<bool> CheckOnline = InternetStatus.IsConnected;
     internal static Func<bool> CheckReachable = CanReachGoogleOAuth;
 
@@ -45,19 +52,30 @@ internal static class AntigravityCliQuota
         lock (WakeGate) _wakeGraceUntil = DateTimeOffset.MinValue;
     }
 
-    internal static bool ShouldDefer()
+    private static bool SessionUnavailable()
     {
         var now = Clock();
         lock (WakeGate)
         {
-            if (now < _wakeGraceUntil) return true;
+            if (OperatingSystem.IsWindows()) _sessionLocked ??= WindowsSession.IsLocked();
+            return now < _wakeGraceUntil || _sessionLocked != false || UptimeMilliseconds() < 90_000;
         }
+    }
+
+    private static bool LaunchIfAllowed(CancellationToken ct, Func<bool> launch)
+    {
+        lock (WakeGate) return !ct.IsCancellationRequested && !SessionUnavailable() && launch();
+    }
+
+    internal static bool ShouldDefer()
+    {
+        if (SessionUnavailable()) return true;
         if (!CheckOnline()) return true;
         if (!CheckReachable()) return true;
         return false;
     }
 
-    internal static AntigravityUsageFetcher.Outcome? TryFetch()
+    internal static AntigravityUsageFetcher.Outcome? TryFetch(CancellationToken ct = default)
     {
         if (!OperatingSystem.IsWindows()) return null;
         var exe = Path.Combine(IslandPaths.LocalAppData, "agy", "bin", "agy.exe");
@@ -65,20 +83,27 @@ internal static class AntigravityCliQuota
         if (exe is null || !Path.IsPathFullyQualified(exe)
             || !Path.GetExtension(exe).Equals(".exe", StringComparison.OrdinalIgnoreCase)) return null;
 
+        bool NoLongerEligible() => ct.IsCancellationRequested || SessionUnavailable()
+            || Model.DrawerStore.Shared.IsHidden(Model.DisplayProvider.Antigravity);
+
         // Skip CLI polling while offline, within wake grace, or unable to reach
         // Google OAuth: agy's silent refresh would fail and fall back to
         // interactive browser sign-in. Keep the cached snapshot untouched.
-        if (ShouldDefer()) return new AntigravityUsageFetcher.Outcome.Deferred();
+        if (NoLongerEligible() || ShouldDefer()) return new AntigravityUsageFetcher.Outcome.Deferred();
 
         // Before 1.1.11 an interactive slash command could be sent as a model
         // prompt in print mode. Check the actual executable once per binary
         // fingerprint instead of spawning --version on every poll.
-        if (!IsSupportedExecutable(exe)) return null;
-        var home = EnsureIsolatedHome();
+        var home = EnsureIsolatedHome(IsolatedHomeDir);
+        if (home is null || ct.IsCancellationRequested) return new AntigravityUsageFetcher.Outcome.Deferred();
+        if (!IsSupportedExecutable(exe, home, ct))
+            return NoLongerEligible() ? new AntigravityUsageFetcher.Outcome.Deferred() : null;
         var logPath = Path.Combine(home, "last.log");
         try { File.Delete(logPath); } catch { }
-        var output = Run(exe, $"--print /usage --output-format json --print-timeout 20s --log-file \"{logPath}\"", 25, home);
-        if (output is null) return new AntigravityUsageFetcher.Outcome.Failed("Antigravity CLI quota unavailable");
+        var output = Run(exe, $"--print /usage --output-format json --print-timeout 20s --log-file \"{logPath}\"", 25, home, ct);
+        if (output is null) return NoLongerEligible()
+            ? new AntigravityUsageFetcher.Outcome.Deferred()
+            : new AntigravityUsageFetcher.Outcome.Failed("Antigravity CLI quota unavailable");
         if (AntigravityQuotaParser.ParseCliUsage(output) is not { } snapshot)
             return new AntigravityUsageFetcher.Outcome.Failed("Antigravity CLI quota reply unreadable");
         return new AntigravityUsageFetcher.Outcome.Success(snapshot, null, FromCli: true);
@@ -86,25 +111,22 @@ internal static class AntigravityCliQuota
 
     internal static string IsolatedHomeDir => Path.Combine(IslandPaths.CacheDir, "agy-quota-home");
 
-    private static string EnsureIsolatedHome()
+    internal static string? EnsureIsolatedHome(string home)
     {
-        var home = IsolatedHomeDir;
         try
         {
             Directory.CreateDirectory(home);
             Directory.CreateDirectory(Path.Combine(home, "AppData", "Local"));
             Directory.CreateDirectory(Path.Combine(home, "AppData", "Roaming"));
         }
-        catch
-        {
-        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return null; }
         return home;
     }
 
     internal static bool SupportsUsage(string? version) =>
         Version.TryParse(version?.Trim(), out var parsed) && parsed >= new Version(1, 1, 11);
 
-    private static bool IsSupportedExecutable(string exe)
+    private static bool IsSupportedExecutable(string exe, string home, CancellationToken ct)
     {
         long mtimeTicks = 0, length = 0;
         try
@@ -130,7 +152,9 @@ internal static class AntigravityCliQuota
             }
         }
 
-        var supported = SupportsUsage(Run(exe, "--version", 5, EnsureIsolatedHome()));
+        var version = Run(exe, "--version", 5, home, ct);
+        if (version is null) return false; // A deferred or failed launch is not a binary fingerprint.
+        var supported = SupportsUsage(version);
         lock (VersionGate)
         {
             _cachedVersion = (exe, mtimeTicks, length, supported);
@@ -147,7 +171,7 @@ internal static class AntigravityCliQuota
         {
             FileName = exe,
             Arguments = arguments,
-            WorkingDirectory = Directory.Exists(home) ? home : Path.GetDirectoryName(exe)!,
+            WorkingDirectory = home,
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
@@ -195,12 +219,13 @@ internal static class AntigravityCliQuota
         }
     }
 
-    private static string? Run(string exe, string arguments, int timeoutSeconds, string isolatedHome)
+    private static string? Run(string exe, string arguments, int timeoutSeconds, string isolatedHome, CancellationToken ct)
     {
         var start = StartInfo(exe, arguments, isolatedHome);
         var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         return OperatingSystem.IsWindows()
-            ? RunInSingleProcessJob(start, timeout)
+            ? RunInSingleProcessJob(start, timeout, launch => Model.DrawerStore.Shared.WhileVisible(
+                Model.DisplayProvider.Antigravity, () => LaunchIfAllowed(ct, launch)))
             : AntigravityLanguageServer.Output(start, timeout);
     }
 
@@ -208,7 +233,7 @@ internal static class AntigravityCliQuota
     /// KILL_ON_JOB_CLOSE. The kernel itself rejects any attempt by agy.exe to
     /// spawn a grandchild process (rundll32, chrome.exe, updater, wt.exe).
     [SupportedOSPlatform("windows")]
-    internal static string? RunInSingleProcessJob(ProcessStartInfo start, TimeSpan timeout)
+    internal static string? RunInSingleProcessJob(ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch = null)
     {
         var job = CreateJobObjectW(IntPtr.Zero, null);
         if (job == IntPtr.Zero) return null;
@@ -231,30 +256,7 @@ internal static class AntigravityCliQuota
                 return null;
             }
 
-            using var process = Process.Start(start);
-            if (process is null) return null;
-            if (!AssignProcessToJobObject(job, process.Handle) && !process.HasExited)
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                return null;
-            }
-            if (start.RedirectStandardInput)
-            {
-                try { process.StandardInput.Close(); } catch { }
-            }
-            var output = process.StandardOutput.ReadToEndAsync();
-            var error = start.RedirectStandardError ? process.StandardError.ReadToEndAsync() : null;
-            if (!process.WaitForExit(timeout))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                return null;
-            }
-            if (process.ExitCode != 0 || !output.Wait(TimeSpan.FromSeconds(2))) return null;
-            if (error is not null)
-            {
-                try { error.Wait(TimeSpan.FromSeconds(1)); } catch { }
-            }
-            return output.Result.Trim();
+            return WindowsJobProcess.Run(job, start, timeout, permitLaunch);
         }
         catch
         {
@@ -317,10 +319,6 @@ internal static class AntigravityCliQuota
         int infoClass,
         ref JobObjectExtendedLimitInformation info,
         uint length);
-
-    [SupportedOSPlatform("windows")]
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
     [SupportedOSPlatform("windows")]
     [DllImport("kernel32.dll", SetLastError = true)]

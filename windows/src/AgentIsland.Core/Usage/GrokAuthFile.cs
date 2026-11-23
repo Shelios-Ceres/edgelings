@@ -187,7 +187,7 @@ public static class GrokAuthFile
         var tmp = Path.Combine(directory, ".auth.json.tmp-" + Guid.NewGuid().ToString("N"));
         try
         {
-            File.WriteAllText(tmp, root.ToJsonString(WriteOptions));
+            CredentialFiles.WriteNew(tmp, root.ToJsonString(WriteOptions));
             for (var attempt = 0; ; attempt++)
             {
                 try

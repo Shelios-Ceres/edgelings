@@ -9,6 +9,21 @@ public static class UiThread
     private static SynchronizationContext? _context;
     private static TaskScheduler? _scheduler;
 
+    private static readonly Lazy<TaskScheduler> Serial = new(() =>
+        new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, maxConcurrencyLevel: 1).ExclusiveScheduler);
+    private static volatile bool _serial;
+
+    /// The AppKit bridge has no managed UI context. All state mutations and
+    /// timer continuations share this executor; IO still runs on the pool.
+    public static void UseSerialQueue() => _serial = true;
+
+    public static T RunSerial<T>(Func<T> action)
+    {
+        if (!_serial || TaskScheduler.Current == Serial.Value) return action();
+        return Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.None, Serial.Value)
+            .GetAwaiter().GetResult();
+    }
+
     /// Call on the UI thread before any store starts.
     public static void Capture()
     {
@@ -18,17 +33,20 @@ public static class UiThread
     }
 
     /// Task continuations that must land on the UI thread.
-    public static TaskScheduler Scheduler => _scheduler ?? TaskScheduler.Default;
+    public static TaskScheduler Scheduler => _serial ? Serial.Value : _scheduler ?? TaskScheduler.Default;
 
     public static void Post(Action action)
     {
-        if (_context is { } context) context.Post(static state => ((Action)state!)(), action);
+        if (_serial) _ = Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.None, Serial.Value);
+        else if (_context is { } context) context.Post(static state => ((Action)state!)(), action);
         else action();
     }
 
     /// Runs the action on the UI thread; the task completes once it has run.
     public static Task InvokeAsync(Action action)
     {
+        if (_serial)
+            return Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.None, Serial.Value);
         if (_context is not { } context)
         {
             action();

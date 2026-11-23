@@ -86,7 +86,8 @@ public sealed class GrokUsageStore : GuestUsageStore
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok)) return;
         if (!ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Grok)) return;
         if (!TryStart(MinAttemptGap)) return;
-        RunFetch<GrokUsageFetcher.Outcome>(() => GrokUsageFetcher.Fetch(), message => new GrokUsageFetcher.Outcome.Failed(message), Apply);
+        _ = RunVisibleFetch<GrokUsageFetcher.Outcome>(GrokUsageFetcher.Fetch, message => new GrokUsageFetcher.Outcome.Failed(message),
+            () => ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Grok), Apply);
     }
 
     private void Apply(GrokUsageFetcher.Outcome outcome)

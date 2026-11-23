@@ -10,6 +10,9 @@ public static partial class SessionScanner
     /// `antigravity-cli` root), so every known variant is probed.
     private static readonly string[] AntigravityRootNames = { "antigravity", "antigravity-ide", "antigravity-cli" };
 
+    private static readonly IReadOnlyDictionary<string, AntigravityLiveCascades.Run> NoLiveRuns =
+        new Dictionary<string, AntigravityLiveCascades.Run>();
+
     /// Antigravity keeps a readable transcript per conversation at
     /// `<root>/brain/<conversation-id>/.system_generated/logs/transcript_full.jsonl`
     /// — the desktop IDE and the `agy` CLI write the same shape into their
@@ -37,7 +40,8 @@ public static partial class SessionScanner
                     conversationDir, ".system_generated", "logs", "transcript_full.jsonl");
                 if (!File.Exists(path)) continue;
                 var state = SessionState(path, now, lastWorking, null, SessionTurnState.Antigravity);
-                live ??= AntigravityLiveCascades.Read(now);
+                live ??= Model.DrawerStore.Shared.IsHidden(Model.DisplayProvider.Antigravity)
+                    ? (now, NoLiveRuns) : AntigravityLiveCascades.Read(now);
                 var (readAt, runs) = live.Value;
                 var status = runs.TryGetValue(conversation, out var run)
                     ? AntigravityLiveCascades.Apply(state.Status, run, readSinceTranscript: readAt > state.Modified)

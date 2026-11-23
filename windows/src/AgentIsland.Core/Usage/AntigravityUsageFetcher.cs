@@ -24,12 +24,14 @@ public static class AntigravityUsageFetcher
         public sealed record Failed(string Message) : Outcome;
     }
 
-    public static async Task<Outcome> Fetch()
+    public static async Task<Outcome> Fetch(CancellationToken ct = default)
     {
         if (!AntigravityCredentials.Detected) return new Outcome.NotInstalled();
 
+        ct.ThrowIfCancellationRequested();
         var port = await AntigravityLanguageServer.Discover().ConfigureAwait(false);
-        if (port is not { } livePort) return AntigravityCliQuota.TryFetch() ?? new Outcome.NotRunning();
+        ct.ThrowIfCancellationRequested();
+        if (port is not { } livePort) return AntigravityCliQuota.TryFetch(ct) ?? new Outcome.NotRunning();
 
         var summary = await CallWithCsrfRetry(
             "RetrieveUserQuotaSummary", livePort, "{}").ConfigureAwait(false);
@@ -41,7 +43,7 @@ public static class AntigravityUsageFetcher
         if (summary.Status != 200)
         {
             AntigravityLanguageServer.ForgetCachedPort();
-            if (summary.Status == 401 && AntigravityCliQuota.TryFetch() is { } cli) return cli;
+            if (summary.Status == 401 && AntigravityCliQuota.TryFetch(ct) is { } cli) return cli;
             return new Outcome.Failed($"quota HTTP {summary.Status}");
         }
         if (AntigravityQuotaParser.ParseQuotaSummary(summary.Body) is not { } parsed)
@@ -79,11 +81,12 @@ public static class AntigravityUsageFetcher
             .CallRpc(method, port, body, null, 6).ConfigureAwait(false);
         if (reply is not { Status: 401 }) return reply;
         if (AntigravityLanguageServer.ResolvePortOwner(port) is not { } pid
+            || AntigravityLanguageServer.StartTime(pid) is not { } started
             || AntigravityLanguageServer.CsrfToken(pid) is not { Length: > 0 } token)
         {
             return reply;
         }
-        return await AntigravityLanguageServer
-            .CallRpc(method, port, body, token, 6).ConfigureAwait(false);
+        return await new AgentIsland.Core.AntigravityLiveCascades.Server(port, pid, started, token)
+            .Call(method, body).ConfigureAwait(false);
     }
 }

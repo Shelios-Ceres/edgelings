@@ -21,9 +21,8 @@ namespace AgentIsland.Usage;
 /// part of an item's secret; failures are reported as outcomes only.
 ///
 /// `security` can block for ever behind a keychain authorization dialog, so
-/// each call has a deadline and is killed at it. The write passes the JSON as
-/// an argument (-w), as upstream does: briefly visible to the same user's
-/// processes, behind the same trust boundary as the keychain itself.
+/// each read has a deadline. Updates use Security.framework in process with
+/// interaction disabled, so the item payload never enters a command line.
 internal sealed class ClaudeKeychain
 {
     public const string BaseService = "Claude Code-credentials";
@@ -51,6 +50,8 @@ internal sealed class ClaudeKeychain
     /// Runs `security` with these arguments; stdout on exit 0, else null.
     internal delegate string? SecurityRunner(IReadOnlyList<string> arguments);
 
+    internal delegate bool ItemWriter(string service, string account, string json, string? keychain);
+    private readonly ItemWriter _write;
     private readonly SecurityRunner _run;
     private readonly string _baseService;
     private readonly string? _keychain;
@@ -61,8 +62,9 @@ internal sealed class ClaudeKeychain
 
     /// runner and baseService are seams for tests; keychain names a keychain
     /// file other than the default (a throwaway one in tests).
-    public ClaudeKeychain(SecurityRunner runner, string baseService, string? keychain)
+    public ClaudeKeychain(SecurityRunner runner, string baseService, string? keychain, ItemWriter? writer = null)
     {
+        _write = writer ?? MacKeychainWriter.Update;
         _run = runner;
         _baseService = baseService;
         _keychain = keychain;
@@ -103,11 +105,8 @@ internal sealed class ClaudeKeychain
             oauth["accessToken"] = accessToken;
             oauth["refreshToken"] = refreshToken;
             oauth["expiresAt"] = expiresAtMs;
-            var arguments = new List<string>
-            {
-                "add-generic-password", "-U", "-s", service, "-a", current.Account, "-w", root.ToJsonString(),
-            };
-            return _run(WithKeychain(arguments)) is null ? WriteResult.Failed : WriteResult.Written;
+            return _write(service, current.Account, root.ToJsonString(), _keychain)
+                ? WriteResult.Written : WriteResult.Failed;
         }
         catch (Exception)
         {

@@ -1,4 +1,5 @@
 using AgentIsland.Core;
+using AgentIsland.Usage;
 
 namespace AgentIsland.Tests;
 
@@ -67,6 +68,8 @@ public static class Program
         // (which a suite sets for itself when it needs one) start cleared.
         var world = Path.Combine(Path.GetTempPath(), "limen-test-root-" + Guid.NewGuid().ToString("N"));
         IslandPaths.RootOverride = world;
+        // Synthetic transcripts must never cause RPC discovery on the developer's running CLI.
+        AntigravityLanguageServer.ListAntigravityProcessIds = static () => [];
         foreach (var variable in new[] { "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME", "CLAUDE_CONFIG_DIR" })
         {
             Environment.SetEnvironmentVariable(variable, null);
@@ -143,6 +146,7 @@ public static class Program
                 ("LogParseCacheTests", LogParseCacheTests.RunAll, null),
                 ("PreferencesTests", PreferencesTests.RunAll, null),
                 ("CrashLogTests", CrashLogTests.RunAll, null),
+                ("RuntimeBoundaryTests", RuntimeBoundaryTests.RunAll, null),
             };
             foreach (var (name, run, windowsOnly) in suites)
             {

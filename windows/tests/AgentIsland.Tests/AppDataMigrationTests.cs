@@ -127,7 +127,8 @@ public static class AppDataMigrationTests
             var old = OldFolder(root);
             Directory.CreateDirectory(fresh);
             File.WriteAllText(Path.Combine(fresh, "settings.json"), "{\"new\":1}");
-            Expect(AppDataMigration.Migrate(old, fresh, App), false);
+            Expect(AppDataMigration.Migrate(old, fresh, App), true);
+            Expect(File.Exists(Path.Combine(fresh, "crash.log")), "missing file backfilled");
             Expect(File.ReadAllText(Path.Combine(fresh, "settings.json")), "{\"new\":1}");
         }
         finally { Directory.Delete(root, recursive: true); }

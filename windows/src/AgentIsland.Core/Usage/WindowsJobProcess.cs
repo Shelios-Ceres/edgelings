@@ -1,0 +1,114 @@
+using System.Diagnostics;
+using System.IO.Pipes;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Text;
+
+namespace AgentIsland.Usage;
+
+[SupportedOSPlatform("windows")]
+internal static class WindowsJobProcess
+{
+    // Assign the job as part of CreateProcess itself: even a crash of the parent
+    // before ResumeThread leaves the child owned by the kill-on-close job.
+    internal static string? Run(nint job, ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch)
+    {
+        using var input = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
+        using var output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+        using var error = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+        var si = new StartupInfoEx();
+        si.Startup.Size = Marshal.SizeOf<StartupInfoEx>();
+        si.Startup.Flags = 0x100; // STARTF_USESTDHANDLES
+        si.Startup.Input = input.ClientSafePipeHandle.DangerousGetHandle();
+        si.Startup.Output = output.ClientSafePipeHandle.DangerousGetHandle();
+        si.Startup.Error = error.ClientSafePipeHandle.DangerousGetHandle();
+
+        nuint size = 0;
+        InitializeProcThreadAttributeList(0, 2, 0, ref size);
+        if (size == 0) return null;
+        var list = Marshal.AllocHGlobal(checked((nint)size));
+        var values = Marshal.AllocHGlobal(4 * IntPtr.Size);
+        bool initialized = false;
+        ProcessInfo child = default;
+        try
+        {
+            initialized = InitializeProcThreadAttributeList(list, 2, 0, ref size);
+            if (!initialized) return null;
+            si.Attributes = list;
+            Marshal.Copy(new[] { si.Startup.Input, si.Startup.Output, si.Startup.Error, job }, 0, values, 4);
+            if (!UpdateProcThreadAttribute(list, 0, 0x20002, values, (nuint)(3 * IntPtr.Size), 0, 0)
+                || !UpdateProcThreadAttribute(list, 0, 0x2000D, values + 3 * IntPtr.Size, (nuint)IntPtr.Size, 0, 0))
+                return null; // HANDLE_LIST and JOB_LIST respectively
+
+            var environment = string.Concat(start.Environment.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(k => k.Key + "=" + k.Value + "\0")) + "\0";
+            var command = new StringBuilder($"\"{start.FileName}\" {start.Arguments}");
+            const uint flags = 0x00000004 | 0x08000000 | 0x00000400 | 0x00080000;
+            // SUSPENDED | NO_WINDOW | UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT
+            bool Launch()
+            {
+                if (!CreateProcessW(start.FileName, command, 0, 0, true, flags, environment,
+                        string.IsNullOrEmpty(start.WorkingDirectory) ? null : start.WorkingDirectory, ref si, out child))
+                    return false;
+                return ResumeThread(child.Thread) == 1;
+            }
+            if (!(permitLaunch is null ? Launch() : permitLaunch(Launch))) return null;
+            input.Dispose(); // EOF on the child's stdin.
+            output.DisposeLocalCopyOfClientHandle();
+            error.DisposeLocalCopyOfClientHandle();
+            using var reader = new StreamReader(output, start.StandardOutputEncoding ?? Encoding.UTF8);
+            var stdout = reader.ReadToEndAsync();
+            var stderr = error.CopyToAsync(Stream.Null);
+            if (WaitForSingleObject(child.Process, checked((uint)timeout.TotalMilliseconds)) != 0)
+            {
+                TerminateProcess(child.Process, 1); // Close the writers before disposing pending pipe reads.
+                return null;
+            }
+            if (!GetExitCodeProcess(child.Process, out var exitCode) || exitCode != 0) return null;
+            if (!Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(2))) return null;
+            return stdout.Result.Trim();
+        }
+        finally
+        {
+            if (child.Process != 0)
+            {
+                if (WaitForSingleObject(child.Process, 0) == 258) TerminateProcess(child.Process, 1);
+                CloseHandle(child.Thread);
+                CloseHandle(child.Process);
+            }
+            if (initialized) DeleteProcThreadAttributeList(list);
+            Marshal.FreeHGlobal(values);
+            Marshal.FreeHGlobal(list);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StartupInfo
+    {
+        public int Size;
+        public nint Reserved, Desktop, Title;
+        public uint X, Y, XSize, YSize, XChars, YChars, Fill, Flags;
+        public ushort Show, ReservedSize;
+        public nint ReservedBytes, Input, Output, Error;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StartupInfoEx { public StartupInfo Startup; public nint Attributes; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessInfo { public nint Process, Thread; public uint ProcessId, ThreadId; }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    private static extern bool CreateProcessW(string application, StringBuilder command, nint processAttributes,
+        nint threadAttributes, bool inheritHandles, uint flags, string environment, string? directory,
+        ref StartupInfoEx startup, out ProcessInfo process);
+
+    [DllImport("kernel32.dll")] private static extern bool InitializeProcThreadAttributeList(nint list, int count, uint flags, ref nuint size);
+    [DllImport("kernel32.dll")] private static extern bool UpdateProcThreadAttribute(nint list, uint flags, nuint key, nint value, nuint size, nint previous, nint returned);
+    [DllImport("kernel32.dll")] private static extern void DeleteProcThreadAttributeList(nint list);
+    [DllImport("kernel32.dll")] private static extern uint ResumeThread(nint thread);
+    [DllImport("kernel32.dll")] private static extern uint WaitForSingleObject(nint handle, uint milliseconds);
+    [DllImport("kernel32.dll")] private static extern bool GetExitCodeProcess(nint process, out uint exitCode);
+    [DllImport("kernel32.dll")] private static extern bool TerminateProcess(nint process, uint exitCode);
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
+}

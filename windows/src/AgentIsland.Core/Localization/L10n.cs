@@ -299,6 +299,7 @@ public static class L10n
         ["Not saved yet"] = "尚未保存",
         ["Switch"] = "切换",
         ["Sign in again"] = "重新登录",
+        ["Waiting for updated sign-in"] = "等待登录凭据更新",
         ["Waiting for login…"] = "等待登录…",
         ["Local sessions only — no quota to sync"] = "只读取本机会话——没有可同步的配额",
         ["Waiting for the first sync"] = "等待首次同步",

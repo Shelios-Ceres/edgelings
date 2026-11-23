@@ -19,7 +19,11 @@ public static class BridgeApi
             using var request = JsonDocument.Parse(requestJson);
             var method = request.RootElement.TryGetProperty("method", out var m) ? m.GetString() : null;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
-            var reply = method switch
+            var reply = method is "frame" or "card" or "setDrawer" or "systemEvent" or "settings"
+                or "set" or "agent" or "usage" or "rescan" or "looks"
+                ? UiThread.RunSerial(Dispatch) : Dispatch();
+
+            string Dispatch() => method switch
             {
                 "version" => Version(),
                 "configure" => Configure(request.RootElement),

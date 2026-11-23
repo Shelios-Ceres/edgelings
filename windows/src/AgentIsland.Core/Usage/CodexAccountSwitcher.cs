@@ -50,8 +50,9 @@ public static class CodexAccountSwitcher
             if (!Directory.Exists(store)) return Array.Empty<Account>();
             return Directory.EnumerateFiles(store)
                 .Where(path => Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
-                .Select(path => new Account(
-                    Path.GetFileNameWithoutExtension(path), path, EmailInFile(path)))
+                .Select(path => ReadBytesOrNull(path) is { } data && TryReadLogin(data, out var email)
+                    ? new Account(Path.GetFileNameWithoutExtension(path), path, email) : null)
+                .OfType<Account>()
                 .OrderBy(account => account.Label, StringComparer.Ordinal)
                 .ToList();
         }
@@ -90,7 +91,7 @@ public static class CodexAccountSwitcher
 
     private static ParkResult Park(string? label, byte[] data, string home)
     {
-        if (StoredPath(Sanitize(label), home) is not { } target) return ParkResult.Failed;
+        if (!TryReadLogin(data, out _) || StoredPath(Sanitize(label), home) is not { } target) return ParkResult.Failed;
         // A name already holding another account's login is not this one's
         // to take: overwriting it would lose that login for good. Saving the
         // same account again (with fresher tokens) is fine.
@@ -99,7 +100,7 @@ public static class CodexAccountSwitcher
         var store = Path.Combine(home, "agentisland-accounts");
         try
         {
-            Directory.CreateDirectory(store);
+            CredentialFiles.CreateDirectory(store);
             Harden(store);
         }
         catch (Exception error)
@@ -116,7 +117,7 @@ public static class CodexAccountSwitcher
 
     internal static bool Activate(Account account, string home)
     {
-        if (InStore(account.Path, home) is not { } target || ReadBytesOrNull(target) is not { } data)
+        if (InStore(account.Path, home) is not { } target || ReadBytesOrNull(target) is not { } data || !TryReadLogin(data, out _))
             return false;
         var livePath = Path.Combine(home, "auth.json");
         if (!TryRead(livePath, out var live)) return false;
@@ -139,7 +140,7 @@ public static class CodexAccountSwitcher
         }
         try
         {
-            Directory.CreateDirectory(home);
+            CredentialFiles.CreateDirectory(home);
         }
         catch (Exception error)
         {
@@ -197,7 +198,7 @@ public static class CodexAccountSwitcher
         foreach (var account in accounts)
         {
             if (tried.Contains(account.Label)) continue;
-            if (ReadBytesOrNull(account.Path) is not { } stored) continue;
+            if (ReadBytesOrNull(account.Path) is not { } stored || !TryReadLogin(stored, out _)) continue;
             if (live is not null && SameAccount(stored, live)) continue;
             if (attempted.Any(previous => SameAccount(stored, previous))) continue;
             return account;
@@ -285,7 +286,7 @@ public static class CodexAccountSwitcher
     }
 
     /// Codex writes the account email in fields next to the token block; read
-    /// the first email-shaped string. Never returns — and never logs — the
+    /// only explicitly named email fields. Never returns — and never logs — the
     /// token itself.
     internal static string? EmailInJson(JsonElement element)
     {
@@ -296,7 +297,7 @@ public static class CodexAccountSwitcher
             {
                 case JsonValueKind.String:
                     var text = property.Value.GetString();
-                    if (text is not null && text.Contains('@') && !text.Contains(' ')) return text;
+                    if (property.Name.Equals("email", StringComparison.OrdinalIgnoreCase) && text is not null && text.Contains('@') && !text.Contains(' ')) return text;
                     break;
                 case JsonValueKind.Object:
                     if (EmailInJson(property.Value) is { } nested) return nested;
@@ -306,18 +307,45 @@ public static class CodexAccountSwitcher
         return null;
     }
 
-    private static string? EmailInFile(string path)
+    private static bool TryReadLogin(byte[] data, out string? email)
     {
+        email = null;
         try
         {
-            if (ReadBytesOrNull(path) is not { } data) return null;
             using var document = JsonDocument.Parse(data);
-            return EmailInJson(document.RootElement);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+            bool Has(JsonElement obj, string name) => !string.IsNullOrWhiteSpace(StringIn(obj, name));
+            if (root.TryGetProperty("auth_mode", out var tag) && tag.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                return false;
+            var apiKey = Has(root, "OPENAI_API_KEY");
+            var oauth = root.TryGetProperty("tokens", out var tokens)
+                && Has(tokens, "access_token") && Has(tokens, "refresh_token") && Has(tokens, "id_token");
+            // Old files omit auth_mode. For tagged logins, validate the material
+            // belonging to that mode; unrelated fields cannot salvage a broken entry.
+            bool CompleteObject(string key, params string[] names) =>
+                root.TryGetProperty(key, out var obj) && names.All(name => Has(obj, name));
+            bool valid = (tag.ValueKind == JsonValueKind.String ? tag.GetString() : null) switch
+            {
+                null => apiKey || oauth,
+                "apikey" => apiKey,
+                "chatgpt" => oauth,
+                "chatgptAuthTokens" => Has(tokens, "access_token") && Has(tokens, "id_token")
+                    && tokens.TryGetProperty("refresh_token", out var refresh) && refresh.ValueKind == JsonValueKind.String,
+                "personalAccessToken" => Has(root, "personal_access_token"),
+                "bedrockApiKey" => CompleteObject("bedrock_api_key", "api_key", "region"),
+                "bedrockAccessKeys" => CompleteObject("bedrock_access_keys", "access_key_id", "secret_access_key"),
+                "agentIdentity" => Has(root, "agent_identity") ||
+                    (CompleteObject("agent_identity", "agent_runtime_id", "agent_private_key", "account_id", "chatgpt_user_id", "plan_type")
+                    && root.GetProperty("agent_identity").TryGetProperty("chatgpt_account_is_fedramp", out var fedramp)
+                    && fedramp.ValueKind is JsonValueKind.True or JsonValueKind.False),
+                _ => false,
+            };
+            if (!valid) return false;
+            email = EmailInJson(root);
+            return true;
         }
-        catch
-        {
-            return null;
-        }
+        catch (JsonException) { return false; }
     }
 
     /// Where a sanitized label lives, or null when the label is empty.
@@ -384,7 +412,7 @@ public static class CodexAccountSwitcher
         var tmp = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
-            File.WriteAllBytes(tmp, data);
+            CredentialFiles.WriteNew(tmp, data);
             Harden(tmp);
             for (var attempt = 0; ; attempt++)
             {
@@ -418,7 +446,7 @@ public static class CodexAccountSwitcher
     {
         try
         {
-            File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.NotContentIndexed);
+            if (OperatingSystem.IsWindows()) File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.NotContentIndexed);
         }
         catch
         {

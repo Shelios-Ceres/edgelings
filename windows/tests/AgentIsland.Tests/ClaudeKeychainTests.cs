@@ -94,7 +94,8 @@ public static class ClaudeKeychainTests
         }
     }
 
-    private static ClaudeKeychain Over(Fake fake) => new(fake.Run, Base, null);
+    private static ClaudeKeychain Over(Fake fake) => new(fake.Run, Base, null,
+        (service, account, json, _) => fake.Run(["add-generic-password", "-U", "-s", service, "-a", account, "-w", json]) is not null);
 
     private static void ReadsPlainItem()
     {

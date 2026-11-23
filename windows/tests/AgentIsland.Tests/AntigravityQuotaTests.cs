@@ -144,6 +144,8 @@ public static class AntigravityQuotaTests
     private static void TestCliOfflineAndWakeGuard()
     {
         var prevClock = AntigravityCliQuota.Clock;
+        var uptime = AntigravityCliQuota.UptimeMilliseconds;
+        var locked = AntigravityCliQuota.SessionLocked;
         var prevOnline = AntigravityCliQuota.CheckOnline;
         var prevReachable = AntigravityCliQuota.CheckReachable;
         try
@@ -151,6 +153,19 @@ public static class AntigravityQuotaTests
             var now = Now;
             AntigravityCliQuota.Clock = () => now;
             AntigravityCliQuota.ResetWakeGraceForTests();
+
+            AntigravityCliQuota.CheckOnline = () => true;
+            AntigravityCliQuota.CheckReachable = () => true;
+            AntigravityCliQuota.SessionLocked = false;
+            AntigravityCliQuota.UptimeMilliseconds = () => 89_999;
+            Expect(AntigravityCliQuota.ShouldDefer(), "cold boot defers");
+            AntigravityCliQuota.UptimeMilliseconds = () => 90_000;
+            Expect(!AntigravityCliQuota.ShouldDefer(), "ordinary app restart is immediately eligible");
+            AntigravityCliQuota.SessionLocked = true;
+            Expect(AntigravityCliQuota.ShouldDefer(), "locked sessions defer");
+            AntigravityCliQuota.SessionLocked = false;
+            Expect(AntigravityCliQuota.EnsureIsolatedHome(typeof(AntigravityQuotaTests).Assembly.Location) is null,
+                "an unavailable isolated home fails closed");
 
             // Offline skips before even probing external reachability.
             var probed = 0;
@@ -183,6 +198,8 @@ public static class AntigravityQuotaTests
         finally
         {
             AntigravityCliQuota.Clock = prevClock;
+            AntigravityCliQuota.UptimeMilliseconds = uptime;
+            AntigravityCliQuota.SessionLocked = locked;
             AntigravityCliQuota.CheckOnline = prevOnline;
             AntigravityCliQuota.CheckReachable = prevReachable;
             AntigravityCliQuota.ResetWakeGraceForTests();
@@ -194,7 +211,7 @@ public static class AntigravityQuotaTests
         if (!OperatingSystem.IsWindows()) return;
         var single = new System.Diagnostics.ProcessStartInfo
         {
-            FileName = "cmd.exe",
+            FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
             Arguments = "/c echo ok",
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -203,10 +220,35 @@ public static class AntigravityQuotaTests
             RedirectStandardError = true,
         };
         Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "ok");
+        var folder = Directory.CreateTempSubdirectory("limen-job-");
+        try
+        {
+            single.WorkingDirectory = folder.FullName;
+            single.Arguments = "/d /c echo started>marker";
+            Expect(WindowsJobProcess.Run(0, single, TimeSpan.FromSeconds(5), null) is null,
+                "invalid job prevents creation");
+            Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5), _ => false) is null,
+                "hidden launch is denied");
+            Expect(!File.Exists(Path.Combine(folder.FullName, "marker")), "main thread never ran");
+            File.WriteAllText(Path.Combine(folder.FullName, "child.cmd"), "@echo child>child");
+            single.Arguments = "/d /c echo started>parent & cmd.exe /d /c child.cmd";
+            AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5));
+            Expect(File.Exists(Path.Combine(folder.FullName, "parent")) && !File.Exists(Path.Combine(folder.FullName, "child")),
+                "parent entered its job and the child produced no marker");
+            single.Environment["ZZ_LIMEN_SENTINEL"] = "isolated-value";
+            single.Arguments = "/d /c echo %ZZ_LIMEN_SENTINEL%";
+            Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "isolated-value");
+        }
+        finally { folder.Delete(true); }
+
+        var wait = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "ping.exe"), "-n 12 127.0.0.1");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Expect(AntigravityCliQuota.RunInSingleProcessJob(wait, TimeSpan.FromMilliseconds(150)) is null, "timeout stops the job");
+        Expect(clock.Elapsed < TimeSpan.FromSeconds(5), "pipe cleanup respects timeout");
 
         var spawnChild = new System.Diagnostics.ProcessStartInfo
         {
-            FileName = "cmd.exe",
+            FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
             Arguments = "/c cmd.exe /c echo SHOULD_NOT_RUN",
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -351,6 +393,8 @@ public static class AntigravityQuotaTests
     {
         var prevCall = AntigravityLanguageServer.CallRpc;
         var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var prevStarted = AntigravityLanguageServer.StartTime;
+        AntigravityLanguageServer.StartTime = _ => Now.UtcDateTime;
         var prevRead = AntigravityLanguageServer.ReadCommandLine;
         try
         {
@@ -395,6 +439,7 @@ public static class AntigravityQuotaTests
         {
             AntigravityLanguageServer.CallRpc = prevCall;
             AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.StartTime = prevStarted;
             AntigravityLanguageServer.ReadCommandLine = prevRead;
             AntigravityLanguageServer.ForgetCsrfTokens();
         }
@@ -406,6 +451,8 @@ public static class AntigravityQuotaTests
         var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
         var prevPorts = AntigravityLanguageServer.ListListeningPorts;
         var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var prevStarted = AntigravityLanguageServer.StartTime;
+        AntigravityLanguageServer.StartTime = _ => Now.UtcDateTime;
         var prevRead = AntigravityLanguageServer.ReadCommandLine;
         try
         {
@@ -448,6 +495,7 @@ public static class AntigravityQuotaTests
             AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
             AntigravityLanguageServer.ListListeningPorts = prevPorts;
             AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.StartTime = prevStarted;
             AntigravityLanguageServer.ReadCommandLine = prevRead;
             AntigravityLanguageServer.ForgetCachedPort();
             AntigravityLanguageServer.ForgetCsrfTokens();

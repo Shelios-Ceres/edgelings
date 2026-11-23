@@ -11,6 +11,7 @@ namespace AgentIsland.Usage;
 /// own: its snapshot, its captions, its cache and how it reads an outcome.
 public abstract class GuestUsageStore : INotifyPropertyChanged
 {
+    private CancellationTokenSource? _attempt;
     private bool _loading;
     private DateTimeOffset? _lastAttempt;
 
@@ -43,23 +44,43 @@ public abstract class GuestUsageStore : INotifyPropertyChanged
         return true;
     }
 
+    protected void ClearAttemptFloor() => _lastAttempt = null;
+
+    internal void CancelPending()
+    {
+        if (_attempt is not { } attempt) return;
+        _attempt = null;
+        attempt.Cancel();
+        _lastAttempt = null;
+        Loading = false;
+    }
+
+    protected Task RunVisibleFetch<TOutcome>(Func<CancellationToken, Task<TOutcome>> fetch,
+        Func<string, TOutcome> failed, Func<bool> shown, Action<TOutcome> apply)
+    {
+        var attempt = new CancellationTokenSource();
+        _attempt = attempt;
+        return Task.Run(async () =>
+        {
+            using (attempt)
+            {
+                TOutcome result;
+                try { result = await fetch(attempt.Token); }
+                catch (Exception error) { result = failed(error.Message); }
+                await UiThread.InvokeAsync(() =>
+                {
+                    if (_attempt != attempt) return;
+                    _attempt = null;
+                    if (shown()) apply(result);
+                    else Loading = false;
+                });
+            }
+        });
+    }
+
     /// Fetches off the UI thread and applies the outcome on it. A fetch that
     /// throws is applied as a failure: it must never leave Loading latched,
     /// which would freeze the row until the app relaunches.
     protected void RunFetch<TOutcome>(Func<Task<TOutcome>> fetch, Func<string, TOutcome> failed, Action<TOutcome> apply)
-    {
-        _ = Task.Run(async () =>
-        {
-            TOutcome outcome;
-            try
-            {
-                outcome = await fetch();
-            }
-            catch (Exception error)
-            {
-                outcome = failed(error.Message);
-            }
-            await UiThread.InvokeAsync(() => apply(outcome));
-        });
-    }
+        => _ = RunVisibleFetch(_ => fetch(), failed, static () => true, apply);
 }

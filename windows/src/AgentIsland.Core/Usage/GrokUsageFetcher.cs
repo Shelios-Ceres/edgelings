@@ -29,20 +29,35 @@ public static class GrokUsageFetcher
     /// claiming macOS would be the odd request in xAI's logs, not the safe one.
     private const string UserAgent = "grok-pager/0.2.114 grok-shell/0.2.114 (windows; x86_64)";
 
-    public static async Task<Outcome> Fetch(CancellationToken ct = default)
+    private static readonly RefreshGrants Grants = new();
+    private static readonly SemaphoreSlim FetchGate = new(1);
+
+    public static Task<Outcome> Fetch(CancellationToken ct = default) =>
+        Fetch(GrokAuthFile.DefaultPath, Http.Client, Http.OAuthClient, ct);
+
+    internal static async Task<Outcome> Fetch(string authPath, HttpClient billing, HttpClient oauth, CancellationToken ct)
     {
-        var authPath = GrokAuthFile.DefaultPath;
+        // A new show may follow a hide while an earlier grant is still being persisted.
+        // Read the login only after its predecessor has completed.
+        await FetchGate.WaitAsync(ct);
+        try { return await FetchCore(authPath, billing, oauth, ct); }
+        finally { FetchGate.Release(); }
+    }
+
+    private static async Task<Outcome> FetchCore(string authPath, HttpClient billing, HttpClient oauth, CancellationToken ct)
+    {
         if (GrokAuthFile.LoadEntry(authPath) is not { } entry) return new Outcome.NotInstalled();
 
         // Proactive refresh near expiry (the access token lives ~6h). A failed
         // refresh still tries the billing call with the old token — clock skew
         // can make a perfectly good token look expired.
-        if (GrokAuthFile.NeedsRefresh(entry) && entry.RefreshToken is not null)
+        var attempted = GrokAuthFile.NeedsRefresh(entry) && entry.RefreshToken is not null;
+        if (attempted)
         {
-            if (await Refresh(entry, authPath, ct) is { } proactive) entry = proactive;
+            if (await Refresh(entry, authPath, oauth, ct) is { } proactive) entry = proactive;
         }
 
-        switch (await FetchBilling(entry.AccessToken, ct))
+        switch (await FetchBilling(entry.AccessToken, billing, ct))
         {
             case BillingResult.Success success:
                 return new Outcome.Success(success.Snapshot);
@@ -50,11 +65,11 @@ public static class GrokUsageFetcher
                 return new Outcome.Failed(failed.Message);
             case BillingResult.Unauthorized:
             {
-                GrokAuthEntry? refreshed = entry.RefreshToken is null
+                GrokAuthEntry? refreshed = attempted || entry.RefreshToken is null
                     ? null
-                    : await Refresh(entry, authPath, ct);
+                    : await Refresh(entry, authPath, oauth, ct);
                 if (refreshed is null) return new Outcome.ReauthRequired();
-                return await FetchBilling(refreshed.AccessToken, ct) switch
+                return await FetchBilling(refreshed.AccessToken, billing, ct) switch
                 {
                     BillingResult.Success retried => new Outcome.Success(retried.Snapshot),
                     BillingResult.Failed retryFailed => new Outcome.Failed(retryFailed.Message),
@@ -75,12 +90,12 @@ public static class GrokUsageFetcher
         public sealed record Failed(string Message) : BillingResult;
     }
 
-    private static async Task<BillingResult> FetchBilling(string token, CancellationToken ct)
+    private static async Task<BillingResult> FetchBilling(string token, HttpClient billing, CancellationToken ct)
     {
         // Both calls go out together; neither Get throws, so awaiting them in
         // sequence can't strand the other request.
-        var weeklyCall = Get(BillingBase + "?format=credits", token, ct);
-        var monthlyCall = Get(BillingBase, token, ct);
+        var weeklyCall = Get(BillingBase + "?format=credits", token, billing, ct);
+        var monthlyCall = Get(BillingBase, token, billing, ct);
         var weekly = await weeklyCall;
         var monthly = await monthlyCall;
 
@@ -114,7 +129,7 @@ public static class GrokUsageFetcher
         public sealed record Transport(string Message) : HttpOutcome;
     }
 
-    private static async Task<HttpOutcome> Get(string url, string token, CancellationToken ct)
+    private static async Task<HttpOutcome> Get(string url, string token, HttpClient billing, CancellationToken ct)
     {
         try
         {
@@ -127,7 +142,7 @@ public static class GrokUsageFetcher
             // Never let a wedged tunnel hang the poll loop.
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromSeconds(25));
-            using var response = await Http.Client.SendAsync(request, deadline.Token);
+            using var response = await billing.SendAsync(request, deadline.Token);
             return new HttpOutcome.Response(
                 (int)response.StatusCode,
                 await response.Content.ReadAsByteArrayAsync(deadline.Token));
@@ -150,14 +165,16 @@ public static class GrokUsageFetcher
     /// changed since the request left, nothing is written and the current
     /// entry comes back instead.
     private static async Task<GrokAuthEntry?> Refresh(
-        GrokAuthEntry entry, string authPath, CancellationToken ct)
+        GrokAuthEntry entry, string authPath, HttpClient oauth, CancellationToken ct)
     {
         if (entry.RefreshToken is not { } refreshToken) return null;
         if (entry.OidcClientId is not { } clientId) return null;
+        string? grant = null;
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post, await TokenEndpoint(entry.OidcIssuer, ct));
+            var endpoint = await TokenEndpoint(entry.OidcIssuer, oauth, ct);
+            if (endpoint is null || ct.IsCancellationRequested) return null;
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
             request.Headers.TryAddWithoutValidation("Accept", "application/json");
             request.Content = new StringContent(
                 FormEncoded(
@@ -167,43 +184,56 @@ public static class GrokUsageFetcher
                 Encoding.UTF8,
                 "application/x-www-form-urlencoded");
 
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(TimeSpan.FromSeconds(20));
-            using var response = await Http.Client.SendAsync(request, deadline.Token);
-            if ((int)response.StatusCode != 200) return null;
-            return GrokAuthFile.ApplyRefreshResponse(
+            // Once sent, finish persisting a successful rotation even if the card is hidden.
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            grant = Grants.Begin(refreshToken);
+            if (grant is null) return null;
+            using var response = await oauth.SendAsync(request, deadline.Token);
+            if ((int)response.StatusCode != 200)
+            {
+                if ((int)response.StatusCode < 500) Grants.Settled(grant);
+                return null;
+            }
+            var updated = GrokAuthFile.ApplyRefreshResponse(
                 await response.Content.ReadAsStringAsync(deadline.Token), authPath, entry.Scope, refreshToken);
+            if (updated is not null) Grants.Settled(grant);
+            return updated;
         }
-        catch
+        catch (Exception error)
         {
+            if (grant is not null && RefreshGrants.BeforeSend(error)) Grants.Settled(grant);
             return null;
         }
     }
 
     /// OIDC discovery for the token endpoint, with the conventional
     /// `/oauth2/token` path as the offline fallback.
-    private static async Task<string> TokenEndpoint(string issuer, CancellationToken ct)
+    private static async Task<Uri?> TokenEndpoint(string issuer, HttpClient oauth, CancellationToken ct)
     {
-        var origin = issuer.TrimEnd('/');
-        var fallback = origin + "/oauth2/token";
+        if (!Uri.TryCreate(issuer, UriKind.Absolute, out var origin) || !TrustedAuthUri(origin)
+            || origin.Query.Length != 0 || origin.Fragment.Length != 0) return null;
+        var prefix = origin.AbsoluteUri.TrimEnd('/') + "/";
+        var fallback = new Uri(prefix + "oauth2/token");
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get, origin + "/.well-known/openid-configuration");
-            request.Headers.TryAddWithoutValidation("Accept", "application/json");
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromSeconds(10));
-            using var response = await Http.Client.SendAsync(request, deadline.Token);
+            using var response = await oauth.GetAsync(prefix + ".well-known/openid-configuration", deadline.Token);
             if ((int)response.StatusCode != 200) return fallback;
             using var doc = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(deadline.Token));
+            if (Jsonl.GetString(doc.RootElement, "issuer") is { } advertised
+                && !string.Equals(advertised.TrimEnd('/'), issuer.TrimEnd('/'), StringComparison.Ordinal)) return null;
             var endpoint = Jsonl.GetString(doc.RootElement, "token_endpoint");
-            return Uri.TryCreate(endpoint, UriKind.Absolute, out _) ? endpoint! : fallback;
+            return Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && TrustedAuthUri(uri)
+                && uri.IdnHost.Equals(origin.IdnHost, StringComparison.OrdinalIgnoreCase) ? uri : null;
         }
-        catch
-        {
-            return fallback;
-        }
+        catch (HttpRequestException) { return fallback; }
+        catch (OperationCanceledException) { return ct.IsCancellationRequested ? null : fallback; }
     }
+
+    private static bool TrustedAuthUri(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && uri.UserInfo.Length == 0
+        && uri.Fragment.Length == 0 && uri.IdnHost.EndsWith(".x.ai", StringComparison.OrdinalIgnoreCase);
 
     /// Uri.EscapeDataString leaves exactly the RFC 3986 unreserved set alone,
     /// which is the encoding the CLI's own form encoder produces.

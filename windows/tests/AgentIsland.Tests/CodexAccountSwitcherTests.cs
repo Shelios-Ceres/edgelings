@@ -11,6 +11,7 @@ public static class CodexAccountSwitcherTests
     {
         var tests = new (string Name, Action Test)[]
         {
+            ("corrupt parked credentials cannot be listed, rotated or activated", RejectCorrupt),
             ("refreshed credentials retain account identity", RefreshedIdentity),
             ("same email does not merge workspaces or users", DistinctIdentities),
             ("unknown credential formats only match exact bytes", UnknownIdentity),
@@ -54,6 +55,28 @@ public static class CodexAccountSwitcherTests
 
     private static string Jwt(object claims) => "e30." + Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(claims))
         .TrimEnd('=').Replace('+', '-').Replace('/', '_') + ".fake";
+
+    private static void RejectCorrupt()
+    {
+        using var fixture = new Fixture();
+        var live = Credential("live", "now");
+        fixture.Live(live);
+        foreach (var raw in new[] { "", "{", "[]", "{}", "{\"tokens\":{\"access_token\":\"only\"}}" })
+        {
+            var account = fixture.Save("bad", Encoding.UTF8.GetBytes(raw));
+            Expect(CodexAccountSwitcher.Accounts(fixture.Home).Count, 0);
+            Expect(CodexAccountSwitcher.RotationCandidate(new HashSet<string>(), fixture.Home) is null, "invalid rotation candidate");
+            Expect(!CodexAccountSwitcher.Activate(account, fixture.Home), "invalid candidate refused");
+            Expect(File.ReadAllBytes(fixture.LivePath).SequenceEqual(live), "live login preserved");
+        }
+        fixture.Save("api", Encoding.UTF8.GetBytes("{\"OPENAI_API_KEY\":\"test-only\"}"));
+        fixture.Save("wrong-mode", Encoding.UTF8.GetBytes("""{"auth_mode":"chatgpt","OPENAI_API_KEY":"fixture"}"""));
+        fixture.Save("pat", Encoding.UTF8.GetBytes("""{"auth_mode":"personalAccessToken","personal_access_token":"fixture@example.test"}"""));
+        fixture.Save("bedrock", Encoding.UTF8.GetBytes("""{"auth_mode":"bedrockApiKey","bedrock_api_key":{"region":"region","api_key":"fixture"}}"""));
+        var supported = CodexAccountSwitcher.Accounts(fixture.Home);
+        Expect(supported.Count, 3);
+        Expect(supported.All(account => account.Email is null), "credential fields never appear as email labels");
+    }
 
     private static void RefreshedIdentity()
     {

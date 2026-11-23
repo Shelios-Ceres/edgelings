@@ -34,6 +34,7 @@ public static class AntigravityLanguageServer
         ServerCertificateCustomValidationCallback = (request, _, _, _) =>
             request.RequestUri?.Host == Host,
         UseProxy = false,
+        AllowAutoRedirect = false,
     })
     {
         Timeout = TimeSpan.FromSeconds(6),
@@ -141,10 +142,10 @@ public static class AntigravityLanguageServer
             .ConfigureAwait(false);
         if (reply is { Status: 200 }) return ProbeResult.Ready;
         if (reply is not { Status: 401 }) return ProbeResult.Dead;
-        if (CsrfToken(pid) is { Length: > 0 } token)
+        if (StartTime(pid) is { } started && CsrfToken(pid) is { Length: > 0 } token)
         {
-            var retried = await CallRpc(
-                "GetUnleashData", port, "{\"wrapper_data\":{}}", token, 2)
+            var retried = await new AntigravityLiveCascades.Server(port, pid, started, token).Call(
+                "GetUnleashData", "{\"wrapper_data\":{}}", 2)
                 .ConfigureAwait(false);
             if (retried is { Status: 200 }) return ProbeResult.Ready;
         }
@@ -450,12 +451,14 @@ public static class AntigravityLanguageServer
         return null;
     }
 
-    private static DateTime? StartTime(int pid)
+    internal static Func<int, DateTime?> StartTime = ProcessStartTime;
+
+    private static DateTime? ProcessStartTime(int pid)
     {
         try
         {
             using var process = Process.GetProcessById(pid);
-            return process.StartTime;
+            return process.StartTime.ToUniversalTime();
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {

@@ -19,6 +19,7 @@ public static class GrokAuthFileTests
         Directory.CreateDirectory(directory);
         try
         {
+            RefreshDestinations(Path.Combine(directory, "requests.json"));
             MatchingLoginIsWritten(Path.Combine(directory, "match.json"));
             ChangedLoginIsLeftAlone(Path.Combine(directory, "changed.json"));
             HeldFileIsWrittenOnceReleased(Path.Combine(directory, "held.json"));
@@ -42,6 +43,60 @@ public static class GrokAuthFileTests
           }
         }
         """;
+
+    private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> handle) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(handle(request));
+    }
+
+    private static void RefreshDestinations(string path)
+    {
+        int attempted = 0;
+        File.WriteAllText(path, Auth("old", "ambiguous-grok", "a@example.test"));
+        using var denied = new HttpClient(new Handler(_ => new(System.Net.HttpStatusCode.Unauthorized)));
+        using var ambiguous = new HttpClient(new Handler(request =>
+        {
+            if (request.Method == HttpMethod.Get) return new(System.Net.HttpStatusCode.NotFound);
+            attempted++;
+            throw new HttpRequestException(HttpRequestError.ResponseEnded, "fixture lost response");
+        }));
+        for (var poll = 0; poll < 2; poll++) GrokUsageFetcher.Fetch(path, denied, ambiguous, default).GetAwaiter().GetResult();
+        Expect(attempted, 1);
+        File.WriteAllText(path, Auth("other", "fresh-grok", "a@example.test"));
+        GrokUsageFetcher.Fetch(path, denied, ambiguous, default).GetAwaiter().GetResult();
+        Expect(attempted, 2);
+
+        foreach (var (issuer, discovered, posts, discoveries) in new[]
+        {
+            ("https://auth.x.ai", "https://auth.x.ai/token", 1, 1),
+            ("https://auth.x.ai", "https://other.x.ai/token", 0, 1),
+            ("https://auth.x.ai", "http://auth.x.ai/token", 0, 1),
+            ("https://auth.x.ai", "https://auth.x.ai:444/token", 0, 1),
+            ("https://untrusted.invalid", "https://untrusted.invalid/token", 0, 0),
+        })
+        {
+            var doc = System.Text.Json.Nodes.JsonNode.Parse(Auth("old", "fake", "a@example.test"))!;
+            doc[Scope]!["oidc_issuer"] = issuer;
+            File.WriteAllText(path, doc.ToJsonString());
+            int sent = 0, lookups = 0;
+            using var billing = new HttpClient(new Handler(_ => new(System.Net.HttpStatusCode.Unauthorized)));
+            using var oauth = new HttpClient(new Handler(request =>
+            {
+                if (request.Method == HttpMethod.Post)
+                {
+                    sent++;
+                    return new(System.Net.HttpStatusCode.TemporaryRedirect);
+                }
+                lookups++;
+                return new(System.Net.HttpStatusCode.OK)
+                    { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(new { token_endpoint = discovered })) };
+            }));
+            _ = GrokUsageFetcher.Fetch(path, billing, oauth, default).GetAwaiter().GetResult();
+            Expect(sent, posts);
+            Expect(lookups, discoveries);
+        }
+    }
 
     private static void MatchingLoginIsWritten(string path)
     {

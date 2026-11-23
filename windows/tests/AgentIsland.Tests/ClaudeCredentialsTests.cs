@@ -28,8 +28,9 @@ public static class ClaudeCredentialsTests
             ("a file caught mid-rewrite is read again and everything else in it is kept", MidRewriteIsReadAgain),
             ("a file that cannot be parsed is never replaced with a bare skeleton", UnreadableFileIsLeftAlone),
             ("a refresh for a login replaced meanwhile leaves the new login alone", ReplacedLoginIsLeftAlone),
-            ("a file the CLI deleted meanwhile is written fresh", MissingFileIsSeeded),
+            ("sign-out during refresh leaves the credential file absent", MissingFileStaysMissing),
             ("a refresh the network stopped is not a lost sign-in", RefreshUnavailable),
+            ("an ambiguous rotation cannot replay the same grant on a later poll", AmbiguousRotation),
             ("only a refused grant reads as a lost sign-in", RefreshReplies),
         };
         var directory = Path.Combine(Path.GetTempPath(), "agentisland-credentials-" + Guid.NewGuid().ToString("N"));
@@ -268,7 +269,7 @@ public static class ClaudeCredentialsTests
 
     private static async Task UnreadableFileIsLeftAlone()
     {
-        Write("A", "R1");
+        Write("A", "unwritable-fixture");
         ClaudeCredentials.RefreshToken = _ =>
         {
             File.WriteAllText(CredentialsPath, "{\"claudeAiOauth\":{\"accessToken\":\"A\",");
@@ -300,7 +301,7 @@ public static class ClaudeCredentialsTests
         Expect(string.Join(",", seen) == "A,C", $"the login now in the file is probed, got {string.Join(",", seen)}");
     }
 
-    private static async Task MissingFileIsSeeded()
+    private static async Task MissingFileStaysMissing()
     {
         Write("A", "R1");
         ClaudeCredentials.RefreshToken = _ =>
@@ -309,8 +310,8 @@ public static class ClaudeCredentialsTests
             return Refreshed("B", "R2");
         };
         var result = await ClaudeCredentials.ResolveUsage((token, _) => Task.FromResult(token == "B" ? Ok : Expired));
-        Expect(result is ClaudeCredentials.Resolution.Usage, "the refreshed token's usage is returned");
-        Expect(Read() == ("B", "R2"), "the rotated pair is written to a fresh file");
+        Expect(result is not ClaudeCredentials.Resolution.Usage, "logout supersedes a late refresh");
+        Expect(!File.Exists(CredentialsPath), "logout is preserved");
     }
 
     private static async Task RefreshUnavailable()
@@ -324,6 +325,23 @@ public static class ClaudeCredentialsTests
         Expect(!ClaudeCredentials.IsAuthRecoverableError(((ClaudeCredentials.Resolution.Failed)result).Message),
             "and offers no sign-in button");
         Expect(Read() == ("A", "R1"), "the file is untouched");
+    }
+
+    private static async Task AmbiguousRotation()
+    {
+        Write("A", "ambiguous-fixture");
+        int posts = 0;
+        ClaudeCredentials.RefreshToken = _ =>
+        {
+            posts++;
+            return Task.FromResult<ClaudeCredentials.RefreshResult>(new ClaudeCredentials.RefreshResult.Unavailable("network drop", true));
+        };
+        await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        Expect(posts, 1);
+        Write("B", "replacement-fixture");
+        await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        Expect(posts, 2);
     }
 
     private static Task RefreshReplies()

@@ -15,6 +15,8 @@ public static class ClaudeHooksTests
     {
         var tests = new (string Name, Action Test)[]
         {
+            ("malformed hook structures are preserved on install and removal", BadStructure),
+            ("the old Mac signal folder still supplies pending prompts", LegacySignal),
             ("install keeps other settings and is idempotent", InstallMerges),
             ("uninstall removes only our group", UninstallKeepsOthers),
             ("uninstall of the last group drops the empty hooks", UninstallCleansUp),
@@ -45,6 +47,36 @@ public static class ClaudeHooksTests
         else Console.WriteLine("SKIP claude hooks: a linked settings.json (this account can't create symbolic links)");
         Console.WriteLine("ClaudeHooksTests GREEN");
     }
+
+    private static void BadStructure() => WithFiles((transcript, _) =>
+    {
+        var before = ClaudeHooks.SettingsFileOverride;
+        ClaudeHooks.SettingsFileOverride = Path.Combine(Path.GetDirectoryName(transcript)!, "settings.json");
+        try
+        {
+            foreach (var source in new[] { "[]", """{"hooks":null}""", """{"hooks":{"Notification":{}}}""",
+                """{"hooks":{"Notification":[1]}}""", """{"hooks":{"Notification":[{"hooks":["other"]}]}}""" })
+            {
+                File.WriteAllText(ClaudeHooks.SettingsPath, source);
+                Expect(!ClaudeHooks.IsInstalled(), "unexpected shape is safe to inspect");
+                foreach (var on in new[] { true, false })
+                {
+                    Expect(!string.IsNullOrEmpty(ClaudeHooks.SetInstalled(on)), "caller receives a structure error");
+                    Expect(File.ReadAllText(ClaudeHooks.SettingsPath), source);
+                }
+            }
+        }
+        finally { ClaudeHooks.SettingsFileOverride = before; }
+    });
+
+    private static void LegacySignal() => WithFiles((transcript, now) =>
+    {
+        Marker(transcript, ClaudeHooks.PermissionPrompt, now);
+        var old = Path.Combine(Path.GetDirectoryName(transcript)!, "Edgelings", "claude-hooks");
+        Directory.CreateDirectory(Path.GetDirectoryName(old)!);
+        Directory.Move(ClaudeHooks.SignalDirectory, old);
+        Expect(ClaudeHooks.PendingFor([transcript], now, old).ContainsKey(transcript), "reads the prior folder alone");
+    });
 
     private static void InstallMerges()
     {

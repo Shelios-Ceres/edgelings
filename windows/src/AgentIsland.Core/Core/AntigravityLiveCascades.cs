@@ -19,9 +19,17 @@ internal static class AntigravityLiveCascades
     private static readonly IReadOnlyDictionary<string, Run> Empty = new Dictionary<string, Run>();
     private static readonly object Gate = new();
     private static (DateTimeOffset At, IReadOnlyDictionary<string, Run> Runs) _last = (DateTimeOffset.MinValue, Empty);
-    private static (DateTimeOffset At, List<(int Port, string? Token)> Servers) _servers = (DateTimeOffset.MinValue, new());
-    // Reading a token starts PowerShell: once per process.
-    private static readonly Dictionary<int, string?> TokenByPid = new();
+    private static (DateTimeOffset At, List<Server> Servers) _servers = (DateTimeOffset.MinValue, new());
+    internal sealed record Server(int Port, int Pid, DateTime? Started, string? Token)
+    {
+        public Task<AntigravityLanguageServer.Reply?> Call(string method, string body, double timeout = 6)
+        {
+            if (Token is not null && (Started is null || AntigravityLanguageServer.ResolvePortOwner(Port) != Pid
+                || AntigravityLanguageServer.StartTime(Pid) != Started))
+                return Task.FromResult<AntigravityLanguageServer.Reply?>(null);
+            return AntigravityLanguageServer.CallRpc(method, Port, body, Token, timeout);
+        }
+    }
 
     private static TimeSpan Fresh => TimeSpan.FromSeconds(3);
     // Looked for again this often while none answers (Antigravity closed),
@@ -45,9 +53,9 @@ internal static class AntigravityLiveCascades
 
     /// Every Antigravity language server that answers, as (port, token): the
     /// list is rebuilt only now and then, and each caller sees the same one.
-    internal static List<(int Port, string? Token)> Servers(DateTimeOffset now)
+    internal static List<Server> Servers(DateTimeOffset now)
     {
-        (DateTimeOffset At, List<(int Port, string? Token)> Servers) known;
+        (DateTimeOffset At, List<Server> Servers) known;
         lock (Gate) known = _servers;
         var servers = known.Servers;
         if (now - known.At > (servers.Count == 0 ? LookAgainWhileNone : LookAgainAnyway))
@@ -64,9 +72,9 @@ internal static class AntigravityLiveCascades
         var servers = Servers(now);
         if (servers.Count == 0) return Empty;
         var runs = new Dictionary<string, Run>(StringComparer.Ordinal);
-        foreach (var (port, token) in servers)
+        foreach (var server in servers)
         {
-            var reply = AntigravityLanguageServer.Call("GetAllCascadeTrajectories", port, "{}", token, timeoutSeconds: 2)
+            var reply = server.Call("GetAllCascadeTrajectories", "{}", 2)
                 .GetAwaiter().GetResult();
             if (reply is not { Status: 200 })
             {
@@ -88,36 +96,23 @@ internal static class AntigravityLiveCascades
 
     /// Every Antigravity process's RPC port. The CLI's server wants no token;
     /// the desktop app's takes the one on its command line, read once.
-    private static List<(int Port, string? Token)> Discover()
+    private static List<Server> Discover()
     {
-        var servers = new List<(int, string?)>();
-        var pids = AntigravityLanguageServer.AntigravityProcessIds();
-        lock (Gate)
+        var servers = new List<Server>();
+        foreach (var pid in AntigravityLanguageServer.ListAntigravityProcessIds())
         {
-            foreach (var gone in TokenByPid.Keys.Except(pids).ToList()) TokenByPid.Remove(gone);
-        }
-        foreach (var pid in pids)
-        {
-            string? token;
-            bool tokenRead;
-            lock (Gate) tokenRead = TokenByPid.TryGetValue(pid, out token);
+            var started = AntigravityLanguageServer.StartTime(pid);
             foreach (var port in AntigravityLanguageServer.ListeningPorts(pid))
             {
-                var reply = AntigravityLanguageServer.Call("GetAllCascadeTrajectories", port, "{}", token, timeoutSeconds: 2)
-                    .GetAwaiter().GetResult();
-                if (reply is { Status: 401 } && !tokenRead)
+                var server = new Server(port, pid, started, null);
+                var reply = server.Call("GetAllCascadeTrajectories", "{}", 2).GetAwaiter().GetResult();
+                if (reply is { Status: 401 } && started.HasValue && AntigravityLanguageServer.CsrfToken(pid) is { } token)
                 {
-                    tokenRead = true;
-                    token = AntigravityLanguageServer.CsrfToken(pid);
-                    lock (Gate) TokenByPid[pid] = token;
-                    if (token is not null)
-                    {
-                        reply = AntigravityLanguageServer.Call("GetAllCascadeTrajectories", port, "{}", token, timeoutSeconds: 2)
-                            .GetAwaiter().GetResult();
-                    }
+                    server = server with { Token = token };
+                    reply = server.Call("GetAllCascadeTrajectories", "{}", 2).GetAwaiter().GetResult();
                 }
                 if (reply is not { Status: 200 }) continue;
-                servers.Add((port, token));
+                servers.Add(server);
                 break;
             }
         }

@@ -25,6 +25,8 @@ public sealed class AntigravityUsageStore : GuestUsageStore
     private string? _statusCaption;
     private DateTimeOffset? _lastUpdated;
     private string? _accountEmail;
+    private bool _deferred;
+    private bool _unlockPending;
 
     /// Detection is launch-static, same as the other providers.
     public bool Detected { get; }
@@ -80,11 +82,26 @@ public sealed class AntigravityUsageStore : GuestUsageStore
         if (!Detected && !ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Antigravity)) return;
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Antigravity)) return;
         if (!TryStart(EffectiveFloor(manual))) return;
-        RunFetch<AntigravityUsageFetcher.Outcome>(() => AntigravityUsageFetcher.Fetch(), message => new AntigravityUsageFetcher.Outcome.Failed(message), Apply);
+        _ = RunVisibleFetch<AntigravityUsageFetcher.Outcome>(AntigravityUsageFetcher.Fetch, message => new AntigravityUsageFetcher.Outcome.Failed(message),
+            () => ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Antigravity), Apply);
+    }
+
+    internal void RetryAfterUnlock()
+    {
+        if (Loading)
+        {
+            _unlockPending = true;
+            return;
+        }
+        if (_deferred) ClearAttemptFloor();
+        KickRefresh(manual: true);
     }
 
     private void Apply(AntigravityUsageFetcher.Outcome outcome)
     {
+        var retry = _unlockPending;
+        _unlockPending = false;
+        _deferred = outcome is AntigravityUsageFetcher.Outcome.Deferred;
         Loading = false;
         switch (outcome)
         {
@@ -112,7 +129,8 @@ public sealed class AntigravityUsageStore : GuestUsageStore
                 StatusCaption = null;
                 break;
             case AntigravityUsageFetcher.Outcome.Deferred:
-                // Offline or within wake grace: keep the cached snapshot and status untouched.
+                // Unlock may have arrived while the preceding attempt was settling.
+                if (retry) RetryAfterUnlock();
                 break;
         }
     }

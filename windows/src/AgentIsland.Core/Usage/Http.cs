@@ -13,6 +13,13 @@ public static class Http
         Timeout = TimeSpan.FromSeconds(30),
     };
 
+    // A grant is single use. Even a 307/308 must not replay its body.
+    internal static HttpClient OAuthClient { get; } = new(new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+    }) { Timeout = TimeSpan.FromSeconds(30) };
+
     /// Test seam: the waits between tries.
     internal static TimeSpan[] TransientBackoff = { TimeSpan.FromSeconds(0.8), TimeSpan.FromSeconds(2.4) };
 

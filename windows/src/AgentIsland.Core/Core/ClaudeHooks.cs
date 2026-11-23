@@ -92,6 +92,7 @@ public static class ClaudeHooks
                 if (target != path && !File.Exists(target)) return $"settings.json links to {target}, which doesn't exist, so it was left alone.";
                 JsonNode? root = File.Exists(target) ? JsonNode.Parse(File.ReadAllText(target)) : new JsonObject();
                 if (root is not JsonObject settings) return "settings.json is not a JSON object";
+                if (!ValidNotifications(settings)) return "Invalid hooks.Notification structure in settings.json.";
                 var changed = installed ? Install(settings) : Uninstall(settings);
                 if (!changed) return null;
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -122,7 +123,17 @@ public static class ClaudeHooks
     }
 
     internal static bool Contains(JsonNode? root) =>
-        root?["hooks"]?["Notification"] is JsonArray groups && groups.Any(IsOurs);
+        root is JsonObject obj && obj["hooks"] is JsonObject hooks && hooks["Notification"] is JsonArray groups && groups.Any(IsOurs);
+
+    private static bool ValidNotifications(JsonObject settings)
+    {
+        if (!settings.TryGetPropertyValue("hooks", out var value)) return true;
+        if (value is not JsonObject hooks) return false;
+        if (!hooks.TryGetPropertyValue("Notification", out var notifications)) return true;
+        return notifications is JsonArray groups && groups.All(g => g is JsonObject group
+            && group["hooks"] is JsonArray handlers && handlers.All(h => h is JsonObject handler
+                && (!handler.TryGetPropertyValue("command", out var command) || command?.GetValueKind() == JsonValueKind.String)));
+    }
 
     internal static bool Install(JsonObject settings)
     {
@@ -165,8 +176,8 @@ public static class ClaudeHooks
     }
 
     private static bool IsOurs(JsonNode? group) =>
-        group?["hooks"] is JsonArray handlers
-        && handlers.Any(h => h?["command"]?.GetValueKind() == JsonValueKind.String
+        group is JsonObject obj && obj["hooks"] is JsonArray handlers
+        && handlers.Any(h => h is JsonObject handler && handler["command"]?.GetValueKind() == JsonValueKind.String
             && h["command"]!.GetValue<string>() is var command
             && (command.Contains(Marker, StringComparison.Ordinal)
                 || (UseShell && command.Contains("Edgelings/claude-hooks", StringComparison.Ordinal))));
@@ -180,48 +191,52 @@ public static class ClaudeHooks
         PendingFor(new[] { transcriptPath }, now).TryGetValue(transcriptPath, out var prompt) ? prompt : null;
 
     internal static Dictionary<string, (string Type, DateTimeOffset At)> PendingFor(
-        IEnumerable<string> transcriptPaths, DateTimeOffset now)
+        IEnumerable<string> transcriptPaths, DateTimeOffset now, string? legacyDirectory = null)
     {
         var pending = new Dictionary<string, (string Type, DateTimeOffset At)>(StringComparer.OrdinalIgnoreCase);
         var targets = transcriptPaths.Distinct(StringComparer.OrdinalIgnoreCase)
             .GroupBy(Normalize).ToDictionary(group => group.Key, group => group.First());
         if (targets.Count == 0) return pending;
-        try
+        if (OperatingSystem.IsMacOS()) legacyDirectory ??= Path.Combine(IslandPaths.PreviousAppSupportDir, "claude-hooks");
+        foreach (var directory in new[] { SignalDirectory, legacyDirectory })
         {
-            if (!Directory.Exists(SignalDirectory)) return pending;
-            foreach (var file in Directory.EnumerateFiles(SignalDirectory, "*.json"))
+            try
             {
-                try
+                if (!Directory.Exists(directory)) continue;
+                foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
                 {
-                    // A marker past the prompt lifetime can never open a
-                    // prompt again; deleting it keeps the folder, and this
-                    // read on every poll, down to the prompts still live.
-                    if (now - new DateTimeOffset(File.GetLastWriteTimeUtc(file), TimeSpan.Zero) >= PromptLifetime)
+                    try
                     {
-                        File.Delete(file);
-                        continue;
+                        // A marker past the prompt lifetime can never open a
+                        // prompt again; deleting it keeps the folder, and this
+                        // read on every poll, down to the prompts still live.
+                        if (now - new DateTimeOffset(File.GetLastWriteTimeUtc(file), TimeSpan.Zero) >= PromptLifetime)
+                        {
+                            if (directory == SignalDirectory) File.Delete(file);
+                            continue;
+                        }
+                        using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                        var root = doc.RootElement;
+                        if (Jsonl.GetString(root, "transcript_path") is not { } path
+                            || !targets.TryGetValue(Normalize(path), out var target) || !File.Exists(target)) continue;
+                        var type = Jsonl.GetString(root, "type");
+                        if (type is not (PermissionPrompt or ElicitationDialog)) continue;
+                        var ms = Jsonl.GetDouble(root, "at") ?? 0;
+                        if (ms is <= 0 or > 253_402_300_799_999) continue;
+                        var at = DateTimeOffset.FromUnixTimeMilliseconds((long)ms);
+                        var written = new DateTimeOffset(File.GetLastWriteTimeUtc(target), TimeSpan.Zero);
+                        if (at > now || now - at >= PromptLifetime || at < written) continue;
+                        if (!pending.TryGetValue(target, out var latest) || at > latest.At) pending[target] = (type, at);
                     }
-                    using var doc = JsonDocument.Parse(File.ReadAllText(file));
-                    var root = doc.RootElement;
-                    if (Jsonl.GetString(root, "transcript_path") is not { } path
-                        || !targets.TryGetValue(Normalize(path), out var target) || !File.Exists(target)) continue;
-                    var type = Jsonl.GetString(root, "type");
-                    if (type is not (PermissionPrompt or ElicitationDialog)) continue;
-                    var ms = Jsonl.GetDouble(root, "at") ?? 0;
-                    if (ms is <= 0 or > 253_402_300_799_999) continue;
-                    var at = DateTimeOffset.FromUnixTimeMilliseconds((long)ms);
-                    var written = new DateTimeOffset(File.GetLastWriteTimeUtc(target), TimeSpan.Zero);
-                    if (at > now || now - at >= PromptLifetime || at < written) continue;
-                    if (!pending.TryGetValue(target, out var latest) || at > latest.At) pending[target] = (type, at);
-                }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-                {
-                    // A concurrent hook write must not hide another session's prompt.
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+                    {
+                        // A concurrent hook write must not hide another session's prompt.
+                    }
                 }
             }
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
         }
         return pending;
     }

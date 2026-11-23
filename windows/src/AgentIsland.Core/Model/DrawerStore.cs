@@ -81,32 +81,45 @@ public sealed class DrawerStore : INotifyPropertyChanged
         }
     }
 
+    private readonly object _visibilityGate = new();
+
+    // Serializes CLI creation with hiding its card.
+    internal bool WhileVisible(DisplayProvider provider, Func<bool> action)
+    {
+        lock (_visibilityGate) return !_hidden.Contains(provider.RawValue()) && action();
+    }
+
     public bool IsShown(DisplayProvider provider, bool detected)
     {
         var raw = provider.RawValue();
-        if (_hidden.Contains(raw)) return false;
-        return _shown.Contains(raw) || detected;
+        lock (_visibilityGate) return !_hidden.Contains(raw) && (_shown.Contains(raw) || detected);
     }
 
     /// Hidden by the user, as opposed to off for want of the agent on this
     /// computer.
-    public bool IsHidden(DisplayProvider provider) => _hidden.Contains(provider.RawValue());
+    public bool IsHidden(DisplayProvider provider)
+    {
+        lock (_visibilityGate) return _hidden.Contains(provider.RawValue());
+    }
 
     public void SetShown(DisplayProvider provider, bool shown)
     {
         var raw = provider.RawValue();
-        if (shown)
+        lock (_visibilityGate)
         {
-            _hidden.Remove(raw);
-            _shown.Add(raw);
+            if (shown)
+            {
+                _hidden.Remove(raw);
+                _shown.Add(raw);
+            }
+            else
+            {
+                _shown.Remove(raw);
+                _hidden.Add(raw);
+            }
+            Preferences.Set(ShownKey, _shown.OrderBy(v => v).ToList());
+            Preferences.Set(HiddenKey, _hidden.OrderBy(v => v).ToList());
         }
-        else
-        {
-            _shown.Remove(raw);
-            _hidden.Add(raw);
-        }
-        Preferences.Set(ShownKey, _shown.OrderBy(v => v).ToList());
-        Preferences.Set(HiddenKey, _hidden.OrderBy(v => v).ToList());
         Raise(nameof(IsShown));
     }
 
