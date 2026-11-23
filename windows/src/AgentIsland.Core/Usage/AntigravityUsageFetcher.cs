@@ -17,6 +17,10 @@ public static class AntigravityUsageFetcher
 
         public sealed record NotInstalled : Outcome;
 
+        /// Skipped while offline or within wake grace so the CLI never falls
+        /// back to an interactive browser sign-in. Keep cached snapshot as-is.
+        public sealed record Deferred : Outcome;
+
         public sealed record Failed(string Message) : Outcome;
     }
 

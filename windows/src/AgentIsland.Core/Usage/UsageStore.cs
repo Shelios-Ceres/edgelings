@@ -643,6 +643,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// The computer woke from sleep (the Mac's didWake notification calls this).
     public void HandleWake()
     {
+        AntigravityCliQuota.NoteWake();
         UiThread.Post(() =>
         {
             // The dead in-flight request would block Refresh's early-return

@@ -111,6 +111,9 @@ public sealed class AntigravityUsageStore : GuestUsageStore
                 Snapshot = null;
                 StatusCaption = null;
                 break;
+            case AntigravityUsageFetcher.Outcome.Deferred:
+                // Offline or within wake grace: keep the cached snapshot and status untouched.
+                break;
         }
     }
 

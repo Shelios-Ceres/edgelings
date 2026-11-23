@@ -32,7 +32,7 @@ internal static class InternetStatus
         }
     }
 
-    private static bool IsConnected()
+    internal static bool IsConnected()
     {
         try
         {

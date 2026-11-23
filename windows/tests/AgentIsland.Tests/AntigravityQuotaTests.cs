@@ -34,6 +34,8 @@ public static class AntigravityQuotaTests
             ("the parser keeps all five buckets of a Pro account", TestParsesFiveBuckets),
             ("only CLI versions with a built-in print-mode /usage are queried", TestCliVersions),
             ("the CLI invocation runs headless with isolated profile and auto-update disabled", TestCliStartInfo),
+            ("the CLI skips offline, wake-grace, and unreachable-OAuth polls", TestCliOfflineAndWakeGuard),
+            ("the single-process Windows Job Object blocks grandchild browser/CLI spawns", TestCliSingleProcessJob),
             ("refresh cadence keeps the 120s background floor and 1-minute manual floor", TestRefreshCadence),
             ("the CLI usage reply supplies real quota windows", TestCliUsage),
             ("the main group fills the 5-hour and weekly slots", TestSlots),
@@ -118,12 +120,102 @@ public static class AntigravityQuotaTests
         Expect(start.WindowStyle, System.Diagnostics.ProcessWindowStyle.Hidden);
         Expect(start.RedirectStandardInput && start.RedirectStandardOutput && start.RedirectStandardError, "all three streams redirected");
         Expect(start.Environment["AGY_CLI_DISABLE_AUTO_UPDATE"], "true");
+        Expect(start.Environment["AGY_CLI_NONINTERACTIVE_HEADLESS"], "true");
         Expect(start.Environment["USERPROFILE"], iso);
         Expect(start.Environment["HOME"], iso);
+        Expect(start.Environment["LOCALAPPDATA"], Path.Combine(iso, "AppData", "Local"));
+        Expect(start.Environment["APPDATA"], Path.Combine(iso, "AppData", "Roaming"));
         Expect(start.Environment["ANTIGRAVITY_GEMINI_DIR"], Path.Combine(iso, ".gemini"));
-        Expect(!AntigravityCliQuota.IsolatedHomeDir.Equals(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), StringComparison.OrdinalIgnoreCase),
-            "default isolated home never points at the real user profile");
+
+        var realLocal = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var realRoaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var realHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var defaultStart = AntigravityCliQuota.StartInfo(exe, "--print /usage");
+        Expect(!defaultStart.Environment["USERPROFILE"]!.Equals(realHome, StringComparison.OrdinalIgnoreCase),
+            "default USERPROFILE never points at the real user profile");
+        Expect(!defaultStart.Environment["LOCALAPPDATA"]!.Equals(realLocal, StringComparison.OrdinalIgnoreCase),
+            "default LOCALAPPDATA never points at the real user LocalAppData");
+        Expect(!defaultStart.Environment["APPDATA"]!.Equals(realRoaming, StringComparison.OrdinalIgnoreCase),
+            "default APPDATA never points at the real user AppData");
+        Expect(defaultStart.Environment["LOCALAPPDATA"]!.StartsWith(defaultStart.Environment["USERPROFILE"]!, StringComparison.OrdinalIgnoreCase),
+            "LOCALAPPDATA sits under the isolated USERPROFILE to prevent split-path Chrome mismatches");
+    }
+
+    private static void TestCliOfflineAndWakeGuard()
+    {
+        var prevClock = AntigravityCliQuota.Clock;
+        var prevOnline = AntigravityCliQuota.CheckOnline;
+        var prevReachable = AntigravityCliQuota.CheckReachable;
+        try
+        {
+            var now = Now;
+            AntigravityCliQuota.Clock = () => now;
+            AntigravityCliQuota.ResetWakeGraceForTests();
+
+            // Offline skips before even probing external reachability.
+            var probed = 0;
+            AntigravityCliQuota.CheckOnline = () => false;
+            AntigravityCliQuota.CheckReachable = () => { probed++; return true; };
+            Expect(AntigravityCliQuota.ShouldDefer(), "offline defers CLI poll");
+            Expect(probed, 0);
+
+            // Online interface but Google OAuth unreachable (e.g. workplace intranet) defers.
+            AntigravityCliQuota.CheckOnline = () => true;
+            AntigravityCliQuota.CheckReachable = () => { probed++; return false; };
+            Expect(AntigravityCliQuota.ShouldDefer(), "unreachable Google OAuth defers CLI poll");
+            Expect(probed, 1);
+
+            // Online + reachable proceeds normally.
+            AntigravityCliQuota.CheckReachable = () => true;
+            Expect(!AntigravityCliQuota.ShouldDefer(), "online and reachable proceeds");
+
+            // Wake grace defers for 45 seconds without probing network.
+            probed = 0;
+            AntigravityCliQuota.CheckReachable = () => { probed++; return true; };
+            AntigravityCliQuota.NoteWake();
+            now = Now.AddSeconds(30);
+            Expect(AntigravityCliQuota.ShouldDefer(), "within 45s wake grace defers CLI poll");
+            Expect(probed, 0);
+            now = Now.AddSeconds(46);
+            Expect(!AntigravityCliQuota.ShouldDefer(), "after 45s wake grace resumes CLI poll");
+            Expect(probed, 1);
+        }
+        finally
+        {
+            AntigravityCliQuota.Clock = prevClock;
+            AntigravityCliQuota.CheckOnline = prevOnline;
+            AntigravityCliQuota.CheckReachable = prevReachable;
+            AntigravityCliQuota.ResetWakeGraceForTests();
+        }
+    }
+
+    private static void TestCliSingleProcessJob()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var single = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c echo ok",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "ok");
+
+        var spawnChild = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c cmd.exe /c echo SHOULD_NOT_RUN",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        Expect(AntigravityCliQuota.RunInSingleProcessJob(spawnChild, TimeSpan.FromSeconds(5)) is null,
+            "ActiveProcessLimit=1 must block any child process spawn at kernel level");
     }
 
     private static void TestRefreshCadence()
