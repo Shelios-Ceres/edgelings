@@ -37,6 +37,10 @@ public sealed partial class App : Application
         CoreLog.Sink = CrashLog.Write;
         Preferences.MigrateLegacyPrefix();
         AppLanguageStore.ApplyAtStartup();
+        // Copies a crash left next to the credential files; off the UI thread, and a failure is no one's business.
+        _ = System.Threading.Tasks.Task.Run(AgentIsland.Usage.CredentialWriteBacks.CleanUpLeftovers);
+        // A sign-out or shutdown ends the app without going through Quit.
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => AgentIsland.Usage.CredentialWriteBacks.FlushAll();
         // The test window's cards read in the app's language too.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_FILM") is { Length: > 0 } frameFilm)
         {
@@ -113,6 +117,8 @@ public sealed partial class App : Application
     {
         _tray?.Dispose();
         _drawer?.Shutdown();
+        // A refreshed sign-in the credential files would not take is still only in memory.
+        AgentIsland.Usage.CredentialWriteBacks.FlushAll();
         Exit();
     }
 }

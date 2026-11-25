@@ -35,6 +35,8 @@ internal sealed class ClaudeKeychain
         public string? SubscriptionType => Text(Oauth, "subscriptionType");
         public double ExpiresAt => Oauth?["expiresAt"] is JsonValue value && value.TryGetValue<double>(out var at) ? at : 0;
 
+        public override string ToString() => $"Item {{ Service = {Service}, secret redacted }}";
+
         private static string? Text(JsonObject? node, string key) =>
             node?[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
     }
@@ -44,37 +46,74 @@ internal sealed class ClaudeKeychain
         Written,
         /// The item no longer holds the refresh token that was sent.
         Superseded,
+        /// The item is gone and the keychain holds no Claude login at all: a
+        /// sign-out. (A failing `security` looks the same, which is why the
+        /// plain read is tried again before saying so.)
+        Gone,
         Failed,
     }
 
     /// Runs `security` with these arguments; stdout on exit 0, else null.
     internal delegate string? SecurityRunner(IReadOnlyList<string> arguments);
 
+    /// The same, with the exit code: 44 (errSecItemNotFound) is the one code that
+    /// says "no such item"; a timeout, another code or a failed start says nothing
+    /// about whether the item exists.
+    internal delegate string? SecurityRunnerWithCode(IReadOnlyList<string> arguments, out int exitCode);
+
+    internal const int ItemNotFound = 44;
+
     internal delegate bool ItemWriter(string service, string account, string json, string? keychain);
     private readonly ItemWriter _write;
-    private readonly SecurityRunner _run;
+    private readonly SecurityRunnerWithCode _runWithCode;
+    // Per thread: a read is one synchronous call, and two callers must not see each other's outcome.
+    [ThreadStatic] private static bool _readFailed;
     private readonly string _baseService;
     private readonly string? _keychain;
     private string? _remembered;
 
     /// The real thing: the login keychain, the real service names.
-    public static ClaudeKeychain Default { get; } = new(RunSecurity, BaseService, null);
+    public static ClaudeKeychain Default { get; } = new(RunSecurityWithCode, BaseService, null);
 
     /// runner and baseService are seams for tests; keychain names a keychain
     /// file other than the default (a throwaway one in tests).
     public ClaudeKeychain(SecurityRunner runner, string baseService, string? keychain, ItemWriter? writer = null)
+        : this(WithCode(runner), baseService, keychain, writer)
+    {
+    }
+
+    public ClaudeKeychain(SecurityRunnerWithCode runner, string baseService, string? keychain, ItemWriter? writer = null)
     {
         _write = writer ?? MacKeychainWriter.Update;
-        _run = runner;
+        _runWithCode = runner;
         _baseService = baseService;
         _keychain = keychain;
     }
+
+    /// A runner that cannot report a code never proves an item is missing.
+    private static SecurityRunnerWithCode WithCode(SecurityRunner runner) => (IReadOnlyList<string> arguments, out int exitCode) =>
+    {
+        var output = runner(arguments);
+        exitCode = output is null ? -1 : 0;
+        return output;
+    };
+
+    private string? _run(IReadOnlyList<string> arguments)
+    {
+        var output = _runWithCode(arguments, out var exitCode);
+        if (output is null && exitCode != ItemNotFound) _readFailed = true;
+        return output;
+    }
+
+    /// True when the last Read could not tell "no login" from "could not ask".
+    public bool LastReadFailed => _readFailed;
 
     /// The freshest Claude login the keychain holds. Fast path is the item
     /// that answered last, then the plain name; only when both miss does the
     /// suffixed-item discovery run (metadata only: the dump has no secrets).
     public Item? Read()
     {
+        _readFailed = false;
         var fast = new List<string>();
         if (_remembered is not null) fast.Add(_remembered);
         if (!fast.Contains(_baseService)) fast.Add(_baseService);
@@ -98,7 +137,7 @@ internal sealed class ClaudeKeychain
     {
         try
         {
-            if (ReadItem(service) is not { } current) return WriteResult.Failed;
+            if (ReadItem(service) is not { } current) return IsMissing(service) ? WriteResult.Gone : WriteResult.Failed;
             if (!string.Equals(current.RefreshToken, sentRefreshToken, StringComparison.Ordinal)) return WriteResult.Superseded;
             var root = current.Root;
             if (root["claudeAiOauth"] is not JsonObject oauth) return WriteResult.Superseded;
@@ -112,6 +151,13 @@ internal sealed class ClaudeKeychain
         {
             return WriteResult.Failed;
         }
+    }
+
+    /// `security` says there is no such item (and not merely that it failed).
+    private bool IsMissing(string service)
+    {
+        _runWithCode(WithKeychain(new List<string> { "find-generic-password", "-s", service }), out var exitCode);
+        return exitCode == ItemNotFound;
     }
 
     /// Cheap local change signal for the re-auth poll: the item's modification
@@ -236,8 +282,11 @@ internal sealed class ClaudeKeychain
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DumpDeadline = TimeSpan.FromSeconds(20);
 
-    internal static string? RunSecurity(IReadOnlyList<string> arguments)
+    internal static string? RunSecurity(IReadOnlyList<string> arguments) => RunSecurityWithCode(arguments, out _);
+
+    internal static string? RunSecurityWithCode(IReadOnlyList<string> arguments, out int exitCode)
     {
+        exitCode = -1;
         try
         {
             var start = new ProcessStartInfo("/usr/bin/security")
@@ -259,6 +308,7 @@ internal sealed class ClaudeKeychain
                 try { process.Kill(entireProcessTree: true); } catch { }
                 return null;
             }
+            exitCode = process.ExitCode;
             if (process.ExitCode != 0 || !output.Wait(TimeSpan.FromSeconds(2))) return null;
             return output.Result;
         }

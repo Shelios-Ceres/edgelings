@@ -17,6 +17,8 @@ public sealed record GrokAuthEntry(
     string? OidcClientId)
 {
     public bool IsSuperGrok => string.Equals(AuthMode, "oidc", StringComparison.OrdinalIgnoreCase);
+
+    public override string ToString() => $"GrokAuthEntry {{ Scope = {Scope}, tokens and account redacted }}";
 }
 
 /// Reader/rotator for %USERPROFILE%\.grok\auth.json. Top-level keys are OIDC
@@ -27,8 +29,9 @@ public sealed record GrokAuthEntry(
 /// successful refresh MUST be written back — losing the new refresh token
 /// strands the user's own `grok` CLI login. The writeback re-reads the file
 /// first, so every field this app doesn't understand survives verbatim, and
-/// lands atomically (sibling temp file + File.Move overwrite) so a crash
-/// mid-write can never leave a half-written credential file behind.
+/// lands atomically (sibling temp file + File.Replace, which keeps the ACL and
+/// never recreates a file that was removed) so a crash mid-write can never
+/// leave a half-written credential file behind.
 public static class GrokAuthFile
 {
     public const string DefaultIssuer = "https://auth.x.ai";
@@ -41,20 +44,71 @@ public static class GrokAuthFile
 
     public static bool Exists(string? path = null) => File.Exists(path ?? DefaultPath);
 
-    public static GrokAuthEntry? LoadEntry(string? path = null)
+    public static GrokAuthEntry? LoadEntry(string? path = null) => Inspect(path ?? DefaultPath, out _);
+
+    internal enum LoginState
+    {
+        Present,
+        Missing,
+        /// The file parses but holds no usable login: signed out.
+        NoLogin,
+        /// Locked, half-written or otherwise unreadable right now.
+        Unreadable,
+    }
+
+    internal static GrokAuthEntry? Inspect(string file, out LoginState state)
     {
         try
         {
-            var file = path ?? DefaultPath;
-            if (!File.Exists(file)) return null;
-            using var stream = SharedFile.Open(file);
-            if (JsonNode.Parse(stream) is not JsonObject root) return null;
-            if (SelectEntry(root) is not { } selected) return null;
-            return Entry(selected.Scope, selected.Raw);
+            if (!File.Exists(file))
+            {
+                state = LoginState.Missing;
+                return null;
+            }
+            if (ReadRoot(file, out var missing) is not { } root)
+            {
+                state = missing ? LoginState.Missing : LoginState.Unreadable;
+                return null;
+            }
+            if (SelectEntry(root) is not { } selected || Entry(selected.Scope, selected.Raw) is not { } entry)
+            {
+                state = LoginState.NoLogin;
+                return null;
+            }
+            state = LoginState.Present;
+            return entry;
         }
         catch
         {
+            state = LoginState.Unreadable;
             return null;
+        }
+    }
+
+    /// The file as it stands, or null when it is missing (`missing` is set:
+    /// signed out) or cannot be read or parsed even after a few short waits:
+    /// the grok CLI rewrites it in place, so it can be caught locked or
+    /// half-written.
+    private static JsonObject? ReadRoot(string path, out bool missing)
+    {
+        missing = false;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var stream = SharedFile.Open(path);
+                if (JsonNode.Parse(stream) is JsonObject root) return root;
+            }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+            {
+                missing = true;
+                return null;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+            {
+            }
+            if (attempt >= 4) return null;
+            System.Threading.Thread.Sleep(25 * (attempt + 1));
         }
     }
 
@@ -79,38 +133,114 @@ public static class GrokAuthFile
     public static GrokAuthEntry? ApplyRefreshResponse(
         string responseJson, string path, string scope, string sentRefreshToken, DateTimeOffset? now = null)
     {
+        var applied = ApplyRefresh(responseJson, path, scope, sentRefreshToken, now ?? DateTimeOffset.Now);
+        return applied.Status is ApplyStatus.Written or ApplyStatus.Superseded ? applied.Entry : null;
+    }
+
+    internal enum ApplyStatus
+    {
+        Written,
+        /// The file holds another login than the one that was refreshed; left alone.
+        Superseded,
+        /// The reply has no usable access token.
+        BadResponse,
+        /// The file or the login is gone; nothing was written and nothing is to be recreated.
+        LoggedOut,
+        /// The reply is good but the file could not be read or replaced.
+        WriteFailed,
+    }
+
+    internal sealed record ApplyOutcome(ApplyStatus Status, GrokAuthEntry? Entry);
+
+    /// What a token reply carries that matters here (not an id_token or anything
+    /// else it may hold): enough to write the file or to use the pair from memory.
+    internal sealed record TokenReply(string AccessToken, string? RefreshToken, double? ExpiresInSeconds)
+    {
+        public override string ToString() => "TokenReply { tokens redacted }";
+    }
+
+    internal static TokenReply? ParseReply(string responseJson)
+    {
         try
         {
             if (JsonNode.Parse(responseJson) is not JsonObject response) return null;
             if (NonEmpty(response["access_token"]) is not { } accessToken) return null;
-
-            JsonObject root;
-            using (var stream = SharedFile.Open(path))
-            {
-                if (JsonNode.Parse(stream) is not JsonObject parsed) return null;
-                root = parsed;
-            }
-            if (root[scope] is not JsonObject raw) return null;
-            if (!string.Equals(NonEmpty(raw["refresh_token"]), sentRefreshToken, StringComparison.Ordinal))
-            {
-                return Entry(scope, raw);
-            }
-
-            raw["key"] = accessToken;
-            if (NonEmpty(response["refresh_token"]) is { } rotated) raw["refresh_token"] = rotated;
-            if (Number(response["expires_in"]) is { } expiresIn && expiresIn > 0)
-            {
-                raw["expires_at"] = (now ?? DateTimeOffset.Now).AddSeconds(expiresIn).ToUnixTimeMilliseconds();
-            }
-
-            if (!WriteAtomically(path, root)) return null;
-            return Entry(scope, raw);
+            return new TokenReply(accessToken, NonEmpty(response["refresh_token"]), Number(response["expires_in"]));
         }
-        catch
+        catch (JsonException)
         {
             return null;
         }
     }
+
+    internal static ApplyOutcome ApplyRefresh(
+        string responseJson, string path, string scope, string expectedOnDisk, DateTimeOffset now) =>
+        ParseReply(responseJson) is { } reply
+            ? ApplyRefresh(reply, path, scope, expectedOnDisk, now)
+            : new(ApplyStatus.BadResponse, null);
+
+    /// `expectedOnDisk` is the refresh token the file must still hold for the
+    /// reply to be written: the one the request carried, or the one an earlier
+    /// pending write-back is waiting to replace.
+    internal static ApplyOutcome ApplyRefresh(
+        TokenReply reply, string path, string scope, string expectedOnDisk, DateTimeOffset now)
+    {
+        try
+        {
+            var root = ReadRoot(path, out var missing);
+            if (missing) return new(ApplyStatus.LoggedOut, null);
+            if (root is null) return new(ApplyStatus.WriteFailed, null);
+            if (root[scope] is not JsonObject raw)
+            {
+                return SelectEntry(root) is { } other
+                    ? new(ApplyStatus.Superseded, Entry(other.Scope, other.Raw))
+                    : new(ApplyStatus.LoggedOut, null);
+            }
+            if (!string.Equals(NonEmpty(raw["refresh_token"]), expectedOnDisk, StringComparison.Ordinal))
+            {
+                return new(ApplyStatus.Superseded, Entry(scope, raw));
+            }
+
+            // The write works on a fresh copy of the file, read again before each
+            // try; `raw` above only served to see which login this is.
+            var plan = new AtomicReplace.Plan(
+                latest => latest[scope] is JsonObject now
+                    && string.Equals(NonEmpty(now["refresh_token"]), expectedOnDisk, StringComparison.Ordinal),
+                latest =>
+                {
+                    var entry = (JsonObject)latest[scope]!;
+                    entry["key"] = reply.AccessToken;
+                    if (reply.RefreshToken is { } rotated) entry["refresh_token"] = rotated;
+                    if (reply.ExpiresInSeconds is { } expiresIn && expiresIn > 0)
+                    {
+                        entry["expires_at"] = now.AddSeconds(expiresIn).ToUnixTimeMilliseconds();
+                    }
+                },
+                WriteOptions);
+            var (result, written) = AtomicReplace.Run(path, plan);
+            return result switch
+            {
+                AtomicReplace.Result.Written => new(ApplyStatus.Written, Entry(scope, (JsonObject)written![scope]!)),
+                AtomicReplace.Result.Gone => new(ApplyStatus.LoggedOut, null),
+                AtomicReplace.Result.Superseded => new(ApplyStatus.Superseded, Inspect(path, out _)),
+                _ => new(ApplyStatus.WriteFailed, null),
+            };
+        }
+        catch
+        {
+            return new(ApplyStatus.WriteFailed, null);
+        }
+    }
+
+    /// The entry as the reply leaves it, for use from memory while the file
+    /// cannot be written.
+    internal static GrokAuthEntry EntryFromReply(GrokAuthEntry current, TokenReply reply, DateTimeOffset now) =>
+        current with
+        {
+            AccessToken = reply.AccessToken,
+            RefreshToken = reply.RefreshToken ?? current.RefreshToken,
+            ExpiresAt = reply.ExpiresInSeconds is { } expiresIn && expiresIn > 0 ? now.AddSeconds(expiresIn) : current.ExpiresAt,
+        };
 
     // MARK: - Entry selection
 
@@ -173,57 +303,6 @@ public static class GrokAuthFile
         if (node is not JsonValue value) return null;
         if (Number(node) is { } raw) return FromEpochMilliseconds(raw > 1e11 ? raw : raw * 1000);
         return value.TryGetValue<string>(out var text) ? GrokTimestamp.Parse(text) : null;
-    }
-
-    // MARK: - Write-back
-
-    /// The temp file is created in the SAME directory as auth.json, so it
-    /// inherits the identical ACL — the closest Windows equivalent of the
-    /// 0600 the macOS writer sets, since the user profile tree is already
-    /// user-only and File.Move keeps that inheritance at the destination.
-    private static bool WriteAtomically(string path, JsonObject root)
-    {
-        if (Path.GetDirectoryName(path) is not { Length: > 0 } directory) return false;
-        var tmp = Path.Combine(directory, ".auth.json.tmp-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            CredentialFiles.WriteNew(tmp, root.ToJsonString(WriteOptions));
-            for (var attempt = 0; ; attempt++)
-            {
-                try
-                {
-                    File.Move(tmp, path, overwrite: true);
-                    return true;
-                }
-                catch (Exception moveError) when (attempt < 4 && moveError is IOException or UnauthorizedAccessException)
-                {
-                    // The grok CLI may hold a brief read lock on auth.json,
-                    // and dropping the rotated refresh token bricks its login.
-                    // Replacing a file held without share-delete throws
-                    // UnauthorizedAccessException, not IOException.
-                    System.Threading.Thread.Sleep(40 * (attempt + 1));
-                }
-            }
-        }
-        catch (Exception error)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"AgentIsland: failed to persist rotated Grok tokens: {error.Message}");
-            TryDelete(tmp);
-            return false;
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path)) File.Delete(path);
-        }
-        catch
-        {
-            // A stranded temp file is noise, not a failure worth surfacing.
-        }
     }
 
     // MARK: - Value coercion

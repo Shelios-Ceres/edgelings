@@ -25,6 +25,8 @@ public static class ClaudeKeychainTests
             ("keychain: a rotated pair goes back to the same item and everything else in it is kept", WritesBackToSameItem),
             ("keychain: a pair the CLI rotated meanwhile is left alone", SupersededIsLeftAlone),
             ("keychain: a write that fails reports failure", WriteFailure),
+            ("keychain: an item that is gone reads as a sign-out, not a failed write", RemovedItemIsGone),
+            ("keychain: a security that fails is neither a sign-out nor an empty keychain", SecurityFailureIsNotAbsence),
             ("keychain: the modification stamp changes when the item is written", StampChanges),
             ("keychain: an expired token is refreshed and the rotated pair lands in the keychain item", EndToEndRefresh),
             ("keychain: a throwaway keychain file round-trips a read and a write-back (macOS)", ThrowawayKeychain),
@@ -57,6 +59,21 @@ public static class ClaudeKeychainTests
         public readonly List<IReadOnlyList<string>> Writes = new();
         public bool FailWrites;
         public bool HexSecrets;
+        /// `security` itself failing (a timeout, a locked keychain): exit code 1, never "not found".
+        public bool FailReads;
+
+        /// Exit 44 is what `security` says for an item that is not there.
+        public string? RunWithCode(IReadOnlyList<string> a, out int exitCode)
+        {
+            if (FailReads)
+            {
+                exitCode = 1;
+                return null;
+            }
+            var output = Run(a);
+            exitCode = output is not null ? 0 : a[0] == "find-generic-password" ? ClaudeKeychain.ItemNotFound : 1;
+            return output;
+        }
 
         public string? Run(IReadOnlyList<string> a)
         {
@@ -94,7 +111,7 @@ public static class ClaudeKeychainTests
         }
     }
 
-    private static ClaudeKeychain Over(Fake fake) => new(fake.Run, Base, null,
+    private static ClaudeKeychain Over(Fake fake) => new(fake.RunWithCode, Base, null,
         (service, account, json, _) => fake.Run(["add-generic-password", "-U", "-s", service, "-a", account, "-w", json]) is not null);
 
     private static void ReadsPlainItem()
@@ -171,7 +188,37 @@ public static class ClaudeKeychainTests
         fake.Items[Base] = ("me", Login("B", "R-by-cli"), 2);
         Expect(keychain.WriteBack(item.Service, "A2", "R2", 1, item.RefreshToken!), ClaudeKeychain.WriteResult.Superseded);
         Expect(fake.Writes.Count, 0);
-        Expect(keychain.WriteBack("Gone", "A2", "R2", 1, "R1"), ClaudeKeychain.WriteResult.Failed);
+        Expect(keychain.WriteBack("Gone", "A2", "R2", 1, "R1"), ClaudeKeychain.WriteResult.Gone);
+    }
+
+    private static void RemovedItemIsGone()
+    {
+        var fake = new Fake();
+        fake.Items[Base] = ("me", Login("A", "R1"), 1);
+        var keychain = Over(fake);
+        var item = keychain.Read()!;
+        fake.Items.Remove(Base);
+        Expect(keychain.WriteBack(item.Service, "A2", "R2", 1, "R1"), ClaudeKeychain.WriteResult.Gone);
+        Expect(fake.Writes.Count, 0);
+        Expect(!item.ToString().Contains("R1"), "an item prints without its secret");
+    }
+
+    private static void SecurityFailureIsNotAbsence()
+    {
+        var fake = new Fake();
+        fake.Items[Base] = ("me", Login("A", "R1"), 1);
+        var keychain = Over(fake);
+        var item = keychain.Read()!;
+        Expect(!keychain.LastReadFailed, "a good read did not fail");
+        fake.FailReads = true;
+        Expect(keychain.WriteBack(item.Service, "A2", "R2", 1, "R1"), ClaudeKeychain.WriteResult.Failed);
+        Expect(keychain.Read() is null && keychain.LastReadFailed, "a read that could not ask says so");
+        fake.FailReads = false;
+        fake.Items.Clear();
+        Expect(keychain.Read() is null && !keychain.LastReadFailed, "an empty keychain answered with 44 is plain absence");
+        Expect(keychain.WriteBack(Base, "A2", "R2", 1, "R1"), ClaudeKeychain.WriteResult.Gone);
+        var blind = new ClaudeKeychain(_ => null, Base, null);
+        Expect(blind.Read() is null && blind.LastReadFailed, "a runner that gives no exit code never proves absence");
     }
 
     private static void WriteFailure()

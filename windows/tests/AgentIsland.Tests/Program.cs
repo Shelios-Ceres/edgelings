@@ -140,6 +140,7 @@ public static class Program
                 ("StateGroupsTests", StateGroupsTests.RunAll, null),
                 ("PixelChineseTests", PixelChineseTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
+                ("RefreshGrantsTests", RefreshGrantsTests.RunAll, null),
                 ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),
                 ("ClaudeKeychainTests", ClaudeKeychainTests.RunAll, null),
                 ("ActivityMonitorScanTests", ActivityMonitorScanTests.RunAll, null),

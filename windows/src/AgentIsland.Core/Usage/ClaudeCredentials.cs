@@ -31,8 +31,13 @@ public static class ClaudeCredentials
     /// indistinguishable from never having signed in (macOS #22).
     public const string TokenRefreshFailedMessage = "token refresh failed — sign in again";
 
+    /// Shown when the retries for a refresh whose outcome was unknown are used up:
+    /// only a new sign-in is left to try.
+    public const string GaveUpMessage = "Couldn't renew the sign-in; check the network or sign in again";
+
     public static bool IsAuthRecoverableError(string? message) =>
-        message is ReauthRequiredMessage or AuthRequiredMessage or TokenRefreshFailedMessage;
+        message is ReauthRequiredMessage or AuthRequiredMessage or TokenRefreshFailedMessage or GaveUpMessage
+        || (message is not null && message == L10n.Tr(GaveUpMessage));
 
     // OAuth constants — captured verbatim from what the official `claude`
     // CLI 2.1.153 opens, and shared with the macOS ClaudeCredentials.
@@ -71,8 +76,22 @@ public static class ClaudeCredentials
     ///      back or Claude Code itself 401s on its next refresh.
     public static async Task<Resolution> ResolveUsage(Func<string, string?, Task<ProbeOutcome>> probe)
     {
+        var resolution = await ResolveUsageCore(probe);
+        // The quota came from a pair that could not be saved for good: say so,
+        // while Claude Code may be about to refresh with the token the file holds.
+        if (resolution is Resolution.Usage && PendingExhausted && HasPendingWriteBack)
+        {
+            return new Resolution.Failed(L10n.Tr(SaveFailedMessage));
+        }
+        return resolution;
+    }
+
+    private const string SaveFailedMessage = "Couldn't save the refreshed sign-in; Claude Code may need to sign in again";
+
+    private static async Task<Resolution> ResolveUsageCore(Func<string, string?, Task<ProbeOutcome>> probe)
+    {
         var lastError = AuthRequiredMessage;
-        var cachedCreds = ReadClaudeCreds();
+        var cachedCreds = ApplyPending(ReadClaudeCreds(), tryWrite: true);
         var plan = cachedCreds?.SubscriptionType;
 
         var envToken = Environment.GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN");
@@ -124,7 +143,7 @@ public static class ClaudeCredentials
         ClaudeCreds creds, string? plan, Func<string, string?, Task<ProbeOutcome>> probe)
     {
         var current = creds;
-        if (ReadClaudeCreds() is not { } latest) return (null, AuthRequiredMessage);
+        if (ApplyPending(ReadClaudeCreds(), tryWrite: false) is not { } latest) return (null, AuthRequiredMessage);
         if (latest != creds)
         {
             current = latest;
@@ -137,14 +156,15 @@ public static class ClaudeCredentials
             }
         }
         var grant = Grants.Begin(current.RefreshToken);
-        if (grant is null) return (null, L10n.Tr("Waiting for updated sign-in"));
+        if (grant is null) return (null, L10n.Tr(Grants.GaveUp(current.RefreshToken) ? GaveUpMessage : "Waiting for updated sign-in"));
         var refresh = await RefreshToken(current.RefreshToken);
         if (refresh is not RefreshResult.Refreshed { Tokens: var refreshed })
         {
-            if (refresh is not RefreshResult.Unavailable { Uncertain: true }) Grants.Settled(grant);
+            if (refresh is RefreshResult.Unavailable { Uncertain: true } uncertain) Grants.Ambiguous(grant, uncertain.Reason);
+            else Grants.Settled(grant);
             // Claude Code may have refreshed between the read above and this
             // call, which spends our copy: one more look at the file, one probe.
-            if (ReadClaudeCreds() is { } rotated && rotated != current)
+            if (ApplyPending(ReadClaudeCreds(), tryWrite: false) is { } rotated && rotated != current)
             {
                 switch (await probe(rotated.AccessToken, plan))
                 {
@@ -158,15 +178,10 @@ public static class ClaudeCredentials
             // rate limit or a server error does not prove sign-out.
             return (null, refresh is RefreshResult.Unavailable unavailable ? unavailable.Message : TokenRefreshFailedMessage);
         }
-        var write = WriteClaudeCreds(refreshed, current);
-        if (write != WriteBack.Failed) Grants.Settled(grant);
+        CredentialRefreshLog.Recovered("claude");
+        var write = PersistRotation(refreshed, current, grant);
         switch (write)
         {
-            // Anthropic rotates the refresh token, invalidating the pair we
-            // just used. If we can't persist the rotated tokens, the on-disk
-            // creds are now dead — force a re-login instead of 401-ing forever.
-            case WriteBack.Failed:
-                return (new Resolution.ReauthRequired(ReauthRequiredMessage), null);
             // Claude Code refreshed first, or the user signed in again (maybe
             // as someone else): the login in the file is the one to show.
             case WriteBack.Superseded:
@@ -206,7 +221,10 @@ public static class ClaudeCredentials
         string AccessToken,
         string RefreshToken,
         string? SubscriptionType,
-        string? KeychainService = null);
+        string? KeychainService = null)
+    {
+        public override string ToString() => "ClaudeCreds { tokens redacted }";
+    }
 
     /// Test seam: the keychain to read, or null for the real one on a Mac.
     /// The real login keychain is used only on macOS, with no file override
@@ -218,31 +236,75 @@ public static class ClaudeCredentials
 
     /// The Keychain first on a Mac, where Claude Code keeps the login; the
     /// credentials file when it holds none (Claude Code run with another config).
-    private static ClaudeCreds? ReadClaudeCreds()
+    private static ClaudeCreds? ReadClaudeCreds() => ReadClaudeCreds(out _);
+
+    /// `state` says why nothing came back: the store holds no login (signed
+    /// out), or it could not be read just now. On a Mac the Keychain's answer
+    /// counts only when `security` really said there was no item.
+    private static ClaudeCreds? ReadClaudeCreds(out LoginState state)
     {
-        if (Keychain is { } keychain && keychain.Read() is { } item)
+        var keychainFailed = false;
+        if (Keychain is { } keychain)
         {
-            return new ClaudeCreds(item.AccessToken!, item.RefreshToken!, item.SubscriptionType, item.Service);
+            if (keychain.Read() is { } item)
+            {
+                state = LoginState.Present;
+                return new ClaudeCreds(item.AccessToken!, item.RefreshToken!, item.SubscriptionType, item.Service);
+            }
+            keychainFailed = keychain.LastReadFailed;
         }
-        return ReadClaudeCredsFile();
+        var creds = ReadClaudeCredsFile(out state);
+        if (creds is null && keychainFailed) state = LoginState.Unreadable;
+        return creds;
     }
 
-    private static ClaudeCreds? ReadClaudeCredsFile()
+    private enum LoginState
+    {
+        Present,
+        Missing,
+        /// The file parses but holds no Claude login: signed out.
+        NoLogin,
+        /// Locked, half-written or otherwise unreadable right now.
+        Unreadable,
+    }
+
+    private static ClaudeCreds? ReadClaudeCredsFile() => ReadClaudeCredsFile(out _);
+
+    private static ClaudeCreds? ReadClaudeCredsFile(out LoginState state)
     {
         try
         {
             var path = CredentialsFile;
-            if (!File.Exists(path)) return null;
+            if (!File.Exists(path))
+            {
+                state = LoginState.Missing;
+                return null;
+            }
             using var stream = SharedFile.Open(path);
             using var doc = JsonDocument.Parse(stream);
-            if (Jsonl.GetObject(doc.RootElement, "claudeAiOauth") is not { } oauth) return null;
+            if (Jsonl.GetObject(doc.RootElement, "claudeAiOauth") is not { } oauth)
+            {
+                state = LoginState.NoLogin;
+                return null;
+            }
             var access = Jsonl.GetString(oauth, "accessToken");
             var refresh = Jsonl.GetString(oauth, "refreshToken");
-            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh)) return null;
+            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh))
+            {
+                state = LoginState.NoLogin;
+                return null;
+            }
+            state = LoginState.Present;
             return new ClaudeCreds(access!, refresh!, Jsonl.GetString(oauth, "subscriptionType"));
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+        {
+            state = LoginState.Missing;
+            return null;
         }
         catch
         {
+            state = LoginState.Unreadable;
             return null;
         }
     }
@@ -256,97 +318,235 @@ public static class ClaudeCredentials
         Failed,
     }
 
-    /// Updates the claudeAiOauth block in place, preserving unrelated fields
-    /// (scopes, subscriptionType, rateLimitTier) and any other top-level
-    /// keys in the file. A missing login supersedes the refresh.
-    private static WriteBack WriteClaudeCreds(RefreshedTokens refreshed, ClaudeCreds from)
+    /// A rotation the server accepted but the store would not take. The old
+    /// token is spent, so the new pair is the only live one: it is used from
+    /// memory and written again while the store still holds `Replaced`. Lost
+    /// when the process exits, unless FlushPendingWriteBack gets one more try.
+    private sealed record PendingWriteBack(RefreshedTokens Tokens, string Replaced, ClaudeCreds Creds)
     {
-        if (from.KeychainService is { } service && Keychain is { } keychain)
-        {
-            return keychain.WriteBack(service, refreshed.AccessToken, refreshed.RefreshToken, refreshed.ExpiresAtMs, from.RefreshToken) switch
-            {
-                ClaudeKeychain.WriteResult.Written => WriteBack.Written,
-                ClaudeKeychain.WriteResult.Superseded => WriteBack.Superseded,
-                _ => WriteBack.Failed,
-            };
-        }
-        var sentRefreshToken = from.RefreshToken;
-        var tmp = string.Empty;
-        try
-        {
-            var path = CredentialsFile;
-            var root = ReadForWriteBack(path, out var missing);
-            if (missing) return WriteBack.Superseded;
-            if (root is null) return WriteBack.Failed;
-            if (root["claudeAiOauth"] is not JsonObject oauth
-                || oauth["refreshToken"] is not JsonValue value || !value.TryGetValue<string>(out var held)
-                || !string.Equals(held, sentRefreshToken, StringComparison.Ordinal)) return WriteBack.Superseded;
-            oauth["accessToken"] = refreshed.AccessToken;
-            oauth["refreshToken"] = refreshed.RefreshToken;
-            oauth["expiresAt"] = refreshed.ExpiresAtMs;
+        public override string ToString() => "PendingWriteBack { tokens redacted }";
+    }
 
-            // Per-write temp name, not a fixed ".tmp": Windows denies a second
-            // opener while the first holds the handle, so two Agent Island
-            // instances refreshing at once would fail each other's write —
-            // and a failed write here forces the user through a re-login.
-            tmp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            CredentialFiles.WriteNew(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = false }));
-            // Retry the rename: Claude Code / Claude Desktop may hold a brief
-            // read lock on the creds file, and dropping the rotated token
-            // bricks auth for every consumer. A handle held without
-            // share-delete makes the replace throw UnauthorizedAccessException.
-            for (var attempt = 0; ; attempt++)
-            {
-                try
-                {
-                    File.Replace(tmp, path, null);
-                    return WriteBack.Written;
-                }
-                catch (FileNotFoundException) when (!File.Exists(path))
-                {
-                    File.Delete(tmp);
-                    return WriteBack.Superseded;
-                }
-                catch (Exception moveError) when (attempt < 4 && moveError is IOException or UnauthorizedAccessException)
-                {
-                    System.Threading.Thread.Sleep(40 * (attempt + 1));
-                }
-            }
-        }
-        catch (Exception error)
+    private static readonly object PendingGate = new();
+    // Held across "read what the file holds, write, record the result", so two
+    // refreshes (a stuck poll's successor, an account switch, a re-auth) cannot
+    // interleave their write-backs.
+    private static readonly object WriteGate = new();
+    private static PendingWriteBack? Pending;
+    private static bool PendingExhausted;
+
+    private static void HoldPending(PendingWriteBack pending)
+    {
+        lock (PendingGate)
         {
-            System.Diagnostics.Debug.WriteLine($"AgentIsland: failed to write rotated Claude tokens: {error.Message}");
-            // Never strand the temp copy: it holds a live token pair, and
-            // nothing else ever cleans up ~\.claude.
-            try { if (tmp.Length > 0) File.Delete(tmp); } catch { }
-            return WriteBack.Failed;
+            Pending = pending;
+            PendingExhausted = false;
+        }
+        CredentialRefreshLog.Note("claude", "write-back failed, holding rotated tokens in memory");
+        _ = CredentialWriteBacks.Retry("claude", "claude", RetryPending, () =>
+        {
+            lock (PendingGate) PendingExhausted = ReferenceEquals(Pending, pending);
+        });
+    }
+
+    private static bool RetryPending()
+    {
+        lock (WriteGate) ApplyPending(ReadClaudeCreds(), tryWrite: true);
+        return !HasPendingWriteBack;
+    }
+
+    /// One last try for a pair still held, for a normal exit.
+    internal static void FlushPendingWriteBack()
+    {
+        if (HasPendingWriteBack) RetryPending();
+    }
+
+    private static string? PendingReplaced()
+    {
+        lock (PendingGate) return Pending?.Replaced;
+    }
+
+    private static void DropPending(string reason)
+    {
+        bool had;
+        lock (PendingGate)
+        {
+            had = Pending is not null;
+            Pending = null;
+            PendingExhausted = false;
+        }
+        if (had) CredentialRefreshLog.Note("claude", reason);
+    }
+
+    /// The token that was sent is spent either way. While a write-back is
+    /// pending the file still holds an older token than the one just sent, so
+    /// that is the one it must still hold.
+    private static WriteBack PersistRotation(RefreshedTokens refreshed, ClaudeCreds current, RefreshGrants.Grant grant)
+    {
+        lock (WriteGate)
+        {
+            var onDisk = PendingReplaced() ?? current.RefreshToken;
+            var write = WriteClaudeCreds(refreshed, current, onDisk);
+            Grants.Settled(grant);
+            switch (write)
+            {
+                // Anthropic rotates the refresh token, invalidating the pair we
+                // just used. The rotated pair is all that is left of this login,
+                // so it is kept in memory and written again.
+                case WriteBack.Failed:
+                    HoldPending(new PendingWriteBack(refreshed, onDisk,
+                        new ClaudeCreds(refreshed.AccessToken, refreshed.RefreshToken, current.SubscriptionType, current.KeychainService)));
+                    break;
+                case WriteBack.Written:
+                    DropPending("pending write-back saved");
+                    break;
+                case WriteBack.Superseded:
+                    DropPending(Keychain is null && !File.Exists(CredentialsFile)
+                        ? "pending write-back dropped, file removed" : "pending write-back dropped, file changed");
+                    break;
+            }
+            return write;
         }
     }
 
-    /// The file as it stands, or null when it exists but cannot be read or
-    /// parsed even after a few short waits (Claude Code rewrites it in place,
-    /// so it can be caught empty or half-written). Shared, because Claude Code
-    /// and Claude Desktop keep it open. A missing file signals logout.
-    private static JsonObject? ReadForWriteBack(string path, out bool missing)
+    /// What the store says, adjusted for a pending write-back. The file wins
+    /// when it has moved on (Claude Code rotated, or the user signed in again)
+    /// or holds no login (signed out: never recreated); while it still holds
+    /// the token that was replaced, the pair in memory stands in for it.
+    /// `disk` is null both for a signed-out store and for one that could not
+    /// be read just now; only the first drops the pending pair.
+    private static ClaudeCreds? ApplyPending(ClaudeCreds? disk, bool tryWrite)
     {
-        missing = false;
-        for (var attempt = 0; ; attempt++)
+        // Put-backs and writes alike go through the gate, so a read that finds the
+        // file moved aside cannot interleave with a write in progress.
+        lock (WriteGate) return ApplyPendingCore(disk, tryWrite);
+    }
+
+    private static ClaudeCreds? ApplyPendingCore(ClaudeCreds? disk, bool tryWrite)
+    {
+        PendingWriteBack? held;
+        lock (PendingGate) held = Pending;
+        if (held is null) return disk;
+        if (disk is null)
         {
-            try
+            // Nothing came back: look once more before deciding what that meant.
+            // A store that cannot be read right now is a wait, not a sign-out.
+            BeforePendingReread?.Invoke();
+            disk = ReadClaudeCreds(out var state);
+            // A swap that failed half way leaves the file moved aside, not signed out.
+            if (disk is null && state == LoginState.Missing)
             {
-                using var existing = SharedFile.Open(path);
-                if (JsonNode.Parse(existing) is JsonObject root) return root;
+                switch (AtomicReplace.RestoreInterrupted(CredentialsFile,
+                    root => TokenOf(root) == held.Tokens.RefreshToken, root => TokenOf(root) == held.Replaced))
+                {
+                    case AtomicReplace.Restoration.Restored:
+                        disk = ReadClaudeCreds(out state);
+                        break;
+                    case AtomicReplace.Restoration.Unsure:
+                        return held.Creds;
+                }
             }
-            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+            if (disk is null)
             {
-                missing = true;
+                if (state == LoginState.Unreadable) return held.Creds;
+                DropPending("pending write-back dropped, file removed");
                 return null;
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        }
+        // The file is there: what an earlier cut-short swap left is of no use any more.
+        AtomicReplace.DiscardIfPresent(CredentialsFile);
+        if (!string.Equals(disk.RefreshToken, held.Replaced, StringComparison.Ordinal))
+        {
+            DropPending("pending write-back dropped, file changed");
+            return disk;
+        }
+        if (!tryWrite) return held.Creds;
+        switch (WriteClaudeCreds(held.Tokens, disk, held.Replaced))
+        {
+            case WriteBack.Written:
+                DropPending("pending write-back saved");
+                return ReadClaudeCreds() ?? held.Creds;
+            case WriteBack.Superseded:
+                DropPending("pending write-back dropped, file changed");
+                return ReadClaudeCreds();
+            default:
+                return held.Creds;
+        }
+    }
+
+    private static string? TokenOf(JsonObject root) =>
+        root["claudeAiOauth"] is JsonObject oauth && oauth["refreshToken"] is JsonValue value && value.TryGetValue<string>(out var token) ? token : null;
+
+    /// Test seam: runs just before a store that read as empty is read again.
+    internal static Action? BeforePendingReread;
+
+    internal static bool HasPendingWriteBack
+    {
+        get { lock (PendingGate) return Pending is not null; }
+    }
+
+    internal static void ResetStateForTests()
+    {
+        CredentialWriteBacks.ResetForTests();
+        AtomicReplace.ResetForTests();
+        lock (PendingGate)
+        {
+            Pending = null;
+            PendingExhausted = false;
+        }
+        Grants.Clear();
+    }
+
+    /// Updates the claudeAiOauth block in place, preserving unrelated fields
+    /// (scopes, subscriptionType, rateLimitTier) and any other top-level
+    /// keys in the file. A missing login supersedes the refresh.
+    /// `expectedOnDisk` is the refresh token the store must still hold for the
+    /// write to land: the one just sent, unless an earlier write-back is
+    /// pending and the store holds the token that one replaced.
+    private static WriteBack WriteClaudeCreds(RefreshedTokens refreshed, ClaudeCreds from, string expectedOnDisk)
+    {
+        if (from.KeychainService is { } service && Keychain is { } keychain)
+        {
+            return keychain.WriteBack(service, refreshed.AccessToken, refreshed.RefreshToken, refreshed.ExpiresAtMs, expectedOnDisk) switch
             {
-            }
-            if (attempt >= 4) return null;
-            System.Threading.Thread.Sleep(25 * (attempt + 1));
+                ClaudeKeychain.WriteResult.Written => WriteBack.Written,
+                ClaudeKeychain.WriteResult.Superseded or ClaudeKeychain.WriteResult.Gone => WriteBack.Superseded,
+                _ => WriteBack.Failed,
+            };
+        }
+        var sentRefreshToken = expectedOnDisk;
+        try
+        {
+            var path = CredentialsFile;
+            // Per-write temp name, not a fixed ".tmp": Windows denies a second
+            // opener while the first holds the handle, so two Agent Island
+            // instances refreshing at once would fail each other's write.
+            // The replace is retried (Claude Code / Claude Desktop may hold a
+            // brief lock on the file, and dropping the rotated token would sign
+            // the user out); the file is read again before each try, so a login
+            // made during the wait is never overwritten.
+            var plan = new AtomicReplace.Plan(
+                root => root["claudeAiOauth"] is JsonObject oauth && oauth["refreshToken"] is JsonValue value
+                    && value.TryGetValue<string>(out var held) && string.Equals(held, sentRefreshToken, StringComparison.Ordinal),
+                root =>
+                {
+                    var oauth = (JsonObject)root["claudeAiOauth"]!;
+                    oauth["accessToken"] = refreshed.AccessToken;
+                    oauth["refreshToken"] = refreshed.RefreshToken;
+                    oauth["expiresAt"] = refreshed.ExpiresAtMs;
+                },
+                new JsonSerializerOptions { WriteIndented = false });
+            return AtomicReplace.Run(path, plan).Result switch
+            {
+                AtomicReplace.Result.Written => WriteBack.Written,
+                AtomicReplace.Result.Failed => WriteBack.Failed,
+                _ => WriteBack.Superseded,
+            };
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Debug.WriteLine($"AgentIsland: failed to write rotated Claude tokens: {error.GetType().Name}");
+            return WriteBack.Failed;
         }
     }
 
@@ -393,9 +593,12 @@ public static class ClaudeCredentials
 
     // MARK: - Refresh
 
-    internal sealed record RefreshedTokens(string AccessToken, string RefreshToken, long ExpiresAtMs);
+    internal sealed record RefreshedTokens(string AccessToken, string RefreshToken, long ExpiresAtMs)
+    {
+        public override string ToString() => "RefreshedTokens { tokens redacted }";
+    }
 
-    private static readonly RefreshGrants Grants = new();
+    private static readonly RefreshGrants Grants = new("claude");
 
     internal abstract record RefreshResult
     {
@@ -404,7 +607,8 @@ public static class ClaudeCredentials
         /// or revoked, and only a new sign-in helps.
         internal sealed record Rejected : RefreshResult;
         /// The network, a rate limit or a server error stood in the way.
-        internal sealed record Unavailable(string Message, bool Uncertain = false) : RefreshResult;
+        /// `Reason` is a fixed phrase for the diagnostic log, never exception text.
+        internal sealed record Unavailable(string Message, bool Uncertain = false, string Reason = "error") : RefreshResult;
     }
 
     private static async Task<RefreshResult> RefreshClaudeToken(string refreshToken)
@@ -419,16 +623,18 @@ public static class ClaudeCredentials
                 ["client_id"] = OauthClientId,
             }, CoreJson.Default.StringMap);
             request.Content = new StringContent(body, Encoding.UTF8, "application/json");
-            using var response = await Http.OAuthClient.SendAsync(request);
-            return RefreshResultFor((int)response.StatusCode, await response.Content.ReadAsByteArrayAsync(), DateTimeOffset.UtcNow);
+            // The client's own timeout is only a backstop for a request that has to connect first.
+            using var deadline = new CancellationTokenSource(Http.DeadlineAfterConnect(Http.GrantMargin));
+            using var response = await Http.OAuthClient.SendAsync(request, deadline.Token);
+            return RefreshResultFor((int)response.StatusCode, await response.Content.ReadAsByteArrayAsync(deadline.Token), DateTimeOffset.UtcNow);
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
         {
-            return new RefreshResult.Unavailable(L10n.Tr("network drop"), !RefreshGrants.BeforeSend(error));
+            return new RefreshResult.Unavailable(L10n.Tr("network drop"), !RefreshGrants.BeforeSend(error), RefreshGrants.ReasonFor(error));
         }
         catch (Exception error)
         {
-            return new RefreshResult.Unavailable(error.Message, Uncertain: true);
+            return new RefreshResult.Unavailable(L10n.Tr("Couldn't refresh the sign-in"), Uncertain: true, RefreshGrants.ReasonFor(error));
         }
     }
 
@@ -439,20 +645,20 @@ public static class ClaudeCredentials
     internal static RefreshResult RefreshResultFor(int status, byte[] body, DateTimeOffset now)
     {
         if (status is 400 or 401 or 403) return new RefreshResult.Rejected();
-        if (status != 200) return new RefreshResult.Unavailable($"HTTP {status}", Uncertain: status >= 500);
+        if (status != 200) return new RefreshResult.Unavailable($"HTTP {status}", Uncertain: status >= 500, Reason: $"HTTP {status}");
         try
         {
             using var doc = JsonDocument.Parse(body);
             var access = Jsonl.GetString(doc.RootElement, "access_token");
             var refresh = Jsonl.GetString(doc.RootElement, "refresh_token");
-            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh)) return new RefreshResult.Unavailable("bad response", Uncertain: true);
+            if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh)) return new RefreshResult.Unavailable("bad response", Uncertain: true, Reason: "bad response");
             var expiresIn = Jsonl.GetDouble(doc.RootElement, "expires_in") ?? 28_800;
             var expiresAt = now.AddSeconds(expiresIn).ToUnixTimeMilliseconds();
             return new RefreshResult.Refreshed(new RefreshedTokens(access!, refresh!, expiresAt));
         }
         catch (JsonException)
         {
-            return new RefreshResult.Unavailable("bad response", Uncertain: true);
+            return new RefreshResult.Unavailable("bad response", Uncertain: true, Reason: "bad response");
         }
     }
 }

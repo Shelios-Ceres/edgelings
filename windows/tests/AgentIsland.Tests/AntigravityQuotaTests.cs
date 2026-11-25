@@ -262,7 +262,13 @@ public static class AntigravityQuotaTests
             AntigravityCliQuota.SessionLocked = locked;
             AntigravityCliQuota.QuerySessionLocked = prevQuery;
             AntigravityCliQuota.ResetWakeGraceForTests();
-            home.Delete(recursive: true);
+            // The terminated child can hold its working folder for a moment after the run returns.
+            for (var attempt = 0; attempt < 20 && home.Exists; attempt++)
+            {
+                try { home.Delete(recursive: true); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Thread.Sleep(100); }
+                home.Refresh();
+            }
         }
     }
 
