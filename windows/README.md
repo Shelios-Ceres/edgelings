@@ -6,7 +6,7 @@ The Windows app: a drawer of agent characters at the edge of your screen, a hove
 
 | Folder | What it is |
 |---|---|
-| `src/AgentIsland.WinUI` | The app: WinUI 3 (Windows App SDK, unpackaged, self-contained). The drawer and its characters, hover card, menus, Settings, Usage & cost, tray. Assembly and exe: `AgentIsland.WinUI`. |
+| `src/AgentIsland.WinUI` | The app: WinUI 3 (Windows App SDK, unpackaged, self-contained). The drawer and its characters, hover card, menus, Settings, Usage & cost, tray. Assembly and exe: `Limen` (`Limen.exe`). |
 | `src/AgentIsland.Core` | Everything below the UI: session scanning and live phases, usage and cost, the settings stores, localisation. No UI framework. |
 | `tests/AgentIsland.Tests` | A console test runner for Core and the shipped character engines. It ends with `ALL GREEN`. |
 | `build.ps1` | Publishes the app and zips it under `dist\`. |

@@ -44,7 +44,7 @@ internal static class KimiLiveSessions
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{server.BaseUrl}/sessions?page_size=30");
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", server.Token);
             using var cancel = new CancellationTokenSource(Timeout);
-            using var response = Http.Client.Send(request, cancel.Token);
+            using var response = Http.LoopbackClient.Send(request, cancel.Token);
             if (!response.IsSuccessStatusCode) return Empty;
             using var stream = response.Content.ReadAsStream(cancel.Token);
             using var doc = JsonDocument.Parse(stream);

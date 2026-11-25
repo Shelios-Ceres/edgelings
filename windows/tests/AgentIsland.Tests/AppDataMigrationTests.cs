@@ -17,6 +17,9 @@ public static class AppDataMigrationTests
             ("migration: nothing to do without an old folder, or when the new one exists", NothingToDo),
             ("migration: the cache folder is copied the same way, creating its parent", CacheFolder),
             ("migration: Edgelings wins over Agent Island when both exist, and Agent Island is used alone", PrefersEdgelingsThenAgentIsland),
+            ("migration: the backfill into an existing folder runs once and deleted files stay deleted", BackfillOnce),
+            ("migration: a backfill that failed leaves no marker and is retried", BackfillRetriedAfterFailure),
+            ("migration: a whole move counts as the backfill, so the next start copies nothing", WholeMoveCountsAsBackfill),
             ("migration: the hooks still use the old signal folders", HooksStayPut),
         };
         foreach (var (name, test) in tests)
@@ -62,7 +65,7 @@ public static class AppDataMigrationTests
             Expect(AppDataMigration.Migrate(old, fresh, App), true);
             Expect(File.ReadAllText(Path.Combine(fresh, "settings.json")), "{\"AgentIsland.drawer.side\":\"Left\"}");
             Expect(File.ReadAllText(Path.Combine(fresh, "crash.log")), "an old crash");
-            Expect(string.Join(",", Directory.EnumerateFileSystemEntries(fresh).Select(Path.GetFileName).Order(StringComparer.Ordinal)), "crash.log,settings.json");
+            Expect(string.Join(",", Directory.EnumerateFileSystemEntries(fresh).Select(Path.GetFileName).Order(StringComparer.Ordinal)), ".backfill-done,crash.log,settings.json");
             Expect(Directory.EnumerateDirectories(root, "Limen.migrating-*").Any(), false);
         }
         finally { Directory.Delete(root, recursive: true); }
@@ -134,6 +137,60 @@ public static class AppDataMigrationTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    private static void BackfillOnce()
+    {
+        var root = Temp();
+        try
+        {
+            var old = OldFolder(root);
+            var fresh = Directory.CreateDirectory(Path.Combine(root, "Limen")).FullName;
+            Expect(AppDataMigration.Migrate(old, fresh, App), true);
+            Expect(File.Exists(Path.Combine(fresh, "crash.log")), "backfilled the first time");
+            File.Delete(Path.Combine(fresh, "crash.log"));
+            Expect(AppDataMigration.Migrate(old, fresh, App), false);
+            Expect(File.Exists(Path.Combine(fresh, "crash.log")), false);
+            File.WriteAllText(Path.Combine(old, "extra.json"), "{}");
+            Expect(AppDataMigration.Migrate(old, fresh, App), false);
+            Expect(File.Exists(Path.Combine(fresh, "extra.json")), false);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static void WholeMoveCountsAsBackfill()
+    {
+        var root = Temp();
+        try
+        {
+            var old = OldFolder(root);
+            var fresh = Path.Combine(root, "Limen");
+            Expect(AppDataMigration.Migrate(old, fresh, App), true);
+            Expect(File.Exists(Path.Combine(fresh, ".backfill-done")), "a whole move leaves the marker");
+            File.Delete(Path.Combine(fresh, "crash.log"));
+            Expect(AppDataMigration.Migrate(old, fresh, App), false);
+            Expect(File.Exists(Path.Combine(fresh, "crash.log")), false);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static void BackfillRetriedAfterFailure()
+    {
+        var root = Temp();
+        try
+        {
+            var old = OldFolder(root);
+            var fresh = Directory.CreateDirectory(Path.Combine(root, "Limen")).FullName;
+            // A directory squatting on a file's name makes its copy fail.
+            var blocker = Directory.CreateDirectory(Path.Combine(fresh, "settings.json")).FullName;
+            Expect(AppDataMigration.Migrate(old, fresh, App), false);
+            Expect(File.Exists(Path.Combine(fresh, ".backfill-done")), false);
+            Directory.Delete(blocker);
+            Expect(AppDataMigration.Migrate(old, fresh, App), true);
+            Expect(File.Exists(Path.Combine(fresh, "settings.json")), true);
+            Expect(File.Exists(Path.Combine(fresh, ".backfill-done")), true);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     private static void CacheFolder()
     {
         var root = Temp();
@@ -145,7 +202,7 @@ public static class AppDataMigrationTests
             File.WriteAllText(Path.Combine(old, "antigravity-models.v1.json"), "{}");
             var fresh = Path.Combine(root, "local", "Limen", "cache");
             Expect(AppDataMigration.Migrate(old, fresh, _ => true), true);
-            Expect(Directory.EnumerateFiles(fresh).Count(), 2);
+            Expect(Directory.EnumerateFiles(fresh).Count(f => !f.EndsWith(".backfill-done", StringComparison.Ordinal)), 2);
             Expect(Directory.EnumerateFiles(old).Count(), 2);
         }
         finally { Directory.Delete(root, recursive: true); }

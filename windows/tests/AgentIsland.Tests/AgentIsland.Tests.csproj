@@ -19,11 +19,11 @@
 
   <!-- The look and theme tests run the shipped engines in V8, as the drawer does. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1" />
-    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1" />
+    <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1.1" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1.1" />
     <!-- On macOS the same suites run the engines in V8 too (the app will use JavaScriptCore). -->
-    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-arm64" Version="7.5.1" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
-    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-x64" Version="7.5.1" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-arm64" Version="7.5.1.1" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.osx-x64" Version="7.5.1.1" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
   </ItemGroup>
 
 </Project>

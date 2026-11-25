@@ -10,6 +10,8 @@ namespace AgentIsland.Core;
 /// still runs keeps using its own folder.
 public static class AppDataMigration
 {
+    private const string BackfillMarker = ".backfill-done";
+
     /// Files that belong to the hooks and stay where they are.
     private static bool IsAppFile(string name) =>
         !name.Equals("grok-hook.ps1", StringComparison.OrdinalIgnoreCase)
@@ -52,6 +54,8 @@ public static class AppDataMigration
             if (!Directory.Exists(oldDir)) return false;
             if (Directory.Exists(newDir))
             {
+                var marker = Path.Combine(newDir, BackfillMarker);
+                if (File.Exists(marker)) return false;
                 var copied = false;
                 foreach (var file in Directory.EnumerateFiles(oldDir))
                 {
@@ -68,6 +72,9 @@ public static class AppDataMigration
                     catch (IOException) when (File.Exists(destination)) { }
                     finally { File.Delete(staging); }
                 }
+                // Later starts must not bring back what the app deleted on purpose
+                // (LogParseCache sweeps older cache versions at every load).
+                try { File.WriteAllText(marker, ""); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
                 return copied;
             }
             var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(newDir));
@@ -86,6 +93,8 @@ public static class AppDataMigration
                 if (!include(name)) continue;
                 File.Copy(file, Path.Combine(temp, name));
             }
+            // A whole move is the backfill too: the next start must not copy again.
+            File.WriteAllText(Path.Combine(temp, BackfillMarker), "");
             Directory.Move(temp, newDir);
             temp = null;
             return true;

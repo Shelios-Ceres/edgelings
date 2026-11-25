@@ -328,17 +328,28 @@ public static class AntigravityLanguageServer
     internal static int? PortOwner(int port)
     {
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
-        foreach (var (owner, listening) in Listeners())
-        {
-            if (listening == port) return owner;
-        }
-        return null;
+        return OwnerOf(ListenerRows(), port);
     }
 
-    private static List<(int Pid, int Port)> Listeners()
+    /// The one process that owns the port on 127.0.0.1. A listener bound to
+    /// 127.0.0.1 itself wins over a wildcard one (Windows delivers to the more
+    /// specific bind); several different processes at the winning level mean
+    /// the owner is unknown, so nothing is trusted with a token.
+    internal static int? OwnerOf(IEnumerable<(int Pid, int Port, bool Exact)> rows, int port)
+    {
+        var onPort = rows.Where(row => row.Port == port).ToList();
+        var level = onPort.Any(row => row.Exact) ? onPort.Where(row => row.Exact) : onPort;
+        var owners = level.Select(row => row.Pid).Distinct().Take(2).ToList();
+        return owners.Count == 1 ? owners[0] : null;
+    }
+
+    private static List<(int Pid, int Port)> Listeners() =>
+        ListenerRows().Select(row => (row.Pid, row.Port)).ToList();
+
+    private static List<(int Pid, int Port, bool Exact)> ListenerRows()
     {
         // lsof ships with macOS; its field output (-F) is stable and needs no parsing of columns.
-        if (OperatingSystem.IsMacOS()) return ParseLsof(Output(new ProcessStartInfo
+        if (OperatingSystem.IsMacOS()) return ParseLsofRows(Output(new ProcessStartInfo
         {
             FileName = "/usr/sbin/lsof",
             Arguments = "-nP -iTCP -sTCP:LISTEN -Fpn",
@@ -346,7 +357,7 @@ public static class AntigravityLanguageServer
             UseShellExecute = false,
             CreateNoWindow = true,
         }, CommandLineTimeout) ?? "");
-        var listeners = new List<(int, int)>();
+        var listeners = new List<(int, int, bool)>();
         var size = 0;
         _ = GetExtendedTcpTable(IntPtr.Zero, ref size, false, AfInet, TcpTableOwnerPidListener, 0);
         if (size <= 0) return listeners;
@@ -369,7 +380,7 @@ public static class AntigravityLanguageServer
                 // Keep only listeners reachable on 127.0.0.1 (loopback or wildcard), matching ParseLsof.
                 if (port > 0 && (row.LocalAddr == 0 || row.LocalAddr == LoopbackIpv4))
                 {
-                    listeners.Add(((int)row.OwningPid, port));
+                    listeners.Add(((int)row.OwningPid, port, row.LocalAddr == LoopbackIpv4));
                 }
             }
         }
@@ -385,9 +396,13 @@ public static class AntigravityLanguageServer
     /// wildcard): the language server is called there, with its token, so a
     /// listener on ::1 or on a network address must not make another local
     /// process's port on 127.0.0.1 look like Antigravity's.
-    internal static List<(int Pid, int Port)> ParseLsof(string output)
+    internal static List<(int Pid, int Port)> ParseLsof(string output) =>
+        ParseLsofRows(output).Select(row => (row.Pid, row.Port)).ToList();
+
+    /// ParseLsof's rows, each saying whether it was bound to 127.0.0.1 itself.
+    internal static List<(int Pid, int Port, bool Exact)> ParseLsofRows(string output)
     {
-        var listeners = new List<(int, int)>();
+        var listeners = new List<(int, int, bool)>();
         var pid = 0;
         foreach (var raw in output.Split('\n'))
         {
@@ -398,7 +413,7 @@ public static class AntigravityLanguageServer
                 && line[1..colon] is "127.0.0.1" or "*"
                 && int.TryParse(line.AsSpan(colon + 1), out var port) && port > 0)
             {
-                listeners.Add((pid, port));
+                listeners.Add((pid, port, line[1..colon] == "127.0.0.1"));
             }
         }
         return listeners;
@@ -575,7 +590,7 @@ public static class AntigravityLanguageServer
         // only on the rare desktop-IDE 401 retry path, never per tick.
         return Output(new ProcessStartInfo
         {
-            FileName = "powershell",
+            FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
             Arguments = "-NoProfile -Command \"(Get-CimInstance Win32_Process -Filter \\\"ProcessId="
                 + pid + "\\\").CommandLine\"",
             RedirectStandardInput = true,

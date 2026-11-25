@@ -93,8 +93,9 @@ Limen 在你自己的电脑上运行,自己没有账号、统计分析、崩溃�
 | Grok | `cli-chat-proxy.grok.com`,Token 刷新走 `auth.x.ai` | `~/.grok/auth.json` |
 | Cursor | `api2.cursor.sh` | Cursor 自己数据库里的 Token |
 | Kimi Code | `api.kimi.com` | `~/.kimi-code/credentials/kimi-code.json`(Limen 从不刷新它) |
+| Antigravity(仅在拿不到 Antigravity 应用语言服务的额度时:应用关着,或找不到它的语言服务,或它拒绝 Limen) | Google,由 Limen 在后台运行的 `agy` CLI 访问(`agy --print /usage`)。每次运行前,Limen 先向 `oauth2.googleapis.com` 发一个不带凭据的 HEAD 请求,确认能连上 Google 的登录服务 | `agy` CLI 自己的登录,Limen 不读取 |
 
-Kimi Code 桌面端的服务和 Antigravity 的语言服务只通过本机回环地址(`127.0.0.1`)访问。除此之外不会上传到任何地方。
+Kimi Code 桌面端的服务,以及 Antigravity 应用开着时它的语言服务,只通过本机回环地址(`127.0.0.1`)访问。除此之外不会上传到任何地方。
 
 **在自己的目录以外会写什么:**
 

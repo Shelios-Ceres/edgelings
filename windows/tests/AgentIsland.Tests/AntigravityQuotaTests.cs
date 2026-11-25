@@ -36,6 +36,8 @@ public static class AntigravityQuotaTests
             ("the CLI invocation runs headless with isolated profile and auto-update disabled", TestCliStartInfo),
             ("the CLI skips offline, wake-grace, and unreachable-OAuth polls", TestCliOfflineAndWakeGuard),
             ("a lock flag Windows no longer reports is asked again, and written down", TestCliStaleLockFlagIsAskedAgain),
+            ("hiding Antigravity cancels a running agy through Run", TestCliRunPassesCancel),
+            ("only Antigravity's store keeps its floor after a cancel", TestCancelKeepsFloorOnlyForAgy),
             ("the CLI gate log writes a line only when the reason changes", TestCliDiagnosticsWriteOnChange),
             ("the CLI gate log moves aside past 64 KB", TestCliDiagnosticsFileRolls),
             ("only this process's own hub file gives its token", TestHubToken),
@@ -56,6 +58,7 @@ public static class AntigravityQuotaTests
             ("a spent bucket whose zero fraction was left out stays, at 100%", TestOmittedZeroFraction),
             ("only Antigravity's own language server is asked, never Windsurf's or Codeium's", TestLanguageServerOwner),
             ("a port is traced to the process listening on it", TestPortOwner),
+            ("a port with several different listeners has no owner, and an exact 127.0.0.1 bind wins", TestPortOwnerAmbiguity),
             ("a process's CSRF token is read once, and looked for again only after a while", TestCsrfTokenIsRemembered),
             ("a quoted or equals-separated CSRF token is still read from the command line", TestParseCsrfToken),
             ("a CSRF retry surfaces its real failure instead of reporting 401", TestCsrfRetrySurfacesRealReply),
@@ -224,6 +227,49 @@ public static class AntigravityQuotaTests
             AntigravityCliQuota.QuerySessionLocked = prevQuery;
             AntigravityCliQuota.ResetWakeGraceForTests();
         }
+    }
+
+    // Hiding Antigravity cancels the poll's token: Run must hand it to the job.
+    private static void TestCliRunPassesCancel()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var prevClock = AntigravityCliQuota.Clock;
+        var uptime = AntigravityCliQuota.UptimeMilliseconds;
+        var locked = AntigravityCliQuota.SessionLocked;
+        var prevQuery = AntigravityCliQuota.QuerySessionLocked;
+        var drawer = AgentIsland.Model.DrawerStore.Shared;
+        var wasShown = !drawer.IsHidden(AgentIsland.Model.DisplayProvider.Antigravity);
+        var home = Directory.CreateTempSubdirectory("limen-agy-run-");
+        try
+        {
+            AntigravityCliQuota.Clock = () => DateTimeOffset.UtcNow;
+            AntigravityCliQuota.ResetWakeGraceForTests();
+            AntigravityCliQuota.UptimeMilliseconds = () => 3_600_000;
+            AntigravityCliQuota.QuerySessionLocked = () => false;
+            AntigravityCliQuota.SessionLocked = false;
+            drawer.SetShown(AgentIsland.Model.DisplayProvider.Antigravity, true);
+            using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var output = AntigravityCliQuota.Run(Path.Combine(Environment.SystemDirectory, "ping.exe"), "-n 30 127.0.0.1", 60, home.FullName, cancel.Token);
+            Expect(output is null, "a cancelled run returns nothing");
+            Expect(clock.Elapsed < TimeSpan.FromSeconds(5), $"cancel ends the run long before its timeout, took {clock.Elapsed}");
+        }
+        finally
+        {
+            drawer.SetShown(AgentIsland.Model.DisplayProvider.Antigravity, wasShown);
+            AntigravityCliQuota.Clock = prevClock;
+            AntigravityCliQuota.UptimeMilliseconds = uptime;
+            AntigravityCliQuota.SessionLocked = locked;
+            AntigravityCliQuota.QuerySessionLocked = prevQuery;
+            AntigravityCliQuota.ResetWakeGraceForTests();
+            home.Delete(recursive: true);
+        }
+    }
+
+    private static void TestCancelKeepsFloorOnlyForAgy()
+    {
+        Expect(AntigravityUsageStore.Shared.KeepsFloorOnCancel, "Antigravity's poll may start agy, so a cancel keeps its floor");
+        Expect(!GrokUsageStore.Shared.KeepsFloorOnCancel, "Grok's poll is plain HTTP and fetches again when shown");
     }
 
     // 11/25: Limen started at sign-in read the session as not unlocked, and
@@ -548,6 +594,21 @@ public static class AntigravityQuotaTests
         Expect(AntigravityCliQuota.RunInSingleProcessJob(wait, TimeSpan.FromMilliseconds(150)) is null, "timeout stops the job");
         Expect(clock.Elapsed < TimeSpan.FromSeconds(5), "pipe cleanup respects timeout");
 
+        using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(400)))
+        {
+            var sleeper = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "ping.exe"), "-n 30 127.0.0.1")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            clock.Restart();
+            Expect(AntigravityCliQuota.RunInSingleProcessJob(sleeper, TimeSpan.FromSeconds(60), null, cancel.Token) is null, "cancel stops the job");
+            Expect(clock.Elapsed < TimeSpan.FromSeconds(5), "cancel ends the wait long before the timeout");
+        }
+
         var spawnChild = new System.Diagnostics.ProcessStartInfo
         {
             FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
@@ -559,7 +620,7 @@ public static class AntigravityQuotaTests
             RedirectStandardError = true,
         };
         Expect(AntigravityCliQuota.RunInSingleProcessJob(spawnChild, TimeSpan.FromSeconds(5)) is null,
-            "ActiveProcessLimit=1 must block any child process spawn at kernel level");
+            "ActiveProcessLimit=1 must block the child's own CreateProcess calls at kernel level");
     }
 
     private static void TestRefreshCadence()
@@ -641,6 +702,18 @@ public static class AntigravityQuotaTests
         {
             listener.Stop();
         }
+    }
+
+    private static void TestPortOwnerAmbiguity()
+    {
+        var rows = AntigravityLanguageServer.ParseLsofRows("p101\nn*:5000\nn127.0.0.1:5001\np202\nn*:5000\nn127.0.0.1:5002\np303\nn*:5002\nn[::1]:5003\n");
+        Expect(AntigravityLanguageServer.OwnerOf(rows, 5000), null);
+        Expect(AntigravityLanguageServer.OwnerOf(rows, 5001), (int?)101);
+        Expect(AntigravityLanguageServer.OwnerOf(rows, 5002), (int?)202);
+        Expect(AntigravityLanguageServer.OwnerOf(rows, 5003), null);
+        Expect(AntigravityLanguageServer.OwnerOf(rows, 6000), null);
+        Expect(AntigravityLanguageServer.OwnerOf(new[] { (7, 5000, false), (7, 5000, false) }, 5000), (int?)7);
+        Expect(AntigravityLanguageServer.ParseLsof("p101\nn127.0.0.1:5001\n").Count, 1);
     }
 
     private static void TestCsrfTokenIsRemembered()

@@ -28,6 +28,9 @@ public sealed class AntigravityUsageStore : GuestUsageStore
     private bool _deferred;
     private bool _unlockPending;
 
+    // The fetch may start agy.
+    protected override bool CancelKeepsFloor => true;
+
     /// Detection is launch-static, same as the other providers.
     public bool Detected { get; }
 

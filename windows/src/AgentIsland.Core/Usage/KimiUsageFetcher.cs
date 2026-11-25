@@ -89,8 +89,11 @@ public static class KimiUsageFetcher
                 .FirstOrDefault();
             if (newest is null) return null;
             using var doc = JsonDocument.Parse(File.ReadAllText(newest.FullName));
-            if (Jsonl.GetLong(doc.RootElement, "pid") is { } pid && !ProcessAlive(pid)) return null;
-            return ServerBaseUrl(doc.RootElement, DateTimeOffset.UtcNow) is { } baseUrl ? (baseUrl, token) : null;
+            // The token goes only to the process that registered the instance, so
+            // a registration without a pid, or a port someone else listens on, gets none.
+            if (Jsonl.GetLong(doc.RootElement, "pid") is not { } pid || !ProcessAlive(pid)) return null;
+            if (ServerBaseUrl(doc.RootElement, DateTimeOffset.UtcNow) is not { } baseUrl) return null;
+            return AntigravityLanguageServer.ResolvePortOwner(new Uri(baseUrl).Port) == pid ? (baseUrl, token) : null;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -146,16 +149,17 @@ public static class KimiUsageFetcher
         var host = Jsonl.GetString(instance, "host");
         var port = Jsonl.GetLong(instance, "port") ?? 0;
         var heartbeat = Jsonl.GetDouble(instance, "heartbeat_at") ?? 0;
-        if (host is not ("127.0.0.1" or "localhost" or "::1") || port is <= 0 or > 65535) return null;
+        // Only 127.0.0.1 has a port owner that can be checked; "localhost" is
+        // pinned to it rather than left to resolve to ::1.
+        if (host is not ("127.0.0.1" or "localhost") || port is <= 0 or > 65535) return null;
         if (heartbeat is <= 0 or > 253_402_300_799_999) return null;
         if (now - DateTimeOffset.FromUnixTimeMilliseconds((long)heartbeat) > HeartbeatFresh) return null;
-        var authority = host == "::1" ? "[::1]" : host;
-        return $"http://{authority}:{port}/api/v1";
+        return $"http://127.0.0.1:{port}/api/v1";
     }
 
     private static async Task<KimiUsageSnapshot> FromLocalServer(string baseUrl, string token)
     {
-        using var usageDoc = await Get($"{baseUrl}/oauth/usage", token);
+        using var usageDoc = await Get(Http.LoopbackClient, $"{baseUrl}/oauth/usage", token);
         var usage = Envelope(usageDoc.RootElement);
         if (Jsonl.GetString(usage, "kind") != "ok" || Jsonl.GetObject(usage, "quota") is not { } quota)
         {
@@ -164,7 +168,7 @@ public static class KimiUsageFetcher
         string? plan = null;
         try
         {
-            using var infoDoc = await Get($"{baseUrl}/oauth/userinfo", token);
+            using var infoDoc = await Get(Http.LoopbackClient, $"{baseUrl}/oauth/userinfo", token);
             var info = Envelope(infoDoc.RootElement);
             if (Jsonl.GetObject(info, "userInfo") is { } user) plan = Jsonl.GetString(user, "userLevelName");
         }
@@ -242,11 +246,11 @@ public static class KimiUsageFetcher
 
     private static async Task<KimiUsageSnapshot> FromApi(string baseUrl, string token)
     {
-        using var usageDoc = await Get($"{baseUrl}/usages", token);
+        using var usageDoc = await Get(Http.Client, $"{baseUrl}/usages", token);
         string? plan = null;
         try
         {
-            using var me = await Get($"{baseUrl}/me", token);
+            using var me = await Get(Http.Client, $"{baseUrl}/me", token);
             plan = Jsonl.GetString(me.RootElement, "user_level_name");
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or JsonException)
@@ -282,13 +286,13 @@ public static class KimiUsageFetcher
 
     // MARK: - Shared
 
-    private static async Task<JsonDocument> Get(string url, string token)
+    private static async Task<JsonDocument> Get(HttpClient client, string url, string token)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.ParseAdd("application/json");
         using var cancel = new CancellationTokenSource(Timeout);
-        using var response = await Http.Client.SendAsync(request, cancel.Token);
+        using var response = await client.SendAsync(request, cancel.Token);
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException($"HTTP {(int)response.StatusCode}", null, response.StatusCode);

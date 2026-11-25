@@ -20,6 +20,17 @@ public static class Http
         PooledConnectionLifetime = TimeSpan.FromMinutes(10),
     }) { Timeout = TimeSpan.FromSeconds(30) };
 
+    // For a local server's own token: never through the system proxy, and a
+    // redirect must not carry the token anywhere else.
+    internal static HttpClient LoopbackClient { get; } = new(LoopbackHandler()) { Timeout = TimeSpan.FromSeconds(30) };
+
+    internal static SocketsHttpHandler LoopbackHandler() => new()
+    {
+        UseProxy = false,
+        AllowAutoRedirect = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+    };
+
     /// Test seam: the waits between tries.
     internal static TimeSpan[] TransientBackoff = { TimeSpan.FromSeconds(0.8), TimeSpan.FromSeconds(2.4) };
 

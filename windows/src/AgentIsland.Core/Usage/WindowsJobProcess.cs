@@ -11,7 +11,8 @@ internal static class WindowsJobProcess
 {
     // Assign the job as part of CreateProcess itself: even a crash of the parent
     // before ResumeThread leaves the child owned by the kill-on-close job.
-    internal static string? Run(nint job, ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch)
+    internal static string? Run(nint job, ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch,
+        CancellationToken ct = default)
     {
         using var input = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
         using var output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
@@ -59,7 +60,7 @@ internal static class WindowsJobProcess
             using var reader = new StreamReader(output, start.StandardOutputEncoding ?? Encoding.UTF8);
             var stdout = reader.ReadToEndAsync();
             var stderr = error.CopyToAsync(Stream.Null);
-            if (WaitForSingleObject(child.Process, checked((uint)timeout.TotalMilliseconds)) != 0)
+            if (!WaitForExit(child.Process, timeout, ct))
             {
                 TerminateProcess(child.Process, 1); // Close the writers before disposing pending pipe reads.
                 return null;
@@ -79,6 +80,25 @@ internal static class WindowsJobProcess
             if (initialized) DeleteProcThreadAttributeList(list);
             Marshal.FreeHGlobal(values);
             Marshal.FreeHGlobal(list);
+        }
+    }
+
+    /// True when the process exited; false on timeout or cancellation. The wait
+    /// is sliced so a cancel is noticed within one slice.
+    internal static bool WaitForExit(nint process, TimeSpan timeout, CancellationToken ct)
+    {
+        var slice = TimeSpan.FromMilliseconds(200);
+        var clock = Stopwatch.StartNew();
+        while (true)
+        {
+            if (ct.IsCancellationRequested) return false;
+            var left = timeout - clock.Elapsed;
+            if (left <= TimeSpan.Zero) return false;
+            const uint waitObject0 = 0, waitTimeout = 258;
+            var result = WaitForSingleObject(process, checked((uint)(left < slice ? left : slice).TotalMilliseconds));
+            if (result == waitObject0) return true;
+            // WAIT_FAILED returns at once: looping on it would spin until the timeout.
+            if (result != waitTimeout) return false;
         }
     }
 

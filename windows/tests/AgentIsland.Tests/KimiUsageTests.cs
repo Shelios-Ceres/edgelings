@@ -25,6 +25,9 @@ public static class KimiUsageTests
             ("server: a remote host is refused", RemoteRefused),
             ("server: a stale heartbeat is refused", StaleRefused),
             ("server: a bad port is refused", BadPortRefused),
+            ("server: localhost is pinned to 127.0.0.1 and ::1 is refused", LocalhostPinned),
+            ("server: the token goes only to the registered pid's port", TokenNeedsPortOwner),
+            ("server: the local client uses no proxy and follows no redirect", LoopbackClientHardened),
             ("live: the desktop server's session page parses", LiveParse),
             ("live: an approval waits on the user", LiveApproval),
             ("live: a question asks the user", LiveQuestion),
@@ -88,6 +91,73 @@ public static class KimiUsageTests
     private static void StaleRefused() => Expect(Server("127.0.0.1", 52096, 600), null);
 
     private static void BadPortRefused() => Expect(Server("127.0.0.1", 70000, 30), null);
+
+    private static void LocalhostPinned()
+    {
+        Expect(Server("localhost", 52096, 30), "http://127.0.0.1:52096/api/v1");
+        Expect(Server("::1", 52096, 30), null);
+    }
+
+    private static void LoopbackClientHardened()
+    {
+        // The handler is private to HttpClient; a redirect to another host proves it is not followed.
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var served = Task.Run(() =>
+        {
+            using var client = listener.AcceptTcpClient();
+            var stream = client.GetStream();
+            var buffer = new byte[4096];
+            _ = stream.Read(buffer, 0, buffer.Length);
+            var reply = System.Text.Encoding.ASCII.GetBytes("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            stream.Write(reply, 0, reply.Length);
+        });
+        using var response = Http.LoopbackClient.GetAsync($"http://127.0.0.1:{port}/x").GetAwaiter().GetResult();
+        served.GetAwaiter().GetResult();
+        Expect((int)response.StatusCode, 302);
+        using var handler = Http.LoopbackHandler();
+        Expect(handler.UseProxy, false);
+        Expect(handler.AllowAutoRedirect, false);
+    }
+
+    private static void TokenNeedsPortOwner()
+    {
+        var home = Directory.CreateTempSubdirectory("limen-kimi-");
+        var previousHome = Environment.GetEnvironmentVariable("KIMI_CODE_HOME");
+        var previousOwner = AntigravityLanguageServer.ResolvePortOwner;
+        try
+        {
+            Environment.SetEnvironmentVariable("KIMI_CODE_HOME", home.FullName);
+            Directory.CreateDirectory(Path.Combine(home.FullName, "server", "instances"));
+            File.WriteAllText(Path.Combine(home.FullName, "server.token"), "secret-token");
+            var instance = Path.Combine(home.FullName, "server", "instances", "one.json");
+            var heartbeat = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            void Register(string pid) => File.WriteAllText(instance,
+                $$"""{{{pid}}"host":"127.0.0.1","port":52096,"heartbeat_at":{{heartbeat}}}""");
+            var me = Environment.ProcessId;
+
+            Register($"\"pid\":{me},");
+            AntigravityLanguageServer.ResolvePortOwner = _ => me;
+            Expect(KimiUsageFetcher.LocalServer()?.BaseUrl, "http://127.0.0.1:52096/api/v1");
+            Expect(KimiUsageFetcher.LocalServer()?.Token, "secret-token");
+
+            AntigravityLanguageServer.ResolvePortOwner = _ => me + 1;
+            Expect(KimiUsageFetcher.LocalServer(), null);
+            AntigravityLanguageServer.ResolvePortOwner = _ => null;
+            Expect(KimiUsageFetcher.LocalServer(), null);
+
+            Register("");
+            AntigravityLanguageServer.ResolvePortOwner = _ => me;
+            Expect(KimiUsageFetcher.LocalServer(), null);
+        }
+        finally
+        {
+            AntigravityLanguageServer.ResolvePortOwner = previousOwner;
+            Environment.SetEnvironmentVariable("KIMI_CODE_HOME", previousHome);
+            home.Delete(true);
+        }
+    }
 
     private static string? Server(string host, int port, int heartbeatSecondsAgo)
     {

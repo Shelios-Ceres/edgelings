@@ -18,6 +18,11 @@ Agent Island's own release history, kept as it was.
 ### Changed
 - The macOS app is still Agent Island 2.1.2 with a few small fixes. None of the above is on macOS yet.
 
+### Fixed
+- A side chat opened from a Claude Desktop session (a `/btw` fork) no longer counts as a running task for half an hour, so Claude reads idle when nothing runs.
+- Antigravity's quota comes from the Antigravity app's own language server again while the app runs; newer versions had moved the sign-in token Limen needs. The `agy` CLI is only run when the app's server cannot give it: the app is closed, its server cannot be found, or it turns Limen away.
+- A session-lock reading taken while Windows was still signing in can no longer hold off Antigravity's quota for the whole session: Windows is asked again, and why a CLI poll waits is written to `agy-quota-gate.log` in the cache folder.
+
 ## Agent Island release history
 
 Everything below is the release history of Agent Island, the upstream project Limen grew out of. The versions are Agent Island's.

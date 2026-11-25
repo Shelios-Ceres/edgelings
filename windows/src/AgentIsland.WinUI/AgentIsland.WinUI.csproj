@@ -46,8 +46,8 @@
     <!-- Drawer characters: embedded V8 runs a locally supplied Grok Bot
          engine copy (never shipped). Without one, simple native characters
          are drawn instead. -->
-    <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1" />
-    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1" />
+    <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1.1" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1.1" />
   </ItemGroup>
 
   <!-- An unpackaged publish leaves out the app's own resource index and its

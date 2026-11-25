@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using AgentIsland.Core;
 using AgentIsland.Usage;
@@ -16,7 +17,8 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
 {
     public static ProviderVisibilityStore Shared { get; } = new();
 
-    private readonly Dictionary<DisplayProvider, bool> _detected = new();
+    // Written by the scan thread (RedetectGuests), read by the UI thread.
+    private readonly ConcurrentDictionary<DisplayProvider, bool> _detected = new();
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

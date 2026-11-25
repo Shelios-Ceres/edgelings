@@ -330,21 +330,26 @@ internal static class AntigravityCliQuota
         }
     }
 
-    private static string? Run(string exe, string arguments, int timeoutSeconds, string isolatedHome, CancellationToken ct)
+    internal static string? Run(string exe, string arguments, int timeoutSeconds, string isolatedHome, CancellationToken ct)
     {
         var start = StartInfo(exe, arguments, isolatedHome);
         var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         return OperatingSystem.IsWindows()
             ? RunInSingleProcessJob(start, timeout, launch => Model.DrawerStore.Shared.WhileVisible(
-                Model.DisplayProvider.Antigravity, () => LaunchIfAllowed(ct, launch)))
+                Model.DisplayProvider.Antigravity, () => LaunchIfAllowed(ct, launch)), ct)
             : AntigravityLanguageServer.Output(start, timeout);
     }
 
     /// Runs a Windows child inside a Job Object with ActiveProcessLimit = 1 and
-    /// KILL_ON_JOB_CLOSE. The kernel itself rejects any attempt by agy.exe to
-    /// spawn a grandchild process (rundll32, chrome.exe, updater, wt.exe).
+    /// KILL_ON_JOB_CLOSE. The kernel rejects agy.exe's own CreateProcess calls
+    /// (rundll32, chrome.exe, updater, wt.exe), but not processes that another
+    /// process creates on its behalf (COM out-of-process activation, ShellExecute
+    /// delegation, protocol activation). What keeps a browser from opening is
+    /// that agy is not run while offline, after a wake, or on a locked session.
+    /// A cancelled token ends the child within a fraction of a second.
     [SupportedOSPlatform("windows")]
-    internal static string? RunInSingleProcessJob(ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch = null)
+    internal static string? RunInSingleProcessJob(ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch = null,
+        CancellationToken ct = default)
     {
         var job = CreateJobObjectW(IntPtr.Zero, null);
         if (job == IntPtr.Zero) return null;
@@ -367,7 +372,7 @@ internal static class AntigravityCliQuota
                 return null;
             }
 
-            return WindowsJobProcess.Run(job, start, timeout, permitLaunch);
+            return WindowsJobProcess.Run(job, start, timeout, permitLaunch, ct);
         }
         catch
         {

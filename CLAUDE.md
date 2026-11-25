@@ -137,7 +137,7 @@ Rules:
   Mac user's auto-update.
 - Windows binary version comes from the shared `VERSION` file at release time
   (`build.ps1 -Version`); the csproj version is only a dev fallback. The app is
-  `windows/src/AgentIsland.WinUI` (exe `AgentIsland.WinUI.exe`); `AgentIsland.Core` holds
+  `windows/src/AgentIsland.WinUI` (exe `Limen.exe`); `AgentIsland.Core` holds
   everything below the UI, and CI builds and tests on the .NET 10 SDK.
 - macOS release flow (build.sh / release.sh / VERSION / Sparkle keys) is unchanged
   and remains the source of truth for `releases/latest`.

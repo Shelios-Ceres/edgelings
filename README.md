@@ -93,8 +93,9 @@ Limen runs on your PC and has no account, analytics, crash upload or update chec
 | Grok | `cli-chat-proxy.grok.com`, token refresh at `auth.x.ai` | `~/.grok/auth.json` |
 | Cursor | `api2.cursor.sh` | the token in Cursor's own database |
 | Kimi Code | `api.kimi.com` | `~/.kimi-code/credentials/kimi-code.json` (never refreshed by Limen) |
+| Antigravity, only when its app's language server cannot give the quota (the app is closed, or its server cannot be found or turns Limen away) | Google, by the `agy` CLI that Limen runs in the background (`agy --print /usage`). Before each run, Limen sends a HEAD request with no credentials to `oauth2.googleapis.com` to check that Google's sign-in can be reached | the `agy` CLI's own sign-in, which Limen never reads |
 
-Kimi Code's desktop app server and Antigravity's language server are asked over loopback (`127.0.0.1`) only. Nothing is uploaded anywhere else.
+Kimi Code's desktop app server and, while the Antigravity app runs, Antigravity's language server are asked over loopback (`127.0.0.1`) only. Nothing is uploaded anywhere else.
 
 **What it writes outside its own folders:**
 

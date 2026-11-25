@@ -17,7 +17,7 @@ On Windows, with a Debug build of the app (it writes into the folder you name; b
 
 ```powershell
 $env:AGENTISLAND_DEBUG_GOLDEN = "<repo>\macos\golden\frames"
-.\windows\src\AgentIsland.WinUI\bin\Debug\net10.0-windows10.0.22621.0\win-x64\AgentIsland.WinUI.exe
+.\windows\src\AgentIsland.WinUI\bin\x64\Debug\net10.0-windows10.0.22621.0\win-x64\Limen.exe
 ```
 
 It writes one `.svg` (the engine's output) and one `.png` (Win2D's drawing) per frame, and `frames.tsv`. Regenerate them whenever an engine or `SvgCanvas.cs` changes. Every frame is a fresh bot with seed 7, moved on by three 0.4 s steps; the PNG is 44 DIP at 192 dpi (Pixel unantialiased, as in the drawer).

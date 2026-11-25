@@ -22,7 +22,7 @@ public static class TerminalLauncher
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
+                    FileName = CmdExe,
                     Arguments = "/s /k " + ShieldedCommand(binary, arguments, title),
                     UseShellExecute = false,
                     WorkingDirectory = Core.IslandPaths.Home,
@@ -35,15 +35,15 @@ public static class TerminalLauncher
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = wt,
-                    Arguments = $"new-tab --title \"{title}\" cmd /k {command}",
+                    Arguments = $"new-tab --title \"{title}\" \"{CmdExe}\" /k {command}",
                     UseShellExecute = false,
                 });
                 return true;
             }
             Process.Start(new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                Arguments = $"/c start \"{title}\" cmd /k {command}",
+                FileName = CmdExe,
+                Arguments = $"/c start \"{title}\" \"{CmdExe}\" /k {command}",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Core.IslandPaths.Home,
@@ -98,6 +98,9 @@ public static class TerminalLauncher
         "echo \"Finished (status $status). You can close this window.\"\n";
 
     internal static string ShellQuote(string text) => "'" + text.Replace("'", "'\\''") + "'";
+
+    // By its full path: a bare name is looked up in the current directory and PATH first.
+    private static string CmdExe => Path.Combine(Environment.SystemDirectory, "cmd.exe");
 
     private static readonly char[] CmdSpecials = { '&', '<', '>', '(', ')', '@', '^', '|' };
 
