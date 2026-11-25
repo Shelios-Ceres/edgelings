@@ -31,6 +31,8 @@ public static class SessionTurnStateTests
             ("desktop lastActivityAt after the turn does not make it work", TestLateLastActivityDoesNotWork),
             ("peer message after end_turn starts a working turn", TestPeerMessageStartsTurn),
             ("session file without latestUserFrameAt behaves as before", TestNoFrameDateFallsBack),
+            ("a fork's creation on a copied transcript is no turn", TestForkCreationIsNoTurn),
+            ("desktop createdAt is read", TestCreatedAtIsRead),
             ("desktop archived flag is read", TestArchivedFlagIsRead),
             ("a desktop session file caught mid-rewrite keeps its last reading", TestDesktopFileMidRewriteKeepsReading),
             ("desktop prior transcript ids are read", TestPriorCliSessionIdsAreRead),
@@ -269,10 +271,11 @@ public static class SessionTurnStateTests
     {
         public string Path { get; }
 
-        public DesktopFile(long? activityMs, long? frameMs, bool archived)
+        public DesktopFile(long? activityMs, long? frameMs, bool archived, long? createdMs = null)
         {
             Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"agent-island-desktop-{Guid.NewGuid()}.json");
             var fields = new List<string> { "\"cliSessionId\":\"s1\"", "\"cwd\":\"D:\\\\x\"" };
+            if (createdMs is { } c) fields.Add($"\"createdAt\":{c}");
             if (activityMs is { } a) fields.Add($"\"lastActivityAt\":{a}");
             if (frameMs is { } f) fields.Add($"\"latestUserFrameAt\":{f}");
             if (archived) fields.Add("\"isArchived\":true");
@@ -431,6 +434,73 @@ public static class SessionTurnStateTests
             var state = ClaudeScan(EndedTurn, Date("2026-10-19T13:02:30.000Z"), desktop);
             Expect(state.Status == ActivityState.Working, $"later activity without a frame date still means work, got {state.Status}");
         }
+    }
+
+    private static void TestForkCreationIsNoTurn()
+    {
+        // A /btw side chat forked two minutes after its parent's turn ended:
+        // its transcript is a copy of the parent's, and the desktop has only
+        // its creation, no frame date (the 11/25 09:06 "1 running").
+        var created = Ms("2026-10-19T13:02:10.000Z");
+        var now = Date("2026-10-19T13:05:00.000Z");
+        foreach (var archived in new[] { true, false })
+        {
+            using var fork = new DesktopFile(created, null, archived, createdMs: created);
+            var state = ClaudeScan(EndedTurn, now, fork);
+            Expect(state.Status == ActivityState.Idle, $"a fork's copied, ended turn is history (archived={archived}), got {state.Status}");
+        }
+        using (var fork = new DesktopFile(created, null, archived: false, createdMs: created))
+        {
+            var state = ClaudeScan(new[] { """{"type":"mode","sessionId":"s1"}""" }, now, fork);
+            Expect(state.Status == ActivityState.Idle, $"a fork with no turn at all is idle, got {state.Status}");
+        }
+        // Forked mid-turn: the copy ends on an open turn that is the parent's.
+        using (var fork = new DesktopFile(created, null, archived: true, createdMs: created))
+        {
+            var open = new[]
+            {
+                """{"type":"user","uuid":"u1","timestamp":"2026-10-19T13:01:00.000Z","message":{"role":"user","content":"hi"}}""",
+                """{"type":"assistant","uuid":"a1","timestamp":"2026-10-19T13:02:00.000Z","message":{"stop_reason":"tool_use"}}""",
+            };
+            var state = ClaudeScan(open, now, fork);
+            Expect(state.Status == ActivityState.Idle, $"a parent's open turn copied into a fork is not the fork's work, got {state.Status}");
+        }
+        // Only createdAt, no lastActivityAt: the same unstarted session.
+        using (var bare = new DesktopFile(null, null, archived: false, createdMs: created))
+        {
+            var state = ClaudeScan(EndedTurn, now, bare);
+            Expect(state.Status == ActivityState.Idle, $"a session with only its creation is unstarted, got {state.Status}");
+        }
+        // A desktop that writes no frame date: the fork's own first prompt, after its creation, works.
+        using (var own = new DesktopFile(created, null, archived: false, createdMs: created))
+        {
+            var lines = new List<string>(EndedTurn)
+            {
+                """{"type":"user","uuid":"u2","timestamp":"2026-10-19T13:04:00.000Z","message":{"role":"user","content":"and this?"}}""",
+            };
+            var state = ClaudeScan(lines.ToArray(), now, own);
+            Expect(state.Status == ActivityState.Working, $"a fork's own prompt works, got {state.Status}");
+        }
+        // Activity after creation, with no frame date, is still the user back.
+        using (var later = new DesktopFile(Ms("2026-10-19T13:04:30.000Z"), null, archived: false, createdMs: Ms("2026-10-19T12:00:00.000Z")))
+        {
+            var state = ClaudeScan(EndedTurn, now, later);
+            Expect(state.Status == ActivityState.Working, $"activity after creation still means work, got {state.Status}");
+        }
+        // A fork whose first message has reached it has a frame date and works.
+        using (var asked = new DesktopFile(created, Ms("2026-10-19T13:04:00.000Z"), archived: false, createdMs: created))
+        {
+            var state = ClaudeScan(EndedTurn, now, asked);
+            Expect(state.Status == ActivityState.Working, $"a fork's own first turn works, got {state.Status}");
+        }
+    }
+
+    private static void TestCreatedAtIsRead()
+    {
+        using var desktop = new DesktopFile(null, null, archived: false, createdMs: Ms("2026-10-19T13:00:00.000Z"));
+        var session = SessionScanner.ParseDesktopSessionFile(desktop.Path);
+        Expect(session?.CreatedAt == Date("2026-10-19T13:00:00.000Z"), $"createdAt must be read, got {session?.CreatedAt}");
+        Expect(session?.LastActivityAt == Date("2026-10-19T13:00:00.000Z"), "lastActivityAt still falls back to createdAt");
     }
 
     private static void TestArchivedFlagIsRead()

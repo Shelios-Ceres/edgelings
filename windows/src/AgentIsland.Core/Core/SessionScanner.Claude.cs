@@ -64,12 +64,26 @@ public static partial class SessionScanner
         : desktop.UserFrameAt is { } frame ? (frame, TimeSpan.Zero)
         : (desktop.LastActivityAt, DesktopBookkeepingGrace);
 
+    /// When a desktop session nothing has happened in since its creation was
+    /// created: no frame date, and no activity after it. A fork (a /btw side
+    /// chat, say) starts on a copy of its parent's transcript, whose turns,
+    /// ended or open, are not its own.
+    private static DateTimeOffset? UnstartedSince(DesktopSession? desktop) =>
+        desktop is { UserFrameAt: null, CreatedAt: { } created } && (desktop.LastActivityAt is not { } last || last <= created)
+            ? created
+            : null;
+
     internal static (ActivityState Status, string? TurnKey, DateTimeOffset Modified, bool TurnEnded) ClaudeSessionState(
         string? path,
         DateTimeOffset now,
         IReadOnlyDictionary<string, DateTimeOffset> lastWorking,
         DesktopSession? desktop)
     {
+        if (UnstartedSince(desktop) is { } created)
+        {
+            var state = SessionState(path, now, lastWorking, null, SessionTurnState.Claude, requireTurn: true);
+            return state.Modified <= created ? (ActivityState.Idle, state.TurnKey, state.Modified, false) : state;
+        }
         var (date, grace) = DesktopTurnStart(desktop);
         return SessionState(path, now, lastWorking, date, SessionTurnState.Claude,
             requireTurn: true, externalGrace: grace);
@@ -146,6 +160,8 @@ public static partial class SessionScanner
         /// The transcripts the session has left behind: /clear and /compact
         /// carry it on in a new one.
         public IReadOnlyList<string> PriorCliSessionIds { get; init; } = Array.Empty<string>();
+
+        public DateTimeOffset? CreatedAt { get; init; }
     }
 
     private static IEnumerable<string> EnumerateDesktopSessionFiles() =>
@@ -159,7 +175,8 @@ public static partial class SessionScanner
             using var doc = System.Text.Json.JsonDocument.Parse(stream);
             var root = doc.RootElement;
             var cliSessionId = Jsonl.GetString(root, "cliSessionId") ?? "";
-            var ms = Jsonl.GetDouble(root, "lastActivityAt") ?? Jsonl.GetDouble(root, "createdAt");
+            var createdMs = Jsonl.GetDouble(root, "createdAt");
+            var ms = Jsonl.GetDouble(root, "lastActivityAt") ?? createdMs;
             var frame = Jsonl.GetDouble(root, "latestUserFrameAt");
             var prior = new List<string>();
             if (root.TryGetProperty("priorCliSessionIds", out var priors) && priors.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -178,6 +195,7 @@ public static partial class SessionScanner
                 frame is { } f and > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)f) : null)
             {
                 PriorCliSessionIds = prior,
+                CreatedAt = createdMs is { } c ? DateTimeOffset.FromUnixTimeMilliseconds((long)c) : null,
             };
         }
         catch
