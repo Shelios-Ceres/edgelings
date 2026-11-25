@@ -29,10 +29,32 @@ internal static class AntigravityCliQuota
     // Test seams for deterministic offline/wake-grace verification.
     internal static Func<DateTimeOffset> Clock = () => DateTimeOffset.UtcNow;
     private static bool? _sessionLocked;
+    // The flag came from a lock or unlock event, not from asking Windows.
+    private static bool _lockFromEvent;
+
+    /// The lock state as read from Windows (at start, or by a test).
     internal static bool? SessionLocked
     {
         get { lock (WakeGate) return _sessionLocked; }
-        set { lock (WakeGate) _sessionLocked = value; }
+        set
+        {
+            lock (WakeGate)
+            {
+                _sessionLocked = value;
+                _lockFromEvent = false;
+            }
+        }
+    }
+
+    /// A lock or unlock event. A lock it reports holds until the unlock
+    /// event: Windows asked a moment later may not say locked yet.
+    internal static void NoteSessionEvent(bool locked)
+    {
+        lock (WakeGate)
+        {
+            _sessionLocked = locked;
+            _lockFromEvent = true;
+        }
     }
     internal static Func<long> UptimeMilliseconds = () => Environment.TickCount64;
     internal static Func<bool> CheckOnline = InternetStatus.IsConnected;
@@ -52,27 +74,99 @@ internal static class AntigravityCliQuota
         lock (WakeGate) _wakeGraceUntil = DateTimeOffset.MinValue;
     }
 
-    private static bool SessionUnavailable()
+    /// The session's lock state as Windows reports it now. Null off Windows
+    /// and when Windows does not say.
+    internal static Func<bool?> QuerySessionLocked = () => OperatingSystem.IsWindows() ? WindowsSession.IsLocked() : null;
+
+    private static bool SessionUnavailable() => UnavailableReason() is not null;
+
+    /// Why the session cannot run agy now, or null when it can.
+    private static string? UnavailableReason()
     {
         var now = Clock();
         lock (WakeGate)
         {
-            if (OperatingSystem.IsWindows()) _sessionLocked ??= WindowsSession.IsLocked();
-            return now < _wakeGraceUntil || _sessionLocked != false || UptimeMilliseconds() < 90_000;
+            if (OperatingSystem.IsWindows()) _sessionLocked ??= QuerySessionLocked();
+            // Only an unlock event used to clear the flag, and signing in is
+            // not one: a value read while the session was starting could hold
+            // the CLI off for the whole session. A value Windows gave is asked
+            // again; a lock event's is not.
+            if (_sessionLocked != false && !_lockFromEvent && QuerySessionLocked() is { } current && current != _sessionLocked)
+            {
+                Diagnostics.Note($"session lock flag {Describe(_sessionLocked)}, Windows says {Describe(current)}");
+                _sessionLocked = current;
+            }
+            if (now < _wakeGraceUntil) return "wake grace";
+            if (_sessionLocked == true) return "session locked";
+            if (_sessionLocked is null) return "session lock state unknown";
+            if (UptimeMilliseconds() < 90_000) return "cold boot";
+            return null;
         }
     }
+
+    private static string Describe(bool? locked) => locked switch { true => "locked", false => "unlocked", null => "unknown" };
 
     private static bool LaunchIfAllowed(CancellationToken ct, Func<bool> launch)
     {
         lock (WakeGate) return !ct.IsCancellationRequested && !SessionUnavailable() && launch();
     }
 
-    internal static bool ShouldDefer()
+    internal static bool ShouldDefer() => DeferReason() is not null;
+
+    private static string? DeferReason()
     {
-        if (SessionUnavailable()) return true;
-        if (!CheckOnline()) return true;
-        if (!CheckReachable()) return true;
-        return false;
+        if (UnavailableReason() is { } reason) return reason;
+        if (!CheckOnline()) return "offline";
+        if (!CheckReachable()) return "Google sign-in unreachable";
+        return null;
+    }
+
+    /// Why each CLI poll went the way it did, one line each time the reason
+    /// changes, so a quota that stops updating can be traced to the gate that
+    /// held it. Reasons only: no token, account or command output is written.
+    internal static class Diagnostics
+    {
+        private static readonly object Gate = new();
+        private static string? _last;
+        private const long MaxBytes = 64 * 1024;
+
+        internal static string LogPath => Path.Combine(IslandPaths.CacheDir, "agy-quota-gate.log");
+
+        /// Test seam: where lines go. False when the line could not be written.
+        internal static Func<string, bool> Write = Append;
+
+        /// A reason is remembered only once written, so a line lost to a
+        /// busy file is tried again on the next poll.
+        internal static void Note(string reason)
+        {
+            lock (Gate)
+            {
+                if (reason == _last) return;
+                if (Write($"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz} {reason}")) _last = reason;
+            }
+        }
+
+        internal static void ResetForTests()
+        {
+            lock (Gate) _last = null;
+        }
+
+        private static bool Append(string line)
+        {
+            try
+            {
+                var path = LogPath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var info = new FileInfo(path);
+                if (info.Exists && info.Length > MaxBytes) File.Move(path, path + ".old", overwrite: true);
+                File.AppendAllText(path, line + Environment.NewLine);
+                return true;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
     }
 
     internal static AntigravityUsageFetcher.Outcome? TryFetch(CancellationToken ct = default)
@@ -83,29 +177,46 @@ internal static class AntigravityCliQuota
         if (exe is null || !Path.IsPathFullyQualified(exe)
             || !Path.GetExtension(exe).Equals(".exe", StringComparison.OrdinalIgnoreCase)) return null;
 
-        bool NoLongerEligible() => ct.IsCancellationRequested || SessionUnavailable()
-            || Model.DrawerStore.Shared.IsHidden(Model.DisplayProvider.Antigravity);
+        string? IneligibleReason() => ct.IsCancellationRequested ? "cancelled"
+            : UnavailableReason() is { } reason ? reason
+            : Model.DrawerStore.Shared.IsHidden(Model.DisplayProvider.Antigravity) ? "hidden"
+            : null;
+        bool NoLongerEligible() => IneligibleReason() is not null;
+        AntigravityUsageFetcher.Outcome Deferred(string reason)
+        {
+            Diagnostics.Note("deferred: " + reason);
+            return new AntigravityUsageFetcher.Outcome.Deferred();
+        }
+        AntigravityUsageFetcher.Outcome? Stopped(string reason, AntigravityUsageFetcher.Outcome? outcome)
+        {
+            Diagnostics.Note(IneligibleReason() is { } why ? "deferred: " + why : reason);
+            return NoLongerEligible() ? new AntigravityUsageFetcher.Outcome.Deferred() : outcome;
+        }
 
         // Skip CLI polling while offline, within wake grace, or unable to reach
         // Google OAuth: agy's silent refresh would fail and fall back to
         // interactive browser sign-in. Keep the cached snapshot untouched.
-        if (NoLongerEligible() || ShouldDefer()) return new AntigravityUsageFetcher.Outcome.Deferred();
+        if ((IneligibleReason() ?? DeferReason()) is { } held) return Deferred(held);
 
         // Before 1.1.11 an interactive slash command could be sent as a model
         // prompt in print mode. Check the actual executable once per binary
         // fingerprint instead of spawning --version on every poll.
         var home = EnsureIsolatedHome(IsolatedHomeDir);
-        if (home is null || ct.IsCancellationRequested) return new AntigravityUsageFetcher.Outcome.Deferred();
+        if (home is null) return Deferred("isolated home unavailable");
+        if (ct.IsCancellationRequested) return Deferred("cancelled");
         if (!IsSupportedExecutable(exe, home, ct))
-            return NoLongerEligible() ? new AntigravityUsageFetcher.Outcome.Deferred() : null;
+            return Stopped("agy --version failed or is older than 1.1.11", null);
         var logPath = Path.Combine(home, "last.log");
         try { File.Delete(logPath); } catch { }
         var output = Run(exe, $"--print /usage --output-format json --print-timeout 20s --log-file \"{logPath}\"", 25, home, ct);
-        if (output is null) return NoLongerEligible()
-            ? new AntigravityUsageFetcher.Outcome.Deferred()
-            : new AntigravityUsageFetcher.Outcome.Failed("Antigravity CLI quota unavailable");
+        if (output is null)
+            return Stopped("agy /usage failed", new AntigravityUsageFetcher.Outcome.Failed("Antigravity CLI quota unavailable"));
         if (AntigravityQuotaParser.ParseCliUsage(output) is not { } snapshot)
+        {
+            Diagnostics.Note("agy /usage reply unreadable");
             return new AntigravityUsageFetcher.Outcome.Failed("Antigravity CLI quota reply unreadable");
+        }
+        Diagnostics.Note("ok");
         return new AntigravityUsageFetcher.Outcome.Success(snapshot, null, FromCli: true);
     }
 

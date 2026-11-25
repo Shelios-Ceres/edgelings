@@ -35,6 +35,12 @@ public static class AntigravityQuotaTests
             ("only CLI versions with a built-in print-mode /usage are queried", TestCliVersions),
             ("the CLI invocation runs headless with isolated profile and auto-update disabled", TestCliStartInfo),
             ("the CLI skips offline, wake-grace, and unreachable-OAuth polls", TestCliOfflineAndWakeGuard),
+            ("a lock flag Windows no longer reports is asked again, and written down", TestCliStaleLockFlagIsAskedAgain),
+            ("the CLI gate log writes a line only when the reason changes", TestCliDiagnosticsWriteOnChange),
+            ("the CLI gate log moves aside past 64 KB", TestCliDiagnosticsFileRolls),
+            ("only this process's own hub file gives its token", TestHubToken),
+            ("the hub file's token comes before the command line", TestCsrfTokenPrefersHub),
+            ("a server without GetUnleashData is found and authenticated from its hub file", TestDiscoverWithoutUnleashData),
             ("the single-process Windows Job Object blocks grandchild browser/CLI spawns", TestCliSingleProcessJob),
             ("refresh cadence keeps the 120s background floor and 1-minute manual floor", TestRefreshCadence),
             ("the CLI usage reply supplies real quota windows", TestCliUsage),
@@ -56,10 +62,20 @@ public static class AntigravityQuotaTests
             ("discovery skips a 401-only port when another Antigravity port authenticates", TestDiscoverPrefersAuthenticatedPort),
             ("a helper that hangs is stopped at its timeout", TestHelperTimeout),
         };
-        foreach (var (name, test) in tests)
+        // This machine's own hub files must never reach a test.
+        var realHub = AntigravityLanguageServer.HubFiles;
+        AntigravityLanguageServer.HubFiles = Array.Empty<string>;
+        try
         {
-            test();
-            Console.WriteLine($"PASS antigravity quota: {name}");
+            foreach (var (name, test) in tests)
+            {
+                test();
+                Console.WriteLine($"PASS antigravity quota: {name}");
+            }
+        }
+        finally
+        {
+            AntigravityLanguageServer.HubFiles = realHub;
         }
         Console.WriteLine("AntigravityQuotaTests GREEN");
     }
@@ -148,11 +164,14 @@ public static class AntigravityQuotaTests
         var locked = AntigravityCliQuota.SessionLocked;
         var prevOnline = AntigravityCliQuota.CheckOnline;
         var prevReachable = AntigravityCliQuota.CheckReachable;
+        var prevQuery = AntigravityCliQuota.QuerySessionLocked;
         try
         {
             var now = Now;
             AntigravityCliQuota.Clock = () => now;
             AntigravityCliQuota.ResetWakeGraceForTests();
+            // Windows does not say, so the flag the events set stands.
+            AntigravityCliQuota.QuerySessionLocked = () => null;
 
             AntigravityCliQuota.CheckOnline = () => true;
             AntigravityCliQuota.CheckReachable = () => true;
@@ -202,7 +221,290 @@ public static class AntigravityQuotaTests
             AntigravityCliQuota.SessionLocked = locked;
             AntigravityCliQuota.CheckOnline = prevOnline;
             AntigravityCliQuota.CheckReachable = prevReachable;
+            AntigravityCliQuota.QuerySessionLocked = prevQuery;
             AntigravityCliQuota.ResetWakeGraceForTests();
+        }
+    }
+
+    // 11/25: Limen started at sign-in read the session as not unlocked, and
+    // only an unlock event cleared that, so the CLI was held off all morning.
+    private static void TestCliStaleLockFlagIsAskedAgain()
+    {
+        var prevClock = AntigravityCliQuota.Clock;
+        var uptime = AntigravityCliQuota.UptimeMilliseconds;
+        var locked = AntigravityCliQuota.SessionLocked;
+        var prevOnline = AntigravityCliQuota.CheckOnline;
+        var prevReachable = AntigravityCliQuota.CheckReachable;
+        var prevQuery = AntigravityCliQuota.QuerySessionLocked;
+        var prevWrite = AntigravityCliQuota.Diagnostics.Write;
+        var lines = new List<string>();
+        try
+        {
+            AntigravityCliQuota.Clock = () => Now;
+            AntigravityCliQuota.ResetWakeGraceForTests();
+            AntigravityCliQuota.Diagnostics.ResetForTests();
+            AntigravityCliQuota.Diagnostics.Write = line => { lines.Add(line); return true; };
+            AntigravityCliQuota.UptimeMilliseconds = () => 3_600_000;
+            AntigravityCliQuota.CheckOnline = () => true;
+            AntigravityCliQuota.CheckReachable = () => true;
+
+            AntigravityCliQuota.SessionLocked = true;
+            AntigravityCliQuota.QuerySessionLocked = () => true;
+            Expect(AntigravityCliQuota.ShouldDefer(), "a session Windows still reports locked defers");
+
+            AntigravityCliQuota.QuerySessionLocked = () => false;
+            Expect(!AntigravityCliQuota.ShouldDefer(), "a lock flag Windows no longer reports is cleared");
+            Expect(AntigravityCliQuota.SessionLocked == false, "and stays cleared");
+            Expect(lines.Count == 1 && lines[0].EndsWith("session lock flag locked, Windows says unlocked", StringComparison.Ordinal),
+                $"the stale flag is written down, got {string.Join(" | ", lines)}");
+
+            AntigravityCliQuota.SessionLocked = null;
+            AntigravityCliQuota.QuerySessionLocked = () => null;
+            Expect(AntigravityCliQuota.ShouldDefer(), "a lock state nobody knows still defers");
+            AntigravityCliQuota.QuerySessionLocked = () => false;
+            Expect(!AntigravityCliQuota.ShouldDefer(), "until Windows says unlocked");
+
+            // A lock event holds even while Windows, asked a moment later, does not say locked yet.
+            AntigravityCliQuota.NoteSessionEvent(locked: true);
+            Expect(AntigravityCliQuota.ShouldDefer(), "a lock event is not overruled by one reading");
+            AntigravityCliQuota.NoteSessionEvent(locked: false);
+            Expect(!AntigravityCliQuota.ShouldDefer(), "the unlock event releases it");
+        }
+        finally
+        {
+            AntigravityCliQuota.Clock = prevClock;
+            AntigravityCliQuota.UptimeMilliseconds = uptime;
+            AntigravityCliQuota.SessionLocked = locked;
+            AntigravityCliQuota.CheckOnline = prevOnline;
+            AntigravityCliQuota.CheckReachable = prevReachable;
+            AntigravityCliQuota.QuerySessionLocked = prevQuery;
+            AntigravityCliQuota.Diagnostics.Write = prevWrite;
+            AntigravityCliQuota.Diagnostics.ResetForTests();
+            AntigravityCliQuota.ResetWakeGraceForTests();
+        }
+    }
+
+    private static void TestCliDiagnosticsWriteOnChange()
+    {
+        var prevWrite = AntigravityCliQuota.Diagnostics.Write;
+        var lines = new List<string>();
+        try
+        {
+            AntigravityCliQuota.Diagnostics.ResetForTests();
+            AntigravityCliQuota.Diagnostics.Write = line => { lines.Add(line); return true; };
+            AntigravityCliQuota.Diagnostics.Note("deferred: offline");
+            AntigravityCliQuota.Diagnostics.Note("deferred: offline");
+            AntigravityCliQuota.Diagnostics.Note("ok");
+            AntigravityCliQuota.Diagnostics.Note("deferred: offline");
+            Expect(lines.Count, 3);
+            Expect(lines.All(line => System.Text.RegularExpressions.Regex.IsMatch(line, @"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d\d:\d\d \S")),
+                "each line is dated");
+
+            // A line the file refused is tried again, not dropped as already said.
+            var busy = true;
+            AntigravityCliQuota.Diagnostics.Write = line => { if (busy) return false; lines.Add(line); return true; };
+            AntigravityCliQuota.Diagnostics.Note("deferred: cold boot");
+            busy = false;
+            AntigravityCliQuota.Diagnostics.Note("deferred: cold boot");
+            Expect(lines.Count, 4);
+        }
+        finally
+        {
+            AntigravityCliQuota.Diagnostics.Write = prevWrite;
+            AntigravityCliQuota.Diagnostics.ResetForTests();
+        }
+    }
+
+    private static void TestCliDiagnosticsFileRolls()
+    {
+        var folder = Directory.CreateTempSubdirectory("limen-diag-");
+        var prevCache = AgentIsland.Core.IslandPaths.CacheDirOverride;
+        try
+        {
+            AgentIsland.Core.IslandPaths.CacheDirOverride = folder.FullName;
+            AntigravityCliQuota.Diagnostics.ResetForTests();
+            var path = AntigravityCliQuota.Diagnostics.LogPath;
+            File.WriteAllText(path, new string('x', 70 * 1024));
+            AntigravityCliQuota.Diagnostics.Note("ok");
+            Expect(File.Exists(path + ".old"), "a full log moves aside");
+            Expect(File.ReadAllText(path).TrimEnd().EndsWith(" ok", StringComparison.Ordinal), "and a new one starts");
+        }
+        finally
+        {
+            AgentIsland.Core.IslandPaths.CacheDirOverride = prevCache;
+            AntigravityCliQuota.Diagnostics.ResetForTests();
+            folder.Delete(recursive: true);
+        }
+    }
+
+    private sealed class HubFolder : IDisposable
+    {
+        private readonly DirectoryInfo _folder = Directory.CreateTempSubdirectory("limen-hub-");
+        public List<string> Files { get; } = new();
+
+        public string Add(object content, DateTime writtenUtc)
+        {
+            var path = Path.Combine(_folder.FullName, $"hub_{Files.Count}.json");
+            File.WriteAllText(path, content as string ?? JsonSerializer.Serialize(content));
+            File.SetLastWriteTimeUtc(path, writtenUtc);
+            Files.Add(path);
+            return path;
+        }
+
+        public void Dispose() => _folder.Delete(recursive: true);
+    }
+
+    private static void TestHubToken()
+    {
+        var prevHub = AntigravityLanguageServer.HubFiles;
+        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
+        try
+        {
+            using var hub = new HubFolder();
+            AntigravityLanguageServer.HubFiles = () => hub.Files;
+            AntigravityLanguageServer.ListListeningPorts = pid => pid == 41852 ? new List<int> { 55845, 55846 } : new List<int> { 60000 };
+            var started = new DateTime(2026, 11, 25, 0, 28, 6, DateTimeKind.Utc);
+
+            // A reused pid's file from days ago, another process's file, and garbage come first.
+            hub.Add(new { pid = 41852, httpsPort = 55845, httpPort = 55846, csrfToken = "old" }, started.AddDays(-3));
+            hub.Add(new { pid = 7, httpsPort = 60000, httpPort = 60001, csrfToken = "other" }, started.AddSeconds(1));
+            hub.Add("not json", started.AddSeconds(1));
+            Expect(AntigravityLanguageServer.HubToken(41852, started) is null, "no file of this process yet");
+
+            hub.Add(new { pid = 41852, httpsPort = 1, httpPort = 2, csrfToken = "wrong-ports" }, started.AddSeconds(1));
+            Expect(AntigravityLanguageServer.HubToken(41852, started) is null, "a file naming ports the process does not hold is not its own");
+            hub.Add(new { pid = 99, httpsPort = 55845, httpPort = 55846, csrfToken = "wrong-pid" }, started.AddSeconds(1));
+            Expect(AntigravityLanguageServer.HubToken(41852, started) is null, "a fresh file naming its ports but another pid is not its own");
+
+            // Written a fraction of a second after the process started, ms dropped on one side.
+            hub.Add(new { pid = 41852, httpsPort = 55845, httpPort = 55846, lsVersion = "2.35.1", csrfToken = "tok-hub" }, started.AddMilliseconds(-500));
+            Expect(AntigravityLanguageServer.HubToken(41852, started), "tok-hub");
+            Expect(AntigravityLanguageServer.HubToken(41852, null) is null, "an unknown start time proves nothing");
+
+            // Rewritten by the same server later: the newest file wins.
+            hub.Add(new { pid = 41852, httpsPort = 55845, httpPort = 55846, csrfToken = "tok-newer" }, started.AddMinutes(5));
+            Expect(AntigravityLanguageServer.HubToken(41852, started), "tok-newer");
+        }
+        finally
+        {
+            AntigravityLanguageServer.HubFiles = prevHub;
+            AntigravityLanguageServer.ListListeningPorts = prevPorts;
+        }
+    }
+
+    private static void TestCsrfTokenPrefersHub()
+    {
+        var prevHub = AntigravityLanguageServer.HubFiles;
+        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
+        var prevRead = AntigravityLanguageServer.ReadCommandLine;
+        var prevStarted = AntigravityLanguageServer.StartTime;
+        var reads = 0;
+        try
+        {
+            using var hub = new HubFolder();
+            var pid = Environment.ProcessId;
+            var started = DateTime.UtcNow.AddMinutes(-1);
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.HubFiles = () => hub.Files;
+            AntigravityLanguageServer.StartTime = _ => started;
+            AntigravityLanguageServer.ListListeningPorts = _ => new List<int> { 55845 };
+            AntigravityLanguageServer.ReadCommandLine = _ => { reads++; return null; };
+
+            // The server has not written its file yet: the command line is read once.
+            Expect(AntigravityLanguageServer.CsrfToken(pid) is null, "nothing yet");
+            Expect(reads, 1);
+            // The file appears: it is found on the next ask, without waiting out the command line's pause.
+            hub.Add(new { pid, httpsPort = 55845, httpPort = 55846, csrfToken = "tok-hub" }, DateTime.UtcNow);
+            Expect(AntigravityLanguageServer.CsrfToken(pid), "tok-hub");
+            Expect(AntigravityLanguageServer.CsrfToken(pid), "tok-hub");
+            Expect(reads, 1);
+        }
+        finally
+        {
+            AntigravityLanguageServer.HubFiles = prevHub;
+            AntigravityLanguageServer.ListListeningPorts = prevPorts;
+            AntigravityLanguageServer.ReadCommandLine = prevRead;
+            AntigravityLanguageServer.StartTime = prevStarted;
+            AntigravityLanguageServer.ForgetCsrfTokens();
+        }
+    }
+
+    // The desktop's 2.35 server answers GetUnleashData with 404.
+    private static void TestDiscoverWithoutUnleashData()
+    {
+        var prevCall = AntigravityLanguageServer.CallRpc;
+        var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
+        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
+        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var prevStarted = AntigravityLanguageServer.StartTime;
+        var prevHub = AntigravityLanguageServer.HubFiles;
+        var prevRead = AntigravityLanguageServer.ReadCommandLine;
+        try
+        {
+            using var hub = new HubFolder();
+            var started = DateTime.UtcNow.AddMinutes(-1);
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.StartTime = _ => started;
+            AntigravityLanguageServer.HubFiles = () => hub.Files;
+            AntigravityLanguageServer.ReadCommandLine = _ => "language_server.exe --read_host_bridge_token_from_stdin";
+            AntigravityLanguageServer.ListAntigravityProcessIds = () => new List<int> { 201 };
+            AntigravityLanguageServer.ListListeningPorts = _ => new List<int> { 55845, 55846 };
+            AntigravityLanguageServer.ResolvePortOwner = port => port is 55845 or 55846 ? 201 : null;
+            hub.Add(new { pid = 201, httpsPort = 55845, httpPort = 55846, csrfToken = "tok-hub" }, DateTime.UtcNow);
+            var asked = new List<string>();
+            AntigravityLanguageServer.CallRpc = (method, port, _, token, _) =>
+            {
+                asked.Add($"{method}@{port}:{token ?? "-"}");
+                return Task.FromResult<AntigravityLanguageServer.Reply?>(port != 55845
+                    ? null
+                    : method == "GetUnleashData" ? new(404, Array.Empty<byte>())
+                    : token == "tok-hub" ? new(200, Array.Empty<byte>())
+                    : new(401, Array.Empty<byte>()));
+            };
+            Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult(), (int?)55845);
+            Expect(asked.Contains("GetUserStatus@55845:tok-hub"), $"the probe authenticates with the hub token, asked {string.Join(", ", asked)}");
+
+            // A server that has neither method is no RPC port.
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(new(404, Array.Empty<byte>()));
+            Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult() is null, "404 on both probes is not a port");
+
+            // An older server without GetUserStatus is still found through GetUnleashData,
+            // and so is one whose GetUserStatus is slow (null) or failing (500).
+            foreach (var first in new AntigravityLanguageServer.Reply?[] { new(404, Array.Empty<byte>()), null, new(500, Array.Empty<byte>()) })
+            {
+                AntigravityLanguageServer.ForgetCachedPort();
+                AntigravityLanguageServer.CallRpc = (method, port, _, _, _) => Task.FromResult(
+                    port != 55845 ? null
+                    : method == "GetUnleashData" ? new AntigravityLanguageServer.Reply(200, Array.Empty<byte>())
+                    : first);
+                Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult(), (int?)55845);
+            }
+
+            // A token the server refuses is dropped: the hub file rewritten with a new one is read.
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            var accepted = "tok-rotated";
+            AntigravityLanguageServer.CallRpc = (_, port, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                port == 55845 && token == accepted ? new(200, Array.Empty<byte>()) : new(401, Array.Empty<byte>()));
+            Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult(), (int?)55845);
+            hub.Add(new { pid = 201, httpsPort = 55845, httpPort = 55846, csrfToken = "tok-rotated" }, DateTime.UtcNow.AddSeconds(5));
+            AntigravityLanguageServer.ForgetCachedPort();
+            Expect(AntigravityLanguageServer.Discover().GetAwaiter().GetResult(), (int?)55845);
+            Expect(AntigravityLanguageServer.CsrfToken(201), "tok-rotated");
+        }
+        finally
+        {
+            AntigravityLanguageServer.CallRpc = prevCall;
+            AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
+            AntigravityLanguageServer.ListListeningPorts = prevPorts;
+            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.StartTime = prevStarted;
+            AntigravityLanguageServer.HubFiles = prevHub;
+            AntigravityLanguageServer.ReadCommandLine = prevRead;
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
         }
     }
 

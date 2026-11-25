@@ -1,8 +1,9 @@
 namespace AgentIsland.Usage;
 
-/// Prefer the running app's quota and identity. Newer Windows desktop
-/// versions keep their RPC private; agy's built-in /usage command can
-/// report the signed-in CLI account's quota independently.
+/// Prefer the running app's quota and identity, from its language server
+/// (the desktop's token comes from the hub file that server writes). Only
+/// when no server answers is agy's built-in /usage asked, which reports the
+/// signed-in CLI account's quota independently.
 public static class AntigravityUsageFetcher
 {
     public abstract record Outcome
@@ -86,7 +87,9 @@ public static class AntigravityUsageFetcher
         {
             return reply;
         }
-        return await new AgentIsland.Core.AntigravityLiveCascades.Server(port, pid, started, token)
+        var retried = await new AgentIsland.Core.AntigravityLiveCascades.Server(port, pid, started, token)
             .Call(method, body).ConfigureAwait(false);
+        if (retried is { Status: 401 }) AntigravityLanguageServer.ForgetCsrfToken(pid);
+        return retried;
     }
 }

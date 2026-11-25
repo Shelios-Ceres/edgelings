@@ -15,10 +15,11 @@ namespace AgentIsland.Usage;
 /// reaches the same method through its own language server, which does hold
 /// the real numbers.
 ///
-/// That server is embedded in the `agy` process rather than spawned
-/// separately, so quota is readable exactly while Antigravity is running.
-/// There is no on-disk cache to fall back on, so the store keeps the last
-/// good snapshot and the UI dates it.
+/// The CLI embeds its server in the `agy` process; the desktop app starts
+/// one of its own. Either way quota is readable exactly while Antigravity is
+/// running. There is no on-disk cache of it to fall back on (the hub files
+/// the servers write say how to reach them, not the quota), so the store
+/// keeps the last good snapshot and the UI dates it.
 public static class AntigravityLanguageServer
 {
     private const string ServicePrefix = "/exa.language_server_pb.LanguageServerService/";
@@ -131,25 +132,37 @@ public static class AntigravityLanguageServer
         return unauthorizedPort;
     }
 
-    /// `GetUnleashData` is the cheapest method that proves this is the RPC
-    /// port rather than a sibling plain-HTTP port the process also opens.
+    /// A cheap method answering proves this is the RPC port rather than a
+    /// sibling plain-HTTP port the process also opens. `GetUserStatus` is
+    /// asked first: the desktop's 2.35 server no longer has `GetUnleashData`
+    /// (404), which older servers are still asked for.
     /// On a 401, retry once with the owning process's CSRF token so discovery
     /// prefers a port that actually authenticates over one that only rejects.
+    private static readonly (string Method, string Body)[] ProbeMethods =
+    {
+        ("GetUserStatus", "{}"),
+        ("GetUnleashData", "{\"wrapper_data\":{}}"),
+    };
+
+    /// A method that is missing, slow or failing hands over to the next; the
+    /// port is dead only when none answers.
     private static async Task<ProbeResult> Probe(int port, int pid)
     {
-        var reply = await CallRpc(
-            "GetUnleashData", port, "{\"wrapper_data\":{}}", null, 2)
-            .ConfigureAwait(false);
-        if (reply is { Status: 200 }) return ProbeResult.Ready;
-        if (reply is not { Status: 401 }) return ProbeResult.Dead;
-        if (StartTime(pid) is { } started && CsrfToken(pid) is { Length: > 0 } token)
+        foreach (var (method, body) in ProbeMethods)
         {
-            var retried = await new AntigravityLiveCascades.Server(port, pid, started, token).Call(
-                "GetUnleashData", "{\"wrapper_data\":{}}", 2)
-                .ConfigureAwait(false);
-            if (retried is { Status: 200 }) return ProbeResult.Ready;
+            var reply = await CallRpc(method, port, body, null, 2).ConfigureAwait(false);
+            if (reply is { Status: 200 }) return ProbeResult.Ready;
+            if (reply is not { Status: 401 }) continue;
+            if (StartTime(pid) is { } started && CsrfToken(pid) is { Length: > 0 } token)
+            {
+                var retried = await new AntigravityLiveCascades.Server(port, pid, started, token).Call(method, body, 2)
+                    .ConfigureAwait(false);
+                if (retried is { Status: 200 }) return ProbeResult.Ready;
+                if (retried is { Status: 401 }) ForgetCsrfToken(pid);
+            }
+            return ProbeResult.Unauthorized;
         }
-        return ProbeResult.Unauthorized;
+        return ProbeResult.Dead;
     }
 
     /// Matches the CLI (whose real binary is `antigravity`, reached through
@@ -410,11 +423,24 @@ public static class AntigravityLanguageServer
         lock (TokenGate) TokenByPid.Clear();
     }
 
+    /// A token the server refused is not kept: a hub file rewritten since
+    /// carries the one it takes now. The command line still waits its turn.
+    internal static void ForgetCsrfToken(int pid)
+    {
+        lock (TokenGate)
+        {
+            if (TokenByPid.TryGetValue(pid, out var known))
+                TokenByPid[pid] = (known.Started, null, DateTimeOffset.Now + LookAgainAfter);
+        }
+    }
+
     /// The CLI needs no token and must not be sent one. The desktop IDE
-    /// passes its own on the command line, so it is lifted from the process
-    /// command line only after a 401 says the plain call was refused —
-    /// a strictly additive retry on a path that already failed. Reading it
-    /// starts PowerShell, so it is read once per process.
+    /// gates on one, which is only looked for after a 401 says the plain call
+    /// was refused — a strictly additive retry on a path that already failed.
+    /// Its 2.35 server takes the token on stdin and writes it to a hub file of
+    /// its own; older ones passed it on the command line. The hub file is
+    /// cheap and read until it is there; the command line starts PowerShell,
+    /// so it is read once per process, and again only after a while.
     public static string? CsrfToken(int pid)
     {
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
@@ -422,20 +448,94 @@ public static class AntigravityLanguageServer
         var now = DateTimeOffset.Now;
         lock (TokenGate)
         {
-            if (TokenByPid.TryGetValue(pid, out var known) && known.Started == started
-                && (known.RetryAt is not { } retryAt || now < retryAt))
-            {
+            if (TokenByPid.TryGetValue(pid, out var known) && known.Started == started && known.Token is not null)
                 return known.Token;
-            }
         }
-        var args = ReadCommandLine(pid);
-        var token = ParseCsrfToken(args);
+        var token = HubToken(pid, started);
+        if (token is null)
+        {
+            lock (TokenGate)
+            {
+                if (TokenByPid.TryGetValue(pid, out var known) && known.Started == started
+                    && known.RetryAt is { } retryAt && now < retryAt)
+                {
+                    return null;
+                }
+            }
+            token = ParseCsrfToken(ReadCommandLine(pid));
+        }
         lock (TokenGate)
         {
             if (TokenByPid.Count >= 64) TokenByPid.Clear();
             TokenByPid[pid] = (started, token, token is null ? now + LookAgainAfter : null);
         }
         return token;
+    }
+
+    /// Test seam: the hub files Antigravity's language servers write when
+    /// they start (`~/.gemini/antigravity/daemon/hub_<port>.json`).
+    internal static Func<IEnumerable<string>> HubFiles = DefaultHubFiles;
+
+    private static IEnumerable<string> DefaultHubFiles()
+    {
+        foreach (var root in AntigravityCredentials.DataRoots())
+        {
+            var daemon = Path.Combine(root, "daemon");
+            string[] files;
+            try
+            {
+                if (!Directory.Exists(daemon)) continue;
+                files = Directory.GetFiles(daemon, "hub_*.json");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+            foreach (var file in files) yield return file;
+        }
+    }
+
+    // The server writes its hub file right after it starts; a clock's rounding
+    // on either side must not turn it away.
+    private static readonly TimeSpan HubWrittenSlack = TimeSpan.FromSeconds(2);
+
+    /// The token in the hub file of this very process. The folder keeps
+    /// every server's file, and pids are reused, so a file counts only when
+    /// its pid is this one, it was written after this process started, and
+    /// the process listens on a port it names. The newest such file wins.
+    internal static string? HubToken(int pid, DateTime? started)
+    {
+        if (started is not { } start) return null;
+        List<int>? ports = null;
+        IEnumerable<string> newestFirst;
+        try
+        {
+            newestFirst = HubFiles().OrderByDescending(File.GetLastWriteTimeUtc).ToList();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        foreach (var path in newestFirst)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length > 4096 || info.LastWriteTimeUtc < start.ToUniversalTime() - HubWrittenSlack) continue;
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(path));
+                var root = doc.RootElement;
+                if (root.ValueKind != System.Text.Json.JsonValueKind.Object || Jsonl.GetDouble(root, "pid") != pid) continue;
+                if (Jsonl.GetString(root, "csrfToken") is not { Length: > 0 } token) continue;
+                ports ??= ListListeningPorts(pid);
+                var named = new[] { Jsonl.GetDouble(root, "httpsPort"), Jsonl.GetDouble(root, "httpPort") };
+                if (!named.Any(port => port is { } p && ports.Contains((int)p))) continue;
+                return token;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+            }
+        }
+        return null;
     }
 
     internal static string? ParseCsrfToken(string? commandLine)

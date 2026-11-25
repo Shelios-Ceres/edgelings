@@ -634,11 +634,11 @@ public sealed class UsageStore : INotifyPropertyChanged
         {
             if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionLock)
             {
-                AntigravityCliQuota.SessionLocked = true;
+                AntigravityCliQuota.NoteSessionEvent(locked: true);
                 return;
             }
             if (e.Reason != Microsoft.Win32.SessionSwitchReason.SessionUnlock) return;
-            AntigravityCliQuota.SessionLocked = false;
+            AntigravityCliQuota.NoteSessionEvent(locked: false);
         }
         UiThread.Post(AntigravityUsageStore.Shared.RetryAfterUnlock);
         HandleUnlock();
