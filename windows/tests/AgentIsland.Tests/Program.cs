@@ -11,6 +11,11 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        // ClaudeUsageProbeTests 起的假 claude：同一个 exe，按环境变量里的模式回 JSON。
+        if (Environment.GetEnvironmentVariable(FakeClaude.ModeVariable) is { Length: > 0 } fakeMode)
+        {
+            return FakeClaude.Run(fakeMode, args);
+        }
         if (args.Length > 0 && args[0] == "scan")
         {
             return LiveScan();
@@ -31,6 +36,25 @@ public static class Program
         if (args.Length > 0 && args[0] == "mailwatch")
         {
             return MailWatch(args.Length > 1 && int.TryParse(args[1], out var seconds) ? seconds : 600);
+        }
+        if (args.Length > 2 && args[0] == "claudeprobe" && OperatingSystem.IsWindows())
+        {
+            // 诊断：对真 claude 跑一次探测，配置目录必须是调用方给的隔离目录。用法：claudeprobe <配置目录> limit|nolimit
+            ClaudeUsageProbe.ExtraEnvironment = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = args[1] };
+            // 第四个参数 offline：代理指向一个不通的端口，模拟断网。
+            if (args.Length > 3 && args[3] == "offline")
+            {
+                ClaudeUsageProbe.ExtraEnvironment = new Dictionary<string, string>
+                {
+                    ["CLAUDE_CONFIG_DIR"] = args[1], ["HTTPS_PROXY"] = "http://127.0.0.1:9", ["HTTP_PROXY"] = "http://127.0.0.1:9",
+                };
+            }
+            ClaudeUsageProbe.LimitToOneProcess = args[2] == "limit";
+            ClaudeUsageProbe.WorkDirectory = () => Path.Combine(Path.GetTempPath(), "limen-claudeprobe-work");
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var usage = ClaudeUsageProbe.Fetch().GetAwaiter().GetResult();
+            Console.WriteLine($"{clock.ElapsedMilliseconds} ms five={usage.FiveHour.UsedPercent} error={usage.FiveHour.Error} plan={usage.Plan}");
+            return 0;
         }
         if (args.Length > 0 && args[0] == "locate")
         {
@@ -70,6 +94,8 @@ public static class Program
         IslandPaths.RootOverride = world;
         // Synthetic transcripts must never cause RPC discovery on the developer's running CLI.
         AntigravityLanguageServer.ListAntigravityProcessIds = static () => [];
+        // 测试里的刷新也不能起开发者真实的 claude：探测默认找不到 claude，要用假的由测试自己给。
+        ClaudeUsageProbe.Locate = static () => null;
         foreach (var variable in new[] { "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME", "CLAUDE_CONFIG_DIR" })
         {
             Environment.SetEnvironmentVariable(variable, null);
@@ -106,6 +132,7 @@ public static class Program
                 ("HiddenProviderQuotaTests", HiddenProviderQuotaTests.RunAll, null),
                 ("UsageRetryTests", UsageRetryTests.RunAll, null),
                 ("UsageEventFloorTests", UsageEventFloorTests.RunAll, null),
+                ("ClaudeUsageProbeTests", ClaudeUsageProbeTests.RunAll, null),
                 ("CodexAutoSwitchReadingTests", CodexAutoSwitchReadingTests.RunAll, null),
                 ("CodexArchiveTests", CodexArchiveTests.RunAll, null),
                 ("CursorReplyClockTests", CursorReplyClockTests.RunAll, null),

@@ -15,33 +15,64 @@ internal static class WindowsJobProcess
     internal static string? Run(nint job, ProcessStartInfo start, TimeSpan timeout, Func<Func<bool>, bool>? permitLaunch,
         CancellationToken ct = default)
     {
-        using var input = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
-        using var output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
-        using var error = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
-        var si = new StartupInfoEx();
-        si.Startup.Size = Marshal.SizeOf<StartupInfoEx>();
-        si.Startup.Flags = 0x100; // STARTF_USESTDHANDLES
-        si.Startup.Input = input.ClientSafePipeHandle.DangerousGetHandle();
-        si.Startup.Output = output.ClientSafePipeHandle.DangerousGetHandle();
-        si.Startup.Error = error.ClientSafePipeHandle.DangerousGetHandle();
-
-        nuint size = 0;
-        InitializeProcThreadAttributeList(0, 2, 0, ref size);
-        if (size == 0) return null;
-        var list = Marshal.AllocHGlobal(checked((nint)size));
-        var values = Marshal.AllocHGlobal(4 * IntPtr.Size);
-        bool initialized = false;
-        ProcessInfo child = default;
-        IDisposable? own = null;
-        try
+        using var child = Child.Start(job, start, permitLaunch);
+        if (child is null) return null;
+        child.Input.Dispose(); // EOF on the child's stdin.
+        using var reader = new StreamReader(child.Output, start.StandardOutputEncoding ?? Encoding.UTF8);
+        var stdout = reader.ReadToEndAsync();
+        var stderr = child.Error.CopyToAsync(Stream.Null);
+        if (!WaitForExit(child.Process, timeout, ct))
         {
-            initialized = InitializeProcThreadAttributeList(list, 2, 0, ref size);
-            if (!initialized) return null;
-            si.Attributes = list;
-            Marshal.Copy(new[] { si.Startup.Input, si.Startup.Output, si.Startup.Error, job }, 0, values, 4);
-            if (!UpdateProcThreadAttribute(list, 0, 0x20002, values, (nuint)(3 * IntPtr.Size), 0, 0)
-                || !UpdateProcThreadAttribute(list, 0, 0x2000D, values + 3 * IntPtr.Size, (nuint)IntPtr.Size, 0, 0))
-                return null; // HANDLE_LIST and JOB_LIST respectively
+            TerminateProcess(child.Process, 1); // Close the writers before disposing pending pipe reads.
+            return null;
+        }
+        if (!GetExitCodeProcess(child.Process, out var exitCode) || exitCode != 0) return null;
+        if (!Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(2))) return null;
+        return stdout.Result.Trim();
+    }
+
+    /// 一个起在 Job Object 里的子进程和它的三根管道。Start 在 CreateProcess 之后、
+    /// ResumeThread 之前登记 OwnProcesses；Dispose 结束进程、注销登记、关句柄。
+    private sealed class Child : IDisposable
+    {
+        public readonly AnonymousPipeServerStream Input = new(PipeDirection.Out, HandleInheritability.Inheritable);
+        public readonly AnonymousPipeServerStream Output = new(PipeDirection.In, HandleInheritability.Inheritable);
+        public readonly AnonymousPipeServerStream Error = new(PipeDirection.In, HandleInheritability.Inheritable);
+        public nint Process;
+        private ProcessInfo _info;
+        private IDisposable? _own;
+        private nint _list, _values;
+        private bool _initialized;
+
+        public static Child? Start(nint job, ProcessStartInfo start, Func<Func<bool>, bool>? permitLaunch)
+        {
+            var child = new Child();
+            if (child.Launch(job, start, permitLaunch)) return child;
+            child.Dispose();
+            return null;
+        }
+
+        private bool Launch(nint job, ProcessStartInfo start, Func<Func<bool>, bool>? permitLaunch)
+        {
+            var si = new StartupInfoEx();
+            si.Startup.Size = Marshal.SizeOf<StartupInfoEx>();
+            si.Startup.Flags = 0x100; // STARTF_USESTDHANDLES
+            si.Startup.Input = Input.ClientSafePipeHandle.DangerousGetHandle();
+            si.Startup.Output = Output.ClientSafePipeHandle.DangerousGetHandle();
+            si.Startup.Error = Error.ClientSafePipeHandle.DangerousGetHandle();
+
+            nuint size = 0;
+            InitializeProcThreadAttributeList(0, 2, 0, ref size);
+            if (size == 0) return false;
+            _list = Marshal.AllocHGlobal(checked((nint)size));
+            _values = Marshal.AllocHGlobal(4 * IntPtr.Size);
+            _initialized = InitializeProcThreadAttributeList(_list, 2, 0, ref size);
+            if (!_initialized) return false;
+            si.Attributes = _list;
+            Marshal.Copy(new[] { si.Startup.Input, si.Startup.Output, si.Startup.Error, job }, 0, _values, 4);
+            if (!UpdateProcThreadAttribute(_list, 0, 0x20002, _values, (nuint)(3 * IntPtr.Size), 0, 0)
+                || !UpdateProcThreadAttribute(_list, 0, 0x2000D, _values + 3 * IntPtr.Size, (nuint)IntPtr.Size, 0, 0))
+                return false; // HANDLE_LIST and JOB_LIST respectively
 
             var environment = string.Concat(start.Environment.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(k => k.Key + "=" + k.Value + "\0")) + "\0";
@@ -51,40 +82,39 @@ internal static class WindowsJobProcess
             bool Launch()
             {
                 if (!CreateProcessW(start.FileName, command, 0, 0, true, flags, environment,
-                        string.IsNullOrEmpty(start.WorkingDirectory) ? null : start.WorkingDirectory, ref si, out child))
+                        string.IsNullOrEmpty(start.WorkingDirectory) ? null : start.WorkingDirectory, ref si, out _info))
                     return false;
+                Process = _info.Process;
                 // 挂起状态下就登记：它和它的子孙都不算用户的 agent 开着。
-                own = OwnProcesses.Register((int)child.ProcessId);
-                return ResumeThread(child.Thread) == 1;
+                _own = OwnProcesses.Register((int)_info.ProcessId);
+                return ResumeThread(_info.Thread) == 1;
             }
-            if (!(permitLaunch is null ? Launch() : permitLaunch(Launch))) return null;
-            input.Dispose(); // EOF on the child's stdin.
-            output.DisposeLocalCopyOfClientHandle();
-            error.DisposeLocalCopyOfClientHandle();
-            using var reader = new StreamReader(output, start.StandardOutputEncoding ?? Encoding.UTF8);
-            var stdout = reader.ReadToEndAsync();
-            var stderr = error.CopyToAsync(Stream.Null);
-            if (!WaitForExit(child.Process, timeout, ct))
-            {
-                TerminateProcess(child.Process, 1); // Close the writers before disposing pending pipe reads.
-                return null;
-            }
-            if (!GetExitCodeProcess(child.Process, out var exitCode) || exitCode != 0) return null;
-            if (!Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(2))) return null;
-            return stdout.Result.Trim();
+            if (!(permitLaunch is null ? Launch() : permitLaunch(Launch))) return false;
+            Input.DisposeLocalCopyOfClientHandle();
+            Output.DisposeLocalCopyOfClientHandle();
+            Error.DisposeLocalCopyOfClientHandle();
+            return true;
         }
-        finally
+
+        public void Dispose()
         {
-            if (child.Process != 0)
+            if (_info.Process != 0)
             {
-                if (WaitForSingleObject(child.Process, 0) == 258) TerminateProcess(child.Process, 1);
-                CloseHandle(child.Thread);
-                CloseHandle(child.Process);
+                if (WaitForSingleObject(_info.Process, 0) == 258) TerminateProcess(_info.Process, 1);
+                CloseHandle(_info.Thread);
+                CloseHandle(_info.Process);
+                _info = default;
             }
-            own?.Dispose();
-            if (initialized) DeleteProcThreadAttributeList(list);
-            Marshal.FreeHGlobal(values);
-            Marshal.FreeHGlobal(list);
+            _own?.Dispose();
+            _own = null;
+            if (_initialized) DeleteProcThreadAttributeList(_list);
+            _initialized = false;
+            if (_values != 0) Marshal.FreeHGlobal(_values);
+            if (_list != 0) Marshal.FreeHGlobal(_list);
+            _values = _list = 0;
+            Input.Dispose();
+            Output.Dispose();
+            Error.Dispose();
         }
     }
 
@@ -146,23 +176,10 @@ internal static class WindowsJobProcess
     internal static string? RunInSingleProcessJob(ProcessStartInfo start, TimeSpan timeout,
         Func<Func<bool>, bool>? permitLaunch = null, CancellationToken ct = default)
     {
-        var job = CreateJobObjectW(0, null);
+        var job = CreateJob(singleProcess: true);
         if (job == 0) return null;
         try
         {
-            var info = new JobObjectExtendedLimitInformation
-            {
-                BasicLimitInformation = new JobObjectBasicLimitInformation
-                {
-                    LimitFlags = JobObjectLimitActiveProcess | JobObjectLimitKillOnJobClose,
-                    ActiveProcessLimit = 1,
-                },
-            };
-            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformationClass, ref info,
-                    (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>()))
-            {
-                return null;
-            }
             return Run(job, start, timeout, permitLaunch, ct);
         }
         catch
@@ -172,6 +189,149 @@ internal static class WindowsJobProcess
         finally
         {
             CloseHandle(job);
+        }
+    }
+
+    /// 带 KILL_ON_JOB_CLOSE 的 Job Object；singleProcess 时再加 ActiveProcessLimit = 1。失败返回 0。
+    private static nint CreateJob(bool singleProcess)
+    {
+        var job = CreateJobObjectW(0, null);
+        if (job == 0) return 0;
+        var info = new JobObjectExtendedLimitInformation
+        {
+            BasicLimitInformation = new JobObjectBasicLimitInformation
+            {
+                LimitFlags = JobObjectLimitKillOnJobClose | (singleProcess ? JobObjectLimitActiveProcess : 0),
+                ActiveProcessLimit = singleProcess ? 1u : 0u,
+            },
+        };
+        if (SetInformationJobObject(job, JobObjectExtendedLimitInformationClass, ref info,
+                (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>()))
+        {
+            return job;
+        }
+        CloseHandle(job);
+        return 0;
+    }
+
+    internal enum LineResult { Line, Eof, Timeout }
+
+    /// 起在 Job Object 里的子进程，一问一答地用：往 stdin 写一行，逐行读 stdout。
+    /// Dispose 先关 Job（KILL_ON_JOB_CLOSE 杀掉整棵进程树），再注销 OwnProcesses
+    /// 登记、关管道。stderr 一直排空，免得子进程写满管道卡住。
+    [SupportedOSPlatform("windows")]
+    internal sealed class Conversation : IDisposable
+    {
+        private readonly nint _job;
+        private readonly Child _child;
+        private readonly StreamReader _reader;
+        private Task<string?>? _pending;
+        private bool _inputClosed;
+        private bool _disposed;
+
+        private Conversation(nint job, Child child, Encoding encoding)
+        {
+            _job = job;
+            _child = child;
+            _reader = new StreamReader(child.Output, encoding);
+            _ = child.Error.CopyToAsync(Stream.Null).ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
+        }
+
+        /// 起不来返回 null。singleProcess：ActiveProcessLimit = 1，子进程自己再起进程会被内核拒绝。
+        internal static Conversation? Start(ProcessStartInfo start, bool singleProcess,
+            Func<Func<bool>, bool>? permitLaunch = null)
+        {
+            var job = CreateJob(singleProcess);
+            if (job == 0) return null;
+            Child? child = null;
+            Conversation? result = null;
+            try
+            {
+                child = Child.Start(job, start, permitLaunch);
+                if (child is not null) result = new Conversation(job, child, start.StandardOutputEncoding ?? new UTF8Encoding(false));
+            }
+            catch
+            {
+            }
+            if (result is null)
+            {
+                CloseHandle(job); // 先关 Job 杀进程，再释放管道。
+                child?.Dispose();
+            }
+            return result;
+        }
+
+        /// 写一行（UTF-8、不带 BOM）；管道已断开返回 false。
+        internal bool WriteLine(string line)
+        {
+            if (_inputClosed) return false;
+            try
+            {
+                var bytes = new UTF8Encoding(false).GetBytes(line + "\n");
+                _child.Input.Write(bytes, 0, bytes.Length);
+                _child.Input.Flush();
+                return true;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+
+        /// 关掉 stdin：子进程读到 EOF。
+        internal void CloseInput()
+        {
+            if (_inputClosed) return;
+            _inputClosed = true;
+            try { _child.Input.Dispose(); } catch (IOException) { }
+        }
+
+        /// 读一行 stdout，最多等 timeout。超时不丢数据：这一行还在读，下一次接着等。
+        internal LineResult ReadLine(TimeSpan timeout, out string? line, CancellationToken ct = default)
+        {
+            line = null;
+            _pending ??= ReadLineObserved();
+            try
+            {
+                if (!_pending.Wait(timeout < TimeSpan.Zero ? TimeSpan.Zero : timeout, ct)) return LineResult.Timeout;
+            }
+            catch (OperationCanceledException)
+            {
+                return LineResult.Timeout;
+            }
+            catch (AggregateException)
+            {
+                _pending = null;
+                return LineResult.Eof;
+            }
+            line = _pending.Result;
+            _pending = null;
+            return line is null ? LineResult.Eof : LineResult.Line;
+        }
+
+        private async Task<string?> ReadLineObserved()
+        {
+            try { return await _reader.ReadLineAsync(); }
+            catch (Exception error) when (error is IOException or ObjectDisposedException) { return null; }
+        }
+
+        /// 进程自己退出了就返回 true；超时、取消返回 false。
+        internal bool WaitForExit(TimeSpan timeout, CancellationToken ct = default) =>
+            WindowsJobProcess.WaitForExit(_child.Process, timeout, ct);
+
+        internal int? ExitCode => WaitForSingleObject(_child.Process, 0) == 0 && GetExitCodeProcess(_child.Process, out var code)
+            ? (int)code : null;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            CloseHandle(_job); // 整棵进程树随 Job 一起死。
+            _child.Dispose();
         }
     }
 

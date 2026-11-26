@@ -13,7 +13,7 @@ public sealed class UsageStore : INotifyPropertyChanged
 {
     public static UsageStore Shared { get; } = new();
 
-    private const string CacheKey = "UsageStore.lastSuccessfulUsage.v1";
+    internal const string CacheKey = "UsageStore.lastSuccessfulUsage.v1";
     // A property, not a static readonly field: Shared is constructed before
     // later static fields are set, so the restore below read a zero age
     // limit and dropped every saved snapshot.
@@ -109,12 +109,12 @@ public sealed class UsageStore : INotifyPropertyChanged
                 // Refresh's own guard against overlap would swallow this one:
                 // wait again rather than lose it.
                 if (Loading && Clock() - _refreshStartedAt < TimeSpan.FromMinutes(2)
-                    && (!ClaudeShown() || _refreshFetchesClaude) && (!CodexShown() || _refreshFetchesCodex))
+                    && (!ClaudeNeeded() || _refreshFetchesClaude) && (!CodexShown() || _refreshFetchesCodex))
                 {
                     DeferEventRefresh();
                     return;
                 }
-                Refresh();
+                RefreshForEvent();
             });
         });
     }
@@ -170,7 +170,74 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     // Test seams: what a refresh calls out to.
     internal Func<CancellationToken, Task<AppUsage>> CodexFetcher { get; set; } = UsageFetcher.FetchCodex;
-    internal Func<CancellationToken, Task<AppUsage>> ClaudeFetcher { get; set; } = UsageFetcher.FetchClaude;
+    internal Func<CancellationToken, Task<AppUsage>> ClaudeFetcher
+    {
+        get => _claudeFetcher;
+        set { _claudeFetcher = value; ClaudeGateEnabled = false; }
+    }
+
+    private Func<CancellationToken, Task<AppUsage>> _claudeFetcher = DefaultClaudeFetcher;
+
+    /// Windows 上 Claude 额度走 ClaudeUsageProbe（claude 自己报），Mac 继续走 FetchClaude
+    /// 直接读接口。旧的刷新和写回路径 Windows 上不再调用，代码先留着，第 4 批再删。
+    private static Task<AppUsage> DefaultClaudeFetcher(CancellationToken ct) =>
+        OperatingSystem.IsWindows() ? ClaudeUsageProbe.Fetch(ct) : UsageFetcher.FetchClaude(ct);
+
+    /// 只有默认的 Windows 探测才受门控管：Claude 没开着不探测，终端登录期间不探测，
+    /// 每个轮询周期最多一次。换了 ClaudeFetcher（测试）就关掉；要测门控本身时再显式打开。
+    internal bool ClaudeGateEnabled { get; set; } = OperatingSystem.IsWindows();
+
+    /// Test seam: whether Claude Desktop or Claude Code is open. 默认读 AgentSurfaces。
+    internal Func<bool> ClaudeSurfaceOpen { get; set; } = AgentSurfaces.ClaudeMayBeOpen;
+
+    /// 这一轮需不需要 Claude 的数据：显示着，且（门控没开，或 Claude 开着并且不在终端登录）。
+    private bool ClaudeNeeded() =>
+        ClaudeShown() && (!ClaudeGateEnabled || (!ClaudeReauthInProgress && ClaudeSurfaceOpen()));
+
+    /// Test seam: the poll interval the probe's cycle limit is read against.
+    internal Func<TimeSpan> ClaudeProbeInterval { get; set; } = () => TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
+
+    private DateTimeOffset? _lastClaudeProbeAt;
+    private DateTimeOffset? _probeAtBeforeRefresh;
+
+    /// 这一次探测被取消或跳过了，不占这个周期的名额：回到上一次的值（只在它还是最新一次时）。
+    private void RevertProbe(DateTimeOffset startedAt, DateTimeOffset? before)
+    {
+        if (_lastClaudeProbeAt == startedAt) _lastClaudeProbeAt = before;
+    }
+
+    /// 终端登录开始：门控开着（Windows 探测）时，取消登录前起的探测，结果不要了。
+    /// 门控关着（Mac 的 FetchClaude）时不取消，免得把进行中的取数打成错误。
+    internal void BeginClaudeReauth()
+    {
+        ClaudeReauthInProgress = true;
+        if (ClaudeGateEnabled) _claudeCts?.Cancel();
+    }
+
+    /// 第一次扫描进程表完成：启动时因为没有读数而没探测的，Claude 开着就补一次。
+    private void OnSurfacesFirstRead() => UiThread.Post(OnClaudeSurfacesRead);
+
+    internal void OnClaudeSurfacesRead()
+    {
+        if (ClaudeGateEnabled) Refresh(fetchClaude: true, fetchCodex: false);
+    }
+    private CancellationTokenSource? _claudeCts;
+
+    /// 手动刷新两次探测之间至少隔这么久。
+    internal static readonly TimeSpan ManualProbeFloor = TimeSpan.FromSeconds(60);
+
+    /// 每个轮询周期最多探测一次：轮询和额度重置时刻的补拉按周期来。
+    /// 轮询的 tick 恰好隔一个周期，留 10% 余量，免得被自己的计时误差挡掉。
+    /// 唤醒和网络恢复走它们自己的 2 分钟间隔（EventRefreshFloor），不受周期限制。
+    /// 用户点“刷新”不受周期限制，但两次探测至少隔 ManualProbeFloor。
+    private bool WithinProbeCycle(bool viaEvent, bool manual)
+    {
+        if (!ClaudeGateEnabled || viaEvent || _lastClaudeProbeAt is not { } last) return false;
+        var gap = manual ? ManualProbeFloor : ClaudeProbeInterval() * 0.9;
+        var elapsed = Clock() - last;
+        // 系统时钟往回调时 elapsed 为负：不算在周期内，免得探测被卡住。
+        return elapsed >= TimeSpan.Zero && elapsed < gap;
+    }
     internal Func<string?> CodexLogin { get; set; } = CodexCredentials.CurrentLogin;
     internal Func<bool> ClaudeShown { get; set; } = () => true;
     internal Func<bool> CodexShown { get; set; } = () => true;
@@ -191,7 +258,7 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     /// Set while `claude /login` runs in a terminal; the UI hides the
     /// re-auth button during this window so users don't double-tap.
-    public bool ClaudeReauthInProgress { get => _claudeReauthInProgress; private set { _claudeReauthInProgress = value; Raise(nameof(ClaudeReauthInProgress)); } }
+    public bool ClaudeReauthInProgress { get => _claudeReauthInProgress; internal set { _claudeReauthInProgress = value; Raise(nameof(ClaudeReauthInProgress)); } }
     public bool CodexReauthInProgress { get => _codexReauthInProgress; private set { _codexReauthInProgress = value; Raise(nameof(CodexReauthInProgress)); } }
 
     /// Label the auto-switcher rotated to most recently, shown on the Codex
@@ -216,6 +283,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     public void RefreshAfterCodexSwitch()
     {
         var claudeToo = Loading && _refreshFetchesClaude;
+        // 被取消的探测不占这个周期的名额。
+        if (claudeToo && _lastClaudeProbeAt == _refreshStartedAt) _lastClaudeProbeAt = _probeAtBeforeRefresh;
         _refreshCts?.Cancel();
         Loading = false;
         Refresh(fetchClaude: claudeToo, fetchCodex: true);
@@ -223,11 +292,33 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     public void Refresh() => Refresh(fetchClaude: true, fetchCodex: true);
 
+    /// 唤醒、网络恢复和它们被 2 分钟间隔挡住后的补刷。
+    private void RefreshForEvent() => Refresh(fetchClaude: true, fetchCodex: true, viaEvent: true);
+
     /// Fetches only the shown providers among those asked for. A hidden agent's
     /// quota queries, token refreshes and account rotations stay completely off.
-    internal void Refresh(bool fetchClaude, bool fetchCodex = true)
+    private int _skipRetryPending;
+
+    /// 被取消的探测还在收尾，这一次落空了：等它收尾后补取一次 Claude，每次落空只补一次。
+    /// 不补的话唤醒、网络恢复、换号这类“马上补一次”的刷新就白跑了，要等下一个周期。
+    private void RetryAfterSkip(bool viaEvent, bool manual)
     {
-        var wantClaude = fetchClaude && ClaudeShown();
+        if (Interlocked.Exchange(ref _skipRetryPending, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try { await ClaudeUsageProbe.Idle().ConfigureAwait(false); }
+            catch { }
+            UiThread.Post(() =>
+            {
+                Interlocked.Exchange(ref _skipRetryPending, 0);
+                Refresh(fetchClaude: true, fetchCodex: false, viaEvent: viaEvent, manual: manual);
+            });
+        });
+    }
+
+    internal void Refresh(bool fetchClaude, bool fetchCodex = true, bool viaEvent = false, bool manual = false)
+    {
+        var wantClaude = fetchClaude && ClaudeNeeded() && !WithinProbeCycle(viaEvent, manual);
         var wantCodex = fetchCodex && CodexShown();
 
         // Self-heal instead of early-return when a refresh has been "in
@@ -245,7 +336,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         }
         if (Loading)
         {
-            wantClaude |= _refreshFetchesClaude && ClaudeShown();
+            wantClaude |= _refreshFetchesClaude && ClaudeNeeded();
             wantCodex |= _refreshFetchesCodex && CodexShown();
         }
 
@@ -262,10 +353,17 @@ public sealed class UsageStore : INotifyPropertyChanged
         Loading = true;
         _refreshStartedAt = Clock();
         // Only a refresh of everything the make-up would fetch makes it unnecessary.
-        if ((!ClaudeShown() || wantClaude) && (!CodexShown() || wantCodex)) CancelDeferred();
+        if ((!ClaudeNeeded() || wantClaude) && (!CodexShown() || wantCodex)) CancelDeferred();
         _refreshFetchesClaude = wantClaude;
         _refreshFetchesCodex = wantCodex;
-        if (wantClaude) LastAttemptedAt = _refreshStartedAt;
+        var startedAt = _refreshStartedAt;
+        var probeAtBefore = _lastClaudeProbeAt;
+        if (wantClaude)
+        {
+            LastAttemptedAt = _refreshStartedAt;
+            _probeAtBeforeRefresh = probeAtBefore;
+            _lastClaudeProbeAt = _refreshStartedAt;
+        }
         if (wantCodex) CodexAttemptedAt = _refreshStartedAt;
         _refreshCts?.Cancel();
         var cts = new CancellationTokenSource();
@@ -274,6 +372,9 @@ public sealed class UsageStore : INotifyPropertyChanged
         // starts; if another is signed in by the time they land, they are
         // another account's.
         var codexLogin = wantCodex ? CodexLogin() : null;
+        // Claude 的探测单独带一个 token：终端登录开始时只取消它，不连累同一轮里的 Codex。
+        var claudeCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+        _claudeCts = claudeCts;
         _refreshTask = Task.Run(async () =>
         {
             try
@@ -284,9 +385,15 @@ public sealed class UsageStore : INotifyPropertyChanged
                 // fetchers retry a transient network failure themselves; a
                 // failed reply (429, 403, a lost sign-in) is never asked again.
                 var codexTask = wantCodex ? CodexFetcher(cts.Token) : null;
-                var claudeTask = wantClaude ? ClaudeFetcher(cts.Token) : null;
+                var claudeTask = wantClaude ? ClaudeFetcher(claudeCts.Token) : null;
                 var codexResult = codexTask is null ? null : await codexTask;
                 var claudeResult = claudeTask is null ? null : await claudeTask;
+                // 上一个被取消的探测还在收尾，这一次没有探测：当作没取。
+                if (ReferenceEquals(claudeResult, ClaudeUsageProbe.Skipped))
+                {
+                    claudeResult = null;
+                    RetryAfterSkip(viaEvent, manual);
+                }
 
                 await UiThread.InvokeAsync(() =>
                 {
@@ -296,21 +403,26 @@ public sealed class UsageStore : INotifyPropertyChanged
                     // clearing it would let a third refresh start mid-flight.
                     if (cts.IsCancellationRequested)
                     {
+                        if (wantClaude) RevertProbe(startedAt, probeAtBefore);
                         if (ReferenceEquals(_refreshCts, cts)) Loading = false;
                         return;
                     }
 
-                    var commitClaude = claudeResult is not null && ClaudeShown();
+                    // 终端登录开始时还在跑的探测，结果不要：登录一结束就会重新取。
+                    var commitClaude = claudeResult is not null && ClaudeShown()
+                        && !(ClaudeGateEnabled && ClaudeReauthInProgress);
                     var commitCodex = codexResult is not null && CodexShown()
                         && string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
+                    if (wantClaude && !commitClaude) RevertProbe(startedAt, probeAtBefore);
                     if (commitCodex) _codexFailed = IsErrorOnly(codexResult!);
-                    if (commitClaude) _claudeFailed = IsErrorOnly(claudeResult!);
+                    if (commitClaude) _claudeFailed = ClaudeFailed(claudeResult!);
                     var mergedCodex = commitCodex ? CommitCodex(codexResult!, codexLogin) : Codex;
-                    if (commitClaude) Claude = MergedUsage(Claude, claudeResult!);
+                    if (commitClaude) ShowClaude(claudeResult!);
                     if (commitClaude || commitCodex)
                     {
                         SaveSnapshot(Claude, mergedCodex, commitClaude, commitCodex, _codexLogin);
                     }
+                    if (commitClaude && IsNoSubscription(claudeResult!)) ClearSavedClaude();
                     RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
                     var now = DateTimeOffset.Now;
                     if (commitClaude) RecordSuccessfulUpdate(claude: true, claudeResult!, now);
@@ -410,6 +522,47 @@ public sealed class UsageStore : INotifyPropertyChanged
         usage.FiveHour.Error is not null && usage.Weekly.Error is not null
         && usage.FiveHour.UsedPercent == 0 && usage.Weekly.UsedPercent == 0;
 
+    /// 当前登录没有订阅额度（有账号但没订阅，或根本没有账号）：旧数字多半是上一个账号的。
+    private static bool IsNoSubscription(AppUsage usage) =>
+        usage.FiveHour.Error is ClaudeUsageProbe.NoSubscriptionMessage or ClaudeUsageProbe.NoAccountMessage
+        && usage.Weekly.Error == usage.FiveHour.Error;
+
+    /// 页脚的“Claude stale”：没订阅、没账号、没装 Claude Code 都不是取数失败。
+    private static bool ClaudeFailed(AppUsage usage) =>
+        IsErrorOnly(usage) && !IsNoSubscription(usage) && usage.FiveHour.Error != ClaudeUsageProbe.NotInstalledMessage;
+
+    /// 显示一次 Claude 的结果。没有订阅额度时不保留旧数字，显示“—”；其他失败保留快照。
+    private void ShowClaude(AppUsage fetched)
+    {
+        if (IsNoSubscription(fetched))
+        {
+            Claude = fetched;
+            ClaudeUpdatedAt = null;
+        }
+        else
+        {
+            Claude = MergedUsage(Claude, fetched);
+        }
+    }
+
+    /// Test seam: 磁盘快照里的 Claude 那部分清掉，Codex 部分保留。
+    internal Action ClearSavedClaude { get; set; } = ClearCachedClaude;
+
+    internal static void ClearCachedClaude()
+    {
+        var existing = LoadCachedSnapshot();
+        if (existing is null) return;
+        Preferences.Set(CacheKey, new UsageCacheSnapshot
+        {
+            Claude = AppUsage.Empty,
+            Codex = existing.Codex,
+            UpdatedAt = existing.UpdatedAt,
+            ClaudeUpdatedAt = null,
+            CodexUpdatedAt = existing.CodexUpdatedAt,
+            CodexLogin = existing.CodexLogin,
+        });
+    }
+
     private static AppUsage MergedUsage(AppUsage existing, AppUsage fetched) =>
         UsageCachePolicy.Merged(existing, fetched);
 
@@ -460,7 +613,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         LastUpdated = now;
     }
 
-    private static UsageCacheSnapshot? LoadCachedSnapshot()
+    internal static UsageCacheSnapshot? LoadCachedSnapshot()
     {
         var snapshot = Preferences.Get<UsageCacheSnapshot?>(CacheKey);
         if (snapshot is null) return null;
@@ -529,7 +682,8 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (Trigger.CLILocator.PathFor(TriggerTool.Claude) is not { } cli) return false;
         var initialStamp = ClaudeCredentials.CredentialsModificationStamp();
         if (!TerminalLauncher.RunVisible(cli, "/login", "Limen — Claude login")) return false;
-        ClaudeReauthInProgress = true;
+        // 登录前起的探测，结果不要了；登录结束那一次重新取。
+        BeginClaudeReauth();
         _ = Task.Run(async () =>
         {
             try
@@ -553,15 +707,22 @@ public sealed class UsageStore : INotifyPropertyChanged
         return true;
     }
 
-    private async Task FinishClaudeReauth()
+    internal async Task FinishClaudeReauth()
     {
-        var fetched = await UsageFetcher.FetchClaude();
+        var fetched = await ClaudeFetcher(CancellationToken.None);
+        // 登录前起的探测被取消后还在自己收尾：等它结束再取，最多十几秒。
+        for (var wait = 0; wait < 12 && ReferenceEquals(fetched, ClaudeUsageProbe.Skipped); wait++)
+        {
+            await Delay(TimeSpan.FromSeconds(2), CancellationToken.None);
+            fetched = await ClaudeFetcher(CancellationToken.None);
+        }
+        if (ReferenceEquals(fetched, ClaudeUsageProbe.Skipped)) fetched = AppUsage.ErrorPair(ClaudeUsageProbe.NoResponseMessage);
         await UiThread.InvokeAsync(() =>
         {
-            var merged = MergedUsage(Claude, fetched);
-            Claude = merged;
-            SaveCachedSnapshot(merged, Codex, fetchedClaude: true, fetchedCodex: false, _codexLogin);
-            _claudeFailed = IsErrorOnly(fetched);
+            ShowClaude(fetched);
+            SaveCachedSnapshot(Claude, Codex, fetchedClaude: true, fetchedCodex: false, _codexLogin);
+            if (IsNoSubscription(fetched)) ClearSavedClaude();
+            _claudeFailed = ClaudeFailed(fetched);
             RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
             LastAttemptedAt = DateTimeOffset.Now;
             RecordSuccessfulUpdate(claude: true, fetched, LastAttemptedAt.Value);
@@ -595,6 +756,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         Model.ProviderVisibilityStore.Shared.PropertyChanged += OnVisibilityChanged;
         _visibilityMonitorArmed = true;
         if (OperatingSystem.IsWindows()) ArmSystemEvents();
+        AgentSurfaces.FirstReading += OnSurfacesFirstRead;
         Refresh();
         ArmTimer();
         ArmResetEdgeTimer();
@@ -620,6 +782,7 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     public void StopAutoRefresh()
     {
+        AgentSurfaces.FirstReading -= OnSurfacesFirstRead;
         CancelDeferred();
         _pollTimer?.Stop();
         _pollTimer = null;
@@ -712,7 +875,7 @@ public sealed class UsageStore : INotifyPropertyChanged
             // for up to 2 minutes — supersede it outright.
             _refreshCts?.Cancel();
             Loading = false;
-            Refresh();
+            RefreshForEvent();
         });
     }
 
@@ -793,7 +956,7 @@ public sealed class UsageStore : INotifyPropertyChanged
             {
                 try { await task; } catch { }
             }
-            Refresh();
+            RefreshForEvent();
         }
         catch
         {

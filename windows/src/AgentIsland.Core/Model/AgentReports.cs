@@ -184,7 +184,7 @@ public static class AgentReports
                 // refresh still asks at most once a minute.
                 if (UsageStore.Shared.LastAttemptedAt is not { } lastClaude || DateTimeOffset.Now - lastClaude > TimeSpan.FromMinutes(1))
                 {
-                    UsageStore.Shared.Refresh(fetchClaude: true, fetchCodex: false);
+                    UsageStore.Shared.Refresh(fetchClaude: true, fetchCodex: false, manual: true);
                 }
                 break;
             case DisplayProvider.Codex:

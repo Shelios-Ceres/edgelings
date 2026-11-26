@@ -271,6 +271,15 @@ public static class AgentSurfaces
             }
         }
 
+        /// 扫描过至少一次。没扫过时 Current 和“全关着”一样是空的，要靠它分开。
+        public bool Seen
+        {
+            get
+            {
+                lock (_gate) return _seen;
+            }
+        }
+
         /// 还没有读到过确定结果的入口。
         public IReadOnlySet<AgentSurface> Unknown
         {
@@ -280,8 +289,19 @@ public static class AgentSurfaces
             }
         }
 
+        /// 第一次扫描完成时触发一次（在锁外、扫描的线程上）。
+        public event Action? FirstObserved;
+
         /// 返回这一轮有没有入口切换。集合都是整体替换，读的一方拿到的不会再变。
         public bool Observe(Reading reading)
+        {
+            var first = false;
+            var changed = ObserveLocked(reading, ref first);
+            if (first) FirstObserved?.Invoke();
+            return changed;
+        }
+
+        private bool ObserveLocked(Reading reading, ref bool first)
         {
             lock (_gate)
             {
@@ -312,6 +332,7 @@ public static class AgentSurfaces
                     }
                     else _pending.Add(surface);
                 }
+                first = !_seen;
                 _seen = true;
                 var changed = !next.SetEquals(_current);
                 _current = next;
@@ -330,4 +351,30 @@ public static class AgentSurfaces
     public static IReadOnlySet<AgentSurface> Undecided => Shared.Unknown;
 
     public static bool IsOpen(AgentSurface surface) => Current.Contains(surface);
+
+    /// Claude（桌面应用或 Claude Code）是不是开着，供探测额度前的门控用。还没有读数时先不探测
+    /// （等第一次扫描，超过 NoReadingGrace 还没有就按开着算）；任一入口无法判定时按开着算：
+    /// 宁可多探一次，也不要因为判不准就不更新额度。
+    public static bool ClaudeMayBeOpen() => ClaudeMayBeOpen(Shared, Clock.Elapsed);
+
+    /// 第一次扫描完成。启动时先不探测，等有了读数再补一次（见 UsageStore）。
+    public static event Action? FirstReading
+    {
+        add => Shared.FirstObserved += value;
+        remove => Shared.FirstObserved -= value;
+    }
+
+    /// 从第一次用到 AgentSurfaces 起计时：启动这么久还没有任何读数，就按开着算，免得永远不探测。
+    private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+
+    internal static readonly TimeSpan NoReadingGrace = TimeSpan.FromSeconds(60);
+
+    internal static bool ClaudeMayBeOpen(Tracker tracker, TimeSpan sinceStart)
+    {
+        if (!tracker.Seen) return sinceStart >= NoReadingGrace;
+        var open = tracker.Current;
+        var unknown = tracker.Unknown;
+        return open.Contains(AgentSurface.ClaudeApp) || open.Contains(AgentSurface.ClaudeCode)
+            || unknown.Contains(AgentSurface.ClaudeApp) || unknown.Contains(AgentSurface.ClaudeCode);
+    }
 }
