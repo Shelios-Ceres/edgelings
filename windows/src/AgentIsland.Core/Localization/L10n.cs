@@ -446,6 +446,7 @@ public static class L10n
         ["Models"] = "模型",
         ["Models, last 5 hours"] = "模型（最近 5 小时）",
         ["no price"] = "无价格",
+        ["free"] = "免费",
         ["No sessions in this period"] = "这段时间没有会话",
         ["No sessions in the last 5 hours"] = "最近 5 小时没有会话",
         ["Tokens per hour (no price)"] = "每小时 Token（无价格）",

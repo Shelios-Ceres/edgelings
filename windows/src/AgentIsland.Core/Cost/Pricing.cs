@@ -193,6 +193,11 @@ public static class Pricing
     public static bool IsKnown(string model) =>
         Table.ContainsKey(CanonicalModelName(model)) || Dated.ContainsKey(CanonicalModelName(model));
 
+    /// A model its maker gives away (Codex's auto-review): known, and every rate is zero.
+    public static bool IsFree(string model) =>
+        Table.TryGetValue(CanonicalModelName(model), out var price)
+        && price is { Input: 0, Output: 0, CacheCreation: 0, CacheRead: 0, CacheCreation1h: null or 0 };
+
     /// A log's model id trimmed to the longest price key that equals it or
     /// is a prefix of it ending at a dash ("gemini-4-argon-trial" prices as
     /// "gemini-4-argon"). An id no key reaches stays as it is.

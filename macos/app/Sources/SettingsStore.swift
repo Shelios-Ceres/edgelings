@@ -82,6 +82,7 @@ struct ModelRow: Decodable {
     let tokens: Int64
     let dollars: Double
     let unpriced: Bool
+    let free: Bool?
 }
 
 struct PeriodUsage: Decodable {
@@ -277,7 +278,7 @@ enum UIStrings {
         "Input + output (excluding cache reads)", "All tokens (including cache)",
         "Startup", "Launch at login", "Language", "App language", "English", "About", "Thanks", "Crash log", "Open folder", "Quit Limen", "Quit",
         "Today", "This month", "On", "Off", "Switch", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
-        "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price",
+        "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price", "free",
         "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
         "Account", "Look", "Save current account…", "Auto-switch when exhausted", "No saved accounts yet", "Remove saved account",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",

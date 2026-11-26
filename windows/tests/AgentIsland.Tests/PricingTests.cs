@@ -141,5 +141,8 @@ public static class PricingTests
         Rate("gpt-5.3-codex-spark", 1.75, 14, 1.75, 0.175);
         Expect(Pricing.IsKnown("codex-auto-review"), "codex-auto-review is known (free Guardian reviewer)");
         Expect(Math.Abs(Million("codex-auto-review")) < 1e-9, "codex-auto-review bills $0");
+        Expect(Pricing.IsFree("codex-auto-review"), "codex-auto-review is marked free");
+        Expect(!Pricing.IsFree("gpt-5.4"), "a priced model is not free");
+        Expect(!Pricing.IsFree("some-unknown-model"), "a model with no price is not free, it is unpriced");
     }
 }

@@ -339,6 +339,7 @@ public static class SettingsApi
             json.WriteNumber("tokens", billable ? model.BillableTokens : model.Tokens);
             json.WriteNumber("dollars", model.Dollars);
             json.WriteBoolean("unpriced", model.Dollars == 0 && model.Tokens > 0 && !Pricing.IsKnown(model.Model));
+            json.WriteBoolean("free", Pricing.IsFree(model.Model));
             json.WriteEndObject();
         }
         json.WriteEndArray();

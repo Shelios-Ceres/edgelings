@@ -249,7 +249,8 @@ struct UsageAgentCard: View {
                         HStack {
                             SkinText(pixel: store.skin == .pixel, text: model.name, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text"), lines: 1)
                             Spacer()
-                            let price = !part.dollars ? "" : model.unpriced ? "  ·  " + store.t("no price") : "  ·  " + money(model.dollars)
+                            let price = !part.dollars ? "" : model.unpriced ? "  ·  " + store.t("no price")
+                                : "  ·  " + money(model.dollars) + (model.free == true ? " " + store.t("free") : "")
                             SkinText(pixel: store.skin == .pixel, text: compact(model.tokens) + price, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
                         }
                     }

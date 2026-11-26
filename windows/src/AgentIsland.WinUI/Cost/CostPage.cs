@@ -556,7 +556,8 @@ internal sealed partial class CostPage : IDisposable
                     modelName.FontSize = 12;
                 }
                 line.Children.Add(modelName);
-                var price = !slice.Dollars ? "" : Unpriced(model) ? "  ·  " + L10n.Tr("no price") : "  ·  " + Formatting.Money(model.Dollars);
+                var price = !slice.Dollars ? "" : Unpriced(model) ? "  ·  " + L10n.Tr("no price")
+                    : "  ·  " + Formatting.Money(model.Dollars) + (Pricing.IsFree(model.Model) ? " " + L10n.Tr("free") : "");
                 var amount = new TextBlock
                 {
                     Text = Formatting.CompactTokens(billable ? model.BillableTokens : model.Tokens) + price,
