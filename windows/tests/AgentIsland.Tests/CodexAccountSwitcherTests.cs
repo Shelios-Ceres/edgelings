@@ -234,7 +234,7 @@ public static class CodexAccountSwitcherTests
         var incoming = fixture.Save("incoming", Credential("incoming", "saved"));
         fixture.Live(Credential("current", "fresh"));
         fixture.Save("current", Credential("current", "fresh"));
-        var released = HeldFile.For(fixture.LivePath, TimeSpan.FromMilliseconds(150));
+        var released = HeldFile.Timed(fixture.LivePath, TimeSpan.FromMilliseconds(150));
         var activated = CodexAccountSwitcher.Activate(incoming, fixture.Home);
         released.Wait();
         Expect(activated, "the switch waited out a program holding auth.json open");
