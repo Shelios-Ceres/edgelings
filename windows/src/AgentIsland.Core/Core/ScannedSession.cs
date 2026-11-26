@@ -38,6 +38,17 @@ public sealed record ScannedSession(
     /// it is abandoned when that app has no process left (AgentProcesses.DesktopGone).
     public bool DesktopHosted { get; init; }
 
+    /// 这个会话下的子任务（subagent、workflow、swarm、子对话）。子任务不进平铺的会话列表，
+    /// 所以运行数、“轮到你”和 LatestSessions 都看不到它们。只有不在 Idle 的会话才展开，
+    /// 没有子任务或读不到时为空。
+    public IReadOnlyList<TaskNode> Children { get; init; } = Array.Empty<TaskNode>();
+
+    /// 没有展开的子任务数：超过每层上限（TaskTrees.MaxNodesPerList）或读取上限的部分。
+    public int ChildrenOmitted { get; init; }
+
+    /// 没展开的里面确定在跑或在等你的数量（下限）。
+    public int ChildrenOmittedRunning { get; init; }
+
     /// Files waiting unread in the session's mailbox, newest last.
     public IReadOnlyList<MailFile> UnreadMail { get; init; } = Array.Empty<MailFile>();
 }

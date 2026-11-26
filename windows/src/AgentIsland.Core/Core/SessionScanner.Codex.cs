@@ -25,14 +25,27 @@ public static partial class SessionScanner
 
         var titles = CodexTitleIndex();
         var output = new List<ScannedSession>();
+        var children = new List<CodexChild>();
         foreach (var path in files)
         {
             if (CachedCodexMeta(path) is not { } meta || string.IsNullOrEmpty(meta.Sid)) continue;
-            var (sid, cwd, kind) = meta;
+            var (sid, cwd, kind) = (meta.Sid, meta.Cwd, meta.Kind);
             // Neither machine tier ever surfaces: automation runs have no
             // human in them at all, and subagent fan-out finishes constantly
-            // without anyone's turn coming up.
-            if (kind is CodexRolloutKind.Automation or CodexRolloutKind.Subagent) continue;
+            // without anyone's turn coming up. They are not sessions, but a
+            // spawned thread with a parent hangs under that parent as a task
+            // (guardian auto-reviews never do).
+            if (kind is CodexRolloutKind.Automation or CodexRolloutKind.Subagent)
+            {
+                if (kind == CodexRolloutKind.Subagent && meta.ParentId.Length > 0 && meta.ThreadSource != GuardianReview)
+                {
+                    children.Add(new CodexChild(
+                        sid, meta.ParentId,
+                        titles.TryGetValue(sid, out var childTitle) ? childTitle : meta.Nickname,
+                        meta.Role.Length > 0 ? meta.Role : null, path, mtimes[path]));
+                }
+                continue;
+            }
             var state = SessionState(path, now, lastWorking, null, SessionTurnState.Codex);
             output.Add(new ScannedSession(
                 TriggerTool.Codex,
@@ -50,8 +63,11 @@ public static partial class SessionScanner
             });
             if (output.Count >= MonitoringCodexLimit) break;
         }
+        if (TaskTreesEnabled) AttachCodexChildren(output, children, now);
         return output;
     }
+
+    private const string GuardianReview = "guardian_review";
 
     internal enum CodexRolloutKind
     {
@@ -60,10 +76,20 @@ public static partial class SessionScanner
         Automation,
     }
 
+    /// session_meta 里扫描要用的几项。ParentId：payload.parent_thread_id，
+    /// 或 source.subagent.thread_spawn.parent_thread_id；ThreadSource 是 payload.thread_source。
+    internal readonly record struct CodexMetaInfo(string Sid, string Cwd, CodexRolloutKind Kind)
+    {
+        public string ParentId { get; init; } = "";
+        public string ThreadSource { get; init; } = "";
+        public string Nickname { get; init; } = "";
+        public string Role { get; init; } = "";
+    }
+
     /// Reads the first JSONL line in full. Codex's `session_meta` is line 1
     /// but can be tens of KB (it embeds the full base instructions), so keep
     /// pulling chunks until the first newline.
-    private static (string Sid, string Cwd, CodexRolloutKind Kind)? CodexMeta(string path)
+    private static CodexMetaInfo? CodexMeta(string path)
     {
         byte[] firstLine;
         try
@@ -99,7 +125,7 @@ public static partial class SessionScanner
     /// threads share the interactive codex originator, so the source field
     /// is the only thing separating a fan-out worker from the user's own
     /// thread — without it every finished subagent reads as the user's turn.
-    internal static (string Sid, string Cwd, CodexRolloutKind Kind)? ParseCodexMeta(string firstLine)
+    internal static CodexMetaInfo? ParseCodexMeta(string firstLine)
     {
         using var doc = Jsonl.TryParseLine(firstLine);
         if (doc is null) return null;
@@ -135,7 +161,21 @@ public static partial class SessionScanner
             kind = CodexRolloutKind.Automation;
         }
 
-        return (Jsonl.GetString(payload, "id") ?? "", Jsonl.GetString(payload, "cwd") ?? "", kind);
+        var spawn = payload.TryGetProperty("source", out var spawnSource)
+            && spawnSource.ValueKind == System.Text.Json.JsonValueKind.Object
+            && Jsonl.GetObject(spawnSource, "subagent") is { } spawnedBy
+            && Jsonl.GetObject(spawnedBy, "thread_spawn") is { } threadSpawn
+            ? threadSpawn : (System.Text.Json.JsonElement?)null;
+        return new CodexMetaInfo(Jsonl.GetString(payload, "id") ?? "", Jsonl.GetString(payload, "cwd") ?? "", kind)
+        {
+            ParentId = Jsonl.GetString(payload, "parent_thread_id")
+                ?? (spawn is { } s1 ? Jsonl.GetString(s1, "parent_thread_id") : null) ?? "",
+            ThreadSource = Jsonl.GetString(payload, "thread_source") ?? "",
+            Nickname = (Jsonl.GetString(payload, "agent_nickname")
+                ?? (spawn is { } s2 ? Jsonl.GetString(s2, "agent_nickname") : null) ?? "").Trim(),
+            Role = (Jsonl.GetString(payload, "agent_role")
+                ?? (spawn is { } s3 ? Jsonl.GetString(s3, "agent_role") : null) ?? "").Trim(),
+        };
     }
 
     private sealed record TitleIndex(string Stamp, Dictionary<string, string> Titles);
@@ -180,12 +220,12 @@ public static partial class SessionScanner
         return output;
     }
 
-    private static readonly ScanCache<(string Sid, string Cwd, CodexRolloutKind Kind)> CodexMetas = new();
+    private static readonly ScanCache<CodexMetaInfo> CodexMetas = new();
 
     /// A rollout's session_meta is its first line, written once, so each
     /// file's is read once. A line still being written parses as nothing and
     /// is read again next time.
-    private static (string Sid, string Cwd, CodexRolloutKind Kind)? CachedCodexMeta(string path)
+    private static CodexMetaInfo? CachedCodexMeta(string path)
     {
         if (CodexMetas.TryGet(path, out var known)) return known;
         if (CodexMeta(path) is not { } meta) return null;

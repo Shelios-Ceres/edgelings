@@ -22,7 +22,9 @@ public static partial class SessionScanner
             // conversation: nobody is ever "up" in it.
             if (desktop is null && IsSdkTranscript(path)) continue;
             var cwd = desktop?.Cwd is { Length: > 0 } dc ? dc : TranscriptCwd(path);
+            // 主会话名：桌面应用的 title → 记录里的 custom-title / agent-name / last-prompt → 目录名。
             var title = desktop?.Title ?? "";
+            if (string.IsNullOrEmpty(title) && TaskTreesEnabled) title = ClaudeTranscriptTitle(path);
             var state = ClaudeSessionState(path, now, lastWorking, desktop);
             // An archived session is one the user put away: it may still run,
             // but a finished or failed turn in it never asks for them.
@@ -43,6 +45,7 @@ public static partial class SessionScanner
                 TurnFailed = EndedInError(path, state.Status, SessionTurnState.Claude, widen: true),
             });
         }
+        if (TaskTreesEnabled) AttachClaudeChildren(output, desktopSessions, now);
         return output;
     }
 
@@ -166,6 +169,12 @@ public static partial class SessionScanner
         public IReadOnlyList<string> PriorCliSessionIds { get; init; } = Array.Empty<string>();
 
         public DateTimeOffset? CreatedAt { get; init; }
+
+        /// 桌面应用自己的会话 id（local_ 开头），spawnedFrom 指向的就是它。
+        public string SessionId { get; init; } = "";
+
+        /// 这个会话是从哪个会话派生出来的（spawnedFrom.sessionId），没有则为空。
+        public string SpawnedFromSessionId { get; init; } = "";
     }
 
     private static IEnumerable<string> EnumerateDesktopSessionFiles() =>
@@ -200,6 +209,9 @@ public static partial class SessionScanner
             {
                 PriorCliSessionIds = prior,
                 CreatedAt = createdMs is { } c ? DateTimeOffset.FromUnixTimeMilliseconds((long)c) : null,
+                SessionId = Jsonl.GetString(root, "sessionId") ?? "",
+                SpawnedFromSessionId = Jsonl.GetObject(root, "spawnedFrom") is { } origin
+                    ? Jsonl.GetString(origin, "sessionId") ?? "" : "",
             };
         }
         catch

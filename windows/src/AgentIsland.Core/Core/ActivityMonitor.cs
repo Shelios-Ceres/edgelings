@@ -280,7 +280,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         {
             // A desktop-hosted session follows its app's process; every other follows its CLI's.
             ActivityState.Working or ActivityState.NetworkTrouble when (session.DesktopHosted ? desktopGone is { } d && d.Contains(session.Tool) : gone.Contains(session.Tool)) =>
-                session with { Status = ActivityState.Idle, PendingPrompt = null },
+                // 进程没了，会话已被放弃：它的子任务也不再展示。
+                session with { Status = ActivityState.Idle, PendingPrompt = null, Children = Array.Empty<TaskNode>(), ChildrenOmitted = 0, ChildrenOmittedRunning = 0 },
             ActivityState.Working when offline => session with { Status = ActivityState.NetworkTrouble },
             _ => session,
         });

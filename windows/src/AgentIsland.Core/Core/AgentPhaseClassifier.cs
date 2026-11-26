@@ -46,6 +46,43 @@ public static class AgentPhaseClassifier
         }
     }
 
+    /// 子任务记录（Claude 的 subagent / workflow agent）此刻在做什么。和 Classify 的区别：
+    /// 整份记录都是它自己的对话，不看权限弹窗的 hook（hook 记的是主会话）。
+    /// 读不到时返回 null。
+    private static readonly Dictionary<string, (long Ticks, long Size, PhaseReading Reading)> ChildReadings =
+        new(StringComparer.Ordinal);
+
+    internal static PhaseReading? ClassifyClaudeAgent(string transcriptPath, DateTimeOffset now)
+    {
+        try
+        {
+            var info = new FileInfo(transcriptPath);
+            var ticks = info.LastWriteTimeUtc.Ticks;
+            var size = info.Length;
+            var key = transcriptPath;
+            lock (ChildReadings)
+            {
+                if (ChildReadings.TryGetValue(key, out var cached) && cached.Ticks == ticks && cached.Size == size)
+                    return Age(cached.Reading, now);
+            }
+            var reading = ClaudeAgent(ReadTail(transcriptPath), BeforeAnyLine);
+            lock (ChildReadings)
+            {
+                if (ChildReadings.Count > 2048) ChildReadings.Clear();
+                ChildReadings[key] = (ticks, size, reading);
+            }
+            return Age(reading, now);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// A clock before any transcript line: read against it nothing has aged
     /// yet, and Age applies the real clock afterwards.
     private static readonly DateTimeOffset BeforeAnyLine = DateTimeOffset.MinValue;
@@ -97,7 +134,14 @@ public static class AgentPhaseClassifier
         return Aged(reading, now);
     }
 
-    public static PhaseReading Claude(IReadOnlyList<string> lines, DateTimeOffset now)
+    public static PhaseReading Claude(IReadOnlyList<string> lines, DateTimeOffset now) =>
+        ClaudeCore(lines, now, sidechainIsTheConversation: false);
+
+    /// 子任务（subagent、workflow agent）自己的记录：每一行都带 isSidechain，整份都是它的对话。
+    public static PhaseReading ClaudeAgent(IReadOnlyList<string> lines, DateTimeOffset now) =>
+        ClaudeCore(lines, now, sidechainIsTheConversation: true);
+
+    private static PhaseReading ClaudeCore(IReadOnlyList<string> lines, DateTimeOffset now, bool sidechainIsTheConversation)
     {
         var results = new HashSet<string>();
         DateTimeOffset? resultAt = null;
@@ -110,7 +154,7 @@ public static class AgentPhaseClassifier
             if (root.ValueKind != JsonValueKind.Object) continue;
             // Subagent traffic interleaved into the main transcript is not
             // what the main session is doing.
-            if (Jsonl.GetBool(root, "isSidechain") == true) continue;
+            if (!sidechainIsTheConversation && Jsonl.GetBool(root, "isSidechain") == true) continue;
             var at = Jsonl.ParseIso8601(Jsonl.GetString(root, "timestamp"));
             var stepDone = resultAt is not null || inCalls;
             switch (Jsonl.GetString(root, "type"))

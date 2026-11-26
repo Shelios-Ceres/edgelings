@@ -95,8 +95,10 @@ public static partial class SessionScanner
                 var cwd = KimiMemoryRuns.SessionCwd(Path.Combine(sessionDir, "state.json"));
                 if (KimiMemoryRuns.IsMemoryFolder(cwd)) continue;
                 var state = SessionState(wire, now, lastWorking, null, SessionTurnState.Kimi);
+                // 主会话名：state.json 的 title → lastPrompt → 目录名。
+                var stateInfo = KimiState(Path.Combine(sessionDir, "state.json"));
                 var session = new ScannedSession(
-                    TriggerTool.Kimi, sid, cwd, Fallback(cwd, sid),
+                    TriggerTool.Kimi, sid, cwd, TaskTreesEnabled ? KimiLabel(stateInfo, cwd, sid) : Fallback(cwd, sid),
                     state.Modified, state.Status, wire, state.TurnKey, SessionLaunchTarget.Cli)
                 {
                     TurnEnded = state.TurnEnded,
@@ -113,7 +115,27 @@ public static partial class SessionScanner
                     };
                 }
                 live ??= KimiLiveSessions.Read(now);
-                output.Add(live.TryGetValue(name, out var report) ? KimiLiveSessions.Apply(session, report) : session);
+                if (live.TryGetValue(name, out var report)) session = KimiLiveSessions.Apply(session, report);
+                // 只展开不在 Idle 的会话的任务树；放在桌面应用的报告之后，它可能把静默的会话改回在跑。
+                if (TaskTreesEnabled && session.Status != ActivityState.Idle)
+                {
+                    try
+                    {
+                        var (nodes, omitted, omittedRunning) = KimiChildren(sessionDir, stateInfo, now);
+                        if (nodes.Count > 0 || omitted > 0)
+                            session = session with
+                            {
+                                Children = TaskTrees.Cap(nodes),
+                                ChildrenOmitted = omitted,
+                                ChildrenOmittedRunning = omittedRunning,
+                            };
+                    }
+                    catch (Exception error) when (IsExpansionFault(error))
+                    {
+                        // 子任务读不到：会话照常显示。
+                    }
+                }
+                output.Add(session);
             }
         }
         return output;

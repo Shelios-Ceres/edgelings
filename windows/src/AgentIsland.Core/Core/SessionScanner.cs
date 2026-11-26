@@ -257,6 +257,7 @@ public static partial class SessionScanner
         AntigravityHistories.Clear();
         GrokTitles.Clear();
         _codexTitles = new("", new());
+        ClearTaskCaches();
     }
 
     // MARK: - Scan caches

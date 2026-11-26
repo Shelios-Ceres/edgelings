@@ -64,6 +64,64 @@ public static class Program
             }
             return 0;
         }
+        if (args.Length > 0 && args[0] == "scanprofile")
+        {
+            // 对本机真实文件跑几轮 MonitoringScan，打印 CoreProfile 各格耗时（只有数字）。
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            SessionScanner.TaskTreesEnabled = !(args.Length > 2 && args[2] == "off");
+            var profileRounds = args.Length > 1 && int.TryParse(args[1], out var n) ? n : 4;
+            var roundMs = new List<double>();
+            for (var i = 0; i < profileRounds; i++)
+            {
+                var roundStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                var sessions = SessionScanner.MonitoringScan(DateTimeOffset.UtcNow, new Dictionary<string, DateTimeOffset>());
+                roundMs.Add(System.Diagnostics.Stopwatch.GetElapsedTime(roundStart).TotalMilliseconds);
+                if (i == 0)
+                {
+                    Console.WriteLine($"sessions: {sessions.Count}, children: {sessions.Sum(s => TaskTrees.Count(s.Children))}, omitted: {sessions.Sum(s => s.ChildrenOmitted)}");
+                    // 只数个数：种类、状态、有没有 phase、层级，不输出名字。
+                    foreach (var group in sessions.SelectMany(s => TaskTrees.Flatten(s.Children).Select(n => (s.Tool, n)))
+                        .GroupBy(item => (item.Tool, item.n.Kind, item.n.State, Phase: item.n.Phase?.Phase.ToString() ?? "-", item.n.Level)))
+                    {
+                        Console.WriteLine($"  {group.Key.Tool} {group.Key.Kind} {group.Key.State} phase={group.Key.Phase} level={group.Key.Level}: {group.Count()}");
+                    }
+                }
+            }
+            var warm = roundMs.Skip(1).Order().ToList();
+            Console.WriteLine($"whole scan: cold {roundMs[0]:0} ms, warm median {warm[warm.Count / 2]:0} ms (rounds 2..{roundMs.Count})");
+            foreach (var row in CoreProfile.Snapshot())
+            {
+                Console.WriteLine($"{row.Name,-26} {row.Count,3} runs  {row.TotalMs / Math.Max(1, row.Count),9:0.0} ms each  worst {row.WorstMs,8:0.0} ms");
+            }
+            return 0;
+        }
+        if (args.Length > 0 && args[0] == "taskheavy")
+        {
+            // 最坏情况：把本机 subagent 最多的几个父记录当作“刚在跑”来展开（now 取它最新文件之后一分钟）。
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            var parents = IslandPaths.ClaudeProjectRoots.Where(Directory.Exists)
+                .SelectMany(root => Directory.EnumerateDirectories(root))
+                .SelectMany(project => Directory.EnumerateDirectories(project))
+                .Select(dir => (Dir: dir, Files: Directory.Exists(Path.Combine(dir, "subagents"))
+                    ? Directory.EnumerateFiles(Path.Combine(dir, "subagents"), "agent-*.jsonl", SearchOption.AllDirectories).Count() : 0))
+                .OrderByDescending(item => item.Files).Take(4).ToList();
+            foreach (var (dir, files) in parents)
+            {
+                var transcript = dir + ".jsonl";
+                if (!File.Exists(transcript)) continue;
+                var newest = Directory.EnumerateFiles(Path.Combine(dir, "subagents"), "agent-*.jsonl", SearchOption.AllDirectories)
+                    .Min(f => File.GetLastWriteTimeUtc(f));
+                var at = new DateTimeOffset(newest).AddMinutes(1);
+                for (var pass = 0; pass < 2; pass++)
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var (nodes, omitted, _) = SessionScanner.ClaudeOwnChildren(transcript, at);
+                    sw.Stop();
+                    Console.WriteLine($"agent files {files}, pass {pass}: {sw.ElapsedMilliseconds} ms, nodes {TaskTrees.Count(nodes)}, omitted {omitted}, transcript {new FileInfo(transcript).Length / 1048576} MB");
+                }
+            }
+            return 0;
+        }
         if (args.Length > 0 && args[0] == "scanbench")
         {
             // Time repeated full MonitoringScans against this machine's real
@@ -166,6 +224,7 @@ public static class Program
                 ("ShellHooksTests", ShellHooksTests.RunAll, null),
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
                 ("StateGroupsTests", StateGroupsTests.RunAll, null),
+                ("TaskTreeTests", TaskTreeTests.RunAll, null),
                 ("PixelChineseTests", PixelChineseTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
                 ("RefreshGrantsTests", RefreshGrantsTests.RunAll, null),
