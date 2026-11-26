@@ -64,11 +64,10 @@ public sealed class KimiUsageStore : GuestUsageStore
 
     public void KickRefresh() => Kick(MinAttemptGap);
 
-    /// Kimi Code signing in again is when its usage can be read: the CLI's
-    /// access tokens last 15 minutes and are renewed only while it works,
-    /// and the desktop app's server answers only while it is open. Checked
-    /// on the monitor's tick — two file stamps, no request — so opening
-    /// either one syncs within seconds instead of at the next refresh.
+    /// Kimi Code's desktop app opening (or signing in again) is when its usage
+    /// can be read: only its local server answers, and only while the app is
+    /// open. Checked on the monitor's tick — two file stamps, no request — so
+    /// opening the app syncs within seconds instead of at the next refresh.
     public void NoticeSignIn()
     {
         if (!ProviderVisibilityStore.Shared.IsShown(DisplayProvider.Kimi)) return;
@@ -98,10 +97,10 @@ public sealed class KimiUsageStore : GuestUsageStore
                 LastUpdated = DateTimeOffset.Now;
                 Preferences.Set(CacheKey, new KimiCachedSnapshot { Snapshot = success.Snapshot, UpdatedAt = DateTimeOffset.Now });
                 break;
-            case KimiUsageFetcher.Outcome.SignInStale:
+            case KimiUsageFetcher.Outcome.ServerUnavailable:
                 // With numbers in hand the row already says when they were
-                // synced, and the next time Kimi Code signs in syncs them
-                // again; the tip is only for a card with nothing to show.
+                // synced, and they refresh when Kimi Code's app opens again;
+                // the tip is only for a card with nothing to show.
                 ErrorCaption = Snapshot is null ? L10n.Tr("open Kimi Code to sync its plan usage") : null;
                 break;
             case KimiUsageFetcher.Outcome.Failed failed:

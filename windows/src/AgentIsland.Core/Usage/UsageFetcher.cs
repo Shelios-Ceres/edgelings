@@ -8,141 +8,35 @@ public static class UsageFetcher
 {
     // MARK: - Codex
 
-    /// Codex usage lives at chatgpt.com/backend-api/wham/usage and accepts
-    /// the access_token from ~/.codex/auth.json. The endpoint is reliable
-    /// and rarely rate-limited, so this is the easy half of the integration.
-    public static async Task<AppUsage> FetchCodex(CancellationToken ct = default)
-    {
-        if (ReadCodexAccessToken() is not { } token)
+    /// Codex 的额度来自它自己写进 rollout 的 token_count.rate_limits
+    /// （见 CodexRolloutQuota）：不联网、不读 token。login 是调用方已经拿到的
+    /// CodexCredentials.CurrentLogin() 的结果，这里不再读 auth.json。
+    /// 读 rollout 放到线程池上，不让同时发起的 Claude 请求等它。
+    public static Task<AppUsage> FetchCodex(string? login, CancellationToken ct = default) =>
+        Task.Run(() =>
         {
-            return AppUsage.ErrorPair("no codex auth");
-        }
-
-        try
-        {
-            using var response = await Http.SendRetryingTransient(() =>
+            // 已经取消：和旧行为一样返回一个结果（调用方自己会丢弃），不抛异常。
+            if (ct.IsCancellationRequested) return AppUsage.ErrorPair("cancelled");
+            try
             {
-                var request = new HttpRequestMessage(
-                    HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
-                request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-                return request;
-            }, ct);
-            var status = (int)response.StatusCode;
-
-            // 401 means the access_token has expired. The Codex CLI rotates
-            // this token on its own — surface the exact remediation step.
-            if (status == 401) return AppUsage.ErrorPair("auth expired — codex login");
-            if (status != 200) return AppUsage.ErrorPair($"http {status}");
-
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(ct));
-            // The payload gained credits/spend_control alongside the July
-            // 2026 weekly-only shape; only the fields below are read, so any
-            // additions are ignored by construction.
-            if (Jsonl.GetObject(doc.RootElement, "rate_limit") is not { } rateLimit)
-            {
-                return AppUsage.ErrorPair("parse error");
+                return CodexRolloutQuota.Fetch(
+                    new[] { IslandPaths.CodexSessionsRoot, IslandPaths.CodexArchivedSessionsRoot },
+                    login, CodexCredentials.AuthFileExists());
             }
-
-            // Banked rate-limit resets ("reset cards") — the escape hatches
-            // of the weekly-only era. Count from the usage payload; per-card
-            // detail from its own endpoint, best-effort (null keeps the
-            // count-only display).
-            int? resetCards = null;
-            if (Jsonl.GetObject(doc.RootElement, "rate_limit_reset_credits") is { } credits
-                && credits.TryGetProperty("available_count", out var available)
-                && available.ValueKind == JsonValueKind.Number)
+            catch (Exception error)
             {
-                resetCards = available.GetInt32();
+                return AppUsage.ErrorPair(error.Message);
             }
-            var details = await FetchResetCardDetails(token, ct);
-            resetCards ??= details?.Count;
+        });
 
-            return new AppUsage(
-                ParseCodexWindow(Jsonl.GetObject(rateLimit, "primary_window")),
-                ParseCodexWindow(Jsonl.GetObject(rateLimit, "secondary_window")),
-                Jsonl.GetString(doc.RootElement, "plan_type"),
-                resetCards,
-                details);
-        }
-        catch (Exception error)
-        {
-            return AppUsage.ErrorPair(ShortError(error, ct));
-        }
-    }
+    /// 调用方没有现成登录（macOS bridge）时自己取一次。
+    public static Task<AppUsage> FetchCodex(CancellationToken ct = default) =>
+        FetchCodex(CodexCredentials.CurrentLogin(), ct);
 
     /// Tile-sized caption for a transport failure that outlasted its retries
     /// (macOS shortError); anything else keeps its own message.
     private static string ShortError(Exception error, CancellationToken ct) =>
         Http.IsTransient(error, ct) ? L10n.Tr("network drop") : error.Message;
-
-    /// GET wham/rate-limit-reset-credits → the available cards, each with
-    /// OpenAI's own title ("Full reset") and expires_at. Returns null on any
-    /// failure so the caller keeps the count-only display.
-    private static async Task<IReadOnlyList<ResetCard>?> FetchResetCardDetails(
-        string token, CancellationToken ct)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get, "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits");
-            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-            using var response = await Http.Client.SendAsync(request, ct);
-            if ((int)response.StatusCode != 200) return null;
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(ct));
-            if (!doc.RootElement.TryGetProperty("credits", out var rows)
-                || rows.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-            var cards = new List<ResetCard>();
-            foreach (var row in rows.EnumerateArray())
-            {
-                if (Jsonl.GetString(row, "status") != "available") continue;
-                if (Jsonl.GetString(row, "id") is not { } id) continue;
-                var title = Jsonl.GetString(row, "title") ?? "Reset";
-                DateTimeOffset? expires = Jsonl.GetString(row, "expires_at") is { } iso
-                    && DateTimeOffset.TryParse(iso, out var parsed) ? parsed : null;
-                cards.Add(new ResetCard(id, title, expires));
-            }
-            return cards;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string? ReadCodexAccessToken()
-    {
-        try
-        {
-            var path = IslandPaths.CodexAuthFile;
-            if (!File.Exists(path)) return null;
-            // Shared with delete, so this read never blocks the account
-            // switcher's (or the CLI's) rename over auth.json.
-            using var stream = SharedFile.Open(path);
-            using var doc = JsonDocument.Parse(stream);
-            if (Jsonl.GetObject(doc.RootElement, "tokens") is not { } tokens) return null;
-            return Jsonl.GetString(tokens, "access_token");
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    internal static WindowUsage ParseCodexWindow(JsonElement? obj)
-    {
-        if (obj is not { } window) return WindowUsage.Unknown;
-        if (Jsonl.GetDouble(window, "used_percent") is not { } used) return WindowUsage.Unknown;
-        DateTimeOffset? resetAt = Jsonl.GetDouble(window, "reset_at") is { } epoch
-            ? DateTimeOffset.FromUnixTimeMilliseconds((long)(epoch * 1000))
-            : null;
-        // The payload states its own window length (604800s = the single
-        // weekly window Codex moved to in July 2026). Labels render from it.
-        var period = Jsonl.GetDouble(window, "limit_window_seconds");
-        return new WindowUsage(used / 100, resetAt, null, period) { Observed = true };
-    }
 
     // MARK: - Claude
 

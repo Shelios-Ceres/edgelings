@@ -134,6 +134,7 @@ public static class Program
                 ("UsageEventFloorTests", UsageEventFloorTests.RunAll, null),
                 ("ClaudeUsageProbeTests", ClaudeUsageProbeTests.RunAll, null),
                 ("CodexAutoSwitchReadingTests", CodexAutoSwitchReadingTests.RunAll, null),
+                ("CodexRolloutQuotaTests", CodexRolloutQuotaTests.RunAll, null),
                 ("CodexArchiveTests", CodexArchiveTests.RunAll, null),
                 ("CursorReplyClockTests", CursorReplyClockTests.RunAll, null),
                 ("UsageCachePolicyTests", UsageCachePolicyTests.RunAll, null),

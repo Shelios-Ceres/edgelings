@@ -53,6 +53,28 @@ public static class CodexCredentials
         return "token:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
     }
 
+    /// CurrentLogin 返回值里的账号和用户，用来对上 rollout 的 creator_account_id 和
+    /// creator_user_id（同一个 Team workspace 的成员 account 相同、user 不同）。
+    /// 登录只有 token 哈希、或没有登录时为 null；登录串没有 user 段时 User 为 null。
+    internal static CodexRolloutQuota.Identity? IdentityOf(string? login)
+    {
+        const string Prefix = "account:";
+        if (login is null || !login.StartsWith(Prefix, StringComparison.Ordinal)) return null;
+        var rest = login[Prefix.Length..];
+        var bar = rest.IndexOf('|');
+        var account = bar >= 0 ? rest[..bar] : rest;
+        if (account.Length == 0) return null;
+        var user = bar >= 0 && bar + 1 < rest.Length ? rest[(bar + 1)..] : null;
+        return new CodexRolloutQuota.Identity(account, user);
+    }
+
+    /// auth.json 在不在（只看文件在不在，不读内容）。
+    internal static bool AuthFileExists()
+    {
+        try { return File.Exists(IslandPaths.CodexAuthFile); }
+        catch { return false; }
+    }
+
     public static bool SpawnReauth()
     {
         if (Trigger.CLILocator.Locate("codex") is not { } cli) return false;

@@ -45,6 +45,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// footer warning is made from both, whichever one was just fetched.
     private bool _claudeFailed;
     private bool _codexFailed;
+    internal bool CodexRefreshFailed => _codexFailed;
 
     /// Accounts tried since the current exhaustion episode began; cleared the
     /// moment a reading comes back under 100%, so each episode walks the pool
@@ -150,7 +151,8 @@ public sealed class UsageStore : INotifyPropertyChanged
             ClaudeShown = () => Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Claude);
             CodexShown = () => Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex);
             SaveSnapshot = SaveCachedSnapshot;
-            AutoSwitch = MaybeAutoSwitchCodex;
+            // 自动换号暂时断开：Codex 额度改读 rollout 后，换号之后最新的读数仍是旧账号的
+            // 100%，会把所有存号轮一遍并反复重写 auth.json。整套留到第 4 批删除。
             BeforeRefresh = KickOtherProviders;
         }
         if (restore && LoadCachedSnapshot() is { } snapshot)
@@ -169,7 +171,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     }
 
     // Test seams: what a refresh calls out to.
-    internal Func<CancellationToken, Task<AppUsage>> CodexFetcher { get; set; } = UsageFetcher.FetchCodex;
+    /// 测试用：替换 Codex 取数。不设时用 store 已经拿到的登录去读 rollout。
+    internal Func<CancellationToken, Task<AppUsage>>? CodexFetcher { get; set; }
     internal Func<CancellationToken, Task<AppUsage>> ClaudeFetcher
     {
         get => _claudeFetcher;
@@ -391,8 +394,11 @@ public sealed class UsageStore : INotifyPropertyChanged
                 // request instead of letting it run to its own timeout. The
                 // fetchers retry a transient network failure themselves; a
                 // failed reply (429, 403, a lost sign-in) is never asked again.
-                var codexTask = wantCodex ? CodexFetcher(cts.Token) : null;
+                // Claude 的请求先发出去，不等 rollout 读完。
                 var claudeTask = wantClaude ? ClaudeFetcher(claudeCts.Token) : null;
+                var codexTask = wantCodex
+                    ? CodexFetcher?.Invoke(cts.Token) ?? UsageFetcher.FetchCodex(codexLogin, cts.Token)
+                    : null;
                 var codexResult = codexTask is null ? null : await codexTask;
                 var claudeResult = claudeTask is null ? null : await claudeTask;
                 // 上一个被取消的探测还在收尾，这一次没有探测：当作没取。
@@ -421,13 +427,14 @@ public sealed class UsageStore : INotifyPropertyChanged
                     var commitCodex = codexResult is not null && CodexShown()
                         && string.Equals(codexLogin, CodexLogin(), StringComparison.Ordinal);
                     if (wantClaude && !commitClaude) RevertProbe(startedAt, probeAtBefore);
-                    if (commitCodex) _codexFailed = IsErrorOnly(codexResult!);
+                    if (commitCodex) _codexFailed = CodexFailed(codexResult!);
                     if (commitClaude) _claudeFailed = ClaudeFailed(claudeResult!);
                     var mergedCodex = commitCodex ? CommitCodex(codexResult!, codexLogin) : Codex;
                     if (commitClaude) ShowClaude(claudeResult!);
                     if (commitClaude || commitCodex)
                     {
-                        SaveSnapshot(Claude, mergedCodex, commitClaude, commitCodex, _codexLogin);
+                        // NoData 没有取到任何新数字：不当作“刚取到”存盘，沿用原来的更新时间。
+                        SaveSnapshot(Claude, mergedCodex, commitClaude, commitCodex && !codexResult!.IsNoData, _codexLogin);
                     }
                     if (commitClaude && IsNoSubscription(claudeResult!)) ClearSavedClaude();
                     RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
@@ -569,6 +576,9 @@ public sealed class UsageStore : INotifyPropertyChanged
             CodexLogin = existing.CodexLogin,
         });
     }
+
+    /// "no data" 不是故障：Codex 还没有 rollout 时就是这样，不该弹出 "Codex stale"。
+    private static bool CodexFailed(AppUsage usage) => IsErrorOnly(usage) && !usage.IsNoData;
 
     private static AppUsage MergedUsage(AppUsage existing, AppUsage fetched) =>
         UsageCachePolicy.Merged(existing, fetched);
@@ -741,12 +751,12 @@ public sealed class UsageStore : INotifyPropertyChanged
     {
         // `codex login` may well sign in another account.
         var login = CodexLogin();
-        var fetched = await UsageFetcher.FetchCodex();
+        var fetched = await UsageFetcher.FetchCodex(login);
         await UiThread.InvokeAsync(() =>
         {
             var merged = CommitCodex(fetched, login);
-            SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: true, _codexLogin);
-            _codexFailed = IsErrorOnly(fetched);
+            SaveCachedSnapshot(Claude, merged, fetchedClaude: false, fetchedCodex: !fetched.IsNoData, _codexLogin);
+            _codexFailed = CodexFailed(fetched);
             RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
             CodexAttemptedAt = DateTimeOffset.Now;
             RecordSuccessfulUpdate(claude: false, fetched, CodexAttemptedAt.Value);

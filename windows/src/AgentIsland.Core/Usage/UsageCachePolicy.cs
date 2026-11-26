@@ -51,6 +51,9 @@ public static class UsageCachePolicy
     internal static AppUsage Merged(AppUsage existing, AppUsage fetched)
     {
         if (!fetched.IsErrorOnly || !HoldsNumbers(existing)) return fetched;
+        // "没有读数"（Codex 还没有 rollout）不是一次失败：不动已保留的窗口，
+        // 否则两窗口的 5h 会被标成单窗口的 "Week"。
+        if (fetched.IsNoData) return existing;
         var error = fetched.FiveHour.Error ?? fetched.Weekly.Error;
         WindowUsage Keep(WindowUsage window) => window.HasError && !window.Kept
             ? window with { Error = error }
@@ -66,7 +69,9 @@ public static class UsageCachePolicy
         !usage.IsErrorOnly || usage.FiveHour.Kept || usage.Weekly.Kept;
 
     internal static DateTimeOffset? SuccessfulUpdateAt(AppUsage fetched, DateTimeOffset? previous, DateTimeOffset now) =>
-        !fetched.FiveHour.HasError && (!fetched.Weekly.HasError || fetched.SecondaryMissing) ? now : previous;
+        !fetched.FiveHour.HasError && (!fetched.Weekly.HasError || fetched.SecondaryMissing)
+            ? (fetched.ObservedAt is { } observed && observed < now ? observed : now)
+            : previous;
 
     public static UsageCacheSnapshot? SnapshotForSave(
         AppUsage claude,
@@ -144,9 +149,10 @@ public static class UsageCachePolicy
                 // from cache hides the empty tile instead of showing 0%.
                 usage.SecondaryMissing ? usage.Weekly.Error : null,
                 usage.Weekly.PeriodSeconds) { Observed = usage.Weekly.Observed },
-            usage.Plan,
-            usage.ResetCards,
-            usage.ResetCardDetails);
+            usage.Plan)
+        {
+            ObservedAt = usage.ObservedAt,
+        };
     }
 
     private static bool HasUsageValues(AppUsage usage) =>
@@ -166,7 +172,7 @@ public static class UsageCachePolicy
     {
         if (wasFetched && CacheableCopy(current) is { } freshCopy)
         {
-            return (freshCopy, now, true);
+            return (freshCopy, freshCopy.ObservedAt is { } observed && observed < now ? observed : now, true);
         }
         if (existing is null || existingUpdatedAt is null) return null;
         if (CacheableCopy(existing) is not { } preservedCopy) return null;

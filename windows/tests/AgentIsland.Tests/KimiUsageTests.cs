@@ -19,8 +19,8 @@ public static class KimiUsageTests
         var tests = new (string Name, Action Test)[]
         {
             ("local quota: windows, plan and no booster", LocalQuota),
-            ("api payload: string ratios, absent weekly window, booster in cents", ApiPayload),
-            ("api payload: a ratio above one clamps", ClampsRatio),
+            ("local quota: a ratio above one clamps", ClampsRatio),
+            ("no local server: unavailable, and the stored token is never used", NoServerNoRequest),
             ("server: a fresh loopback instance is used", FreshLoopback),
             ("server: a remote host is refused", RemoteRefused),
             ("server: a stale heartbeat is refused", StaleRefused),
@@ -61,26 +61,34 @@ public static class KimiUsageTests
         Expect(snapshot.BoosterCents, null);
     }
 
-    private static void ApiPayload()
-    {
-        using var doc = JsonDocument.Parse("""
-            {"usages":{"limit_5h":{"used_ratio":"0.5","reset_time":"2026-10-11T15:00:00Z"},
-                       "limit_month_total":{"used_ratio":0.4}},
-             "boosterWallet":{"balance":{"type":"BOOSTER","amount":"5000000000","amountLeft":"1234000000"},
-                              "monthlyUsed":{"priceInCents":0,"currency":"CNY"}}}
-            """);
-        var snapshot = KimiUsageFetcher.FromApiPayload(doc.RootElement, null);
-        Expect(snapshot.FiveHour?.UsedPercent, 0.5);
-        Expect(snapshot.Weekly, null);
-        Expect(snapshot.Month?.UsedPercent, 0.4);
-        Expect(snapshot.BoosterCents, 1234L);
-        Expect(snapshot.BoosterCurrency, "CNY");
-    }
-
     private static void ClampsRatio()
     {
-        using var doc = JsonDocument.Parse("""{"usages":{"limit_7d":{"used_ratio":1.3}}}""");
-        Expect(KimiUsageFetcher.FromApiPayload(doc.RootElement, null).Weekly?.UsedPercent, 1.0);
+        using var doc = JsonDocument.Parse("""{"usages":{"limit7d":{"usedRatio":1.3}}}""");
+        Expect(KimiUsageFetcher.FromLocalQuota(doc.RootElement, null).Weekly?.UsedPercent, 1.0);
+    }
+
+    // 本机服务没开时，哪怕磁盘上有没过期的 access token，也不发任何请求、
+    // 不进入“需要登录”：只留下旧快照。
+    private static void NoServerNoRequest()
+    {
+        var home = Directory.CreateTempSubdirectory("limen-kimi-");
+        var previousHome = Environment.GetEnvironmentVariable("KIMI_CODE_HOME");
+        try
+        {
+            Environment.SetEnvironmentVariable("KIMI_CODE_HOME", home.FullName);
+            Directory.CreateDirectory(Path.Combine(home.FullName, "credentials"));
+            var expires = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
+            File.WriteAllText(Path.Combine(home.FullName, "credentials", "kimi-code.json"),
+                $$"""{"access_token":"fake-token","expires_at":{{expires}}}""");
+            var outcome = KimiUsageFetcher.Fetch().GetAwaiter().GetResult();
+            // 旧代码在这里会拿 token 去连外网，得到 Failed 或 Success。
+            Expect(outcome is KimiUsageFetcher.Outcome.ServerUnavailable, "no local server means unavailable, not failed");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("KIMI_CODE_HOME", previousHome);
+            home.Delete(true);
+        }
     }
 
     private static void FreshLoopback() =>

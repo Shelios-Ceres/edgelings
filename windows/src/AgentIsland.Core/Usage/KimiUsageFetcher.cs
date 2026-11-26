@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using AgentIsland.Core;
 
 namespace AgentIsland.Usage;
@@ -20,18 +19,20 @@ public sealed record KimiUsageSnapshot(
     long? BoosterCents,
     string? BoosterCurrency);
 
-/// Reads Kimi Code's plan usage the way Kimi Code itself does. The running
-/// app's local server is asked first (127.0.0.1, its own server.token): it
-/// refreshes its own sign-in before calling Kimi. Without it, the stored
-/// access token is used read-only while it is still valid. This never
-/// refreshes Kimi's tokens itself — Kimi Code signs out when a refresh token
-/// it holds is spent behind its back.
+/// Reads Kimi Code's plan usage the way Kimi Code itself does: from the
+/// running app's local server (127.0.0.1, its own server.token), which
+/// refreshes its own sign-in before calling Kimi. Without that server there
+/// is nothing to ask: Limen never holds Kimi's access token, never calls
+/// Kimi's cloud and never refreshes its tokens (Kimi Code signs out when a
+/// refresh token it holds is spent behind its back). The card then shows
+/// the last snapshot and when it was taken.
 public static class KimiUsageFetcher
 {
     public abstract record Outcome
     {
         public sealed record Success(KimiUsageSnapshot Snapshot) : Outcome;
-        public sealed record SignInStale : Outcome;
+        /// 本机服务没开：不请求任何地方，界面保留旧快照和时间。
+        public sealed record ServerUnavailable : Outcome;
         public sealed record Failed(string Message) : Outcome;
         public sealed record NotInstalled : Outcome;
     }
@@ -56,18 +57,7 @@ public static class KimiUsageFetcher
                 failure = error.Message;
             }
         }
-        if (StoredAccessToken() is { } token)
-        {
-            try
-            {
-                return new Outcome.Success(await FromApi(ApiBase(), token));
-            }
-            catch (Exception error) when (error is HttpRequestException or TaskCanceledException or JsonException or InvalidDataException)
-            {
-                failure = error.Message;
-            }
-        }
-        return failure is null ? new Outcome.SignInStale() : new Outcome.Failed(failure);
+        return failure is null ? new Outcome.ServerUnavailable() : new Outcome.Failed(failure);
     }
 
     // MARK: - Local server
@@ -203,85 +193,6 @@ public static class KimiUsageFetcher
             throw new InvalidDataException(Jsonl.GetString(root, "msg") ?? "local server error");
         }
         return data;
-    }
-
-    // MARK: - Kimi API with the stored token
-
-    /// The stored access token while it has a minute left; null otherwise.
-    private static string? StoredAccessToken()
-    {
-        try
-        {
-            var path = Path.Combine(Home, "credentials", "kimi-code.json");
-            if (!File.Exists(path)) return null;
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            var token = Jsonl.GetString(doc.RootElement, "access_token");
-            var expires = Jsonl.GetDouble(doc.RootElement, "expires_at") ?? 0;
-            var expiresAt = expires > 1e11
-                ? DateTimeOffset.FromUnixTimeMilliseconds((long)expires)
-                : DateTimeOffset.FromUnixTimeSeconds((long)expires);
-            return token is { Length: > 0 } && expiresAt - DateTimeOffset.UtcNow > TimeSpan.FromMinutes(1) ? token : null;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentOutOfRangeException)
-        {
-            return null;
-        }
-    }
-
-    /// Kimi Code's managed base URL from its config; only Kimi's own two
-    /// hosts are accepted, so the token is never sent anywhere else.
-    private static string ApiBase()
-    {
-        try
-        {
-            var config = File.ReadAllText(Path.Combine(Home, "config.toml"));
-            var match = Regex.Match(config, @"base_url\s*=\s*""(https://api\.kimi\.(?:com|ai)/coding/v1)/?""");
-            if (match.Success) return match.Groups[1].Value;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-        }
-        return "https://api.kimi.com/coding/v1";
-    }
-
-    private static async Task<KimiUsageSnapshot> FromApi(string baseUrl, string token)
-    {
-        using var usageDoc = await Get(Http.Client, $"{baseUrl}/usages", token);
-        string? plan = null;
-        try
-        {
-            using var me = await Get(Http.Client, $"{baseUrl}/me", token);
-            plan = Jsonl.GetString(me.RootElement, "user_level_name");
-        }
-        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or JsonException)
-        {
-        }
-        return FromApiPayload(usageDoc.RootElement, plan);
-    }
-
-    /// Kimi's /usages payload: snake_case windows with numeric or string
-    /// ratios, and the booster balance in fixed point (1e6 per cent).
-    internal static KimiUsageSnapshot FromApiPayload(JsonElement root, string? plan)
-    {
-        var usages = Jsonl.GetObject(root, "usages");
-        long? booster = null;
-        string? currency = null;
-        if (Jsonl.GetObject(root, "boosterWallet") is { } wallet
-            && Jsonl.GetObject(wallet, "balance") is { } balance
-            && Jsonl.GetString(balance, "type") == "BOOSTER"
-            && Number(balance, "amountLeft") is { } left)
-        {
-            booster = (long)Math.Round(left / 1e6);
-            currency = Jsonl.GetObject(wallet, "monthlyUsed") is { } used ? Jsonl.GetString(used, "currency") : null;
-        }
-        return new KimiUsageSnapshot(
-            Window(usages, "limit_5h", "used_ratio", "reset_time"),
-            Window(usages, "limit_7d", "used_ratio", "reset_time"),
-            Window(usages, "limit_month_total", "used_ratio", "reset_time"),
-            Window(usages, "limit_month_code", "used_ratio", "reset_time"),
-            plan,
-            booster,
-            currency);
     }
 
     // MARK: - Shared

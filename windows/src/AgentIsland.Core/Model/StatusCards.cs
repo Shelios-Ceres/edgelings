@@ -159,7 +159,7 @@ public static class StatusCards
         var usage = ProviderUsage.For(provider);
         var remaining = QuotaDisplayModeStore.Shared.ShowsRemaining;
         var now = DateTimeOffset.Now;
-        StatusMeter Meter(WindowUsage window, string label) => MeterFor(window, L10n.Tr(label), remaining, now);
+        StatusMeter Meter(WindowUsage window, string label) => MeterFor(window, L10n.Tr(label), remaining, now, AwaitingText(provider));
         return provider switch
         {
             DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
@@ -179,10 +179,14 @@ public static class StatusCards
     /// One window as the card shows it. Numbers kept through a failed refresh
     /// or a closed app still show until their observed window ends. A window
     /// that never loaded or has reset awaits a fresh reading.
-    internal static StatusMeter MeterFor(WindowUsage window, string label, bool showsRemaining, DateTimeOffset now)
+    /// 窗口等新读数时的说法：Codex 的读数只在用过 Codex 之后才会更新，要这样告诉用户。
+    internal static string AwaitingText(DisplayProvider provider) =>
+        provider == DisplayProvider.Codex ? L10n.Tr("Updates after you next use Codex") : L10n.Tr("Awaiting sync");
+
+    internal static StatusMeter MeterFor(WindowUsage window, string label, bool showsRemaining, DateTimeOffset now, string? awaitingText = null)
     {
         var current = window.At(now);
-        if (current.AwaitingSync) return new StatusMeter(label, "—", null, null, L10n.Tr("Awaiting sync"));
+        if (current.AwaitingSync) return new StatusMeter(label, "—", null, null, awaitingText ?? L10n.Tr("Awaiting sync"));
         if (current.HasError && !current.Kept) return new StatusMeter(label, "—", null, null);
         var shown = QuotaDisplayModeStore.DisplayValue(current.UsedPercent, showsRemaining);
         var value = Math.Round(shown);
@@ -253,7 +257,7 @@ public static class StatusCards
             L10n.TrFormat("{0} this month", month), month);
     }
 
-    /// Codex's banked reset cards and the account the auto-switcher last
+    /// The account the Codex auto-switcher last
     /// rotated to; Kimi Code's part of the monthly total it shares with the
     /// Kimi app, and its booster balance.
     public static IReadOnlyList<StatusPhrase> NoteParts(DisplayProvider provider)
@@ -262,14 +266,9 @@ public static class StatusCards
         var now = DateTimeOffset.Now;
         var monthEnded = provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now;
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
-        parts.AddRange(QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval));
+        parts.AddRange(QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval, AwaitingText(provider)));
         if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
         if (provider != DisplayProvider.Codex) return parts;
-        if (ProviderUsage.For(provider).ResetCards is > 0 and var cards)
-        {
-            var count = cards.ToString(CultureInfo.InvariantCulture);
-            parts.Add(Phrase(L10n.TrFormat(cards == 1 ? "{0} reset card" : "{0} reset cards", count), count));
-        }
         if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(Phrase(L10n.TrFormat("Auto-switched to {0}", account)));
         return parts;
     }
@@ -277,20 +276,20 @@ public static class StatusCards
     /// How old a card's quota numbers are.
     internal static IReadOnlyList<StatusPhrase> QuotaAges(
         (AppUsage Usage, DateTimeOffset? UpdatedAt, bool MonthEnded) own,
-        DateTimeOffset now, TimeSpan interval)
+        DateTimeOffset now, TimeSpan interval, string? awaitingText = null)
     {
         var ages = new List<StatusPhrase>();
-        if (QuotaAge(own.Usage, own.UpdatedAt, own.MonthEnded, now, interval) is { } age) ages.Add(age);
+        if (QuotaAge(own.Usage, own.UpdatedAt, own.MonthEnded, now, interval, awaitingText) is { } age) ages.Add(age);
         return ages;
     }
 
     /// Explain the wait at a reset boundary before showing an age for old
     /// numbers; the prior window cannot describe the new balance.
-    private static StatusPhrase? QuotaAge(AppUsage usage, DateTimeOffset? updatedAt, bool monthEnded, DateTimeOffset now, TimeSpan interval)
+    private static StatusPhrase? QuotaAge(AppUsage usage, DateTimeOffset? updatedAt, bool monthEnded, DateTimeOffset now, TimeSpan interval, string? awaitingText)
     {
         if (usage.FiveHour.At(now).AwaitingSync || usage.Weekly.At(now).AwaitingSync || monthEnded)
         {
-            return Phrase(L10n.Tr("Awaiting sync"));
+            return Phrase(awaitingText ?? L10n.Tr("Awaiting sync"));
         }
         if (updatedAt is not { } at
             || !QuotaIsStale(usage.FiveHour.Kept || usage.Weekly.Kept, at, now, interval))

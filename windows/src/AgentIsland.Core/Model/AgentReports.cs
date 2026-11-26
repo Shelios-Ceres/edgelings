@@ -101,7 +101,7 @@ public static class AgentReports
         if (provider is DisplayProvider.DeepSeek or DisplayProvider.Antigravity or DisplayProvider.Grok or DisplayProvider.Cursor) return L10n.Tr("Local sessions only — no quota to sync");
         return synced is { } stamp
             ? L10n.TrFormat("synced {0}", Formatting.RelativeAgo(DateTimeOffset.Now - stamp, L10n.IsChinese))
-            : L10n.Tr("Waiting for the first sync");
+            : provider == DisplayProvider.Codex ? L10n.Tr("Updates after you next use Codex") : L10n.Tr("Waiting for the first sync");
     }
 
     internal static IReadOnlyList<string> Warnings(DisplayProvider provider) =>
@@ -158,7 +158,7 @@ public static class AgentReports
         }
     }
 
-    private static bool MentionsAuthFailure(string? message) =>
+    internal static bool MentionsAuthFailure(string? message) =>
         message is not null
         && (message.Contains("auth", StringComparison.OrdinalIgnoreCase)
             || message.Contains("login", StringComparison.OrdinalIgnoreCase)

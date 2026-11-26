@@ -310,7 +310,7 @@ enum Sample {
             meters: [MeterModel(label: RenderText.t("5h"), value: "93%", shown: 0.93, used: 0.93, resets: nil),
                      MeterModel(label: RenderText.t("Week"), value: "61%", shown: 0.61, used: 0.61, resets: nil)],
             tokens: TokensModel(label: RenderText.t("Tokens"), today: RenderText.t("today") + " 310K", todayNumber: "310K", month: RenderText.t("{0} this month", "9.8M"), monthNumber: "9.8M"),
-            note: [PhraseModel(text: RenderText.t("{0} reset cards", "2"), lead: nil, numbers: ["2"])],
+            note: [],
             waiting: WaitingModel(more: 1, rows: [WaitingRowModel(title: "A session", word: RenderText.t(pixel ? "Approval" : "Needs OK"), kind: "approval"),
                                                   WaitingRowModel(title: "Another session", word: RenderText.t(pixel ? "Question" : "Asking"), kind: "question")]))
     }

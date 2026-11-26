@@ -131,7 +131,7 @@ public static class SettingsApi
             json.WriteEndObject();
 
             json.WriteStartObject("codex");
-            json.WriteBoolean("autoSwitch", CodexAccountSwitcher.AutoSwitchEnabled);
+            json.WriteBoolean("autoSwitch", false); // 自动换号已断开，第 4 批删
             if (CodexAccountSwitcher.ActiveLabel() is { } active) json.WriteString("active", active);
             json.WriteStartArray("accounts");
             foreach (var account in CodexAccountSwitcher.Accounts())
@@ -224,7 +224,7 @@ public static class SettingsApi
             case "codexForget":
                 if (CodexAccountSwitcher.Accounts().FirstOrDefault(account => account.Label == label) is { } gone) CodexAccountSwitcher.Forget(gone);
                 break;
-            case "codexAuto": CodexAccountSwitcher.AutoSwitchEnabled = on; break;
+            case "codexAuto": break; // 自动换号已断开，第 4 批删
             default: return Json.Write(json => json.WriteString("error", $"unknown action '{action}'"));
         }
         return Json.Write(json =>

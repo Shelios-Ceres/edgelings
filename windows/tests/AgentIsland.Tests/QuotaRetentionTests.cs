@@ -133,14 +133,14 @@ public static class QuotaRetentionTests
         using var codex = JsonDocument.Parse("{\"used_percent\":0}");
         using var claude = JsonDocument.Parse("{\"utilization\":0}");
         using var missing = JsonDocument.Parse("{}");
-        var codexZero = UsageFetcher.ParseCodexWindow(codex.RootElement);
+        var codexZero = CodexRolloutQuota.Window(codex.RootElement);
         var claudeZero = UsageFetcher.ParseClaudeWindow(claude.RootElement, 5 * 3600);
         Expect(codexZero.Observed && !codexZero.HasError && claudeZero.Observed && !claudeZero.HasError,
             "both providers' explicit zero payloads count as observations without resets");
         Expect(UsageCachePolicy.CacheableCopy(new AppUsage(claudeZero, codexZero)) is not null,
             "an entirely zero successful response can be saved");
-        Expect(!UsageFetcher.ParseCodexWindow(missing.RootElement).Observed
-            && UsageFetcher.ParseCodexWindow(missing.RootElement).HasError
+        Expect(!CodexRolloutQuota.Window(missing.RootElement).Observed
+            && CodexRolloutQuota.Window(missing.RootElement).HasError
             && UsageFetcher.ParseClaudeWindow(missing.RootElement, 5 * 3600).HasError,
             "missing percentage fields cannot be fabricated as a successful zero");
     }

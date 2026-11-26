@@ -269,10 +269,7 @@ struct AgentCard: View {
                     }
                     menu.separator()
                     menu.item(store.t("Save current account…")) { saveAccount() }
-                    menu.item(store.t("Auto-switch when exhausted"), checked: codex?.autoSwitch == true) {
-                        store.send("agent", ["action": "codexAuto", "id": "codex", "on": !(codex?.autoSwitch ?? false)])
-                    }
-                    menu.note(store.t("Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban."))
+                    // 自动换号已断开，开关和风险提示先藏起来，第 4 批删
                     if !(codex?.accounts.isEmpty ?? true) {
                         menu.submenu(store.t("Remove saved account")) { sub in
                             for account in codex?.accounts ?? [] {

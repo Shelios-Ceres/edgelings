@@ -26,7 +26,6 @@ public static class ErrorDisplay
             ClaudeUsageProbe.NoReadingMessage => "这次没取到额度，请在 Claude Code 里重新登录",
             ClaudeUsageProbe.NoResponseMessage => "Claude Code 没有返回额度（可能需要更新）",
             "no codex auth" => "未找到 Codex 登录",
-            "auth expired — codex login" => "登录已过期——运行 codex login",
             "rate limited" => "已限流",
             "parse error" => "解析失败",
             "bad response" => "响应异常",

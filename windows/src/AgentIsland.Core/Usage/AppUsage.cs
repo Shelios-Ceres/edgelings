@@ -3,7 +3,7 @@ namespace AgentIsland.Usage;
 /// One rate-limit window as rendered in the UI. UsedPercent is normalized to
 /// [0, 1]; Error carries the caption shown in place of a value.
 /// PeriodSeconds is the window length as reported by the provider (Codex
-/// sends limit_window_seconds; Claude's windows are the documented 5h/7d).
+/// sends window_minutes; Claude's windows are the documented 5h/7d).
 /// It drives display labels, so when a provider changes its quota model —
 /// Codex replaced its 5-hour window with a single weekly one in July 2026 —
 /// the tile relabels itself instead of lying under a hardcoded "5h". null on
@@ -36,24 +36,25 @@ public sealed record WindowUsage(
     }
 }
 
-/// A banked Codex rate-limit reset ("reset card") — OpenAI's own title
-/// ("Full reset") plus when it stops being usable.
-public sealed record ResetCard(string Id, string Title, DateTimeOffset? ExpiresAt);
-
 /// Usage for one provider: the two window slots plus the plan tier ("max",
 /// "pro", ...) surfaced as the chip badge next to the provider name.
-/// ResetCards carries Codex's banked rate-limit resets (the count OpenAI
-/// reports in rate_limit_reset_credits.available_count); ResetCardDetails
-/// the per-card title/expiry from wham/rate-limit-reset-credits. null =
-/// provider doesn't report any (Claude, old caches).
+/// ObservedAt is when the provider itself reported these numbers, for a
+/// source that is read from disk and can be days old (Codex rollouts); null
+/// when the numbers were just fetched.
 public sealed record AppUsage(
     WindowUsage FiveHour,
     WindowUsage Weekly,
-    string? Plan = null,
-    int? ResetCards = null,
-    IReadOnlyList<ResetCard>? ResetCardDetails = null)
+    string? Plan = null)
 {
+    public DateTimeOffset? ObservedAt { get; init; }
+
     public static AppUsage Empty { get; } = new(WindowUsage.Unknown, WindowUsage.Unknown);
+
+    /// 提供方没有任何读数（不是出错）：两个槽位都是 "no data"。
+    public static AppUsage NoData => Empty;
+
+    /// 两个槽位都是 "no data"：提供方没有任何读数，不是出错。
+    public bool IsNoData => FiveHour.Error == "no data" && Weekly.Error == "no data";
 
     public static AppUsage ErrorPair(string message) => new(
         new WindowUsage(0, null, message),

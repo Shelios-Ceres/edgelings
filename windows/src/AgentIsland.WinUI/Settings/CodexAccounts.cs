@@ -88,10 +88,8 @@ internal static class CodexAccounts
             if (root() is { } xamlRoot) await SaveCurrent(xamlRoot);
         };
         menu.Items.Add(save);
-        var auto = new ToggleMenuFlyoutItem { Text = L10n.Tr("Auto-switch when exhausted"), IsChecked = CodexAccountSwitcher.AutoSwitchEnabled };
-        auto.Click += (_, _) => CodexAccountSwitcher.AutoSwitchEnabled = auto.IsChecked;
-        menu.Items.Add(auto);
-        menu.Items.Add(new MenuFlyoutItem { Text = L10n.Tr("Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban."), IsEnabled = false });
+        // 自动换号开关和风险提示先藏起来：Codex 额度改读 rollout 后自动换号已断开，
+        // 整套留到第 4 批删除。
         MenuHost.UseKit(menu);
     }
 
