@@ -137,8 +137,7 @@ public static class StatusCards
         Plan = AgentReports.Plan(provider),
     };
 
-    /// The note under a card, the agent's warning first. Grok's card carries
-    /// either app's warning (Cursor works under it).
+    /// The note under a card, the agent's warning first.
     private static IReadOnlyList<StatusPhrase> CardNotes(DisplayProvider provider)
     {
         var parts = NoteParts(provider).ToList();

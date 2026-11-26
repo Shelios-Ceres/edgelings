@@ -342,12 +342,15 @@ public static class RefreshGrantsTests
         {
             File.WriteAllText(path, Creds("old"));
             FileStream? holder = null;
+            Action? release = null;
+            var previousMove = AtomicReplace.MoveFile;
             AtomicReplace.ReplaceFile = (source, target, backup) =>
             {
                 // Signed in again in the gap; then something holds the new file so the displaced one cannot go back.
                 File.WriteAllText(path, Creds("someone-else"));
                 File.Replace(source, target, backup);
-                holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+                if (OperatingSystem.IsWindows()) holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+                else release = HeldFile.Refuse(path);
             };
             AtomicReplace.Result result;
             try
@@ -357,6 +360,8 @@ public static class RefreshGrantsTests
             finally
             {
                 holder?.Dispose();
+                release?.Invoke();
+                AtomicReplace.MoveFile = previousMove;
             }
             Expect(result == AtomicReplace.Result.Failed, $"the swap is not reported as settled, got {result}");
             var backups = Directory.GetFiles(directory, "*.bak-*");

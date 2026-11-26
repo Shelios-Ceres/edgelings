@@ -31,6 +31,9 @@ internal static class AtomicReplace
     /// Test seam: File.Replace.
     internal static Action<string, string, string> ReplaceFile = (source, target, backup) => File.Replace(source, target, backup);
 
+    /// Test seam: File.Move.
+    internal static Action<string, string, bool> MoveFile = (source, target, overwrite) => File.Move(source, target, overwrite);
+
     private enum Read
     {
         Ok,
@@ -206,7 +209,7 @@ internal static class AtomicReplace
         {
             try
             {
-                File.Move(backup, path, overwrite: true);
+                MoveFile(backup, path, true);
                 return true;
             }
             catch (Exception error) when (attempt < 4 && error is IOException or UnauthorizedAccessException)
@@ -227,7 +230,7 @@ internal static class AtomicReplace
     {
         try
         {
-            File.Move(tmp, path);
+            MoveFile(tmp, path, false);
             return true;
         }
         catch
@@ -235,7 +238,7 @@ internal static class AtomicReplace
         }
         try
         {
-            File.Move(backup, path);
+            MoveFile(backup, path, false);
         }
         catch
         {
@@ -312,12 +315,12 @@ internal static class AtomicReplace
             if (fresh == Read.Unreadable) return Restoration.Unsure;
             if (fresh == Read.Ok && isNew(freshRoot!))
             {
-                File.Move(copies.Tmp, credentialFile);
+                MoveFile(copies.Tmp, credentialFile, false);
                 TryDelete(copies.Backup);
             }
             else
             {
-                File.Move(copies.Backup, credentialFile);
+                MoveFile(copies.Backup, credentialFile, false);
                 TryDelete(copies.Tmp);
             }
             lock (InterruptedGate) Interrupted.Remove(credentialFile);

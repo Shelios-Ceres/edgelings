@@ -254,8 +254,6 @@ public static class SettingsApi
             json.WriteStartArray("agents");
             foreach (var provider in order)
             {
-                // Grok's rollup carries Cursor's tokens beside it, billed by Cursor's own plan.
-                var members = provider == DisplayProvider.Grok ? new[] { DisplayProvider.Grok, DisplayProvider.Cursor } : new[] { provider };
                 json.WriteStartObject();
                 json.WriteString("id", provider.RawValue());
                 json.WriteString("name", ProviderIdentity.DisplayName(provider));
@@ -266,58 +264,71 @@ public static class SettingsApi
                 json.WriteBoolean("defaultLook", wornLook == LookCatalog.For(DrawerStore.Shared.Theme, provider)[0]);
                 json.WriteString("look", wornLook.Id);
                 json.WriteStartArray("parts");
-                foreach (var member in members)
+                var summary = CostStore.Shared.Summary(provider);
+                // Cursor works under Grok's character: its tokens join Grok's numbers, unnamed, as on
+                // Windows (CostPage.CharacterSlice). Grok's card names no other app (the user's call, 2026-11-26).
+                var cursor = provider == DisplayProvider.Grok && visibility.IsDetected(DisplayProvider.Cursor)
+                    ? CostStore.Shared.Summary(DisplayProvider.Cursor)
+                    : null;
+                json.WriteStartObject();
+                json.WriteString("id", provider.RawValue());
+                json.WriteString("name", ProviderIdentity.DisplayName(provider));
+                json.WriteBoolean("dollars", true);
+                json.WriteBoolean("scanned", (summary.AsOf ?? cursor?.AsOf) is not null);
+                WritePeriod(json, "today", summary.TodayDollars,
+                    summary.TodayTokens + (cursor?.TodayTokens ?? 0), summary.TodayBillableTokens + (cursor?.TodayBillableTokens ?? 0),
+                    summary.TodayModels.Count > 0 ? summary.TodayModels : summary.RecentModels, provider, summary, billable);
+                WritePeriod(json, "week", summary.LastSevenDays.Dollars,
+                    summary.LastSevenDays.DailyTokens.Sum(d => d.Tokens) + (cursor?.LastSevenDays.DailyTokens.Sum(d => d.Tokens) ?? 0),
+                    summary.LastSevenDays.DailyTokens.Sum(d => d.BillableTokens) + (cursor?.LastSevenDays.DailyTokens.Sum(d => d.BillableTokens) ?? 0),
+                    summary.LastSevenDays.ByModel, provider, summary, billable);
+                WritePeriod(json, "month", summary.MonthDollars,
+                    summary.MonthTokens + (cursor?.MonthTokens ?? 0), summary.MonthBillableTokens + (cursor?.MonthBillableTokens ?? 0),
+                    summary.MonthModels, provider, summary, billable);
+                json.WriteStartArray("hourly");
+                for (var hour = 0; hour < summary.TodayHourlyTokens.Count; hour++)
                 {
-                    var summary = CostStore.Shared.Summary(member);
-                    json.WriteStartObject();
-                    json.WriteString("id", member.RawValue());
-                    json.WriteString("name", ProviderIdentity.DisplayName(member));
-                    json.WriteBoolean("dollars", member != DisplayProvider.Cursor);
-                    json.WriteBoolean("scanned", summary.AsOf is not null);
-                    WritePeriod(json, "today", summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens,
-                        summary.TodayModels.Count > 0 ? summary.TodayModels : summary.RecentModels, member, summary, billable);
-                    WritePeriod(json, "week", summary.LastSevenDays.Dollars,
-                        summary.LastSevenDays.DailyTokens.Sum(d => d.Tokens), summary.LastSevenDays.DailyTokens.Sum(d => d.BillableTokens),
-                        summary.LastSevenDays.ByModel, member, summary, billable);
-                    WritePeriod(json, "month", summary.MonthDollars, summary.MonthTokens, summary.MonthBillableTokens,
-                        summary.MonthModels, member, summary, billable);
-                    json.WriteStartArray("hourly");
-                    for (var hour = 0; hour < summary.TodayHourlyTokens.Count; hour++)
-                    {
-                        json.WriteNumberValue(billable ? summary.TodayHourlyBillableTokens[hour] : summary.TodayHourlyTokens[hour]);
-                    }
-                    json.WriteEndArray();
-                    json.WriteStartArray("hourlyDollars");
-                    foreach (var cumulative in summary.TodayCumulativeDollars) json.WriteNumberValue(cumulative);
-                    json.WriteEndArray();
-                    json.WriteStartArray("days");
-                    foreach (var day in summary.LastSevenDays.DailyTokens)
-                    {
-                        json.WriteStartObject();
-                        json.WriteString("date", day.DayStart.ToString("MM-dd"));
-                        json.WriteNumber("tokens", billable ? day.BillableTokens : day.Tokens);
-                        json.WriteNumber("dollars", day.Dollars);
-                        json.WriteEndObject();
-                    }
-                    json.WriteEndArray();
-                    json.WriteStartArray("monthDays");
-                    var now = DateTimeOffset.Now;
-                    foreach (var day in summary.DailyHistory.Where(d => d.DayStart.Year == now.Year && d.DayStart.Month == now.Month))
-                    {
-                        json.WriteStartObject();
-                        json.WriteString("date", day.DayStart.ToString("MM-dd"));
-                        json.WriteNumber("tokens", billable ? day.BillableTokens : day.Tokens);
-                        json.WriteNumber("dollars", day.Dollars);
-                        json.WriteEndObject();
-                    }
-                    json.WriteEndArray();
-                    json.WriteEndObject();
+                    var own = billable ? summary.TodayHourlyBillableTokens[hour] : summary.TodayHourlyTokens[hour];
+                    var more = cursor is null ? 0
+                        : billable ? cursor.TodayHourlyBillableTokens.ElementAtOrDefault(hour) : cursor.TodayHourlyTokens.ElementAtOrDefault(hour);
+                    json.WriteNumberValue(own + more);
                 }
+                json.WriteEndArray();
+                json.WriteStartArray("hourlyDollars");
+                foreach (var cumulative in summary.TodayCumulativeDollars) json.WriteNumberValue(cumulative);
+                json.WriteEndArray();
+                WriteDays(json, "days", summary.LastSevenDays.DailyTokens, cursor?.LastSevenDays.DailyTokens, billable);
+                var now = DateTimeOffset.Now;
+                bool ThisMonth(DailyTokenBucket day) => day.DayStart.Year == now.Year && day.DayStart.Month == now.Month;
+                WriteDays(json, "monthDays", summary.DailyHistory.Where(ThisMonth).ToList(), cursor?.DailyHistory.Where(ThisMonth).ToList(), billable);
+                json.WriteEndObject();
                 json.WriteEndArray();
                 json.WriteEndObject();
             }
             json.WriteEndArray();
         });
+    }
+
+    /// One point per day, oldest first; another app's tokens on the same day are added in.
+    private static void WriteDays(System.Text.Json.Utf8JsonWriter json, string name, IReadOnlyList<DailyTokenBucket> own,
+        IReadOnlyList<DailyTokenBucket>? more, bool billable)
+    {
+        var days = own.Concat(more ?? Array.Empty<DailyTokenBucket>())
+            .GroupBy(day => day.DayStart.Date)
+            .OrderBy(group => group.Key)
+            .Select(group => (Day: group.First().DayStart,
+                Tokens: group.Sum(day => billable ? day.BillableTokens : day.Tokens),
+                Dollars: own.Where(day => day.DayStart.Date == group.Key).Sum(day => day.Dollars)));
+        json.WriteStartArray(name);
+        foreach (var day in days)
+        {
+            json.WriteStartObject();
+            json.WriteString("date", day.Day.ToString("MM-dd"));
+            json.WriteNumber("tokens", day.Tokens);
+            json.WriteNumber("dollars", day.Dollars);
+            json.WriteEndObject();
+        }
+        json.WriteEndArray();
     }
 
     private static void WritePeriod(System.Text.Json.Utf8JsonWriter json, string name, double dollars, long tokens, long billableTokens,

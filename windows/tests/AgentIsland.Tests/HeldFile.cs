@@ -5,7 +5,7 @@ namespace AgentIsland.Tests;
 /// Another program (an antivirus scan, the agent's own CLI) holding a file
 /// open without sharing delete, which makes a rename over it fail until the
 /// handle goes away. Unix has no such lock (a rename goes through any open
-/// handle), so there the swap onto the file is refused for the same time.
+/// handle), so there a swap or a move onto the file is refused for the same time.
 public static class HeldFile
 {
     public static Task For(string path, TimeSpan time)
@@ -19,19 +19,33 @@ public static class HeldFile
                 handle.Dispose();
             });
         }
-        var held = Path.GetFullPath(path);
-        var inner = AtomicReplace.ReplaceFile;
-        Action<string, string, string> refusing = (source, target, backup) =>
-        {
-            if (string.Equals(Path.GetFullPath(target), held, StringComparison.Ordinal))
-                throw new IOException($"The process cannot access the file '{target}' because it is being used by another process.");
-            inner(source, target, backup);
-        };
-        AtomicReplace.ReplaceFile = refusing;
+        var release = Refuse(path);
         return Task.Run(async () =>
         {
             await Task.Delay(time);
-            if (AtomicReplace.ReplaceFile == refusing) AtomicReplace.ReplaceFile = inner;
+            release();
         });
+    }
+
+    /// Unix: refuses AtomicReplace's swaps and moves onto the file until the returned action runs.
+    public static Action Refuse(string path)
+    {
+        var held = Path.GetFullPath(path);
+        void Check(string target)
+        {
+            if (string.Equals(Path.GetFullPath(target), held, StringComparison.Ordinal))
+                throw new IOException($"The process cannot access the file '{target}' because it is being used by another process.");
+        }
+        var replace = AtomicReplace.ReplaceFile;
+        var move = AtomicReplace.MoveFile;
+        Action<string, string, string> refusingReplace = (source, target, backup) => { Check(target); replace(source, target, backup); };
+        Action<string, string, bool> refusingMove = (source, target, overwrite) => { Check(target); move(source, target, overwrite); };
+        AtomicReplace.ReplaceFile = refusingReplace;
+        AtomicReplace.MoveFile = refusingMove;
+        return () =>
+        {
+            if (AtomicReplace.ReplaceFile == refusingReplace) AtomicReplace.ReplaceFile = replace;
+            if (AtomicReplace.MoveFile == refusingMove) AtomicReplace.MoveFile = move;
+        };
     }
 }
