@@ -17,6 +17,7 @@ public static class CursorQuotaStateTests
         Run("saved quota is bound to the user across a JSON round trip", CacheRoundTrip);
         Run("quota parser requires a finite reported percent including explicit zero", ParsePercent);
         Run("read failure has a localized explanation", LocalizedReadFailure);
+        Run("a refused token is not sent again until the token in the database changes", RefusedTokenHolds);
         Console.WriteLine("CursorQuotaStateTests GREEN");
     }
 
@@ -133,6 +134,44 @@ public static class CursorQuotaStateTests
             Expect(store.ErrorCaption == "暂时无法读取 Grok Build 桌面版的数据", "database error uses the active language");
         }
         finally { L10n.Current = previous; }
+    }
+
+    private static void RefusedTokenHolds()
+    {
+        var sends = 0;
+        var status = 401;
+        var previous = CursorUsageFetcher.Sender;
+        try
+        {
+            CursorUsageFetcher.Sender = (_, _, _) =>
+            {
+                sends++;
+                return Task.FromResult<CursorUsageFetcher.HttpOutcome>(new CursorUsageFetcher.HttpOutcome.Response(
+                    status, Encoding.UTF8.GetBytes("{\"planUsage\":{\"totalPercentUsed\":12}}")));
+            };
+            foreach (var refused in new[] { 401, 403 })
+            {
+                CursorUsageFetcher.ResetRefusedForTests();
+                sends = 0;
+                status = refused;
+                var first = CursorUsageFetcher.Fetch(Login("account-a", "token-1"), CancellationToken.None).GetAwaiter().GetResult();
+                Expect(first is CursorUsageFetcher.Outcome.ReauthRequired && sends == 1, $"{refused} asks once and reads as a lost sign-in");
+                for (var poll = 0; poll < 3; poll++)
+                {
+                    var again = CursorUsageFetcher.Fetch(Login("account-a", "token-1"), CancellationToken.None).GetAwaiter().GetResult();
+                    Expect(again is CursorUsageFetcher.Outcome.ReauthRequired, "the card keeps asking to sign in");
+                }
+                Expect(sends == 1, $"{refused}: the same token is not sent again, got {sends} sends");
+                status = 200;
+                var renewed = CursorUsageFetcher.Fetch(Login("account-a", "token-2"), CancellationToken.None).GetAwaiter().GetResult();
+                Expect(renewed is CursorUsageFetcher.Outcome.Success && sends >= 2, "a new token in the database is tried at once");
+            }
+        }
+        finally
+        {
+            CursorUsageFetcher.Sender = previous;
+            CursorUsageFetcher.ResetRefusedForTests();
+        }
     }
 
     private static void Run(string name, Action test) { test(); Console.WriteLine($"PASS Cursor quota: {name}"); }}

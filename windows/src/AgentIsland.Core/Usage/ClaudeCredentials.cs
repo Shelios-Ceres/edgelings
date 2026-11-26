@@ -107,6 +107,13 @@ public static class ClaudeCredentials
             }
         }
 
+        if (cachedCreds is { } held && IsDeadSignIn(held))
+        {
+            // The refresh token in the store was refused and the store has not
+            // changed since: asking again would only replay a dead token.
+            return new Resolution.Failed(TokenRefreshFailedMessage);
+        }
+
         if (cachedCreds is { } creds)
         {
             switch (await probe(creds.AccessToken, plan))
@@ -162,6 +169,7 @@ public static class ClaudeCredentials
         {
             if (refresh is RefreshResult.Unavailable { Uncertain: true } uncertain) Grants.Ambiguous(grant, uncertain.Reason);
             else Grants.Settled(grant);
+            if (refresh is RefreshResult.Rejected) MarkDead(current);
             // Claude Code may have refreshed between the read above and this
             // call, which spends our copy: one more look at the file, one probe.
             if (ApplyPending(ReadClaudeCreds(), tryWrite: false) is { } rotated && rotated != current)
@@ -205,6 +213,45 @@ public static class ClaudeCredentials
             case ProbeOutcome.OtherError error: return (null, error.Message);
             default: return (null, null);
         }
+    }
+
+    // MARK: - Dead sign-in
+
+    /// A refresh the server refused (400, 401, 403) means the refresh token is
+    /// spent for good. It is remembered by a hash, never the value, and not
+    /// sent again, nor is its access token, until the store holds a different
+    /// refresh token: a new sign-in. Only the refresh token counts. The
+    /// credentials file also keeps Claude Code's own things (MCP logins), and
+    /// the Keychain item's date moves with them, so a changed stamp proves
+    /// nothing. When the store cannot be read there is nothing to send, so
+    /// the hold stays until it can be, however the stamp flickers meanwhile.
+    private sealed record DeadSignIn(string Fingerprint);
+
+    private static readonly object DeadGate = new();
+    private static DeadSignIn? Dead;
+
+    private static string Fingerprint(string token)
+    {
+        var bytes = Encoding.UTF8.GetBytes(token);
+        try { return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)); }
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    private static void MarkDead(ClaudeCreds creds)
+    {
+        lock (DeadGate) Dead = new DeadSignIn(Fingerprint(creds.RefreshToken));
+        CredentialRefreshLog.Note("claude", "refresh refused, waiting for a new sign-in");
+    }
+
+    private static bool IsDeadSignIn(ClaudeCreds creds)
+    {
+        DeadSignIn? dead;
+        lock (DeadGate) dead = Dead;
+        if (dead is null) return false;
+        if (dead.Fingerprint == Fingerprint(creds.RefreshToken)) return true;
+        lock (DeadGate) if (ReferenceEquals(Dead, dead)) Dead = null;
+        CredentialRefreshLog.Note("claude", "new sign-in, trying again");
+        return false;
     }
 
     // MARK: - Credentials file
@@ -494,6 +541,7 @@ public static class ClaudeCredentials
             Pending = null;
             PendingExhausted = false;
         }
+        lock (DeadGate) Dead = null;
         Grants.Clear();
     }
 

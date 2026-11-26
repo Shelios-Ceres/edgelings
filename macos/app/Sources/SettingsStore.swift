@@ -280,7 +280,7 @@ enum UIStrings {
         "Today", "This month", "On", "Off", "Switch", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
         "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price", "free",
         "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
-        "Account", "Look", "Save current account…", "Auto-switch when exhausted", "No saved accounts yet", "Remove saved account",
+        "Account", "Look", "Save current account…", "Auto-switch when exhausted", "Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban.", "No saved accounts yet", "Remove saved account",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",
         "Permission hook", "Not detected", "{0}. What {1} wears in the drawer, on its card and in menus", "Models, last 5 hours", "{0} · Local time zone: {1}", "Today starts at this computer's midnight. Previous days stay in history.", "Switch",
         "Last scanned {0}", "Memory (background)", "synced {0}", "Quota updated {0}", "Waiting for the first sync", "Resets {0}",

@@ -105,6 +105,7 @@ public static class Program
                 ("CodexSwitchRefreshTests", CodexSwitchRefreshTests.RunAll, null),
                 ("HiddenProviderQuotaTests", HiddenProviderQuotaTests.RunAll, null),
                 ("UsageRetryTests", UsageRetryTests.RunAll, null),
+                ("UsageEventFloorTests", UsageEventFloorTests.RunAll, null),
                 ("CodexAutoSwitchReadingTests", CodexAutoSwitchReadingTests.RunAll, null),
                 ("CodexArchiveTests", CodexArchiveTests.RunAll, null),
                 ("CursorReplyClockTests", CursorReplyClockTests.RunAll, null),

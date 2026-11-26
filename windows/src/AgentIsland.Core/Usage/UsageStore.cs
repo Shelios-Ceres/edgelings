@@ -66,6 +66,67 @@ public sealed class UsageStore : INotifyPropertyChanged
     private UiTimer? _resetEdgeTimer;
     private DateTimeOffset _lastResetEdgeCheck = DateTimeOffset.Now;
     private DateTimeOffset _refreshStartedAt;
+
+    /// Wake and network recovery may start a refresh no sooner than this after
+    /// the last one began. They used to cancel the one in flight and start over
+    /// at once, which a machine flapping between sleep or networks turned into
+    /// a burst against rate-limited endpoints.
+    internal static readonly TimeSpan EventRefreshFloor = TimeSpan.FromMinutes(2);
+
+    /// Test seam: the clock the floor is read against.
+    internal Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.Now;
+
+    private bool WithinEventRefreshFloor() =>
+        _refreshStartedAt != default && Clock() - _refreshStartedAt < EventRefreshFloor;
+
+    /// Test seam: how the make-up refresh waits.
+    internal Func<TimeSpan, CancellationToken, Task> Delay { get; set; } = Task.Delay;
+
+    private CancellationTokenSource? _deferred;
+
+    /// A wake or a network recovery the floor held back is made up for once
+    /// the floor ends, so a launch with no network that gets one a moment
+    /// later waits at most two minutes, not a whole poll interval. One at a
+    /// time; a refresh of everything shown makes it unnecessary.
+    private void DeferEventRefresh()
+    {
+        if (_deferred is not null) return;
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        _deferred = cts;
+        var wait = EventRefreshFloor - (Clock() - _refreshStartedAt);
+        if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
+        if (wait > EventRefreshFloor) wait = EventRefreshFloor;
+        _ = Task.Run(async () =>
+        {
+            try { await Delay(wait, token); }
+            catch { return; }
+            UiThread.Post(() =>
+            {
+                if (!ReferenceEquals(_deferred, cts) || cts.IsCancellationRequested) return;
+                _deferred = null;
+                cts.Dispose();
+                // Refresh's own guard against overlap would swallow this one:
+                // wait again rather than lose it.
+                if (Loading && Clock() - _refreshStartedAt < TimeSpan.FromMinutes(2)
+                    && (!ClaudeShown() || _refreshFetchesClaude) && (!CodexShown() || _refreshFetchesCodex))
+                {
+                    DeferEventRefresh();
+                    return;
+                }
+                Refresh();
+            });
+        });
+    }
+
+    private void CancelDeferred()
+    {
+        var cts = _deferred;
+        _deferred = null;
+        if (cts is null) return;
+        cts.Cancel();
+        cts.Dispose();
+    }
     private CancellationTokenSource? _refreshCts;
     private Task? _refreshTask;
     private CancellationTokenSource? _codexReauthCts;
@@ -178,7 +239,7 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (Loading
             && (!wantClaude || _refreshFetchesClaude)
             && (!wantCodex || _refreshFetchesCodex)
-            && DateTimeOffset.Now - _refreshStartedAt < TimeSpan.FromMinutes(2))
+            && Clock() - _refreshStartedAt < TimeSpan.FromMinutes(2))
         {
             return;
         }
@@ -199,7 +260,9 @@ public sealed class UsageStore : INotifyPropertyChanged
         }
 
         Loading = true;
-        _refreshStartedAt = DateTimeOffset.Now;
+        _refreshStartedAt = Clock();
+        // Only a refresh of everything the make-up would fetch makes it unnecessary.
+        if ((!ClaudeShown() || wantClaude) && (!CodexShown() || wantCodex)) CancelDeferred();
         _refreshFetchesClaude = wantClaude;
         _refreshFetchesCodex = wantCodex;
         if (wantClaude) LastAttemptedAt = _refreshStartedAt;
@@ -561,6 +624,7 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     public void StopAutoRefresh()
     {
+        CancelDeferred();
         _pollTimer?.Stop();
         _pollTimer = null;
         _resetEdgeTimer?.Stop();
@@ -648,6 +712,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     {
         UiThread.Post(() =>
         {
+            // Not within two minutes of the last attempt, whatever woke us.
+            if (WithinEventRefreshFloor()) { DeferEventRefresh(); return; }
             // The dead in-flight request would block Refresh's early-return
             // for up to 2 minutes — supersede it outright.
             _refreshCts?.Cancel();
@@ -712,30 +778,33 @@ public sealed class UsageStore : INotifyPropertyChanged
         var was = _lastNetworkAvailable;
         _lastNetworkAvailable = e.IsAvailable;
         if (!e.IsAvailable || was) return;
-        UiThread.Post(async () =>
+        UiThread.Post(async () => await HandleNetworkRecovered());
+    }
+
+    internal async Task HandleNetworkRecovered()
+    {
+        // This runs async void on the dispatcher: anything it throws
+        // past the first await lands on the dispatcher as an unhandled
+        // exception, and the app's handler logs without marking it
+        // handled — so a hiccup on a network transition would take the
+        // whole app down. Reconnect recovery is best-effort by nature.
+        try
         {
-            // This lambda is async void on the dispatcher: anything it throws
-            // past the first await lands on the dispatcher as an unhandled
-            // exception, and the app's handler logs without marking it
-            // handled — so a hiccup on a network transition would take the
-            // whole app down. Reconnect recovery is best-effort by nature.
-            try
+            if (WithinEventRefreshFloor()) { DeferEventRefresh(); return; }
+            // Cancel any in-flight refresh — it was started on the dead
+            // path and will return an error. Wait for it to finalize so
+            // its loading=false lands before the replacement starts.
+            _refreshCts?.Cancel();
+            if (_refreshTask is { } task)
             {
-                // Cancel any in-flight refresh — it was started on the dead
-                // path and will return an error. Wait for it to finalize so
-                // its loading=false lands before the replacement starts.
-                _refreshCts?.Cancel();
-                if (_refreshTask is { } task)
-                {
-                    try { await task; } catch { }
-                }
-                Refresh();
+                try { await task; } catch { }
             }
-            catch
-            {
-                // The poll timer is still the backstop.
-            }
-        });
+            Refresh();
+        }
+        catch
+        {
+            // The poll timer is still the backstop.
+        }
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

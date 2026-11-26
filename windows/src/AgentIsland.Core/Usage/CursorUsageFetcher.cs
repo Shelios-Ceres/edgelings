@@ -62,12 +62,16 @@ public static class CursorUsageFetcher
     {
         if (credentials is null) return new Outcome.NotInstalled();
         if (credentials.Session is not { } session) return new Outcome.ReauthRequired();
+        // The token was refused and has not changed since: asking again would
+        // only repeat a request the server already turned down.
+        if (IsRefused(session)) return new Outcome.ReauthRequired();
 
-        switch (await Post("GetCurrentPeriodUsage", session, ct))
+        switch (await Send("GetCurrentPeriodUsage", session, ct))
         {
             case HttpOutcome.Transport transport:
                 return new Outcome.Failed(transport.Message);
             case HttpOutcome.Response { Status: 401 or 403 }:
+                Refuse(session);
                 return new Outcome.ReauthRequired();
             case HttpOutcome.Response response:
             {
@@ -76,7 +80,7 @@ public static class CursorUsageFetcher
                 // Plan is garnish — a failure only costs the chip, never the
                 // bar, and the editor's own local copy backs it up.
                 string? plan = null;
-                if (await Post("GetPlanInfo", session, ct) is HttpOutcome.Response { Status: 200 } planned)
+                if (await Send("GetPlanInfo", session, ct) is HttpOutcome.Response { Status: 200 } planned)
                 {
                     plan = ParsePlanName(planned.Body);
                 }
@@ -160,9 +164,45 @@ public static class CursorUsageFetcher
         return DateTimeOffset.FromUnixTimeMilliseconds((long)value);
     }
 
+    // MARK: - Refused token
+
+    /// Hash of the access token the dashboard answered 401/403 to. Never the
+    /// token itself. Cursor writes a new token to state.vscdb when the user
+    /// signs in again or the editor renews it, which is what lifts the hold.
+    private static string? _refusedToken;
+    private static readonly object RefusedGate = new();
+
+    private static string Fingerprint(string token)
+    {
+        var bytes = Encoding.UTF8.GetBytes(token);
+        try { return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)); }
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    private static void Refuse(CursorCredentials.Session session)
+    {
+        lock (RefusedGate) _refusedToken = Fingerprint(session.AccessToken);
+    }
+
+    private static bool IsRefused(CursorCredentials.Session session)
+    {
+        lock (RefusedGate) return _refusedToken is { } refused && refused == Fingerprint(session.AccessToken);
+    }
+
+    internal static void ResetRefusedForTests()
+    {
+        lock (RefusedGate) _refusedToken = null;
+    }
+
     // MARK: - HTTP
 
-    private abstract record HttpOutcome
+    /// Test seam: the request.
+    internal static Func<string, CursorCredentials.Session, CancellationToken, Task<HttpOutcome>>? Sender;
+
+    private static Task<HttpOutcome> Send(string method, CursorCredentials.Session session, CancellationToken ct) =>
+        (Sender ?? Post)(method, session, ct);
+
+    internal abstract record HttpOutcome
     {
         public sealed record Response(int Status, byte[] Body) : HttpOutcome;
         public sealed record Transport(string Message) : HttpOutcome;

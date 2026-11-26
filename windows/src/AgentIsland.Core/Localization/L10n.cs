@@ -220,6 +220,7 @@ public static class L10n
         ["Give this login a name so you can switch back to it later"] = "给这个登录起个名字，之后可以一键切回来",
         ["work / personal"] = "工作 / 个人",
         ["Auto-switch when exhausted"] = "额度用完自动切换",
+        ["Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban."] = "自动换号会改写 ~/.codex/auth.json，并可能被视为用多个账号规避限额，有封号风险。",
         ["Save"] = "保存",
         // Guest-provider status captions. Values are the shipped zh-Hans.lproj
         // strings; without these rows the guest strips fell back to English

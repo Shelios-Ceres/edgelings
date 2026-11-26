@@ -24,6 +24,11 @@ public static class ClaudeCredentialsTests
             ("a rotated pair that is rate limited reads as rate limited, not as a lost sign-in", RotatedPairRateLimited),
             ("a refresh the CLI beat by a moment is followed by one look at the file", RefreshLosesTheRace),
             ("a failed refresh reads as a lost sign-in", RefreshFails),
+            ("a refused refresh token is not sent again, nor its access token asked about, until the store changes", RefusedTokenIsNotReplayed),
+            ("a refused sign-in stays held while only other things in the file change, and is tried once the refresh token is new", RefusedTokenResumesOnChange),
+            ("on a Mac the item's date, or a keychain that cannot be read for a moment, does not lift the hold; a new refresh token does", RefusedTokenOnAMacKeychain),
+            ("with an environment token as well, only the stored token is left alone once it is refused", RefusedStoredTokenWithAnEnvironmentToken),
+            ("a rate limit, a dropped connection or a server error is not a dead token and is asked again", UnavailableRefreshIsTriedAgain),
             ("a rotated pair is saved once another program lets go of the file", HeldFileIsWrittenOnceReleased),
             ("a file caught mid-rewrite is read again and everything else in it is kept", MidRewriteIsReadAgain),
             ("a file that cannot be parsed is never replaced with a bare skeleton", UnreadableFileIsLeftAlone),
@@ -267,6 +272,169 @@ public static class ClaudeCredentialsTests
         var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
         Expect(result is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage },
             "a refresh that fails reads as a lost sign-in");
+    }
+
+    private static async Task RefusedTokenIsNotReplayed()
+    {
+        Write("A", "R1");
+        var refreshes = 0;
+        var probes = 0;
+        ClaudeCredentials.RefreshToken = _ => { refreshes++; return Rejected(); };
+        Task<ClaudeCredentials.ProbeOutcome> Probe(string _, string? __) { probes++; return Task.FromResult(Expired); }
+        await ClaudeCredentials.ResolveUsage(Probe);
+        Expect(refreshes == 1 && probes == 1, $"the first poll asks once and is refused, got {refreshes} refreshes and {probes} probes");
+        for (var poll = 0; poll < 3; poll++)
+        {
+            var result = await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(result is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage },
+                "the card keeps asking for a new sign-in");
+        }
+        Expect(refreshes == 1 && probes == 1, $"later polls send nothing, got {refreshes} refreshes and {probes} probes");
+        Expect(Logged().All(line => !line.Contains("R1")), "the log never holds the token");
+    }
+
+    private static async Task RefusedTokenResumesOnChange()
+    {
+        Write("A", "R1");
+        var refreshes = 0;
+        var probes = 0;
+        ClaudeCredentials.RefreshToken = _ => { refreshes++; return Rejected(); };
+        Task<ClaudeCredentials.ProbeOutcome> Probe(string token, string? _) { probes++; return Task.FromResult(token == "A2" ? Ok : Expired); }
+        await ClaudeCredentials.ResolveUsage(Probe);
+        await ClaudeCredentials.ResolveUsage(Probe);
+        Expect(refreshes == 1 && probes == 1, "held while the store is as it was");
+
+        // Claude Code keeps other things in the file (an MCP login) and its
+        // modification time moves with them: the refresh token is the same.
+        var root = JsonNode.Parse(File.ReadAllText(CredentialsPath))!.AsObject();
+        root["mcpOAuth"] = new JsonObject { ["server"] = new JsonObject { ["accessToken"] = "mcp" } };
+        File.WriteAllText(CredentialsPath, root.ToJsonString());
+        File.SetLastWriteTimeUtc(CredentialsPath, File.GetLastWriteTimeUtc(CredentialsPath).AddMinutes(1));
+        await ClaudeCredentials.ResolveUsage(Probe);
+        Expect(refreshes == 1 && probes == 1, $"a file that changed around the same refresh token stays held, got {refreshes} refreshes and {probes} probes");
+
+        // A new sign-in: new tokens in the file.
+        Write("A2", "R2");
+        var result = await ClaudeCredentials.ResolveUsage(Probe);
+        Expect(result is ClaudeCredentials.Resolution.Usage, "a new refresh token is used at once");
+        Expect(refreshes == 1, "without refreshing");
+    }
+
+    private static async Task RefusedTokenOnAMacKeychain()
+    {
+        var access = "A";
+        var refresh = "R1";
+        var version = 1;
+        var unreadable = false;
+        File.Delete(CredentialsPath);
+        const string Service = "Claude Code-credentials";
+        ClaudeCredentials.KeychainOverride = new ClaudeKeychain(
+            (IReadOnlyList<string> arguments, out int exitCode) =>
+            {
+                exitCode = 0;
+                if (unreadable) { exitCode = 1; return null; }
+                if (arguments[0] != "find-generic-password" || !arguments.Contains(Service)) { exitCode = ClaudeKeychain.ItemNotFound; return null; }
+                if (arguments.Contains("-w"))
+                {
+                    return new JsonObject { ["claudeAiOauth"] = new JsonObject
+                    {
+                        ["accessToken"] = access, ["refreshToken"] = refresh, ["subscriptionType"] = "max",
+                    } }.ToJsonString() + "\n";
+                }
+                return "keychain: \"/fake\"\nattributes:\n    \"acct\"<blob>=\"me\"\n"
+                    + $"    \"mdat\"<timedate>=0x00  \"2026103012{version:D4}Z\\000\"\n    \"svce\"<blob>=\"{Service}\"\n";
+            }, Service, null);
+        try
+        {
+            var refreshes = 0;
+            var probes = 0;
+            ClaudeCredentials.RefreshToken = _ => { refreshes++; return Rejected(); };
+            Task<ClaudeCredentials.ProbeOutcome> Probe(string _, string? __) { probes++; return Task.FromResult(Expired); }
+            var before = ClaudeCredentials.CredentialsModificationStamp();
+            await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(refreshes == 1 && probes == 1, "the keychain's login was refused once");
+            version++;
+            Expect(ClaudeCredentials.CredentialsModificationStamp() != before, "the item's date moved");
+            await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(refreshes == 1 && probes == 1, "a new item date around the same refresh token stays held");
+            unreadable = true;
+            await ClaudeCredentials.ResolveUsage(Probe);
+            unreadable = false;
+            version++;
+            await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(refreshes == 1 && probes == 1, "a keychain that could not be read for a moment, and a date that moved back and forth, change nothing");
+            refresh = "R2";
+            access = "A2";
+            await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(probes == 2, "a new refresh token in the keychain is tried at once");
+        }
+        finally
+        {
+            ClaudeCredentials.KeychainOverride = null;
+        }
+    }
+
+    private static async Task RefusedStoredTokenWithAnEnvironmentToken()
+    {
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN", "ENV");
+        try
+        {
+            Write("A", "R1");
+            var refreshes = 0;
+            var seen = new List<string>();
+            var envWorks = false;
+            ClaudeCredentials.RefreshToken = _ => { refreshes++; return Rejected(); };
+            Task<ClaudeCredentials.ProbeOutcome> Probe(string token, string? _)
+            {
+                seen.Add(token);
+                return Task.FromResult(token == "ENV" && envWorks ? Ok : Expired);
+            }
+            var first = await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(first is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage } && refreshes == 1,
+                "both refused: the stored sign-in is lost");
+            Expect(seen.SequenceEqual(new[] { "ENV", "A" }), "the first poll asked with both");
+            seen.Clear();
+            var second = await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(second is ClaudeCredentials.Resolution.Failed { Message: ClaudeCredentials.TokenRefreshFailedMessage }, "the card still asks to sign in");
+            Expect(seen.SequenceEqual(new[] { "ENV" }) && refreshes == 1, "only the environment token is asked again; the dead stored one is left alone");
+            envWorks = true;
+            var third = await ClaudeCredentials.ResolveUsage(Probe);
+            Expect(third is ClaudeCredentials.Resolution.Usage && refreshes == 1, "a working environment token still shows the quota");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN", null);
+        }
+    }
+
+    private static async Task UnavailableRefreshIsTriedAgain()
+    {
+        Write("A", "R1");
+        var posts = 0;
+        var reply = (ClaudeCredentials.RefreshResult)new ClaudeCredentials.RefreshResult.Unavailable("network drop");
+        ClaudeCredentials.RefreshToken = _ => { posts++; return Task.FromResult(reply); };
+        var body = System.Text.Encoding.UTF8.GetBytes("{}");
+        // A rate limit and a connection that never left: nothing was spent, ask again at the next poll.
+        foreach (var next in new[] { ClaudeCredentials.RefreshResultFor(429, body, Now), new ClaudeCredentials.RefreshResult.Unavailable("network drop") })
+        {
+            reply = next;
+            posts = 0;
+            for (var poll = 1; poll <= 3; poll++)
+            {
+                var result = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+                Expect(result is ClaudeCredentials.Resolution.Failed { Message: not ClaudeCredentials.TokenRefreshFailedMessage }, "not read as a lost sign-in");
+                Expect(posts == poll, $"poll {poll} asked again, got {posts}");
+            }
+        }
+        // A server error may have rotated the token: held for the ten minutes it is held anyway, then asked again, never dead.
+        reply = ClaudeCredentials.RefreshResultFor(503, body, Now);
+        posts = 0;
+        await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        Expect(posts == 1, "held for the ambiguity window");
+        Now = Now.AddMinutes(11);
+        var later = await ClaudeCredentials.ResolveUsage((_, _) => Task.FromResult(Expired));
+        Expect(posts == 2 && later is ClaudeCredentials.Resolution.Failed { Message: not ClaudeCredentials.TokenRefreshFailedMessage }, "asked again after it, and still not a lost sign-in");
     }
 
     private static async Task HeldFileIsWrittenOnceReleased()

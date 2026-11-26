@@ -91,6 +91,7 @@ internal static class CodexAccounts
         var auto = new ToggleMenuFlyoutItem { Text = L10n.Tr("Auto-switch when exhausted"), IsChecked = CodexAccountSwitcher.AutoSwitchEnabled };
         auto.Click += (_, _) => CodexAccountSwitcher.AutoSwitchEnabled = auto.IsChecked;
         menu.Items.Add(auto);
+        menu.Items.Add(new MenuFlyoutItem { Text = L10n.Tr("Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban."), IsEnabled = false });
         MenuHost.UseKit(menu);
     }
 

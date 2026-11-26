@@ -272,6 +272,7 @@ struct AgentCard: View {
                     menu.item(store.t("Auto-switch when exhausted"), checked: codex?.autoSwitch == true) {
                         store.send("agent", ["action": "codexAuto", "id": "codex", "on": !(codex?.autoSwitch ?? false)])
                     }
+                    menu.note(store.t("Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban."))
                     if !(codex?.accounts.isEmpty ?? true) {
                         menu.submenu(store.t("Remove saved account")) { sub in
                             for account in codex?.accounts ?? [] {
