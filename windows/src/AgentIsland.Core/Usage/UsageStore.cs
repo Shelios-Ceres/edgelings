@@ -298,12 +298,18 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// Fetches only the shown providers among those asked for. A hidden agent's
     /// quota queries, token refreshes and account rotations stay completely off.
     private int _skipRetryPending;
+    private DateTimeOffset _lastSkipRetry = DateTimeOffset.MinValue;
 
-    /// 被取消的探测还在收尾，这一次落空了：等它收尾后补取一次 Claude，每次落空只补一次。
+    /// 被取消的探测还在收尾，这一次落空了：等它收尾后补取一次 Claude。
     /// 不补的话唤醒、网络恢复、换号这类“马上补一次”的刷新就白跑了，要等下一个周期。
+    /// 只在门控开着（Windows 探测）时补，30 秒内最多补一次，免得一直落空时来回补取。
     private void RetryAfterSkip(bool viaEvent, bool manual)
     {
+        if (!ClaudeGateEnabled) return;
+        var now = Clock();
+        if (now - _lastSkipRetry < TimeSpan.FromSeconds(30) && now >= _lastSkipRetry) return;
         if (Interlocked.Exchange(ref _skipRetryPending, 1) == 1) return;
+        _lastSkipRetry = now;
         _ = Task.Run(async () =>
         {
             try { await ClaudeUsageProbe.Idle().ConfigureAwait(false); }

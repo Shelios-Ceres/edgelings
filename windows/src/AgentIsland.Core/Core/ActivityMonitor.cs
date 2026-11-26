@@ -95,6 +95,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// Test seams: the scan each tick runs, and the task that applies its result.
     internal Func<DateTimeOffset, IReadOnlyDictionary<string, DateTimeOffset>, List<ScannedSession>> Scanner { get; set; } =
         SessionScanner.MonitoringScan;
+    /// 测试缝：哪些 agent 已经没有进程。默认读真实进程表；测试里换掉，免得结果取决于这台机器开着什么。
+    internal Func<IReadOnlySet<TriggerTool>> GoneProcesses { get; set; } = AgentProcesses.Gone;
+    internal Func<IReadOnlySet<TriggerTool>> GoneDesktopApps { get; set; } = AgentProcesses.DesktopGone;
     internal Task? LastScan { get; private set; }
 
     private UiTimer? _timer;
@@ -187,8 +190,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             _lastWorking, StringComparer.OrdinalIgnoreCase);
         LastScan = Task.Run(() =>
             {
-                var gone = CoreProfile.Time("scan: process table", () => AgentProcesses.Gone());
-                var desktopGone = CoreProfile.Time("scan: desktop apps", () => AgentProcesses.DesktopGone());
+                var gone = CoreProfile.Time("scan: process table", () => GoneProcesses());
+                var desktopGone = CoreProfile.Time("scan: desktop apps", () => GoneDesktopApps());
                 var offline = InternetStatus.IsOffline(now);
                 var scanned = CoreProfile.Time("scan: all agents", () => Scanner(now, lastWorkingSnapshot));
                 var sessions = CoreProfile.Time("scan: prepare and settle", () => Settle(PrepareSessions(scanned, now), gone, offline, desktopGone));

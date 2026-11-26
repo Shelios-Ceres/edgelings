@@ -101,7 +101,13 @@ public static class ActivityMonitorScanTests
             new(TriggerTool.Claude, "c1", "", "A session", DateTimeOffset.UtcNow, ActivityState.Working, null, "t1", SessionLaunchTarget.Cli),
             new(TriggerTool.Codex, "x1", "", "A session", DateTimeOffset.UtcNow, ActivityState.NeedsYou, null, "t2", SessionLaunchTarget.Cli),
         };
-        var monitor = new ActivityMonitor { Scanner = (_, _) => sessions };
+        // 两家的进程都当作还在：CI 机器上没有 Claude 进程，真实进程表会让在跑的回合被判为已放弃。
+        var monitor = new ActivityMonitor
+        {
+            Scanner = (_, _) => sessions,
+            GoneProcesses = () => new HashSet<TriggerTool>(),
+            GoneDesktopApps = () => new HashSet<TriggerTool>(),
+        };
         Scan(monitor);
         Expect(monitor.StateFor(TriggerTool.Claude) == ActivityState.Working, "a working Claude stays working");
         Expect(monitor.StateFor(TriggerTool.Codex) == ActivityState.NeedsYou, "a finished Codex turn stays your turn");
