@@ -71,6 +71,15 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
         if (changed) Raise();
     }
 
+    /// Re-probe one guest, for when its own file shows up or goes between polls.
+    public void Redetect(DisplayProvider provider)
+    {
+        var detected = Probe(provider);
+        if (_detected.TryGetValue(provider, out var known) && known == detected) return;
+        _detected[provider] = detected;
+        Raise();
+    }
+
     private static bool Probe(DisplayProvider provider)
     {
         var home = IslandPaths.Home;

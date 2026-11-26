@@ -44,6 +44,8 @@ public abstract class GuestUsageStore : INotifyPropertyChanged
         return true;
     }
 
+    internal void ForgetAttemptFloorForTests() => _lastAttempt = null;
+
     internal void CancelPending()
     {
         if (_attempt is not { } attempt) return;

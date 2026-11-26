@@ -31,6 +31,7 @@ public static class PreferencesTests
         Check(new CursorUsageStore.Cached(), v => v is not null, "CursorUsageStore.Cached");
         Check(new AntigravityUsageStore.CachedSnapshot(null, when, "me@example.com"), v => v?.Email == "me@example.com" && v.UpdatedAt == when, "AntigravityUsageStore.CachedSnapshot");
         Check(new GrokCachedSnapshot { UpdatedAt = when }, v => v?.UpdatedAt == when, "GrokCachedSnapshot");
+        Check(new Dictionary<string, string> { ["a"] = "b" }, v => v is { Count: 1 } && v["a"] == "b", "Dictionary<string, string>");
         Check(new KimiCachedSnapshot { UpdatedAt = when }, v => v?.UpdatedAt == when, "KimiCachedSnapshot");
         Preferences.Remove("AgentIsland.test.roundtrip");
     }

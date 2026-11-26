@@ -2,8 +2,8 @@ namespace AgentIsland.Usage;
 
 /// Re-writes a rotated credential pair that the store would not take, on a
 /// short back-off of its own instead of waiting for the next quota poll: the
-/// program holding the file is usually Claude Code or the grok CLI itself, and
-/// while the file holds the replaced token it will try to refresh with it.
+/// program holding the file is usually Claude Code itself, and while the file
+/// holds the replaced token it will try to refresh with it.
 public static class CredentialWriteBacks
 {
     /// Test seam: the waits between tries. Empty means no loop at all.
@@ -55,15 +55,13 @@ public static class CredentialWriteBacks
     }
 
     /// One last try for everything still held, for a normal exit or a sign-out
-    /// or shutdown. The two providers run side by side, each given its own
-    /// three seconds at most, so a file that stays locked cannot hold the app open.
+    /// or shutdown. Given three seconds at most, so a file that stays locked
+    /// cannot hold the app open.
     public static void FlushAll()
     {
         try
         {
-            var claude = Task.Run(ClaudeCredentials.FlushPendingWriteBack);
-            var grok = Task.Run(GrokUsageFetcher.FlushPendingWriteBacks);
-            Task.WaitAll(new[] { claude, grok }, TimeSpan.FromSeconds(3));
+            Task.Run(ClaudeCredentials.FlushPendingWriteBack).Wait(TimeSpan.FromSeconds(3));
         }
         catch
         {
@@ -74,6 +72,8 @@ public static class CredentialWriteBacks
     public static void CleanUpLeftovers()
     {
         AtomicReplace.CleanUpLeftovers(Core.IslandPaths.ClaudeCredentialsFile);
+        // Limen no longer writes auth.json; this only clears the temporary copies an
+        // older version left beside it, by their own names, and never touches the file.
         AtomicReplace.CleanUpLeftovers(GrokAuthFile.DefaultPath);
     }
 }

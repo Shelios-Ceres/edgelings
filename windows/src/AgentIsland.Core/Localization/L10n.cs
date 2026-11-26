@@ -224,7 +224,7 @@ public static class L10n
         // Guest-provider status captions. Values are the shipped zh-Hans.lproj
         // strings; without these rows the guest strips fell back to English
         // inside an otherwise Chinese panel.
-        ["sign in again — run grok login"] = "登录已失效，运行 grok login 重新登录",
+        ["Open grok to sync"] = "打开 grok 同步一下",
         ["sign in again — open Grok Build desktop (Cursor)"] = "需要重新登录 — 打开 Grok Build 桌面版（Cursor）",
         // Tile window labels the guests need: Gemini meters a daily bucket,
         // Cursor a ~30-day billing cycle. Values from zh-Hans.lproj:201-202.
@@ -301,7 +301,6 @@ public static class L10n
         ["Sign in again"] = "重新登录",
         ["Waiting for updated sign-in"] = "等待登录凭据更新",
         ["Couldn't save the refreshed sign-in; Claude Code may need to sign in again"] = "无法保存刷新后的登录凭据，Claude Code 可能需要重新登录",
-        ["Couldn't save the refreshed sign-in; Grok may need to sign in again"] = "无法保存刷新后的登录凭据，Grok 可能需要重新登录",
         ["Couldn't refresh the sign-in"] = "无法刷新登录凭据",
         ["Couldn't renew the sign-in; check the network or sign in again"] = "无法续期登录凭据，请检查网络或重新登录",
         ["Waiting for login…"] = "等待登录…",

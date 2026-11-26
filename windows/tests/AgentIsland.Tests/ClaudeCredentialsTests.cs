@@ -50,6 +50,7 @@ public static class ClaudeCredentialsTests
             ("a refresh the network stopped is not a lost sign-in", RefreshUnavailable),
             ("an ambiguous rotation is not replayed before ten minutes, then once", AmbiguousRotation),
             ("only a refused grant reads as a lost sign-in", RefreshReplies),
+            ("a refresh whose connects all run out is never sent, so not ambiguous; under the old deadline rule it would be", BlackholedAddressesAreNotAmbiguous),
         };
         var directory = Path.Combine(Path.GetTempPath(), "agentisland-credentials-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -771,14 +772,58 @@ public static class ClaudeCredentialsTests
         return Task.CompletedTask;
     }
 
+    /// Three addresses that never answer, through the real connect logic. With a request
+    /// deadline shorter than the connect round (the old rule: only the margin) the deadline
+    /// cuts the request while the connect is still running, and the grant reads as maybe sent;
+    /// with the rule in use the connect gives up first and it never left.
+    private static async Task<bool> BlackholeRunAmbiguous(Func<TimeSpan, TimeSpan> rule)
+    {
+        var perAddress = Http.PerAddressTimeout;
+        var total = Http.ConnectTimeout;
+        var grant = Http.GrantMargin;
+        var previousRule = Http.DeadlineRule;
+        var previousClient = ClaudeCredentials.OAuth;
+        try
+        {
+            Http.PerAddressTimeout = TimeSpan.FromMilliseconds(200);
+            Http.ConnectTimeout = TimeSpan.FromMilliseconds(800);
+            Http.GrantMargin = TimeSpan.FromMilliseconds(380);
+            Http.DeadlineRule = rule;
+            using var oauth = new HttpClient(new SocketsHttpHandler
+            {
+                UseProxy = false,
+                ConnectCallback = (context, ct) => Http.ConnectWithTimeout(context.DnsEndPoint, Http.PerAddressTimeout, Http.ConnectTimeout,
+                    (host, token) => Task.FromResult(new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" }.Select(System.Net.IPAddress.Parse).ToArray()),
+                    (socket, address, token) => new ValueTask(Task.Delay(Timeout.Infinite, token)), ct),
+            });
+            ClaudeCredentials.OAuth = oauth;
+            var result = await ClaudeCredentials.RefreshClaudeToken("blackhole-token");
+            return result is ClaudeCredentials.RefreshResult.Unavailable { Uncertain: true };
+        }
+        finally
+        {
+            Http.PerAddressTimeout = perAddress;
+            Http.ConnectTimeout = total;
+            Http.GrantMargin = grant;
+            Http.DeadlineRule = previousRule;
+            ClaudeCredentials.OAuth = previousClient;
+        }
+    }
+
+    private static async Task BlackholedAddressesAreNotAmbiguous()
+    {
+        var current = Http.DeadlineRule;
+        Expect(!await BlackholeRunAmbiguous(current), "with the rule in use the grant is never held as ambiguous");
+        Expect(!await BlackholeRunAmbiguous(current), "and the same on the next try");
+        Expect(await BlackholeRunAmbiguous(margin => margin), "the same run under the old rule does end ambiguous, so this test would catch it coming back");
+    }
+
     private static Task RecordsAreMasked()
     {
         var tokens = new ClaudeCredentials.RefreshedTokens("SECRET-ACCESS", "SECRET-REFRESH", 1);
         Expect(!tokens.ToString().Contains("SECRET"), "RefreshedTokens");
-        var entry = new GrokAuthEntry("scope", "SECRET-ACCESS", "SECRET-REFRESH", null, "oidc", "person@example.test", "https://auth.x.ai", "client");
+        var entry = new GrokAuthEntry("scope", "SECRET-ACCESS", null, "oidc", "person@example.test");
         Expect(!entry.ToString().Contains("SECRET") && !entry.ToString().Contains("person"), "GrokAuthEntry");
-        var reply = new GrokAuthFile.TokenReply("SECRET-ACCESS", "SECRET-REFRESH", 1);
-        Expect(!reply.ToString().Contains("SECRET"), "TokenReply");
         return Task.CompletedTask;
     }
 

@@ -206,6 +206,7 @@ public static class Preferences
 [JsonSerializable(typeof(double?))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, TokenTotals>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(UsageCacheSnapshot))]
 [JsonSerializable(typeof(CursorUsageStore.Cached))]
 [JsonSerializable(typeof(AntigravityUsageStore.CachedSnapshot))]

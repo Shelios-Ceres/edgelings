@@ -136,6 +136,7 @@ public static class Program
                 ("GrokHooksTests", GrokHooksTests.RunAll, "starts powershell.exe"),
                 ("ShellHooksTests", ShellHooksTests.RunAll, null),
                 ("GrokAuthFileTests", GrokAuthFileTests.RunAll, null),
+                ("GrokUsageStoreTests", GrokUsageStoreTests.RunAll, null),
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
                 ("StateGroupsTests", StateGroupsTests.RunAll, null),
                 ("PixelChineseTests", PixelChineseTests.RunAll, null),

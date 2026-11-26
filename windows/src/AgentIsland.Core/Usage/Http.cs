@@ -35,8 +35,7 @@ public static class Http
     /// still running when the deadline passes is left for the next request to wait on.
     internal static TimeSpan DeadlineAfterConnect(TimeSpan afterConnect) => DeadlineRule(afterConnect);
 
-    /// How long a request may take once connected: the OIDC discovery, and a refresh grant.
-    internal static TimeSpan DiscoveryMargin = TimeSpan.FromSeconds(10);
+    /// How long a request may take once connected: a refresh grant.
     internal static TimeSpan GrantMargin = TimeSpan.FromSeconds(20);
 
     /// Test seam: the rule that turns a margin into a deadline.

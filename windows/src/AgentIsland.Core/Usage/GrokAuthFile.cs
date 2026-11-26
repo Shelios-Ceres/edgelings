@@ -9,89 +9,49 @@ namespace AgentIsland.Usage;
 public sealed record GrokAuthEntry(
     string Scope,
     string AccessToken,
-    string? RefreshToken,
     DateTimeOffset? ExpiresAt,
     string? AuthMode,
-    string? Email,
-    string OidcIssuer,
-    string? OidcClientId)
+    string? Email)
 {
     public bool IsSuperGrok => string.Equals(AuthMode, "oidc", StringComparison.OrdinalIgnoreCase);
 
     public override string ToString() => $"GrokAuthEntry {{ Scope = {Scope}, tokens and account redacted }}";
 }
 
-/// Reader/rotator for %USERPROFILE%\.grok\auth.json. Top-level keys are OIDC
-/// scope URLs — "https://auth.x.ai::&lt;client-id&gt;" for SuperGrok logins, with
-/// the client id riding after the "::". `expires_at` is epoch milliseconds.
-///
-/// The token endpoint rotates the refresh token on every exchange, so a
-/// successful refresh MUST be written back — losing the new refresh token
-/// strands the user's own `grok` CLI login. The writeback re-reads the file
-/// first, so every field this app doesn't understand survives verbatim, and
-/// lands atomically (sibling temp file + File.Replace, which keeps the ACL and
-/// never recreates a file that was removed) so a crash mid-write can never
-/// leave a half-written credential file behind.
+/// Read-only view of %USERPROFILE%\.grok\auth.json. Top-level keys are OIDC
+/// scope URLs — "https://auth.x.ai::&lt;client-id&gt;" for SuperGrok logins.
+/// `expires_at` is epoch milliseconds. Limen never refreshes this login and
+/// never writes the file: the refresh token rotates on every exchange, so
+/// only the grok CLI itself may use it. The refresh token is not even kept.
 public static class GrokAuthFile
 {
-    public const string DefaultIssuer = "https://auth.x.ai";
     private const string OidcScopeMarker = "auth.x.ai";
-
-    private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
     /// GROK_HOME overrides the credential directory, matching the CLI.
     public static string DefaultPath => Path.Combine(IslandPaths.GrokHome, "auth.json");
 
     public static bool Exists(string? path = null) => File.Exists(path ?? DefaultPath);
 
-    public static GrokAuthEntry? LoadEntry(string? path = null) => Inspect(path ?? DefaultPath, out _);
+    public static GrokAuthEntry? LoadEntry(string? path = null) => Inspect(path ?? DefaultPath);
 
-    internal enum LoginState
-    {
-        Present,
-        Missing,
-        /// The file parses but holds no usable login: signed out.
-        NoLogin,
-        /// Locked, half-written or otherwise unreadable right now.
-        Unreadable,
-    }
-
-    internal static GrokAuthEntry? Inspect(string file, out LoginState state)
+    internal static GrokAuthEntry? Inspect(string file)
     {
         try
         {
-            if (!File.Exists(file))
-            {
-                state = LoginState.Missing;
-                return null;
-            }
-            if (ReadRoot(file, out var missing) is not { } root)
-            {
-                state = missing ? LoginState.Missing : LoginState.Unreadable;
-                return null;
-            }
-            if (SelectEntry(root) is not { } selected || Entry(selected.Scope, selected.Raw) is not { } entry)
-            {
-                state = LoginState.NoLogin;
-                return null;
-            }
-            state = LoginState.Present;
-            return entry;
+            if (ReadRoot(file) is not { } root) return null;
+            return SelectEntry(root) is { } selected ? Entry(selected.Scope, selected.Raw) : null;
         }
         catch
         {
-            state = LoginState.Unreadable;
             return null;
         }
     }
 
-    /// The file as it stands, or null when it is missing (`missing` is set:
-    /// signed out) or cannot be read or parsed even after a few short waits:
-    /// the grok CLI rewrites it in place, so it can be caught locked or
-    /// half-written.
-    private static JsonObject? ReadRoot(string path, out bool missing)
+    /// The file as it stands, or null when it is missing or cannot be read or
+    /// parsed even after a few short waits: the grok CLI rewrites it in place,
+    /// so it can be caught locked or half-written.
+    private static JsonObject? ReadRoot(string path)
     {
-        missing = false;
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -101,7 +61,6 @@ public static class GrokAuthFile
             }
             catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
             {
-                missing = true;
                 return null;
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
@@ -112,135 +71,33 @@ public static class GrokAuthFile
         }
     }
 
-    /// Refresh a minute early so an in-flight request never races the clock.
-    public static bool NeedsRefresh(GrokAuthEntry entry, DateTimeOffset? now = null, TimeSpan? skew = null)
+    /// Whether the access token is gone or goes within the skew (a minute, so
+    /// an in-flight request never races the clock). A login with no expiry
+    /// is taken as live: the billing call will say otherwise.
+    public static bool IsExpired(GrokAuthEntry entry, DateTimeOffset? now = null, TimeSpan? skew = null)
     {
         if (entry.ExpiresAt is not { } expiresAt) return false;
         return (now ?? DateTimeOffset.Now) + (skew ?? TimeSpan.FromSeconds(60)) >= expiresAt;
     }
 
-    /// Apply an OAuth token response (`access_token` / rotated
-    /// `refresh_token` / `expires_in` seconds) to the entry at `scope` and
-    /// persist it. `sentRefreshToken` is the one the request carried: the
-    /// response belongs to that login, and is written only while the entry
-    /// still holds it. If the user logged in again meanwhile (the scope is the
-    /// same for any account), or the CLI refreshed first, the file is left
-    /// untouched and the entry now in it is returned, so the poll goes on with
-    /// the current login. Returns the updated entry, or null when nothing was
-    /// written and there is no current entry to use (malformed response,
-    /// missing file or scope, write failure) — the caller then keeps using its
-    /// in-memory token.
-    public static GrokAuthEntry? ApplyRefreshResponse(
-        string responseJson, string path, string scope, string sentRefreshToken, DateTimeOffset? now = null)
-    {
-        var applied = ApplyRefresh(responseJson, path, scope, sentRefreshToken, now ?? DateTimeOffset.Now);
-        return applied.Status is ApplyStatus.Written or ApplyStatus.Superseded ? applied.Entry : null;
-    }
-
-    internal enum ApplyStatus
-    {
-        Written,
-        /// The file holds another login than the one that was refreshed; left alone.
-        Superseded,
-        /// The reply has no usable access token.
-        BadResponse,
-        /// The file or the login is gone; nothing was written and nothing is to be recreated.
-        LoggedOut,
-        /// The reply is good but the file could not be read or replaced.
-        WriteFailed,
-    }
-
-    internal sealed record ApplyOutcome(ApplyStatus Status, GrokAuthEntry? Entry);
-
-    /// What a token reply carries that matters here (not an id_token or anything
-    /// else it may hold): enough to write the file or to use the pair from memory.
-    internal sealed record TokenReply(string AccessToken, string? RefreshToken, double? ExpiresInSeconds)
-    {
-        public override string ToString() => "TokenReply { tokens redacted }";
-    }
-
-    internal static TokenReply? ParseReply(string responseJson)
+    /// What the file looked like when it was read: modification time and size
+    /// (of the target, when auth.json is a link), or null when it cannot be
+    /// seen. Taken before the content is read, so a rewrite that lands in
+    /// between shows as a change at the next look.
+    internal static string? Stamp(string path)
     {
         try
         {
-            if (JsonNode.Parse(responseJson) is not JsonObject response) return null;
-            if (NonEmpty(response["access_token"]) is not { } accessToken) return null;
-            return new TokenReply(accessToken, NonEmpty(response["refresh_token"]), Number(response["expires_in"]));
+            var info = new FileInfo(path);
+            if (!info.Exists) return null;
+            if (info.LinkTarget is not null) info = info.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? info;
+            return info.Exists ? $"{info.LastWriteTimeUtc.Ticks}:{info.Length}" : null;
         }
-        catch (JsonException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             return null;
         }
     }
-
-    internal static ApplyOutcome ApplyRefresh(
-        string responseJson, string path, string scope, string expectedOnDisk, DateTimeOffset now) =>
-        ParseReply(responseJson) is { } reply
-            ? ApplyRefresh(reply, path, scope, expectedOnDisk, now)
-            : new(ApplyStatus.BadResponse, null);
-
-    /// `expectedOnDisk` is the refresh token the file must still hold for the
-    /// reply to be written: the one the request carried, or the one an earlier
-    /// pending write-back is waiting to replace.
-    internal static ApplyOutcome ApplyRefresh(
-        TokenReply reply, string path, string scope, string expectedOnDisk, DateTimeOffset now)
-    {
-        try
-        {
-            var root = ReadRoot(path, out var missing);
-            if (missing) return new(ApplyStatus.LoggedOut, null);
-            if (root is null) return new(ApplyStatus.WriteFailed, null);
-            if (root[scope] is not JsonObject raw)
-            {
-                return SelectEntry(root) is { } other
-                    ? new(ApplyStatus.Superseded, Entry(other.Scope, other.Raw))
-                    : new(ApplyStatus.LoggedOut, null);
-            }
-            if (!string.Equals(NonEmpty(raw["refresh_token"]), expectedOnDisk, StringComparison.Ordinal))
-            {
-                return new(ApplyStatus.Superseded, Entry(scope, raw));
-            }
-
-            // The write works on a fresh copy of the file, read again before each
-            // try; `raw` above only served to see which login this is.
-            var plan = new AtomicReplace.Plan(
-                latest => latest[scope] is JsonObject now
-                    && string.Equals(NonEmpty(now["refresh_token"]), expectedOnDisk, StringComparison.Ordinal),
-                latest =>
-                {
-                    var entry = (JsonObject)latest[scope]!;
-                    entry["key"] = reply.AccessToken;
-                    if (reply.RefreshToken is { } rotated) entry["refresh_token"] = rotated;
-                    if (reply.ExpiresInSeconds is { } expiresIn && expiresIn > 0)
-                    {
-                        entry["expires_at"] = now.AddSeconds(expiresIn).ToUnixTimeMilliseconds();
-                    }
-                },
-                WriteOptions);
-            var (result, written) = AtomicReplace.Run(path, plan);
-            return result switch
-            {
-                AtomicReplace.Result.Written => new(ApplyStatus.Written, Entry(scope, (JsonObject)written![scope]!)),
-                AtomicReplace.Result.Gone => new(ApplyStatus.LoggedOut, null),
-                AtomicReplace.Result.Superseded => new(ApplyStatus.Superseded, Inspect(path, out _)),
-                _ => new(ApplyStatus.WriteFailed, null),
-            };
-        }
-        catch
-        {
-            return new(ApplyStatus.WriteFailed, null);
-        }
-    }
-
-    /// The entry as the reply leaves it, for use from memory while the file
-    /// cannot be written.
-    internal static GrokAuthEntry EntryFromReply(GrokAuthEntry current, TokenReply reply, DateTimeOffset now) =>
-        current with
-        {
-            AccessToken = reply.AccessToken,
-            RefreshToken = reply.RefreshToken ?? current.RefreshToken,
-            ExpiresAt = reply.ExpiresInSeconds is { } expiresIn && expiresIn > 0 ? now.AddSeconds(expiresIn) : current.ExpiresAt,
-        };
 
     // MARK: - Entry selection
 
@@ -280,20 +137,9 @@ public static class GrokAuthFile
         return new GrokAuthEntry(
             scope,
             accessToken,
-            NonEmpty(raw["refresh_token"]),
             ParseExpiry(raw["expires_at"]),
             NonEmpty(raw["auth_mode"]),
-            NonEmpty(raw["email"]),
-            NonEmpty(raw["oidc_issuer"]) ?? DefaultIssuer,
-            NonEmpty(raw["oidc_client_id"]) ?? ClientIdFromScope(scope));
-    }
-
-    private static string? ClientIdFromScope(string scope)
-    {
-        var marker = scope.IndexOf("::", StringComparison.Ordinal);
-        if (marker < 0) return null;
-        var id = scope[(marker + 2)..];
-        return id.Length == 0 ? null : id;
+            NonEmpty(raw["email"]));
     }
 
     /// `expires_at` is epoch milliseconds on current CLI logins; tolerate

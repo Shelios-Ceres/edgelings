@@ -611,7 +611,10 @@ public static class ClaudeCredentials
         internal sealed record Unavailable(string Message, bool Uncertain = false, string Reason = "error") : RefreshResult;
     }
 
-    private static async Task<RefreshResult> RefreshClaudeToken(string refreshToken)
+    /// Test seam: the client a refresh grant goes through.
+    internal static HttpClient OAuth = Http.OAuthClient;
+
+    internal static async Task<RefreshResult> RefreshClaudeToken(string refreshToken)
     {
         try
         {
@@ -625,7 +628,7 @@ public static class ClaudeCredentials
             request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             // The client's own timeout is only a backstop for a request that has to connect first.
             using var deadline = new CancellationTokenSource(Http.DeadlineAfterConnect(Http.GrantMargin));
-            using var response = await Http.OAuthClient.SendAsync(request, deadline.Token);
+            using var response = await OAuth.SendAsync(request, deadline.Token);
             return RefreshResultFor((int)response.StatusCode, await response.Content.ReadAsByteArrayAsync(deadline.Token), DateTimeOffset.UtcNow);
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
