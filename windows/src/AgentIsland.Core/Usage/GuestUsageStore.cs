@@ -44,21 +44,12 @@ public abstract class GuestUsageStore : INotifyPropertyChanged
         return true;
     }
 
-    protected void ClearAttemptFloor() => _lastAttempt = null;
-
-    /// Whether a cancelled attempt still holds the floor. A store whose fetch
-    /// starts a process keeps it, so hiding and showing again cannot start
-    /// another before the floor has passed; the others fetch again at once.
-    protected virtual bool CancelKeepsFloor => false;
-
-    internal bool KeepsFloorOnCancel => CancelKeepsFloor;
-
     internal void CancelPending()
     {
         if (_attempt is not { } attempt) return;
         _attempt = null;
         attempt.Cancel();
-        if (!CancelKeepsFloor) _lastAttempt = null;
+        _lastAttempt = null;
         Loading = false;
     }
 

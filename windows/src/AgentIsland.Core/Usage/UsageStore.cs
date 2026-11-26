@@ -70,7 +70,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     private Task? _refreshTask;
     private CancellationTokenSource? _codexReauthCts;
     private bool _networkMonitorArmed;
-    private readonly object _sessionGate = new();
     private bool _powerMonitorArmed;
     private bool _lastNetworkAvailable = true;
 
@@ -548,11 +547,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     private void ArmSystemEvents()
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
-        lock (_sessionGate)
-        {
-            Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
-            AntigravityCliQuota.SessionLocked = WindowsSession.IsLocked();
-        }
+        Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
         _powerMonitorArmed = true;
     }
 
@@ -630,17 +625,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void OnSessionSwitch(object? sender, Microsoft.Win32.SessionSwitchEventArgs e)
     {
-        lock (_sessionGate)
-        {
-            if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionLock)
-            {
-                AntigravityCliQuota.NoteSessionEvent(locked: true);
-                return;
-            }
-            if (e.Reason != Microsoft.Win32.SessionSwitchReason.SessionUnlock) return;
-            AntigravityCliQuota.NoteSessionEvent(locked: false);
-        }
-        UiThread.Post(AntigravityUsageStore.Shared.RetryAfterUnlock);
+        if (e.Reason != Microsoft.Win32.SessionSwitchReason.SessionUnlock) return;
         HandleUnlock();
     }
 
@@ -661,7 +646,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// The computer woke from sleep (the Mac's didWake notification calls this).
     public void HandleWake()
     {
-        AntigravityCliQuota.NoteWake();
         UiThread.Post(() =>
         {
             // The dead in-flight request would block Refresh's early-return

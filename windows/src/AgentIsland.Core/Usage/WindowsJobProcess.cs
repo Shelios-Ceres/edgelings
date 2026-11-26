@@ -131,4 +131,88 @@ internal static class WindowsJobProcess
     [DllImport("kernel32.dll")] private static extern bool GetExitCodeProcess(nint process, out uint exitCode);
     [DllImport("kernel32.dll")] private static extern bool TerminateProcess(nint process, uint exitCode);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
+
+    /// Runs a child inside a Job Object with ActiveProcessLimit = 1 and
+    /// KILL_ON_JOB_CLOSE: the kernel refuses the child's own CreateProcess
+    /// calls, and closing the job kills it. Processes another process starts
+    /// on its behalf (COM activation, ShellExecute) are not stopped. A
+    /// cancelled token ends the child within a fraction of a second.
+    [SupportedOSPlatform("windows")]
+    internal static string? RunInSingleProcessJob(ProcessStartInfo start, TimeSpan timeout,
+        Func<Func<bool>, bool>? permitLaunch = null, CancellationToken ct = default)
+    {
+        var job = CreateJobObjectW(0, null);
+        if (job == 0) return null;
+        try
+        {
+            var info = new JobObjectExtendedLimitInformation
+            {
+                BasicLimitInformation = new JobObjectBasicLimitInformation
+                {
+                    LimitFlags = JobObjectLimitActiveProcess | JobObjectLimitKillOnJobClose,
+                    ActiveProcessLimit = 1,
+                },
+            };
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformationClass, ref info,
+                    (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>()))
+            {
+                return null;
+            }
+            return Run(job, start, timeout, permitLaunch, ct);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            CloseHandle(job);
+        }
+    }
+
+    private const int JobObjectExtendedLimitInformationClass = 9;
+    private const uint JobObjectLimitActiveProcess = 0x00000008;
+    private const uint JobObjectLimitKillOnJobClose = 0x00002000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JobObjectBasicLimitInformation
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public nuint MinimumWorkingSetSize;
+        public nuint MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public nuint Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoCounters
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JobObjectExtendedLimitInformation
+    {
+        public JobObjectBasicLimitInformation BasicLimitInformation;
+        public IoCounters IoInfo;
+        public nuint ProcessMemoryLimit;
+        public nuint JobMemoryLimit;
+        public nuint PeakProcessMemoryUsed;
+        public nuint PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern nint CreateJobObjectW(nint attributes, string? name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(nint job, int infoClass, ref JobObjectExtendedLimitInformation info, uint length);
 }

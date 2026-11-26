@@ -74,8 +74,6 @@ internal static class RuntimeBoundaryTests
             Expect(TryStart(TimeSpan.Zero), true);
             return RunVisibleFetch(fetch, _ => -1, () => true, value => { Applied = value; Loading = false; });
         }
-        public bool KeepsFloor { get; init; }
-        protected override bool CancelKeepsFloor => KeepsFloor;
         public bool Kick(TimeSpan floor) => TryStart(floor);
         public Task Begin2(Func<CancellationToken, Task<int>> fetch) =>
             RunVisibleFetch(fetch, _ => -1, () => true, value => { Applied = value; Loading = false; });
@@ -94,21 +92,18 @@ internal static class RuntimeBoundaryTests
         blocked.SetResult(1);
         old.GetAwaiter().GetResult();
         Expect(guest.Applied, 2);
-        // Hide, show, kick: a store whose fetch starts a process keeps the
-        // floor after a cancelled attempt; the others fetch again at once.
-        foreach (var keeps in new[] { true, false })
-        {
-            var floored = new Guest { KeepsFloor = keeps };
-            var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var seen = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Expect(floored.Kick(TimeSpan.FromMinutes(2)), true);
-            var first = floored.Begin2(ct => { seen.SetResult(ct); return pending.Task; });
-            seen.Task.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
-            floored.CancelPending();
-            Expect(floored.Kick(TimeSpan.FromMinutes(2)), !keeps);
-            pending.SetResult(0);
-            first.GetAwaiter().GetResult();
-        }
+        // Hide, show, kick: a cancelled attempt gives up its floor, so the
+        // store fetches again at once.
+        var floored = new Guest();
+        var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var seen = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Expect(floored.Kick(TimeSpan.FromMinutes(2)), true);
+        var first = floored.Begin2(ct => { seen.SetResult(ct); return pending.Task; });
+        seen.Task.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+        floored.CancelPending();
+        Expect(floored.Kick(TimeSpan.FromMinutes(2)), true);
+        pending.SetResult(0);
+        first.GetAwaiter().GetResult();
         var store = DrawerStore.Shared;
         store.SetShown(DisplayProvider.Antigravity, false);
         var path = Path.Combine(IslandPaths.Home, ".gemini", "antigravity", "brain", "fixture",

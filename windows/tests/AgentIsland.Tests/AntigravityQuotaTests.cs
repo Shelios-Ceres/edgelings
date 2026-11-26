@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using AgentIsland.Core;
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.Usage;
 using static AgentIsland.Tests.Check;
@@ -32,21 +34,17 @@ public static class AntigravityQuotaTests
         var tests = new (string Name, Action Test)[]
         {
             ("the parser keeps all five buckets of a Pro account", TestParsesFiveBuckets),
-            ("only CLI versions with a built-in print-mode /usage are queried", TestCliVersions),
-            ("the CLI invocation runs headless with isolated profile and auto-update disabled", TestCliStartInfo),
-            ("the CLI skips offline, wake-grace, and unreachable-OAuth polls", TestCliOfflineAndWakeGuard),
-            ("a lock flag Windows no longer reports is asked again, and written down", TestCliStaleLockFlagIsAskedAgain),
-            ("hiding Antigravity cancels a running agy through Run", TestCliRunPassesCancel),
-            ("only Antigravity's store keeps its floor after a cancel", TestCancelKeepsFloorOnlyForAgy),
-            ("the CLI gate log writes a line only when the reason changes", TestCliDiagnosticsWriteOnChange),
-            ("the CLI gate log moves aside past 64 KB", TestCliDiagnosticsFileRolls),
             ("only this process's own hub file gives its token", TestHubToken),
             ("the hub file's token comes before the command line", TestCsrfTokenPrefersHub),
             ("a server without GetUnleashData is found and authenticated from its hub file", TestDiscoverWithoutUnleashData),
             ("the diagnostic tells hub files, discovery and the quota call apart, and never shows a token", TestDiagnosticLines),
-        ("the single-process Windows Job Object blocks grandchild browser/CLI spawns", TestCliSingleProcessJob),
+            ("the single-process Windows Job Object blocks grandchild spawns", TestSingleProcessJob),
+            ("with no language server the last snapshot stays, with its sync time and no warning", TestNoServerKeepsSnapshot),
+            ("with no language server and no snapshot the card gives a neutral hint, not a sign-in prompt", TestNoServerNoSnapshotShowsNeutralHint),
+            ("a snapshot older than eight days is still restored after a restart", TestOldSnapshotSurvivesRestart),
+            ("a language server answering 401 keeps the snapshot under a quota HTTP 401 caption", TestServer401KeepsSnapshotUnderCaption),
+            ("a cancelled token ends a quota call still waiting on the server", TestCancelEndsPendingQuotaCall),
             ("refresh cadence keeps the 120s background floor and 1-minute manual floor", TestRefreshCadence),
-            ("the CLI usage reply supplies real quota windows", TestCliUsage),
             ("the main group fills the 5-hour and weekly slots", TestSlots),
             ("a snapshot with no 5-hour bucket keeps one weekly window", TestSingleWindow),
             ("a snapshot with no Gemini bucket falls back to its first", TestNoGemini),
@@ -120,274 +118,6 @@ public static class AntigravityQuotaTests
         Expect(buckets[4].GroupLabel, "Gemini 4 Argon");
         Expect(buckets[1].PeriodSeconds, 5.0 * 3600);
         Expect(note is not null, "Google's note comes along");
-    }
-
-    private static void TestCliVersions()
-    {
-        foreach (var version in new[] { null, "", "unknown", "1.1.10", "1.1.11-beta" })
-            Expect(!AntigravityCliQuota.SupportsUsage(version), "unsupported CLI: " + version);
-        foreach (var version in new[] { "1.1.11", "1.5.14", "2.0.0" })
-            Expect(AntigravityCliQuota.SupportsUsage(version), "supported CLI: " + version);
-    }
-
-    private static void TestCliStartInfo()
-    {
-        var exe = Path.Combine(Path.GetTempPath(), "agy.exe");
-        var iso = Path.Combine(Path.GetTempPath(), "limen-agy-iso-test");
-        var start = AntigravityCliQuota.StartInfo(exe, "--print /usage", iso);
-        Expect(!start.UseShellExecute, "never shell-execute agy");
-        Expect(start.CreateNoWindow, "never create a console window");
-        Expect(start.WindowStyle, System.Diagnostics.ProcessWindowStyle.Hidden);
-        Expect(start.RedirectStandardInput && start.RedirectStandardOutput && start.RedirectStandardError, "all three streams redirected");
-        Expect(start.Environment["AGY_CLI_DISABLE_AUTO_UPDATE"], "true");
-        Expect(start.Environment["AGY_CLI_NONINTERACTIVE_HEADLESS"], "true");
-        Expect(start.Environment["USERPROFILE"], iso);
-        Expect(start.Environment["HOME"], iso);
-        Expect(start.Environment["LOCALAPPDATA"], Path.Combine(iso, "AppData", "Local"));
-        Expect(start.Environment["APPDATA"], Path.Combine(iso, "AppData", "Roaming"));
-        Expect(start.Environment["ANTIGRAVITY_GEMINI_DIR"], Path.Combine(iso, ".gemini"));
-
-        var realLocal = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var realRoaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var realHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var defaultStart = AntigravityCliQuota.StartInfo(exe, "--print /usage");
-        Expect(!defaultStart.Environment["USERPROFILE"]!.Equals(realHome, StringComparison.OrdinalIgnoreCase),
-            "default USERPROFILE never points at the real user profile");
-        Expect(!defaultStart.Environment["LOCALAPPDATA"]!.Equals(realLocal, StringComparison.OrdinalIgnoreCase),
-            "default LOCALAPPDATA never points at the real user LocalAppData");
-        Expect(!defaultStart.Environment["APPDATA"]!.Equals(realRoaming, StringComparison.OrdinalIgnoreCase),
-            "default APPDATA never points at the real user AppData");
-        Expect(defaultStart.Environment["LOCALAPPDATA"]!.StartsWith(defaultStart.Environment["USERPROFILE"]!, StringComparison.OrdinalIgnoreCase),
-            "LOCALAPPDATA sits under the isolated USERPROFILE to prevent split-path Chrome mismatches");
-    }
-
-    private static void TestCliOfflineAndWakeGuard()
-    {
-        var prevClock = AntigravityCliQuota.Clock;
-        var uptime = AntigravityCliQuota.UptimeMilliseconds;
-        var locked = AntigravityCliQuota.SessionLocked;
-        var prevOnline = AntigravityCliQuota.CheckOnline;
-        var prevReachable = AntigravityCliQuota.CheckReachable;
-        var prevQuery = AntigravityCliQuota.QuerySessionLocked;
-        try
-        {
-            var now = Now;
-            AntigravityCliQuota.Clock = () => now;
-            AntigravityCliQuota.ResetWakeGraceForTests();
-            // Windows does not say, so the flag the events set stands.
-            AntigravityCliQuota.QuerySessionLocked = () => null;
-
-            AntigravityCliQuota.CheckOnline = () => true;
-            AntigravityCliQuota.CheckReachable = () => true;
-            AntigravityCliQuota.SessionLocked = false;
-            AntigravityCliQuota.UptimeMilliseconds = () => 89_999;
-            Expect(AntigravityCliQuota.ShouldDefer(), "cold boot defers");
-            AntigravityCliQuota.UptimeMilliseconds = () => 90_000;
-            Expect(!AntigravityCliQuota.ShouldDefer(), "ordinary app restart is immediately eligible");
-            AntigravityCliQuota.SessionLocked = true;
-            Expect(AntigravityCliQuota.ShouldDefer(), "locked sessions defer");
-            AntigravityCliQuota.SessionLocked = false;
-            Expect(AntigravityCliQuota.EnsureIsolatedHome(typeof(AntigravityQuotaTests).Assembly.Location) is null,
-                "an unavailable isolated home fails closed");
-
-            // Offline skips before even probing external reachability.
-            var probed = 0;
-            AntigravityCliQuota.CheckOnline = () => false;
-            AntigravityCliQuota.CheckReachable = () => { probed++; return true; };
-            Expect(AntigravityCliQuota.ShouldDefer(), "offline defers CLI poll");
-            Expect(probed, 0);
-
-            // Online interface but Google OAuth unreachable (e.g. workplace intranet) defers.
-            AntigravityCliQuota.CheckOnline = () => true;
-            AntigravityCliQuota.CheckReachable = () => { probed++; return false; };
-            Expect(AntigravityCliQuota.ShouldDefer(), "unreachable Google OAuth defers CLI poll");
-            Expect(probed, 1);
-
-            // Online + reachable proceeds normally.
-            AntigravityCliQuota.CheckReachable = () => true;
-            Expect(!AntigravityCliQuota.ShouldDefer(), "online and reachable proceeds");
-
-            // Wake grace defers for 45 seconds without probing network.
-            probed = 0;
-            AntigravityCliQuota.CheckReachable = () => { probed++; return true; };
-            AntigravityCliQuota.NoteWake();
-            now = Now.AddSeconds(30);
-            Expect(AntigravityCliQuota.ShouldDefer(), "within 45s wake grace defers CLI poll");
-            Expect(probed, 0);
-            now = Now.AddSeconds(46);
-            Expect(!AntigravityCliQuota.ShouldDefer(), "after 45s wake grace resumes CLI poll");
-            Expect(probed, 1);
-        }
-        finally
-        {
-            AntigravityCliQuota.Clock = prevClock;
-            AntigravityCliQuota.UptimeMilliseconds = uptime;
-            AntigravityCliQuota.SessionLocked = locked;
-            AntigravityCliQuota.CheckOnline = prevOnline;
-            AntigravityCliQuota.CheckReachable = prevReachable;
-            AntigravityCliQuota.QuerySessionLocked = prevQuery;
-            AntigravityCliQuota.ResetWakeGraceForTests();
-        }
-    }
-
-    // Hiding Antigravity cancels the poll's token: Run must hand it to the job.
-    private static void TestCliRunPassesCancel()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        var prevClock = AntigravityCliQuota.Clock;
-        var uptime = AntigravityCliQuota.UptimeMilliseconds;
-        var locked = AntigravityCliQuota.SessionLocked;
-        var prevQuery = AntigravityCliQuota.QuerySessionLocked;
-        var drawer = AgentIsland.Model.DrawerStore.Shared;
-        var wasShown = !drawer.IsHidden(AgentIsland.Model.DisplayProvider.Antigravity);
-        var home = Directory.CreateTempSubdirectory("limen-agy-run-");
-        try
-        {
-            AntigravityCliQuota.Clock = () => DateTimeOffset.UtcNow;
-            AntigravityCliQuota.ResetWakeGraceForTests();
-            AntigravityCliQuota.UptimeMilliseconds = () => 3_600_000;
-            AntigravityCliQuota.QuerySessionLocked = () => false;
-            AntigravityCliQuota.SessionLocked = false;
-            drawer.SetShown(AgentIsland.Model.DisplayProvider.Antigravity, true);
-            using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            var output = AntigravityCliQuota.Run(Path.Combine(Environment.SystemDirectory, "ping.exe"), "-n 30 127.0.0.1", 60, home.FullName, cancel.Token);
-            Expect(output is null, "a cancelled run returns nothing");
-            Expect(clock.Elapsed < TimeSpan.FromSeconds(5), $"cancel ends the run long before its timeout, took {clock.Elapsed}");
-        }
-        finally
-        {
-            drawer.SetShown(AgentIsland.Model.DisplayProvider.Antigravity, wasShown);
-            AntigravityCliQuota.Clock = prevClock;
-            AntigravityCliQuota.UptimeMilliseconds = uptime;
-            AntigravityCliQuota.SessionLocked = locked;
-            AntigravityCliQuota.QuerySessionLocked = prevQuery;
-            AntigravityCliQuota.ResetWakeGraceForTests();
-            // The terminated child can hold its working folder for a moment after the run returns.
-            for (var attempt = 0; attempt < 20 && home.Exists; attempt++)
-            {
-                try { home.Delete(recursive: true); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Thread.Sleep(100); }
-                home.Refresh();
-            }
-        }
-    }
-
-    private static void TestCancelKeepsFloorOnlyForAgy()
-    {
-        Expect(AntigravityUsageStore.Shared.KeepsFloorOnCancel, "Antigravity's poll may start agy, so a cancel keeps its floor");
-        Expect(!GrokUsageStore.Shared.KeepsFloorOnCancel, "Grok's poll is plain HTTP and fetches again when shown");
-    }
-
-    // 11/25: Limen started at sign-in read the session as not unlocked, and
-    // only an unlock event cleared that, so the CLI was held off all morning.
-    private static void TestCliStaleLockFlagIsAskedAgain()
-    {
-        var prevClock = AntigravityCliQuota.Clock;
-        var uptime = AntigravityCliQuota.UptimeMilliseconds;
-        var locked = AntigravityCliQuota.SessionLocked;
-        var prevOnline = AntigravityCliQuota.CheckOnline;
-        var prevReachable = AntigravityCliQuota.CheckReachable;
-        var prevQuery = AntigravityCliQuota.QuerySessionLocked;
-        var prevWrite = AntigravityCliQuota.Diagnostics.Write;
-        var lines = new List<string>();
-        try
-        {
-            AntigravityCliQuota.Clock = () => Now;
-            AntigravityCliQuota.ResetWakeGraceForTests();
-            AntigravityCliQuota.Diagnostics.ResetForTests();
-            AntigravityCliQuota.Diagnostics.Write = line => { lines.Add(line); return true; };
-            AntigravityCliQuota.UptimeMilliseconds = () => 3_600_000;
-            AntigravityCliQuota.CheckOnline = () => true;
-            AntigravityCliQuota.CheckReachable = () => true;
-
-            AntigravityCliQuota.SessionLocked = true;
-            AntigravityCliQuota.QuerySessionLocked = () => true;
-            Expect(AntigravityCliQuota.ShouldDefer(), "a session Windows still reports locked defers");
-
-            AntigravityCliQuota.QuerySessionLocked = () => false;
-            Expect(!AntigravityCliQuota.ShouldDefer(), "a lock flag Windows no longer reports is cleared");
-            Expect(AntigravityCliQuota.SessionLocked == false, "and stays cleared");
-            Expect(lines.Count == 1 && lines[0].EndsWith("session lock flag locked, Windows says unlocked", StringComparison.Ordinal),
-                $"the stale flag is written down, got {string.Join(" | ", lines)}");
-
-            AntigravityCliQuota.SessionLocked = null;
-            AntigravityCliQuota.QuerySessionLocked = () => null;
-            Expect(AntigravityCliQuota.ShouldDefer(), "a lock state nobody knows still defers");
-            AntigravityCliQuota.QuerySessionLocked = () => false;
-            Expect(!AntigravityCliQuota.ShouldDefer(), "until Windows says unlocked");
-
-            // A lock event holds even while Windows, asked a moment later, does not say locked yet.
-            AntigravityCliQuota.NoteSessionEvent(locked: true);
-            Expect(AntigravityCliQuota.ShouldDefer(), "a lock event is not overruled by one reading");
-            AntigravityCliQuota.NoteSessionEvent(locked: false);
-            Expect(!AntigravityCliQuota.ShouldDefer(), "the unlock event releases it");
-        }
-        finally
-        {
-            AntigravityCliQuota.Clock = prevClock;
-            AntigravityCliQuota.UptimeMilliseconds = uptime;
-            AntigravityCliQuota.SessionLocked = locked;
-            AntigravityCliQuota.CheckOnline = prevOnline;
-            AntigravityCliQuota.CheckReachable = prevReachable;
-            AntigravityCliQuota.QuerySessionLocked = prevQuery;
-            AntigravityCliQuota.Diagnostics.Write = prevWrite;
-            AntigravityCliQuota.Diagnostics.ResetForTests();
-            AntigravityCliQuota.ResetWakeGraceForTests();
-        }
-    }
-
-    private static void TestCliDiagnosticsWriteOnChange()
-    {
-        var prevWrite = AntigravityCliQuota.Diagnostics.Write;
-        var lines = new List<string>();
-        try
-        {
-            AntigravityCliQuota.Diagnostics.ResetForTests();
-            AntigravityCliQuota.Diagnostics.Write = line => { lines.Add(line); return true; };
-            AntigravityCliQuota.Diagnostics.Note("deferred: offline");
-            AntigravityCliQuota.Diagnostics.Note("deferred: offline");
-            AntigravityCliQuota.Diagnostics.Note("ok");
-            AntigravityCliQuota.Diagnostics.Note("deferred: offline");
-            Expect(lines.Count, 3);
-            Expect(lines.All(line => System.Text.RegularExpressions.Regex.IsMatch(line, @"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d\d:\d\d \S")),
-                "each line is dated");
-
-            // A line the file refused is tried again, not dropped as already said.
-            var busy = true;
-            AntigravityCliQuota.Diagnostics.Write = line => { if (busy) return false; lines.Add(line); return true; };
-            AntigravityCliQuota.Diagnostics.Note("deferred: cold boot");
-            busy = false;
-            AntigravityCliQuota.Diagnostics.Note("deferred: cold boot");
-            Expect(lines.Count, 4);
-        }
-        finally
-        {
-            AntigravityCliQuota.Diagnostics.Write = prevWrite;
-            AntigravityCliQuota.Diagnostics.ResetForTests();
-        }
-    }
-
-    private static void TestCliDiagnosticsFileRolls()
-    {
-        var folder = Directory.CreateTempSubdirectory("limen-diag-");
-        var prevCache = AgentIsland.Core.IslandPaths.CacheDirOverride;
-        try
-        {
-            AgentIsland.Core.IslandPaths.CacheDirOverride = folder.FullName;
-            AntigravityCliQuota.Diagnostics.ResetForTests();
-            var path = AntigravityCliQuota.Diagnostics.LogPath;
-            File.WriteAllText(path, new string('x', 70 * 1024));
-            AntigravityCliQuota.Diagnostics.Note("ok");
-            Expect(File.Exists(path + ".old"), "a full log moves aside");
-            Expect(File.ReadAllText(path).TrimEnd().EndsWith(" ok", StringComparison.Ordinal), "and a new one starts");
-        }
-        finally
-        {
-            AgentIsland.Core.IslandPaths.CacheDirOverride = prevCache;
-            AntigravityCliQuota.Diagnostics.ResetForTests();
-            folder.Delete(recursive: true);
-        }
     }
 
     private sealed class HubFolder : IDisposable
@@ -646,7 +376,161 @@ public static class AntigravityQuotaTests
         }
     }
 
-    private static void TestCliSingleProcessJob()
+    private static IDisposable GeminiHomeWithAntigravity()
+    {
+        var root = Path.Combine(AntigravityCredentials.GeminiHome, "antigravity");
+        var created = !Directory.Exists(root);
+        Directory.CreateDirectory(root);
+        return new Cleanup(() => { if (created) Directory.Delete(root, recursive: true); });
+    }
+
+    private sealed class Cleanup(Action action) : IDisposable
+    {
+        public void Dispose() => action();
+    }
+
+    // Neither the app nor agy is running: Limen starts neither, so nothing is
+    // read, and the card keeps its last numbers with their time. It is not a
+    // sign-in problem and must not look like one.
+    private static void TestNoServerKeepsSnapshot()
+    {
+        using var home = GeminiHomeWithAntigravity();
+        var store = AntigravityUsageStore.Shared;
+        try
+        {
+            AntigravityLanguageServer.ForgetCachedPort();
+            var outcome = AntigravityUsageFetcher.Fetch().GetAwaiter().GetResult();
+            Expect(outcome is AntigravityUsageFetcher.Outcome.NotRunning, "no server is NotRunning, not a failure");
+
+            var saved = Pro(argonUsed: 0.5);
+            store.Apply(new AntigravityUsageFetcher.Outcome.Success(saved, "me@example.com"));
+            var syncedAt = store.LastUpdated;
+            Expect(syncedAt is not null, "the good reading is stamped");
+
+            store.Apply(outcome);
+            Expect(ReferenceEquals(store.Snapshot, saved), "the snapshot stays");
+            Expect(store.LastUpdated == syncedAt, "with the time of the reading it shows");
+            Expect(store.AccountEmail, "me@example.com");
+            Expect(store.StatusCaption is null, "and no warning or sign-in line");
+            Expect(AgentReports.Warning(DisplayProvider.Antigravity) is null, "the character carries no warning");
+            Expect(Meters(store.Snapshot, store.StatusCaption).All(m => m.Value != "—"), "every meter keeps its number");
+        }
+        finally
+        {
+            store.ResetForTests();
+            AntigravityLanguageServer.ForgetCachedPort();
+        }
+    }
+
+    // Nothing was ever read: the card says how to get a reading, in words
+    // that are not about signing in, and the numbers show a dash.
+    private static void TestNoServerNoSnapshotShowsNeutralHint()
+    {
+        var store = AntigravityUsageStore.Shared;
+        try
+        {
+            store.ResetForTests();
+            store.Apply(new AntigravityUsageFetcher.Outcome.NotRunning());
+            Expect(store.Snapshot is null, "no snapshot appears");
+            Expect(store.StatusCaption, L10n.Tr("Open Antigravity or agy to sync"));
+            Expect(!L10n.Tr("Open Antigravity or agy to sync").Contains("sign", StringComparison.OrdinalIgnoreCase)
+                && !L10n.Tr("Open Antigravity or agy to sync").Contains("登录"), "and it never talks of signing in");
+            Expect(AgentReports.Warning(DisplayProvider.Antigravity) is { Length: > 0 }, "the hint reaches the card");
+            Expect(Meters(null, store.StatusCaption).All(m => m.Value == "—"), "every meter shows a dash");
+            var language = L10n.Current;
+            try
+            {
+                L10n.Current = L10n.Language.SimplifiedChinese;
+                var zh = L10n.Tr("Open Antigravity or agy to sync");
+                Expect(zh != "Open Antigravity or agy to sync" && !zh.Contains("登录"), "the Chinese line exists and never talks of signing in");
+            }
+            finally { L10n.Current = language; }
+        }
+        finally { store.ResetForTests(); }
+    }
+
+    // A week of an app left closed must not blank the card: the snapshot
+    // is kept at any age, with the time it was read.
+    private static void TestOldSnapshotSurvivesRestart()
+    {
+        using var home = GeminiHomeWithAntigravity();
+        var readAt = DateTimeOffset.Now.AddDays(-30);
+        try
+        {
+            Preferences.Set(AntigravityUsageStore.CacheKey,
+                new AntigravityUsageStore.CachedSnapshot(Pro(), readAt, "me@example.com"));
+            var restarted = new AntigravityUsageStore();
+            Expect(restarted.Snapshot is not null, "a 30-day-old snapshot is restored");
+            Expect(restarted.LastUpdated == readAt, "with the time it was read");
+            Expect(restarted.AccountEmail, "me@example.com");
+            Expect(restarted.StatusCaption is null, "and no warning");
+        }
+        finally { Preferences.Remove(AntigravityUsageStore.CacheKey); }
+    }
+
+    // The server is there but turns Limen away. That is a real fault worth
+    // saying, so the caption stays and the numbers stay under it.
+    private static void TestServer401KeepsSnapshotUnderCaption()
+    {
+        using var home = GeminiHomeWithAntigravity();
+        var store = AntigravityUsageStore.Shared;
+        var prevCall = AntigravityLanguageServer.CallRpc;
+        var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
+        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
+        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        try
+        {
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.ListAntigravityProcessIds = () => new List<int> { 101 };
+            AntigravityLanguageServer.ListListeningPorts = _ => new List<int> { 51001 };
+            AntigravityLanguageServer.ResolvePortOwner = _ => null;
+            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) =>
+                Task.FromResult<AntigravityLanguageServer.Reply?>(new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
+
+            var outcome = AntigravityUsageFetcher.Fetch().GetAwaiter().GetResult();
+            Expect(outcome is AntigravityUsageFetcher.Outcome.Failed { Message: "quota HTTP 401" }, "a refusing server is a failure with its status");
+
+            var saved = Pro();
+            store.Apply(new AntigravityUsageFetcher.Outcome.Success(saved, null));
+            store.Apply(outcome);
+            Expect(ReferenceEquals(store.Snapshot, saved), "the snapshot stays");
+            Expect(store.StatusCaption, "quota HTTP 401");
+            Expect(Meters(store.Snapshot, store.StatusCaption).All(m => m.Value != "—"), "the numbers stay under the caption");
+        }
+        finally
+        {
+            AntigravityLanguageServer.CallRpc = prevCall;
+            AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
+            AntigravityLanguageServer.ListListeningPorts = prevPorts;
+            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            store.ResetForTests();
+        }
+    }
+
+    // Hiding Antigravity cancels the poll's token: a call still waiting on
+    // the server ends at once instead of running beside the next poll.
+    private static void TestCancelEndsPendingQuotaCall()
+    {
+        var prevCall = AntigravityLanguageServer.CallRpc;
+        try
+        {
+            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) =>
+                new TaskCompletionSource<AntigravityLanguageServer.Reply?>().Task;
+            using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var cancelled = false;
+            try { AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}", cancel.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Expect(cancelled, "the call ends as cancelled");
+            Expect(clock.Elapsed < TimeSpan.FromSeconds(3), $"and long before the server answers, took {clock.Elapsed}");
+        }
+        finally { AntigravityLanguageServer.CallRpc = prevCall; }
+    }
+
+    private static void TestSingleProcessJob()
     {
         if (!OperatingSystem.IsWindows()) return;
         var single = new System.Diagnostics.ProcessStartInfo
@@ -659,7 +543,7 @@ public static class AntigravityQuotaTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "ok");
+        Expect(WindowsJobProcess.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "ok");
         var folder = Directory.CreateTempSubdirectory("limen-job-");
         try
         {
@@ -667,23 +551,23 @@ public static class AntigravityQuotaTests
             single.Arguments = "/d /c echo started>marker";
             Expect(WindowsJobProcess.Run(0, single, TimeSpan.FromSeconds(5), null) is null,
                 "invalid job prevents creation");
-            Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5), _ => false) is null,
+            Expect(WindowsJobProcess.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5), _ => false) is null,
                 "hidden launch is denied");
             Expect(!File.Exists(Path.Combine(folder.FullName, "marker")), "main thread never ran");
             File.WriteAllText(Path.Combine(folder.FullName, "child.cmd"), "@echo child>child");
             single.Arguments = "/d /c echo started>parent & cmd.exe /d /c child.cmd";
-            AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5));
+            WindowsJobProcess.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5));
             Expect(File.Exists(Path.Combine(folder.FullName, "parent")) && !File.Exists(Path.Combine(folder.FullName, "child")),
                 "parent entered its job and the child produced no marker");
             single.Environment["ZZ_LIMEN_SENTINEL"] = "isolated-value";
             single.Arguments = "/d /c echo %ZZ_LIMEN_SENTINEL%";
-            Expect(AntigravityCliQuota.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "isolated-value");
+            Expect(WindowsJobProcess.RunInSingleProcessJob(single, TimeSpan.FromSeconds(5)), "isolated-value");
         }
         finally { folder.Delete(true); }
 
         var wait = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "ping.exe"), "-n 12 127.0.0.1");
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        Expect(AntigravityCliQuota.RunInSingleProcessJob(wait, TimeSpan.FromMilliseconds(150)) is null, "timeout stops the job");
+        Expect(WindowsJobProcess.RunInSingleProcessJob(wait, TimeSpan.FromMilliseconds(150)) is null, "timeout stops the job");
         Expect(clock.Elapsed < TimeSpan.FromSeconds(5), "pipe cleanup respects timeout");
 
         using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(400)))
@@ -697,7 +581,7 @@ public static class AntigravityQuotaTests
                 RedirectStandardError = true,
             };
             clock.Restart();
-            Expect(AntigravityCliQuota.RunInSingleProcessJob(sleeper, TimeSpan.FromSeconds(60), null, cancel.Token) is null, "cancel stops the job");
+            Expect(WindowsJobProcess.RunInSingleProcessJob(sleeper, TimeSpan.FromSeconds(60), null, cancel.Token) is null, "cancel stops the job");
             Expect(clock.Elapsed < TimeSpan.FromSeconds(5), "cancel ends the wait long before the timeout");
         }
 
@@ -711,7 +595,7 @@ public static class AntigravityQuotaTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        Expect(AntigravityCliQuota.RunInSingleProcessJob(spawnChild, TimeSpan.FromSeconds(5)) is null,
+        Expect(WindowsJobProcess.RunInSingleProcessJob(spawnChild, TimeSpan.FromSeconds(5)) is null,
             "ActiveProcessLimit=1 must block the child's own CreateProcess calls at kernel level");
     }
 
@@ -719,28 +603,6 @@ public static class AntigravityQuotaTests
     {
         Expect(AntigravityUsageStore.EffectiveFloor(manual: false), TimeSpan.FromSeconds(120));
         Expect(AntigravityUsageStore.EffectiveFloor(manual: true), TimeSpan.FromMinutes(1));
-    }
-
-    private static void TestCliUsage()
-    {
-        const string reply = """
-            {"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"description":"shared pools","groups":[
-              {"name":"Gemini Models","buckets":[
-                {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.96,"reset_time":"2026-11-28T11:39:48Z"},
-                {"id":"gemini-5h","window":"5h","remaining_fraction":0},
-                {"id":"credit","remaining_amount":10,"reset_time":"2026-11-28T11:39:48Z"},
-                {"id":"disabled","disabled":true,"remaining_fraction":1}]}]}}}
-            """;
-        var snapshot = AntigravityQuotaParser.ParseCliUsage(reply)!;
-        Expect(snapshot.Buckets.Count, 2);
-        Expect(snapshot.GeminiPools.ShortWindow!.UsedPercent, 1.0);
-        Expect(Math.Round(snapshot.GeminiPools.LongWindow!.UsedPercent, 2), 0.04);
-        Expect(snapshot.GeminiPools.LongWindow.ResetAt, DateTimeOffset.Parse("2026-11-28T11:39:48Z"));
-        Expect(snapshot.Note, "shared pools");
-        foreach (var invalid in new[] { "{}", "not json", reply.Replace("SUCCESS", "ERROR"),
-            reply.Replace("\"usage\"", "\"credits\""), reply.Replace("\"num_turns\":0", "\"num_turns\":1"),
-            reply.Replace("remaining_fraction", "unknown_field") })
-            Expect(AntigravityQuotaParser.ParseCliUsage(invalid) is null, "no fresh quota from an invalid reply");
     }
 
     private static void TestSlots()

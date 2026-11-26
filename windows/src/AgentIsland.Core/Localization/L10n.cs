@@ -197,7 +197,7 @@ public static class L10n
         ["Cancel"] = "取消",
         // Five-provider settings rows (2.x). The %d/%@ holes of the macOS
         // strings become {0} here; the copy itself is byte-identical.
-        ["Installed — run agy to sign in"] = "已安装 — 运行 agy 登录",
+        ["Open Antigravity or agy to sync"] = "打开 Antigravity 或 agy 后同步",
         ["Next"] = "下一页",
         ["Back"] = "上一页",
         ["Notes"] = "版本说明",

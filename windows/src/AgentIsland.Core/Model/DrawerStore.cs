@@ -83,7 +83,8 @@ public sealed class DrawerStore : INotifyPropertyChanged
 
     private readonly object _visibilityGate = new();
 
-    // Serializes CLI creation with hiding its card.
+    // Runs the action only while the provider is shown, and keeps it from
+    // overlapping a hide of that provider.
     internal bool WhileVisible(DisplayProvider provider, Func<bool> action)
     {
         lock (_visibilityGate) return !_hidden.Contains(provider.RawValue()) && action();
