@@ -175,6 +175,10 @@ public static class StatusCards
         };
     }
 
+    /// 托盘提示里的用量：卡上第一条额度线的数字，免得 Grok 卡只有桌面版那条线时，托盘读成 Grok 的旧缓存。
+    public static string? TrayFigure(IReadOnlyList<StatusMeter> meters) =>
+        meters is [{ Used: { } used }, ..] ? $"{Formatting.PercentInt(used)}%" : null;
+
     /// One window as the card shows it. Numbers kept through a failed refresh
     /// or a closed app still show until their observed window ends. A window
     /// that never loaded or has reset awaits a fresh reading.
@@ -196,13 +200,21 @@ public static class StatusCards
             resets);
     }
 
-    /// Grok's weekly window, which is Cursor's too on one X Subscription.
-    /// Grok's card names no other app (the user's call, 2026-11-26: Grok,
-    /// Grok Bot and Cursor are one family), so Cursor's own line is not shown.
-    private static IReadOnlyList<StatusMeter> GrokMeters(Func<WindowUsage, string, StatusMeter> meter)
+    private static IReadOnlyList<StatusMeter> GrokMeters(Func<WindowUsage, string, StatusMeter> meter) =>
+        GrokMeters(GrokSides.Now(), DateTimeOffset.Now, meter);
+
+    /// 标签里不出现 Cursor。悬浮卡的标签列只有 “Tokens” 那么宽，所以桌面版那条在卡上写短的 “Desk”。
+    internal static IReadOnlyList<StatusMeter> GrokMeters(GrokSides sides, DateTimeOffset now, Func<WindowUsage, string, StatusMeter> meter)
     {
+        if (sides.SharedReading(now) is { } shared) return new[] { meter(shared.Window, "Week") };
         var meters = new List<StatusMeter>();
-        if (ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Grok)) meters.Add(meter(ProviderUsage.For(DisplayProvider.Grok).FiveHour, "Week"));
+        if (sides.Grok is { } grok) meters.Add(meter(grok.Window, "Week"));
+        if (sides.Desktop is { } desktop)
+        {
+            meters.Add(sides.Grok is null
+                ? meter(desktop.Window, "30d")
+                : meter(desktop.Window, "desktop") with { CardLabel = L10n.Tr("Desk") });
+        }
         return meters;
     }
 
@@ -309,9 +321,13 @@ public static class StatusCards
         var parts = new List<StatusPhrase>();
         var now = DateTimeOffset.Now;
         var monthEnded = provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now;
-        parts.AddRange(QuotaAges(
-            (ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded),
-            now, TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds)));
+        var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
+        if (provider == DisplayProvider.Grok)
+        {
+            parts.AddRange(GrokNotes(GrokSides.Now(), now, interval));
+            return parts;
+        }
+        parts.AddRange(QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval));
         if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
         if (provider != DisplayProvider.Codex) return parts;
         if (ProviderUsage.For(provider).ResetCards is > 0 and var cards)
@@ -331,6 +347,42 @@ public static class StatusCards
         var ages = new List<StatusPhrase>();
         if (QuotaAge(own.Usage, own.UpdatedAt, own.MonthEnded, now, interval) is { } age) ages.Add(age);
         return ages;
+    }
+
+    /// 每条额度线的读数多旧，和 GrokMeters 一一对应：同池时只说那一条线所用读数的；
+    /// 不同池时桌面版那条和 Grok 并列，要冠上名字。桌面版额度用完时说明何时恢复。
+    internal static IReadOnlyList<StatusPhrase> GrokNotes(GrokSides sides, DateTimeOffset now, TimeSpan interval)
+    {
+        static AppUsage Usage(GrokSide side) => new(side.Window, WindowUsage.Unknown);
+        var notes = new List<StatusPhrase>();
+        if (sides.SharedReading(now) is { } shared && sides.Desktop is { } pooled)
+        {
+            var side = shared.FromDesktop ? pooled : sides.Grok;
+            if (side is not null && QuotaAge(Usage(side), side.UpdatedAt, false, now, interval) is { } age) notes.Add(age);
+            // 桌面版先到 100% 时线上可能还是 Grok 没满的数，角色却已在“限额”，所以单独说明。
+            if (DesktopSpent(pooled.Window, now) is { } spentShared
+                && (shared.FromDesktop || shared.Window.At(now).UsedPercent < 1)) notes.Add(spentShared);
+            return notes;
+        }
+        if (sides.Grok is { } grok && QuotaAge(Usage(grok), grok.UpdatedAt, false, now, interval) is { } grokAge) notes.Add(grokAge);
+        if (sides.Desktop is not { } desktop) return notes;
+        if (QuotaAge(Usage(desktop), desktop.UpdatedAt, false, now, interval) is { } desktopAge)
+        {
+            notes.Add(desktopAge with { Text = AgentReports.DesktopNamed(desktopAge.Text, sides.Grok is not null) });
+        }
+        if (DesktopSpent(desktop.Window, now) is { } spent) notes.Add(spent);
+        return notes;
+    }
+
+    /// 角色因桌面版的额度用完而显示“限额”时，卡上要说明是哪个入口、什么时候恢复。
+    /// 判定和 AppUsage.IsExhausted 一致；时间写法沿用额度线的“{0}重置”。
+    internal static StatusPhrase? DesktopSpent(WindowUsage desktop, DateTimeOffset now)
+    {
+        var current = desktop.At(now);
+        if (desktop.HasError || current.UsedPercent < 1) return null;
+        if (current.ResetAt is not { } at || at <= now) return Phrase(L10n.Tr("Grok Build desktop's quota is used up"));
+        var countdown = Formatting.LongCountdown(at - now, L10n.IsChinese);
+        return Phrase(L10n.TrFormat("Grok Build desktop's quota is used up, resets {0}", countdown), countdown);
     }
 
     /// Explain the wait at a reset boundary before showing an age for old

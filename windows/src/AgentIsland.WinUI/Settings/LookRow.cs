@@ -197,7 +197,7 @@ internal sealed class LookRow
         _syncing = false;
         var label = L10n.Tr(worn.Name);
         var shared = _provider == DisplayProvider.Grok && ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor);
-        var who = shared ? L10n.Tr("Grok and Cursor") : ProviderIdentity.DisplayName(_provider);
+        var who = shared ? L10n.Tr("Grok and Grok Build desktop") : ProviderIdentity.DisplayName(_provider);
         SetDescription(Element, _theme == CharacterTheme.Pixel
             ? L10n.TrFormat(shared
                 ? "{0}. What {1} wear in the drawer, on its card and in menus"

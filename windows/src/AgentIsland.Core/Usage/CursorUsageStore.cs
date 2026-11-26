@@ -32,6 +32,7 @@ public sealed class CursorUsageStore : GuestUsageStore
     private DateTimeOffset? _lastUpdated;
     private string? _accountEmail;
     private string? _localPlan;
+    private bool _signedIn;
 
     /// Persisted shape of the last good fetch. Public because the JSON
     /// serializer behind Preferences has to reach it.
@@ -97,6 +98,13 @@ public sealed class CursorUsageStore : GuestUsageStore
         private set => Change(ref _accountEmail, value, nameof(AccountEmail));
     }
 
+    /// 上一次读到的状态库里有登录会话。装了没登录时，Grok 卡不显示桌面版的额度线和告警。
+    public bool SignedIn
+    {
+        get => _signedIn;
+        private set => Change(ref _signedIn, value, nameof(SignedIn));
+    }
+
     /// "FREE" / "PRO" chip text for the Settings row. Reads two cached
     /// fields, never the state db — the badge is bound by the UI.
     public string? PlanBadge => (_snapshot?.PlanName ?? _localPlan)?.ToUpperInvariant();
@@ -142,6 +150,7 @@ public sealed class CursorUsageStore : GuestUsageStore
         // A retained quota belongs to the account that produced it, not to
         // whichever login happens to be in Cursor after a failed fetch.
         if (userId is null || (_snapshot is not null && _snapshotUserId != userId)) ClearQuota();
+        SignedIn = userId is not null;
         AccountEmail = userId is null ? null : credentials?.Email;
         _localPlan = userId is null ? null : credentials?.Plan;
         Raise(nameof(PlanBadge));
@@ -156,7 +165,7 @@ public sealed class CursorUsageStore : GuestUsageStore
                 break;
             case CursorUsageFetcher.Outcome.Success:
             case CursorUsageFetcher.Outcome.ReauthRequired:
-                ErrorCaption = L10n.Tr("sign in again — open Cursor");
+                ErrorCaption = L10n.Tr("sign in again — open Grok Build desktop (Cursor)");
                 break;
             case CursorUsageFetcher.Outcome.Failed failed:
                 // Keep the last good numbers; the caption admits staleness.
@@ -174,7 +183,7 @@ public sealed class CursorUsageStore : GuestUsageStore
         // Legacy snapshots have no account identity. A read failure cannot
         // establish who owns those numbers, so do not display them as current.
         if (_snapshotUserId is null) ClearQuota();
-        ErrorCaption = L10n.Tr("Cursor data unavailable");
+        ErrorCaption = L10n.Tr("Grok Build desktop data unavailable");
     }
 
     private void ClearQuota()

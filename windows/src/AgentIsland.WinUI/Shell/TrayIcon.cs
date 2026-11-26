@@ -115,11 +115,10 @@ internal sealed class TrayIcon : IDisposable
         var parts = new List<string>();
         foreach (var provider in DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown))
         {
-            var window = ProviderUsage.For(provider).FiveHour;
             // Cursor's state counts; its quota is on Grok's card.
-            if (provider.HasCharacter() && !window.HasError && StatusCards.Meters(provider).Count > 0)
+            if (provider.HasCharacter() && StatusCards.TrayFigure(StatusCards.Meters(provider)) is { } figure)
             {
-                parts.Add($"{ProviderIdentity.DisplayName(provider)} {Formatting.PercentInt(window.UsedPercent)}%");
+                parts.Add($"{ProviderIdentity.DisplayName(provider)} {figure}");
             }
             var state = monitor.StateFor(provider.ToTriggerTool());
             if (state > worst) worst = state;

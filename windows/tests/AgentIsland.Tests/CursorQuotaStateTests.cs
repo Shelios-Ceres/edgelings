@@ -130,7 +130,7 @@ public static class CursorQuotaStateTests
             L10n.Current = L10n.Language.SimplifiedChinese;
             var store = new CursorUsageStore(null, _ => { });
             store.ApplyReadFailure();
-            Expect(store.ErrorCaption == "暂时无法读取 Cursor 数据", "database error uses the active language");
+            Expect(store.ErrorCaption == "暂时无法读取 Grok Build 桌面版的数据", "database error uses the active language");
         }
         finally { L10n.Current = previous; }
     }

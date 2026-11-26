@@ -72,8 +72,8 @@ public static class AgentPresenceTests
             }),
             ("Grok's closed line names Grok Bot only where it is installed", () =>
             {
-                if (ClosedLine(DisplayProvider.Grok, false) != "Grok and Cursor closed") throw new Exception("no Grok Bot");
-                if (ClosedLine(DisplayProvider.Grok, true) != "Grok, Grok\u00A0Bot and Cursor closed") throw new Exception("with Grok Bot");
+                if (ClosedLine(DisplayProvider.Grok, false) != "Grok and Grok Build desktop closed") throw new Exception("no Grok Bot");
+                if (ClosedLine(DisplayProvider.Grok, true) != "Grok, Grok\u00A0Bot and Grok Build desktop closed") throw new Exception("with Grok Bot");
                 if (ClosedLine(DisplayProvider.Claude, true) != "App closed") throw new Exception("another character");
             }),
             ("a card keeps Grok Bot's name on one line, in both languages", () =>
@@ -81,7 +81,7 @@ public static class AgentPresenceTests
                 var previous = L10n.Current;
                 try
                 {
-                    foreach (var (language, line) in new[] { (L10n.Language.English, "Grok, Grok\u00A0Bot and Cursor closed"), (L10n.Language.SimplifiedChinese, "Grok、Grok\u00A0Bot 和 Cursor 都已关闭") })
+                    foreach (var (language, line) in new[] { (L10n.Language.English, "Grok, Grok\u00A0Bot and Grok Build desktop closed"), (L10n.Language.SimplifiedChinese, "Grok、Grok\u00A0Bot 和 Grok Build 桌面版都已关闭") })
                     {
                         L10n.Current = language;
                         var shown = L10n.Tr(ClosedLine(DisplayProvider.Grok, true));

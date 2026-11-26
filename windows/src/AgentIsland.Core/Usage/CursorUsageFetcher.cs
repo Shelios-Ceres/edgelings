@@ -54,7 +54,7 @@ public static class CursorUsageFetcher
         try { return await Fetch(CursorCredentials.ReadSnapshot(), ct); }
         catch (Exception ex) when (ex is System.IO.IOException or Microsoft.Data.Sqlite.SqliteException)
         {
-            return new Outcome.Failed(L10n.Tr("Cursor data unavailable"));
+            return new Outcome.Failed(L10n.Tr("Grok Build desktop data unavailable"));
         }
     }
 

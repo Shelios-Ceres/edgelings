@@ -218,7 +218,7 @@ struct UsageAgentCard: View {
         return VStack(alignment: .trailing, spacing: 1) {
             SkinText(pixel: kit.pixel, text: part.dollars ? money(data.dollars) : compact(data.tokens), pixelSize: 20, size: 22,
                      weight: .semibold, color: palette.color("Text"))
-            SkinText(pixel: kit.pixel, text: part.dollars ? store.t("{0} tokens", compact(data.tokens)) : "\(compact(data.tokens)) tokens · billed by Cursor's own plan",
+            SkinText(pixel: kit.pixel, text: store.t("{0} tokens", compact(data.tokens)),
                      pixelSize: 13, size: 12, color: palette.color("Text2"))
         }
     }

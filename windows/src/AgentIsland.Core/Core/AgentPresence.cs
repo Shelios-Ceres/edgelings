@@ -218,8 +218,8 @@ public static class AgentPresences
     /// no-break space keeps Grok Bot's name whole where the line wraps.
     public static string ClosedLine(DisplayProvider character, bool grokBotInstalled) => character switch
     {
-        DisplayProvider.Grok when grokBotInstalled => "Grok, Grok\u00A0Bot and Cursor closed",
-        DisplayProvider.Grok => "Grok and Cursor closed",
+        DisplayProvider.Grok when grokBotInstalled => "Grok, Grok\u00A0Bot and Grok Build desktop closed",
+        DisplayProvider.Grok => "Grok and Grok Build desktop closed",
         _ => "App closed",
     };
 

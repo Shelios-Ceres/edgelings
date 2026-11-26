@@ -126,8 +126,8 @@ internal sealed class AgentSection
         // Cursor works under Grok's character; its line sits in Grok's card.
         if (provider == DisplayProvider.Grok)
         {
-            _cursor = new SettingsCard { Header = ProviderIdentity.DisplayName(DisplayProvider.Cursor), HeaderIcon = new ImageIcon(), Content = _cursorPlan };
-            Name(_cursor, "Cursor", ProviderIdentity.DisplayName(DisplayProvider.Cursor));
+            _cursor = new SettingsCard { Header = L10n.Tr("Grok Build desktop"), HeaderIcon = new ImageIcon(), Content = _cursorPlan };
+            Name(_cursor, "Cursor", L10n.Tr("Grok Build desktop"));
             _ = LoadCursorMarkAsync(_cursor);
             Expander.Items.Add(_cursor);
         }
@@ -361,19 +361,20 @@ internal sealed class AgentSection
         var cursor = AgentReports.For(DisplayProvider.Cursor);
         card.Visibility = ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor) ? Visibility.Visible : Visibility.Collapsed;
         _cursorPlan.Text = cursor.Plan ?? "";
-        SetDescription(card, SharedSubscription.GrokWithCursor()
-            ? L10n.Tr("Same X Subscription as Grok: one quota pool")
+        SetDescription(card, GrokSides.Now().Shared
+            ? L10n.Tr("Shares Grok's quota pool")
             : cursor.Warning ?? cursor.Status);
     }
 
+    /// 改名前先用 Grok 的标志，Grok Build 有自己的标志后再换。
     private static async Task LoadCursorMarkAsync(SettingsCard card)
     {
         if (Looks.Pixel)
         {
-            card.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(DisplayProvider.Cursor) };
+            card.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(DisplayProvider.Grok) };
             return;
         }
-        if (await Brand.MarkAsync(DisplayProvider.Cursor, Brand.IsDark()) is { } mark) card.HeaderIcon = new ImageIcon { Source = mark, Width = 16, Height = 16 };
+        if (await Brand.MarkAsync(DisplayProvider.Grok, Brand.IsDark()) is { } mark) card.HeaderIcon = new ImageIcon { Source = mark, Width = 16, Height = 16 };
     }
 
     /// AGENTISLAND_DEBUG_SETTINGS_FILM: the first meter counts to a share, as
@@ -450,6 +451,7 @@ internal sealed class AgentSection
         _ when label == L10n.Tr("Week") => L10n.Tr("Weekly window"),
         _ when label == L10n.Tr("24h") => L10n.Tr("Daily window"),
         _ when label == L10n.Tr("30d") => L10n.Tr("Billing cycle"),
+        _ when label == L10n.Tr("desktop") => L10n.Tr("Grok Build desktop billing cycle"),
         _ when label == L10n.Tr("Month") => L10n.Tr("Monthly window"),
         _ => label,
     };
@@ -545,6 +547,7 @@ internal sealed class AgentSection
     private async Task LoadMarkAsync()
     {
         _markLook = PickedLook();
+        if (_cursor is not null) _ = LoadCursorMarkAsync(_cursor);
         if (Looks.Pixel)
         {
             Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider), Opacity = _header.Opacity };

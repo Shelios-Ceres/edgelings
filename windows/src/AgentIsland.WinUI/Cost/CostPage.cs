@@ -501,7 +501,7 @@ internal sealed partial class CostPage : IDisposable
             else Counted(heroText, $"{slice.Provider}-tokens", sliceTokens, CountedTokens);
         }
         var captionText = HeroCaption(slice.AsOf is null ? L10n.Tr("Not scanned yet")
-            : slice.Dollars ? L10n.TrFormat("{0} tokens", Tokens(slice)) : L10n.Tr("tokens · billed by Cursor's own plan"));
+            : L10n.TrFormat("{0} tokens", Tokens(slice)));
         if (slice.AsOf is not null && slice.Dollars)
         {
             var tokensFormat = L10n.Tr("{0} tokens");
