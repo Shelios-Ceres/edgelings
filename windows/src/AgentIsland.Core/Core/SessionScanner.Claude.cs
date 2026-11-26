@@ -37,7 +37,11 @@ public static partial class SessionScanner
                 state.Status,
                 path,
                 state.TurnKey,
-                desktop is null ? SessionLaunchTarget.Cli : SessionLaunchTarget.ClaudeDesktop) { TurnEnded = state.TurnEnded });
+                desktop is null ? SessionLaunchTarget.Cli : SessionLaunchTarget.ClaudeDesktop)
+            {
+                TurnEnded = state.TurnEnded,
+                TurnFailed = EndedInError(path, state.Status, SessionTurnState.Claude, widen: true),
+            });
         }
         return output;
     }

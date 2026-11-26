@@ -18,8 +18,6 @@ public sealed record GrokSides(GrokSide? Grok, GrokSide? Desktop, bool SameReset
 {
     public bool Shared => Grok is not null && Desktop is not null && SameReset;
 
-    public static bool SharedNow() => Now().Shared;
-
     public static bool DesktopPresent(bool detected, bool hasSnapshot, bool signedIn) => detected && (hasSnapshot || signedIn);
 
     public static GrokSides Now()
@@ -69,19 +67,12 @@ public static class SharedSubscription
         shared ? cursorBadge ?? grokBadge : grokBadge ?? cursorBadge;
 
     /// The character plays the more urgent of the two apps' phases, Grok's on
-    /// a tie, its detail without naming the app. Billed apart, one
-    /// app's spent quota or lapsed sign-in is its own: it never puts the
-    /// character to sleep over the other app's work or news. shared is asked
-    /// only then.
+    /// a tie, its detail without naming the app. Only the task phases decide:
+    /// quota and billing play no part.
     public static (AgentPhase Phase, string? Detail) Pick(
-        (AgentPhase Phase, string? Detail) grok, (AgentPhase Phase, string? Detail) cursor, Func<bool> shared)
+        (AgentPhase Phase, string? Detail) grok, (AgentPhase Phase, string? Detail) cursor)
     {
-        static bool Standing(AgentPhase phase) => phase is AgentPhase.RateLimited or AgentPhase.AuthRequired;
-        static bool Busy(AgentPhase phase) => AgentPhases.IsWork(phase) || phase == AgentPhase.Finished;
-        var fromCursor = Standing(grok.Phase) != Standing(cursor.Phase)
-            && Busy(Standing(grok.Phase) ? cursor.Phase : grok.Phase) && !shared()
-            ? Standing(grok.Phase)
-            : AgentPhases.Priority(cursor.Phase) < AgentPhases.Priority(grok.Phase);
+        var fromCursor = AgentPhases.Priority(cursor.Phase) < AgentPhases.Priority(grok.Phase);
         var (phase, detail) = fromCursor ? cursor : grok;
         // Grok's card names no other app (the user's call, 2026-11-26).
         return phase == AgentPhase.Idle ? (phase, null) : (phase, detail);

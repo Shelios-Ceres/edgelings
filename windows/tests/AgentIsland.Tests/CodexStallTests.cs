@@ -19,7 +19,8 @@ public static class CodexStallTests
             ("codex turn quiet for six minutes is still working", TestQuietTurnIsWorking),
             ("codex turn silent for half an hour is idle", TestAbandonedTurnIsIdle),
             ("codex failed turn is an error, not your turn", TestFailedTurnIsError),
-            ("codex usage limit is out of quota", TestUsageLimitIsRateLimited),
+            ("codex usage limit is an error the user sees, not a quota state", TestUsageLimitIsRateLimited),
+            ("codex usage limit as an error object is the same", TestUsageLimitObjectIsRateLimited),
             ("codex interrupted turn is idle, not stalled", TestInterruptedTurnIsIdle),
             ("codex new turn after an interrupt is working", TestTurnAfterInterruptIsWorking),
             ("codex /compact, /undo and a !command after a turn leave the session idle", TestLocalTasksAreIdle),
@@ -95,19 +96,47 @@ public static class CodexStallTests
         var now = failed.AddMinutes(1);
         var state = Scan(lines, now, lastWorking: failed);
         Expect(state.Status == ActivityState.NeedsYou, $"a failed turn is over and back to the user, got {state.Status}");
-        var phase = AgentPhases.Combine(state.Status, AgentPhaseClassifier.Codex(lines, now), quotaExhausted: false);
+        var phase = AgentPhases.Combine(state.Status, AgentPhaseClassifier.Codex(lines, now));
         Expect(phase == AgentPhase.Failed, $"a failed turn shows as an error, not your turn, got {phase}");
     }
 
     private static void TestUsageLimitIsRateLimited()
     {
         var failed = Start.AddMinutes(1);
-        var state = Scan(new[]
+        var lines = new[]
         {
             Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
             Line(failed, "event_msg", """{"type":"task_complete","turn_id":"t1","error":"usage_limit_reached: try again later"}"""),
-        }, failed.AddMinutes(1), lastWorking: failed);
-        Expect(state.Status == ActivityState.RateLimited, $"a usage-limit failure is out of quota, got {state.Status}");
+        };
+        var state = Scan(lines, failed.AddMinutes(1), lastWorking: failed);
+        Expect(state.Status == ActivityState.NeedsYou, $"a usage-limit failure ends the turn back to the user, got {state.Status}");
+        var phase = AgentPhases.Combine(state.Status, AgentPhaseClassifier.Codex(lines, failed.AddMinutes(1)));
+        Expect(phase == AgentPhase.Failed, $"the character plays an error, got {phase}");
+    }
+
+    /// 本机真实的 task_complete 把错误写成对象，不是字符串。
+    private static void TestUsageLimitObjectIsRateLimited()
+    {
+        var failed = Start.AddMinutes(1);
+        var lines = new[]
+        {
+            Line(Start, "event_msg", """{"type":"task_started","turn_id":"t1"}"""),
+            Line(failed, "event_msg", """{"type":"task_complete","turn_id":"t1","error":{"message":"You've hit your usage limit. Try again later.","codex_error_info":"other"}}"""),
+        };
+        var now = failed.AddMinutes(7);
+        var state = Scan(lines, now, lastWorking: failed);
+        Expect(state.Status == ActivityState.NeedsYou, $"the turn is back to the user, got {state.Status}");
+        var reading = AgentPhaseClassifier.Codex(lines, now);
+        Expect(reading.Phase == AgentPhase.Failed && reading.Detail == AgentIsland.Localization.L10n.Tr("Interrupted by a rate limit"),
+            $"it plays an error that says why, 7 minutes on: {reading.Phase} / {reading.Detail}");
+        Expect(SessionTurnState.Codex(lines).Trouble == TurnTrouble.RateLimited, "and the turn's trouble is the rate limit");
+        var other = new[]
+        {
+            lines[0],
+            Line(failed, "event_msg", """{"type":"task_complete","turn_id":"t1","error":{"message":"bad request","codex_error_info":"other"}}"""),
+        };
+        var plain = AgentPhaseClassifier.Codex(other, now);
+        Expect(plain.Phase == AgentPhase.Failed && plain.Detail is null, $"another object error is a plain error: {plain.Phase} / {plain.Detail}");
     }
 
     private static void TestInterruptedTurnIsIdle()

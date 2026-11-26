@@ -142,11 +142,10 @@ public static class ClaudeHooksTests
     private static void ApprovingOutranksNetworkTrouble()
     {
         var reading = new PhaseReading(AgentPhase.Approving, null, DateTimeOffset.Now);
-        Expect(AgentPhases.Combine(ActivityState.NetworkTrouble, reading, quotaExhausted: false), AgentPhase.Approving);
-        Expect(AgentPhases.Combine(ActivityState.NetworkTrouble, null, quotaExhausted: false), AgentPhase.NetworkTrouble);
-        Expect(AgentPhases.Combine(ActivityState.Working, reading, quotaExhausted: true), AgentPhase.Approving);
-        Expect(AgentPhases.Combine(ActivityState.RateLimited, reading, quotaExhausted: true), AgentPhase.Approving);
-        Expect(AgentPhases.Combine(ActivityState.AuthRequired, reading, quotaExhausted: false), AgentPhase.AuthRequired);
+        Expect(AgentPhases.Combine(ActivityState.NetworkTrouble, reading), AgentPhase.Approving);
+        Expect(AgentPhases.Combine(ActivityState.NetworkTrouble, null), AgentPhase.NetworkTrouble);
+        Expect(AgentPhases.Combine(ActivityState.Working, reading), AgentPhase.Approving);
+        Expect(AgentPhases.Combine(ActivityState.AuthRequired, reading), AgentPhase.AuthRequired);
     }
 
     private static void PromptWinsSelection() => WithFiles((transcript, now) =>
@@ -174,7 +173,7 @@ public static class ClaudeHooksTests
         sessions = ActivityMonitor.Settle(sessions, new HashSet<TriggerTool>(), offline: true);
         var selected = ActivityMonitor.BestSession(sessions, TriggerTool.Claude);
         Expect(selected.Thread?.PendingPrompt?.Phase, AgentPhase.Asking);
-        Expect(AgentPhases.Combine(selected.State, selected.Thread?.PendingPrompt, false), AgentPhase.Asking);
+        Expect(AgentPhases.Combine(selected.State, selected.Thread?.PendingPrompt), AgentPhase.Asking);
     });
 
     private static void ProgressRetiresSelection() => WithFiles((transcript, now) =>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AgentIsland.Core;
+using AgentIsland.Localization;
 
 namespace AgentIsland.Tests;
 
@@ -91,8 +92,10 @@ public static class AgentPhaseTests
             ("combine: a working scan takes the transcript phase", () => Combined(AgentPhase.Running, ActivityState.Working, AgentPhase.Running)),
             ("combine: a lagging transcript falls back to working", () => Combined(AgentPhase.Working, ActivityState.Working, AgentPhase.Finished)),
             ("combine: needsYou is finished", () => Combined(AgentPhase.Finished, ActivityState.NeedsYou, null)),
-            ("combine: exhausted quota sleeps", () => Combined(AgentPhase.RateLimited, ActivityState.Working, AgentPhase.Running, quotaExhausted: true)),
-            ("combine: auth outranks everything", () => Combined(AgentPhase.AuthRequired, ActivityState.AuthRequired, AgentPhase.Running, quotaExhausted: true)),
+            ("combine: auth outranks the transcript phase", () => Combined(AgentPhase.AuthRequired, ActivityState.AuthRequired, AgentPhase.Running)),
+            ("combine: every task state plays itself, quota is no input", EveryTaskStatePlaysItself),
+            ("claude: a turn cut off by a rate limit is an error that says so", ClaudeRateLimitIsFailed),
+            ("codex: a turn cut off by a usage limit is an error that says so", CodexRateLimitIsFailed),
             ("classify: a transcript that has not changed is not read again, and still ages", KeptReadingAges),
             ("classify: a kept reading's detail follows the language", KeptReadingFollowsLanguage),
         };
@@ -168,10 +171,70 @@ public static class AgentPhaseTests
     private static void Codex(AgentPhase expected, params string[] lines) =>
         Expect(AgentPhaseClassifier.Codex(lines, Now).Phase, expected);
 
-    private static void Combined(AgentPhase expected, ActivityState state, AgentPhase? transcript, bool quotaExhausted = false)
+    private static void Combined(AgentPhase expected, ActivityState state, AgentPhase? transcript)
     {
         PhaseReading? reading = transcript is { } phase ? new PhaseReading(phase, null, Now) : null;
-        Expect(AgentPhases.Combine(state, reading, quotaExhausted), expected);
+        Expect(AgentPhases.Combine(state, reading), expected);
+    }
+
+    /// Combine 不再有额度输入（签名上就没有），每个任务状态都照自己的样子演。
+    /// 这条只钉住任务状态到阶段的映射，不注入额度读数。
+    private static void EveryTaskStatePlaysItself()
+    {
+        Combined(AgentPhase.Running, ActivityState.Working, AgentPhase.Running);
+        Combined(AgentPhase.Working, ActivityState.Working, null);
+        Combined(AgentPhase.Finished, ActivityState.NeedsYou, null);
+        Combined(AgentPhase.Idle, ActivityState.Idle, null);
+        Combined(AgentPhase.Approving, ActivityState.Working, AgentPhase.Approving);
+    }
+
+    private static void ClaudeRateLimitIsFailed()
+    {
+        var limited = ClaudeError(Now, "You've hit your session limit · resets 2am (Asia/Shanghai)");
+        Expect(limited.Phase, AgentPhase.Failed);
+        if (limited.Detail != L10n.Tr("Interrupted by a rate limit")) throw new Exception($"detail was {limited.Detail}");
+        var other = ClaudeError(Now, "API Error: 500 Internal server error");
+        Expect(other.Phase, AgentPhase.Failed);
+        if (other.Detail != "API") throw new Exception($"detail was {other.Detail}");
+        var zh = L10n.Current;
+        try
+        {
+            L10n.Current = L10n.Language.SimplifiedChinese;
+            var reading = ClaudeError(Now, "You've hit your session limit · resets 2am");
+            if (reading.Detail != "被限流打断") throw new Exception($"detail was {reading.Detail}");
+        }
+        finally
+        {
+            L10n.Current = zh;
+        }
+    }
+
+    private static PhaseReading ClaudeError(DateTimeOffset now, string errorText) =>
+        AgentPhaseClassifier.Claude(new[]
+        {
+            UserText("go", 60),
+            Line(new
+            {
+                type = "assistant", isApiErrorMessage = true,
+                message = new { role = "assistant", stop_reason = "stop_sequence", content = new[] { new { type = "text", text = errorText } } },
+            }, 30),
+        }, now);
+
+    private static void CodexRateLimitIsFailed()
+    {
+        var at = Now.AddSeconds(-30).ToString("o");
+        var reading = AgentPhaseClassifier.Codex(new[]
+        {
+            $$$"""{"timestamp":"{{{at}}}","type":"event_msg","payload":{"type":"task_complete","error":"usage_limit_reached: try again later"}}""",
+        }, Now);
+        Expect(reading.Phase, AgentPhase.Failed);
+        if (reading.Detail != L10n.Tr("Interrupted by a rate limit")) throw new Exception($"detail was {reading.Detail}");
+        var plain = AgentPhaseClassifier.Codex(new[]
+        {
+            $$$"""{"timestamp":"{{{at}}}","type":"event_msg","payload":{"type":"task_complete","error":"invalid_request_error"}}""",
+        }, Now);
+        Expect(plain.Phase, AgentPhase.Failed);
+        if (plain.Detail is not null) throw new Exception($"detail was {plain.Detail}");
     }
 
     private static void Expect(AgentPhase actual, AgentPhase expected)

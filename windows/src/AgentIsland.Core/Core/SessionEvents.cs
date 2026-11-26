@@ -175,7 +175,8 @@ public sealed class SessionEventDetector
                 "error:" + sessionKey + ":" + turn, session.Modified);
         }
         if (session.Status != ActivityState.NeedsYou) return null;
-        var failed = session.TranscriptPath is { } done && _classify(session.Tool, done, now) is { Phase: AgentPhase.Failed };
+        var failed = session.TurnFailed
+            || session.TranscriptPath is { } done && _classify(session.Tool, done, now) is { Phase: AgentPhase.Failed };
         return new SessionEvent(
             session.Tool, session.SessionId, title,
             failed ? SessionEventKind.Error : SessionEventKind.Done,

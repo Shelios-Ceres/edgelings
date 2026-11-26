@@ -22,7 +22,7 @@ internal sealed partial class DrawerWindow
                 {
                     var thread = monitor.ThreadFor(b.Tool);
                     return (Bot: b, Tool: b.Tool, State: monitor.StateFor(b.Tool), Path: thread?.TranscriptPath,
-                        Running: monitor.RunningFor(b.Tool), Prompt: thread?.PendingPrompt);
+                        Running: monitor.RunningFor(b.Tool), Prompt: thread?.PendingPrompt, TurnFailed: thread?.TurnFailed ?? false);
                 })
                 .ToList();
             // Tail reads stay off the UI thread. Working sessions are read for
@@ -49,9 +49,9 @@ internal sealed partial class DrawerWindow
             var results = new List<(Bot Bot, AgentPhase Phase, string? Detail, int Running)>();
             for (var i = 0; i < jobs.Count; i++)
             {
-                var (bot, tool, state, _, running, _) = jobs[i];
+                var (bot, tool, state, _, running, _, turnFailed) = jobs[i];
                 var reading = readings[i];
-                var phase = AgentPhases.Combine(state, reading, QuotaExhausted(tool.ToDisplayProvider()));
+                var phase = AgentPhases.Combine(state, reading, turnFailed);
                 var detail = reading is { } r && r.Phase == phase ? r.Detail : null;
                 if (phase == AgentPhase.NetworkTrouble && detail is null && monitor.IsOffline)
                 {
@@ -80,11 +80,6 @@ internal sealed partial class DrawerWindow
             _pollInFlight = false;
         }
     }
-
-    /// The activity monitor only overlays usage for some providers, so the
-    /// drawer checks every character's quota itself.
-    private static bool QuotaExhausted(DisplayProvider provider) =>
-        ProviderUsage.For(provider).IsExhausted(DateTimeOffset.Now);
 
     /// A shown phase stays at least MinDwellSeconds so quick tool bursts do
     /// not flicker, unless the new phase outranks it (asking, errors).

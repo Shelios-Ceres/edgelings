@@ -23,6 +23,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         SessionLaunchTarget LaunchTarget)
     {
         public PhaseReading? PendingPrompt { get; init; }
+
+        /// See ScannedSession.TurnFailed.
+        public bool TurnFailed { get; init; }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -247,7 +250,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         {
             if (session.Tool == TriggerTool.Grok
                 && session.TranscriptPath is { } grokPath
-                && session.Status is not (ActivityState.NeedsYou or ActivityState.RateLimited or ActivityState.AuthRequired)
+                && session.Status is not (ActivityState.NeedsYou or ActivityState.AuthRequired)
                 && grokPrompts.TryGetValue(session.SessionId, out var grokPrompt)
                 && SessionScanner.HasOpenGrokTurn(grokPath))
             {
@@ -256,7 +259,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             // Other agents' scanners report their own prompts (Kimi Code's desktop app).
             if (session.Tool != TriggerTool.Claude) return session;
             if (session.TranscriptPath is not { } path
-                || session.Status is ActivityState.NeedsYou or ActivityState.RateLimited or ActivityState.AuthRequired
+                || session.Status is ActivityState.NeedsYou or ActivityState.AuthRequired
                 || !prompts.TryGetValue(path, out var prompt) || !SessionScanner.HasOpenClaudeTurn(path))
             {
                 return session with { PendingPrompt = null };
@@ -282,11 +285,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
 
     private void Apply(List<ScannedSession> sessions, DateTimeOffset now)
     {
-        // Usage-level attention (rate-limited / auth-required red) only
-        // applies to providers switched ON in Settings. Someone who only
-        // runs Claude keeps Codex hidden - its missing login must not
-        // pulse the island red forever.
-        var visibility = Model.ProviderVisibilityStore.Shared;
         UpdateLastWorking(sessions, now);
         var nextStates = new Dictionary<TriggerTool, ActivityState>();
         var nextThreads = new Dictionary<TriggerTool, ActiveThread>();
@@ -296,24 +294,13 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             nextRunning[tool] = RunningCount(sessions, tool);
             var result = BestSession(sessions, tool);
             if (result.Thread is { } thread) nextThreads[tool] = thread;
-            nextStates[tool] = visibility.IsVisible(tool)
-                ? OverlayUsageAttention(result.State, UsageFor(tool))
-                : result.State;
+            nextStates[tool] = result.State;
         }
         _threads = nextThreads;
         _running = nextRunning;
         _states = nextStates;
         RaiseAll();
     }
-
-    /// Only Claude and Codex have a usage endpoint; the guests carry no quota
-    /// of their own, so nothing can overlay onto their scan state.
-    private static AppUsage UsageFor(TriggerTool tool) => tool switch
-    {
-        TriggerTool.Claude => UsageStore.Shared.Claude,
-        TriggerTool.Codex => UsageStore.Shared.Codex,
-        _ => AppUsage.Empty,
-    };
 
     private void UpdateLastWorking(List<ScannedSession> sessions, DateTimeOffset now)
     {
@@ -331,40 +318,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
-    private static ActivityState OverlayUsageAttention(ActivityState state, AppUsage usage)
-    {
-        if (UsageAttentionState(usage) is not { } attention) return state;
-        return (int)attention > (int)state ? attention : state;
-    }
-
-    internal static ActivityState? UsageAttentionState(AppUsage usage)
-    {
-        // Kept numbers can outlive their window: one that has reset since is
-        // no longer used up.
-        var now = DateTimeOffset.Now;
-        if (usage.FiveHour.At(now).UsedPercent >= 1 || usage.Weekly.At(now).UsedPercent >= 1)
-            return ActivityState.RateLimited;
-        var messages = new[] { usage.FiveHour.Error, usage.Weekly.Error }
-            .Where(m => !string.IsNullOrEmpty(m))
-            .Select(m => m!.ToLowerInvariant())
-            .ToList();
-        if (messages.Any(m => m.Contains("rate limited") || m.Contains("rate_limit")))
-            return ActivityState.RateLimited;
-        if (messages.Any(m =>
-                ClaudeCredentials.IsAuthRecoverableError(m)
-                || m.Contains("auth")
-                || m.Contains("login")
-                || m.Contains("no codex")))
-        {
-            return ActivityState.AuthRequired;
-        }
-        // Any other failure (the network, a bad response) only means the quota
-        // is unknown. It used to read as "out of quota"; the app's own request
-        // failing says nothing about the agents, which may reach their
-        // service through a proxy this app does not use.
-        return null;
-    }
-
     /// A running session outranks a finished one: nothing acknowledges a
     /// finished turn, so a needsYou ranked first would mask a genuinely
     /// running sibling until it ages out. Trouble a session
@@ -372,7 +325,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     private static int SelectionPriority(ScannedSession session) =>
         session.PendingPrompt is not null ? 4 : session.Status switch
         {
-            ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired => 3,
+            ActivityState.NetworkTrouble or ActivityState.AuthRequired => 3,
             ActivityState.Working => 2,
             ActivityState.NeedsYou => 1,
             _ => 0,
@@ -397,7 +350,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                 .OrderByDescending(s => s.Modified)
                 // A close can share its timestamp with the last work event.
                 .ThenByDescending(s => s.Status is ActivityState.Idle or ActivityState.NeedsYou
-                    or ActivityState.RateLimited or ActivityState.AuthRequired)
+                    or ActivityState.AuthRequired)
                 .ThenByDescending(s => s.Status)
                 .ThenBy(s => s.TranscriptPath, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(s => s.TranscriptPath, StringComparer.Ordinal)
@@ -427,7 +380,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
         session.Modified,
         session.TranscriptPath,
         session.TurnKey,
-        session.LaunchTarget) { PendingPrompt = session.PendingPrompt };
+        session.LaunchTarget) { PendingPrompt = session.PendingPrompt, TurnFailed = session.TurnFailed };
 
     /// Both maps are announced on every scan: a surface bound to one of them
     /// simply stops updating on screen if its notification is missing.

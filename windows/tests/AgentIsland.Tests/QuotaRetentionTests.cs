@@ -31,7 +31,6 @@ public static class QuotaRetentionTests
             ("a reset window without a known period waits for sync", TestResetWithoutPeriod),
             ("the exact reset boundary is unknown until a new observation", TestResetBoundary),
             ("kept or old numbers say how old they are", TestStaleness),
-            ("a reset window is no longer out of quota", TestResetIsNotRateLimited),
             ("token counts from an earlier day or month show a dash", TestTokenDates),
             ("token counts with no scan yet say so", TestTokensNotScanned),
             ("saved token totals survive the round trip to disk", TestTotalsRoundTrip),
@@ -225,14 +224,6 @@ public static class QuotaRetentionTests
         Expect(StatusCards.QuotaIsStale(kept: false, Now.AddMinutes(-20), Now, interval), "numbers two rounds old are not live");
         Expect(Formatting.RelativeAgo(TimeSpan.FromDays(3), chinese: true) == "3 天前", "old numbers read in days");
         Expect(Formatting.RelativeAgo(TimeSpan.FromHours(30), chinese: false) == "30h ago", "a day and a bit still reads in hours");
-    }
-
-    private static void TestResetIsNotRateLimited()
-    {
-        var full = new AppUsage(new WindowUsage(0.2, null, null), new WindowUsage(1, DateTimeOffset.Now.AddDays(-1), null, 7 * 86400));
-        Expect(ActivityMonitor.UsageAttentionState(full) is null, "a used-up window that has reset no longer reads as out of quota");
-        var stillFull = full with { Weekly = full.Weekly with { ResetAt = DateTimeOffset.Now.AddDays(1) } };
-        Expect(ActivityMonitor.UsageAttentionState(stillFull) == ActivityState.RateLimited, "before its reset it still does");
     }
 
     private static void TestTokenDates()

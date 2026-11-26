@@ -41,6 +41,8 @@ public static class ActivityMonitorScanTests
             logged.Clear();
             KeepsStatesWhenAScanFails(logged);
             Console.WriteLine("PASS activity monitor: a scan that throws keeps the states and is logged once");
+            PublishesTheScansState();
+            Console.WriteLine("PASS activity monitor: the published state is the scan's own");
             WaitingListChangesAreAnnounced();
             Console.WriteLine("PASS activity monitor: a change to the waiting list is announced even when the state stays");
             WatchesRootsThatAppearLater();
@@ -56,8 +58,8 @@ public static class ActivityMonitorScanTests
 
     private static void KeepsStatesWhenAScanFails(List<(string Context, string Message)> logged)
     {
-        // Grok has no usage overlay, and a finished turn is not abandoned by
-        // a missing process or a missing network, so its state is the scan's.
+        // A finished turn is not abandoned by a missing process or a missing
+        // network, so its state is the scan's.
         var waiting = new ScannedSession(TriggerTool.Grok, "s1", "", "A session", DateTimeOffset.UtcNow,
             ActivityState.NeedsYou, null, "turn-1", SessionLaunchTarget.Cli);
         var sessions = new List<ScannedSession> { waiting };
@@ -88,6 +90,21 @@ public static class ActivityMonitorScanTests
         failure = new InvalidOperationException("another");
         Scan(monitor);
         Expect(logged.Count == 2, "a different failure is written");
+    }
+
+    /// Claude 和 Codex 的状态就是扫描结果。额度已不在监视器的输入里，
+    /// 这条只钉住“不叠加别的状态”，不注入额度读数。
+    private static void PublishesTheScansState()
+    {
+        var sessions = new List<ScannedSession>
+        {
+            new(TriggerTool.Claude, "c1", "", "A session", DateTimeOffset.UtcNow, ActivityState.Working, null, "t1", SessionLaunchTarget.Cli),
+            new(TriggerTool.Codex, "x1", "", "A session", DateTimeOffset.UtcNow, ActivityState.NeedsYou, null, "t2", SessionLaunchTarget.Cli),
+        };
+        var monitor = new ActivityMonitor { Scanner = (_, _) => sessions };
+        Scan(monitor);
+        Expect(monitor.StateFor(TriggerTool.Claude) == ActivityState.Working, "a working Claude stays working");
+        Expect(monitor.StateFor(TriggerTool.Codex) == ActivityState.NeedsYou, "a finished Codex turn stays your turn");
     }
 
     /// A second session starts waiting, or one of two stops, while the agent's

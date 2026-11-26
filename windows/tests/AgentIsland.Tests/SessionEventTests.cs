@@ -20,6 +20,7 @@ public static class SessionEventTests
             ("a new turn of the same session is a new event", TestNewTurnIsNewEvent),
             ("a turn that ended long ago is not news", TestOldDoneIsNotNews),
             ("a turn that ended on an error is an error", TestErrorKind),
+            ("an error turn stays an error once its transcript reading has aged to idle", TestErrorKindSurvivesAgeing),
             ("a turn that ended on a lost connection, a limit or a sign-in is an error", TestEndedOnTroubleIsError),
             ("a question stays waiting while the connection drops", TestQuestionSurvivesNetworkTrouble),
             ("a hook prompt is an approval, once", TestApprovalFromHook),
@@ -136,9 +137,20 @@ public static class SessionEventTests
         Expect(seen.Fresh.Count == 1 && seen.Fresh[0].Kind == SessionEventKind.Error && seen.Fresh[0].Key.StartsWith("error:"), "an error is not 'done'");
     }
 
+    private static void TestErrorKindSurvivesAgeing()
+    {
+        var rig = new Rig();
+        rig.Phases["/t/a.jsonl"] = new PhaseReading(AgentPhase.Idle, null, T0);
+        rig.Detector.Observe(new[] { Session("a", ActivityState.Working, T0) }, T0);
+        var ended = Session("a", ActivityState.NeedsYou, T0.AddSeconds(10)) with { TurnFailed = true };
+        var seen = rig.Detector.Observe(new[] { ended }, T0.AddSeconds(12));
+        Expect(seen.Fresh.Count == 1 && seen.Fresh[0].Kind == SessionEventKind.Error, "an error, not 'done'");
+        Expect(seen.Waiting.Count == 1 && seen.Waiting[0].Kind == SessionEventKind.Error, "and its waiting item stays an error");
+    }
+
     private static void TestEndedOnTroubleIsError()
     {
-        foreach (var trouble in new[] { ActivityState.NetworkTrouble, ActivityState.RateLimited, ActivityState.AuthRequired })
+        foreach (var trouble in new[] { ActivityState.NetworkTrouble, ActivityState.AuthRequired })
         {
             var rig = new Rig();
             rig.Detector.Observe(new[] { Session("a", ActivityState.Working, T0) }, T0);
@@ -356,7 +368,7 @@ public static class SessionEventTests
     {
         foreach (var phase in new[] { AgentPhase.Finished, AgentPhase.Asking, AgentPhase.Approving, AgentPhase.Failed })
             Expect(!BotLines.Speaks(phase), $"{phase} is said per session now");
-        foreach (var phase in new[] { AgentPhase.RateLimited, AgentPhase.AuthRequired, AgentPhase.NetworkTrouble })
+        foreach (var phase in new[] { AgentPhase.AuthRequired, AgentPhase.NetworkTrouble })
             Expect(BotLines.Speaks(phase), $"{phase} stays a whole-agent line");
     }
 

@@ -434,12 +434,5 @@ public static class GrokAuthFileTests
         {
             L10n.Current = language;
         }
-        // A pool left at 100% by the last good read, with the caption in the window's error:
-        // not spent as far as the character is concerned (DrawerWindow.QuotaExhausted).
-        var weekEnd = DateTimeOffset.Now.AddDays(3);
-        var kept = new AppUsage(new WindowUsage(100, weekEnd, "Open grok to sync") { Kept = true, Observed = true }, WindowUsage.Unknown);
-        Expect(!kept.IsExhausted(DateTimeOffset.Now), "a kept full pool with the caption does not put the character to sleep");
-        var live = new AppUsage(new WindowUsage(100, weekEnd, null) { Observed = true }, WindowUsage.Unknown);
-        Expect(live.IsExhausted(DateTimeOffset.Now), "while a live full pool does");
     }
 }

@@ -155,10 +155,10 @@ public static partial class SessionScanner
             var ended = turn.Trouble switch
             {
                 TurnTrouble.Network => ActivityState.NetworkTrouble,
-                TurnTrouble.RateLimited => ActivityState.RateLimited,
                 TurnTrouble.AuthRequired => ActivityState.AuthRequired,
-                // Any other error is still the user's move; the drawer reads
-                // the transcript and shows it as an error.
+                // Any other error, a rate-limit interruption included, is still
+                // the user's move; the drawer reads the transcript and shows it
+                // as an error.
                 _ => ActivityState.NeedsYou,
             };
             return (ended, turn.Key, effectiveModified, true);
@@ -186,6 +186,13 @@ public static partial class SessionScanner
     // MARK: - Turn parse cache
 
     private static readonly long[] WidenedTailBytes = { 1L << 20, 4L << 20 };
+
+    /// A turn the scan reads as NeedsYou, but that ended on an error: read
+    /// from the cached turn, so it costs no further IO after SessionState.
+    internal static bool EndedInError(string? path, ActivityState status, Func<IReadOnlyList<string>, SessionTurnStatus> turnState,
+        bool widen = false) =>
+        status == ActivityState.NeedsYou && path is not null
+        && ReadTurn(path, turnState, p => TailLines(p), widen).Turn.Trouble != TurnTrouble.None;
 
     private static readonly ScanCache<(long Ticks, long Size, SessionTurnStatus Turn, DateTimeOffset Modified)> TurnCache = new();
 

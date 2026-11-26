@@ -98,10 +98,10 @@ This catches the failure mode Agent Island cares about: a long-running agent tha
 Claude and Codex can each have multiple candidate transcripts. Agent Island classifies each file, then takes the most urgent state for that provider:
 
 ```text
-idle < working < your turn < stalled < rate limited < auth required
+idle < working < your turn < stalled < auth required
 ```
 
-That gives one visible Claude state and one visible Codex state in the notch.
+A turn cut short by a rate limit is read as your turn ended in an error, not as its own state. That gives one visible Claude state and one visible Codex state in the notch.
 
 The scanner also prunes `lastWorking` entries to only files still considered candidates, so long-running app sessions do not leak unbounded path state.
 

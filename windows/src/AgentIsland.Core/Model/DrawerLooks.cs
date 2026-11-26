@@ -58,7 +58,6 @@ public static class DrawerLooks
         AgentPhase.Finished => "finished",
         AgentPhase.Failed => "failed",
         AgentPhase.NetworkTrouble => "offline",
-        AgentPhase.RateLimited => "sleeping",
         AgentPhase.AuthRequired => "locked",
         _ => "idle",
     };
@@ -128,18 +127,16 @@ public static class DrawerLooks
         AgentPhase.Finished => "Waiting for your reply",
         AgentPhase.Failed => "Something went wrong",
         AgentPhase.NetworkTrouble => "Network trouble",
-        AgentPhase.RateLimited => "Out of quota",
         AgentPhase.AuthRequired => "Sign-in needed",
         _ => "Idle",
     });
 
     /// The head word of a character's card. Pixel's words follow its looks:
-    /// an agent whose app is away is "Sleeping", one out of quota "Resting".
-    /// Classic keeps its own: "Resting" while away, "Out of quota".
+    /// an agent whose app is away is "Sleeping"; Classic keeps its own,
+    /// "Resting". Otherwise it is the phase's label.
     public static string CardPhase(AgentPhase phase, bool away, CharacterTheme theme)
     {
-        if (theme != CharacterTheme.Pixel) return away ? L10n.Tr("Resting") : PhaseLabel(phase);
-        if (away) return L10n.Tr("Sleeping");
-        return phase == AgentPhase.RateLimited ? L10n.Tr("Resting") : PhaseLabel(phase);
+        if (away) return L10n.Tr(theme == CharacterTheme.Pixel ? "Sleeping" : "Resting");
+        return PhaseLabel(phase);
     }
 }

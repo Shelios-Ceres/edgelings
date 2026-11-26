@@ -21,7 +21,10 @@ public static class AgentPhaseClassifier
     // window: long thinking is still thinking, and the scan says when a
     // session has stopped working.
     private static readonly TimeSpan WorkFor = TimeSpan.FromMinutes(30);
-    private static readonly TimeSpan FailedFor = TimeSpan.FromMinutes(5);
+    // An error holds as long as the scan keeps its turn as NeedsYou (20
+    // minutes), so the line saying why ("Interrupted by a rate limit")
+    // outlives nothing but the scan's own state.
+    private static readonly TimeSpan FailedFor = TimeSpan.FromMinutes(21);
     private static readonly TimeSpan SpawnShownFor = TimeSpan.FromSeconds(3);
 
     /// Live phase of one transcript, or null for providers whose transcripts
@@ -130,7 +133,8 @@ public static class AgentPhaseClassifier
                     // Text/thinking before the step's calls: every call has
                     // returned, so the model is working on the results.
                     if (stepDone) return Aged(new(AgentPhase.Thinking, null, resultAt ?? at), now);
-                    if (Jsonl.GetBool(root, "isApiErrorMessage") == true) return Aged(new(AgentPhase.Failed, "API", at), now);
+                    if (Jsonl.GetBool(root, "isApiErrorMessage") == true)
+                        return Aged(new(AgentPhase.Failed, FailedDetail(SessionTurnState.MessageText(message), "API"), at), now);
                     var stop = message is { } mm ? Jsonl.GetString(mm, "stop_reason") : null;
                     if (stop is "end_turn" or "stop_sequence" or "stop") return Aged(new(AgentPhase.Finished, null, at), now);
                     // Claude Code logs a thinking block once it is done, so the
@@ -186,7 +190,8 @@ public static class AgentPhaseClassifier
                         case "task_complete":
                             var failed = payload is { } done && done.TryGetProperty("error", out var error)
                                 && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined);
-                            return Aged(new(failed ? AgentPhase.Failed : AgentPhase.Finished, null, at), now);
+                            return Aged(new(failed ? AgentPhase.Failed : AgentPhase.Finished,
+                                failed ? FailedDetail(SessionTurnState.ErrorText(payload), null) : null, at), now);
                         case "turn_aborted": return new(AgentPhase.Idle, null, at);
                     }
                     continue; // token counts, item completions, settings
@@ -561,6 +566,13 @@ public static class AgentPhaseClassifier
     };
 
     /// "Reconnecting · attempt 3 of 10" for a Claude Code retry record.
+    /// A turn cut short by a rate limit is a task fact: the character plays
+    /// an error and the line says why. Any other failure keeps `fallback`.
+    private static string? FailedDetail(string? errorText, string? fallback) =>
+        SessionTurnState.TroubleFrom(errorText) == TurnTrouble.RateLimited
+            ? Localization.L10n.Tr("Interrupted by a rate limit")
+            : fallback;
+
     private static string? RetryDetail(JsonElement root) =>
         Jsonl.GetDouble(root, "retryAttempt") is { } attempt && Jsonl.GetDouble(root, "maxRetries") is { } max
             ? Localization.L10n.TrFormat("Reconnecting · attempt {0} of {1}", (int)attempt, (int)max)

@@ -115,11 +115,10 @@ public static class PixelThemeTests
         Console.WriteLine("PASS an English scope held across an await stays with its own code");
 
         Expect(DrawerLooks.CardPhase(AgentPhase.Thinking, true, CharacterTheme.Pixel) == L10n.Tr("Sleeping")
-            && DrawerLooks.CardPhase(AgentPhase.RateLimited, false, CharacterTheme.Pixel) == L10n.Tr("Resting")
             && DrawerLooks.CardPhase(AgentPhase.Thinking, false, CharacterTheme.Pixel) == DrawerLooks.PhaseLabel(AgentPhase.Thinking),
-            "pixel cards say Sleeping when the app is away and Resting when out of quota");
+            "pixel cards say Sleeping when the app is away");
         Expect(DrawerLooks.CardPhase(AgentPhase.Thinking, true, CharacterTheme.Classic) == L10n.Tr("Resting")
-            && DrawerLooks.CardPhase(AgentPhase.RateLimited, false, CharacterTheme.Classic) == DrawerLooks.PhaseLabel(AgentPhase.RateLimited),
+            && DrawerLooks.CardPhase(AgentPhase.Failed, false, CharacterTheme.Classic) == DrawerLooks.PhaseLabel(AgentPhase.Failed),
             "classic cards keep their words");
         Expect(LookCatalog.For(CharacterTheme.Pixel, DisplayProvider.Cursor).Select(l => l.Swatch).SequenceEqual(LookCatalog.For(CharacterTheme.Pixel, DisplayProvider.Grok).Select(l => l.Swatch)),
             "Cursor wears Grok's colours in Pixel");

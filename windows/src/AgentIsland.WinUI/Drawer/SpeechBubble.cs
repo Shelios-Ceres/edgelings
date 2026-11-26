@@ -84,7 +84,6 @@ internal sealed class SpeechBubble
     {
         AgentPhase.Finished => LineKind.Done,
         AgentPhase.Failed or AgentPhase.NetworkTrouble => LineKind.Error,
-        AgentPhase.RateLimited => LineKind.Plain,
         _ => LineKind.Waiting,
     };
 

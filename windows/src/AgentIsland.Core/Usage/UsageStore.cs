@@ -392,20 +392,21 @@ public sealed class UsageStore : INotifyPropertyChanged
     {
         /// Both windows have errors: nothing to go on.
         Unreadable,
-        /// A readable window is used up (the rule that puts the bot to sleep).
+        /// A readable window is used up.
         Spent,
         /// Readable, and nothing is spent.
         Clear,
     }
 
-    /// Whether the account has run dry, by the same rule as
-    /// `AppUsage.IsExhausted`: any window without an error, at its reading
-    /// for `now` (one past its reset counts as reset), is at 100%. A window
-    /// with an error is not read, so the other one decides.
+    /// Whether the account has run dry: any window without an error, at its
+    /// reading for `now` (one past its reset counts as reset), is at 100%. A
+    /// window with an error is not read, so the other one decides.
     internal static CodexQuotaReading ReadCodexQuota(AppUsage usage, DateTimeOffset now)
     {
         if (usage.FiveHour.HasError && usage.Weekly.HasError) return CodexQuotaReading.Unreadable;
-        return usage.IsExhausted(now) ? CodexQuotaReading.Spent : CodexQuotaReading.Clear;
+        var spent = (!usage.FiveHour.HasError && usage.FiveHour.At(now).UsedPercent >= 1)
+            || (!usage.Weekly.HasError && usage.Weekly.At(now).UsedPercent >= 1);
+        return spent ? CodexQuotaReading.Spent : CodexQuotaReading.Clear;
     }
 
     /// True when both windows have errors and zero values — nothing useful

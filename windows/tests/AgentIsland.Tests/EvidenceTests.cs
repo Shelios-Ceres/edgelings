@@ -19,8 +19,6 @@ public static class EvidenceTests
             ("process check knows each agent by name", TestProcessNames),
             ("the Kimi desktop app does not count as Kimi Code", TestKimiDesktopIsNotKimiCode),
             ("an unreadable process path counts as alive", TestUnreadablePathIsAlive),
-            ("a quota check failing on the network is not out of quota", TestQuotaNetworkErrorIsNotRateLimited),
-            ("a quota check that is rate limited still is", TestQuotaRateLimitStillCounts),
             ("error texts sort into network, quota, sign-in and other", TestTroubleFromText),
             ("a finished turn with an error reading shows the error", TestCombineFailedTurn),
             ("a working agent's retry reading stays working", TestCombineTransientRetry),
@@ -96,23 +94,6 @@ public static class EvidenceTests
         Expect(!gone.Contains(TriggerTool.Kimi), "a session is never idled on a guess");
     }
 
-    private static void TestQuotaNetworkErrorIsNotRateLimited()
-    {
-        foreach (var error in new[] { "network timeout", "http 503", "connection reset", "bad response" })
-        {
-            var state = ActivityMonitor.UsageAttentionState(AppUsage.ErrorPair(error));
-            Expect(state is null, $"'{error}' only makes the quota unknown, got {state}");
-        }
-    }
-
-    private static void TestQuotaRateLimitStillCounts()
-    {
-        Expect(ActivityMonitor.UsageAttentionState(AppUsage.ErrorPair("rate limited")) == ActivityState.RateLimited,
-            "a rate-limited quota check still reads as out of quota");
-        var full = AppUsage.Empty with { Weekly = new WindowUsage(1, null, null) };
-        Expect(ActivityMonitor.UsageAttentionState(full) == ActivityState.RateLimited, "a used-up window is out of quota");
-    }
-
     private static void TestTroubleFromText()
     {
         Expect(SessionTurnState.TroubleFrom("You've hit your session limit · resets 2am") == TurnTrouble.RateLimited, "session limit");
@@ -127,15 +108,15 @@ public static class EvidenceTests
     private static void TestCombineFailedTurn()
     {
         var failed = new PhaseReading(AgentPhase.Failed, "API", DateTimeOffset.UtcNow);
-        Expect(AgentPhases.Combine(ActivityState.NeedsYou, failed, quotaExhausted: false) == AgentPhase.Failed, "an error, not your turn");
+        Expect(AgentPhases.Combine(ActivityState.NeedsYou, failed) == AgentPhase.Failed, "an error, not your turn");
         var finished = new PhaseReading(AgentPhase.Finished, null, DateTimeOffset.UtcNow);
-        Expect(AgentPhases.Combine(ActivityState.NeedsYou, finished, quotaExhausted: false) == AgentPhase.Finished, "a clean finish is your turn");
+        Expect(AgentPhases.Combine(ActivityState.NeedsYou, finished) == AgentPhase.Finished, "a clean finish is your turn");
     }
 
     private static void TestCombineTransientRetry()
     {
         var retry = new PhaseReading(AgentPhase.NetworkTrouble, "attempt 1 of 10", DateTimeOffset.UtcNow);
-        Expect(AgentPhases.Combine(ActivityState.Working, retry, quotaExhausted: false) == AgentPhase.Working,
+        Expect(AgentPhases.Combine(ActivityState.Working, retry) == AgentPhase.Working,
             "a lone retry the scan does not count stays plain working");
     }
 

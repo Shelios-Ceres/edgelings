@@ -125,7 +125,7 @@ internal sealed class TrayIcon : IDisposable
         }
         var status = worst switch
         {
-            ActivityState.AuthRequired or ActivityState.RateLimited => L10n.Tr("Needs attention"),
+            ActivityState.AuthRequired => L10n.Tr("Needs attention"),
             ActivityState.NetworkTrouble => L10n.Tr("Network trouble"),
             ActivityState.NeedsYou => L10n.Tr("Your turn"),
             ActivityState.Working => L10n.Tr("Running"),

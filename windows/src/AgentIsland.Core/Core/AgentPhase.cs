@@ -24,7 +24,6 @@ public enum AgentPhase
     Finished,
     Failed,
     NetworkTrouble,
-    RateLimited,
     AuthRequired,
     Approving,
 }
@@ -41,29 +40,29 @@ public static class AgentPhases
     {
         AgentPhase.Asking or AgentPhase.Approving => 0,
         AgentPhase.Failed or AgentPhase.AuthRequired or AgentPhase.NetworkTrouble => 1,
-        AgentPhase.Finished or AgentPhase.RateLimited => 2,
+        AgentPhase.Finished => 2,
         AgentPhase.Idle => 4,
         _ => 3,
     };
 
     public static bool IsWork(AgentPhase phase) =>
-        phase is not (AgentPhase.Idle or AgentPhase.Finished or AgentPhase.NetworkTrouble
-            or AgentPhase.RateLimited or AgentPhase.AuthRequired);
+        phase is not (AgentPhase.Idle or AgentPhase.Finished or AgentPhase.NetworkTrouble or AgentPhase.AuthRequired);
 
     /// The scanner's state decides whether the agent is working at all; the
     /// transcript only refines HOW it works. A transcript lagging behind the
     /// scan (still idle or finished) falls back to plain Working.
-    public static AgentPhase Combine(ActivityState state, PhaseReading? transcript, bool quotaExhausted) =>
+    /// turnFailed: the scan's NeedsYou is a turn that ended on an error. It
+    /// plays as an error for as long as the scan holds it, even once the
+    /// transcript reading has aged to idle.
+    public static AgentPhase Combine(ActivityState state, PhaseReading? transcript, bool turnFailed = false) =>
         state switch
         {
             ActivityState.AuthRequired => AgentPhase.AuthRequired,
-            _ when state is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.RateLimited
+            _ when state is ActivityState.Working or ActivityState.NetworkTrouble
                 && transcript is { Phase: AgentPhase.Approving or AgentPhase.Asking } prompt => prompt.Phase,
-            ActivityState.RateLimited => AgentPhase.RateLimited,
-            _ when quotaExhausted => AgentPhase.RateLimited,
             ActivityState.NetworkTrouble => AgentPhase.NetworkTrouble,
             // A turn that ended on an error says so rather than "your turn".
-            ActivityState.NeedsYou when transcript is { Phase: AgentPhase.Failed } => AgentPhase.Failed,
+            ActivityState.NeedsYou when turnFailed || transcript is { Phase: AgentPhase.Failed } => AgentPhase.Failed,
             ActivityState.NeedsYou => AgentPhase.Finished,
             ActivityState.Working when transcript is { } reading && IsWork(reading.Phase) => reading.Phase,
             ActivityState.Working => AgentPhase.Working,

@@ -2,7 +2,7 @@ namespace AgentIsland.Core;
 
 /// Per-provider visible state. Raw values are the urgency ranking used when
 /// aggregating multiple sessions: idle &lt; working &lt; needsYou &lt;
-/// networkTrouble &lt; rateLimited &lt; authRequired. NetworkTrouble needs
+/// networkTrouble &lt; authRequired. NetworkTrouble needs
 /// evidence (Windows reporting no internet, or an agent retrying a lost
 /// connection), never mere silence.
 public enum ActivityState
@@ -11,21 +11,20 @@ public enum ActivityState
     Working = 1,
     NeedsYou = 2,
     NetworkTrouble = 3,
-    RateLimited = 4,
-    AuthRequired = 5,
+    AuthRequired = 4,
 }
 
 public static class ActivityStateExtensions
 {
     public static bool IsAttentionState(this ActivityState state) => state is
-        ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired;
+        ActivityState.NetworkTrouble or ActivityState.AuthRequired;
 
     /// Attention states that pulse. AuthRequired is deliberately excluded:
     /// a login can stay pending for hours, and an endless red blink reads as
     /// a crash — it gets the static red treatment instead (macOS
     /// pulsesAttention semantics).
     public static bool PulsesAttention(this ActivityState state) => state is
-        ActivityState.NetworkTrouble or ActivityState.RateLimited;
+        ActivityState.NetworkTrouble;
 
     /// Live activity — a session is running, or something needs you. The
     /// rotating comet sweep spins on these and rests otherwise: Idle and
@@ -34,7 +33,7 @@ public static class ActivityStateExtensions
     /// render loop busy.
     public static bool IsActiveState(this ActivityState state) => state is
         ActivityState.Working
-        or ActivityState.NetworkTrouble or ActivityState.RateLimited or ActivityState.AuthRequired;
+        or ActivityState.NetworkTrouble or ActivityState.AuthRequired;
 }
 
 /// The providers a session can belong to. Triggers are persisted as JSON

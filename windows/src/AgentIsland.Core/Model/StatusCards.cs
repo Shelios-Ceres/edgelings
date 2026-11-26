@@ -350,7 +350,7 @@ public static class StatusCards
     }
 
     /// 每条额度线的读数多旧，和 GrokMeters 一一对应：同池时只说那一条线所用读数的；
-    /// 不同池时桌面版那条和 Grok 并列，要冠上名字。桌面版额度用完时说明何时恢复。
+    /// 不同池时桌面版那条和 Grok 并列，要冠上名字。
     internal static IReadOnlyList<StatusPhrase> GrokNotes(GrokSides sides, DateTimeOffset now, TimeSpan interval)
     {
         static AppUsage Usage(GrokSide side) => new(side.Window, WindowUsage.Unknown);
@@ -359,9 +359,6 @@ public static class StatusCards
         {
             var side = shared.FromDesktop ? pooled : sides.Grok;
             if (side is not null && QuotaAge(Usage(side), side.UpdatedAt, false, now, interval) is { } age) notes.Add(age);
-            // 桌面版先到 100% 时线上可能还是 Grok 没满的数，角色却已在“限额”，所以单独说明。
-            if (DesktopSpent(pooled.Window, now) is { } spentShared
-                && (shared.FromDesktop || shared.Window.At(now).UsedPercent < 1)) notes.Add(spentShared);
             return notes;
         }
         if (sides.Grok is { } grok && QuotaAge(Usage(grok), grok.UpdatedAt, false, now, interval) is { } grokAge) notes.Add(grokAge);
@@ -370,19 +367,7 @@ public static class StatusCards
         {
             notes.Add(desktopAge with { Text = AgentReports.DesktopNamed(desktopAge.Text, sides.Grok is not null) });
         }
-        if (DesktopSpent(desktop.Window, now) is { } spent) notes.Add(spent);
         return notes;
-    }
-
-    /// 角色因桌面版的额度用完而显示“限额”时，卡上要说明是哪个入口、什么时候恢复。
-    /// 判定和 AppUsage.IsExhausted 一致；时间写法沿用额度线的“{0}重置”。
-    internal static StatusPhrase? DesktopSpent(WindowUsage desktop, DateTimeOffset now)
-    {
-        var current = desktop.At(now);
-        if (desktop.HasError || current.UsedPercent < 1) return null;
-        if (current.ResetAt is not { } at || at <= now) return Phrase(L10n.Tr("Grok Build desktop's quota is used up"));
-        var countdown = Formatting.LongCountdown(at - now, L10n.IsChinese);
-        return Phrase(L10n.TrFormat("Grok Build desktop's quota is used up, resets {0}", countdown), countdown);
     }
 
     /// Explain the wait at a reset boundary before showing an age for old

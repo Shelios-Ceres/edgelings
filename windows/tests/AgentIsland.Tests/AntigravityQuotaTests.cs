@@ -51,7 +51,7 @@ public static class AntigravityQuotaTests
             ("the card shows 5h, Week and the Argon pool, never Claude or GPT", TestMeters),
             ("a single window keeps one meter, and no snapshot shows a dash", TestMeterFallbacks),
             ("each meter is labelled by its own window", TestMeterLabels),
-            ("only the main group's pools put the bot to sleep", TestSleepRule),
+            ("Argon running out still shows its own meter", TestArgonMeter),
             ("a snapshot saved before this change still restores", TestOldSnapshotRoundTrip),
             ("a failed refresh keeps every pool under its caption", TestKeptPools),
             ("a spent bucket whose zero fraction was left out stays, at 100%", TestOmittedZeroFraction),
@@ -872,7 +872,6 @@ public static class AntigravityQuotaTests
         Expect(buckets[1].UsedPercent, 1.0);
         var snapshot = new AntigravityQuotaSnapshot(buckets);
         Expect(snapshot.GeminiPools.ShortWindow?.BucketId, "gemini-5h");
-        Expect(ProviderUsage.AntigravityFrom(snapshot, null, null).IsExhausted(Now), "the spent 5-hour pool puts the bot to sleep");
         Expect(Meters(snapshot)[0].Value, "100%");
     }
 
@@ -962,25 +961,9 @@ public static class AntigravityQuotaTests
         Expect(string.Join(",", Meters(fiveHourAndDaily).Select(m => m.Label)), "5h,24h");
     }
 
-    private static void TestSleepRule()
+    private static void TestArgonMeter()
     {
-        // Argon alone out: the other Gemini models still work.
-        Expect(!ProviderUsage.AntigravityFrom(Pro(argonUsed: 1), null, null).IsExhausted(Now),
-            "Argon running out leaves the bot awake");
-        Expect(Meters(Pro(argonUsed: 1))[2].Value == "100%", "its meter still says so");
-        // The main group's 5-hour or weekly pool out: asleep.
-        Expect(ProviderUsage.AntigravityFrom(Pro(fiveHourUsed: 1), null, null).IsExhausted(Now),
-            "the 5-hour pool out puts it to sleep");
-        Expect(ProviderUsage.AntigravityFrom(Pro(weeklyUsed: 1), null, null).IsExhausted(Now),
-            "the weekly pool out puts it to sleep");
-        Expect(!ProviderUsage.AntigravityFrom(Pro(), null, null).IsExhausted(Now), "healthy pools leave it awake");
-        // A used-up window that has since reset no longer sleeps.
-        var past = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("gemini-weekly", "Gemini Models", "weekly", 1, Now.AddDays(-1)),
-            new AntigravityQuotaBucket("gemini-5h", "Gemini Models", "5h", 1, Now.AddHours(-1)),
-        });
-        Expect(!ProviderUsage.AntigravityFrom(past, null, null).IsExhausted(Now), "a reset window waits for sync instead");
+        Expect(Meters(Pro(argonUsed: 1))[2].Value == "100%", "Argon running out still shows on its meter");
     }
 
     private static void TestOldSnapshotRoundTrip()

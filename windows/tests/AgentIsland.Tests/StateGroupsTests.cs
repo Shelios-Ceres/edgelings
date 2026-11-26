@@ -133,7 +133,7 @@ public static class StateGroupsTests
                 Expect(StateGroups.GroupOf(theme, busyKind, busyLook, phase) == WorkGroup.Team, $"{theme} {phase} is Team for Kimi");
             }
             foreach (var phase in new[] { AgentPhase.Idle, AgentPhase.Asking, AgentPhase.Approving, AgentPhase.Finished, AgentPhase.Failed,
-                         AgentPhase.NetworkTrouble, AgentPhase.RateLimited, AgentPhase.AuthRequired })
+                         AgentPhase.NetworkTrouble, AgentPhase.AuthRequired })
             {
                 Expect(StateGroups.GroupOf(theme, kind, look, phase) is null && StateGroups.GroupOf(theme, busyKind, busyLook, phase) is null,
                     $"{theme} {phase} plays its own state");

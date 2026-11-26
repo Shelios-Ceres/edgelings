@@ -278,7 +278,7 @@ public static class SessionTurnState
         return at + wait + RetryGrace;
     }
 
-    private static string? MessageText(JsonElement? message)
+    internal static string? MessageText(JsonElement? message)
     {
         if (message is not { } m || !m.TryGetProperty("content", out var content)) return null;
         if (content.ValueKind == JsonValueKind.String) return content.GetString();
@@ -293,7 +293,7 @@ public static class SessionTurnState
     }
 
     /// A Codex completion's error, or null when the turn succeeded.
-    private static string? ErrorText(JsonElement? payload)
+    internal static string? ErrorText(JsonElement? payload)
     {
         if (payload is not { } p || !p.TryGetProperty("error", out var error)) return null;
         return error.ValueKind switch

@@ -22,15 +22,14 @@ public static class SharedSubscriptionTests
             ("separate plans keep two pools", TestSeparatePlans),
             ("the busier app's phase wins, unnamed", TestPickBusier),
             ("a tie goes to Grok", TestPickTie),
-            ("billed apart, one app's spent quota never sleeps over the other's work", TestStandingStateBilledApart),
+            ("quota plays no part: the phases alone decide, billed apart or not", TestPickIgnoresQuota),
             ("kept numbers say how old they are, the desktop app's named beside Grok's", TestCursorQuotaAge),
             ("one pool is one line and one account", TestOnePoolOneLine),
-            ("one pool keeps Grok's reading unless it is stale; a desktop app spent first is said", TestOnePoolFresher),
+            ("one pool keeps Grok's reading unless it is stale", TestOnePoolFresher),
             ("Grok Build desktop alone keeps its line, account and warning, unnamed", TestDesktopAlone),
             ("installed but signed out, the desktop app adds no line and no warning", TestDesktopSignedOut),
             ("Grok not detected: none of its cached numbers, account or warning", TestGrokNotDetected),
             ("billed apart, two lines and both accounts; the desktop line is Desk on the card", TestBilledApart),
-            ("the desktop app's spent cycle says when it refills", TestDesktopSpent),
             ("the tray reads the card's first line", TestTrayFigure),
             ("no line, warning or note on Grok's card names Cursor", TestNoCursorWord),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
@@ -60,36 +59,32 @@ public static class SharedSubscriptionTests
 
     private static void TestPickBusier()
     {
-        var cursorWrites = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Writing, "Edit"), NotAsked);
+        var cursorWrites = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Writing, "Edit"));
         Expect(cursorWrites == (AgentPhase.Writing, "Edit"), $"Cursor at work shows, without naming the app: {cursorWrites}");
-        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null), NotAsked);
+        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null));
         Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok at work shows as itself: {grokRuns}");
-        var cursorDone = SharedSubscription.Pick((AgentPhase.Working, null), (AgentPhase.Finished, null), NotAsked);
+        var cursorDone = SharedSubscription.Pick((AgentPhase.Working, null), (AgentPhase.Finished, null));
         Expect(cursorDone == (AgentPhase.Finished, null), $"a finished turn waiting on you outranks work: {cursorDone}");
-        var grokAsks = SharedSubscription.Pick((AgentPhase.Asking, null), (AgentPhase.Failed, null), NotAsked);
+        var grokAsks = SharedSubscription.Pick((AgentPhase.Asking, null), (AgentPhase.Failed, null));
         Expect(grokAsks.Phase == AgentPhase.Asking, $"a question outranks an error: {grokAsks}");
     }
 
     private static void TestPickTie()
     {
-        var tie = SharedSubscription.Pick((AgentPhase.Thinking, null), (AgentPhase.Writing, null), NotAsked);
+        var tie = SharedSubscription.Pick((AgentPhase.Thinking, null), (AgentPhase.Writing, null));
         Expect(tie == (AgentPhase.Thinking, null), $"two apps at work show Grok's: {tie}");
-        var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Idle, null), NotAsked);
+        var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Idle, null));
         Expect(idle == (AgentPhase.Idle, null), $"both idle is plain idle: {idle}");
     }
 
-    private static void TestStandingStateBilledApart()
+    private static void TestPickIgnoresQuota()
     {
-        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Apart);
-        Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok works while Cursor's own quota is spent: {grokRuns}");
-        var cursorWrites = SharedSubscription.Pick((AgentPhase.RateLimited, null), (AgentPhase.Writing, "Edit"), Apart);
-        Expect(cursorWrites == (AgentPhase.Writing, "Edit"), $"Cursor works while Grok's weekly pool is spent: {cursorWrites}");
-        var cursorDone = SharedSubscription.Pick((AgentPhase.AuthRequired, null), (AgentPhase.Finished, null), Apart);
-        Expect(cursorDone == (AgentPhase.Finished, null), $"a finished turn beats the other app's lapsed sign-in: {cursorDone}");
-        var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.RateLimited, null), NotAsked);
-        Expect(idle == (AgentPhase.RateLimited, null), $"with nothing else going on, the spent quota still shows: {idle}");
-        var shared = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Shared);
-        Expect(shared == (AgentPhase.RateLimited, null), $"one shared pool spent is the character's: {shared}");
+        var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null));
+        Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok works on whatever Cursor's account says: {grokRuns}");
+        var cursorFails = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Failed, "API"));
+        Expect(cursorFails.Phase == AgentPhase.Failed, $"an error outranks work, from either app: {cursorFails}");
+        var cursorDone = SharedSubscription.Pick((AgentPhase.AuthRequired, null), (AgentPhase.Finished, null));
+        Expect(cursorDone.Phase == AgentPhase.AuthRequired, $"a lapsed sign-in written in a transcript outranks a finished turn: {cursorDone}");
     }
 
     private static readonly DateTimeOffset Now = new(2026, 11, 26, 12, 0, 0, TimeSpan.Zero);
@@ -151,8 +146,6 @@ public static class SharedSubscriptionTests
     /// Each app refreshes on its own: the newer reading is the pool as it is now.
     private static void TestOnePoolFresher() => InEnglish(() =>
     {
-        const string Spent = "Grok Build desktop's quota is used up, resets in 12d";
-        var spent = DesktopCycle with { UsedPercent = 1 };
         foreach (var (grokAt, deskAt) in new[] { (Now.AddMinutes(-10), Now.AddMinutes(-1)), (Now.AddMinutes(-1), Now.AddMinutes(-10)) })
         {
             var steady = Meters(new GrokSides(GrokAt(GrokWeek, grokAt), DeskAt(DesktopCycle, deskAt), true));
@@ -164,13 +157,6 @@ public static class SharedSubscriptionTests
         Expect(Meters(pastReset).Single().Value == "60%", "so do Grok's numbers past their reset: " + Lines(Meters(pastReset)));
         var bothKept = new GrokSides(GrokAt(GrokWeek with { Error = "http 500", Kept = true }), DeskAt(DesktopCycle with { Error = "http 500", Kept = true }), true);
         Expect(Meters(bothKept).Single().Value == "25%", "neither fresh: Grok's: " + Lines(Meters(bothKept)));
-        var desktopFirst = new GrokSides(GrokAt(GrokWeek with { UsedPercent = 0.95 }), DeskAt(spent), true);
-        Expect(Meters(desktopFirst).Single().Value == "95%" && Notes(desktopFirst).Contains(Spent),
-            "the desktop app spent first: Grok's number, and the note: " + Lines(Meters(desktopFirst)) + " / " + string.Join(" | ", Notes(desktopFirst)));
-        var bothFull = new GrokSides(GrokAt(GrokWeek with { UsedPercent = 1 }), DeskAt(spent), true);
-        Expect(!Notes(bothFull).Contains(Spent), "Grok's line full already says it: " + string.Join(" | ", Notes(bothFull)));
-        var keptGrokSpent = new GrokSides(GrokAt(GrokWeek with { Error = "http 500", Kept = true }), DeskAt(spent), true);
-        Expect(Meters(keptGrokSpent).Single().Value == "100%" && Notes(keptGrokSpent).Contains(Spent), "the desktop app's fresh spent reading, said");
     });
 
     private static void TestDesktopAlone() => InEnglish(() =>
@@ -233,20 +219,6 @@ public static class SharedSubscriptionTests
         Expect(AgentReports.GrokWarnings(null, "parse error", grokDetected: true).Single() == "Grok Build 桌面版：parse error", "named in Chinese");
     });
 
-    private static void TestDesktopSpent() => InEnglish(() =>
-    {
-        var spent = DesktopCycle with { UsedPercent = 1 };
-        Expect(StatusCards.DesktopSpent(spent, Now)?.Text == "Grok Build desktop's quota is used up, resets in 12d", "English: " + StatusCards.DesktopSpent(spent, Now)?.Text);
-        Expect(StatusCards.DesktopSpent(spent with { ResetAt = null }, Now)?.Text == "Grok Build desktop's quota is used up", "without a reset");
-        Expect(StatusCards.DesktopSpent(DesktopCycle, Now) is null, "a cycle with room says nothing");
-        Expect(StatusCards.DesktopSpent(spent with { Error = "http 500", Kept = true }, Now) is null, "kept numbers are not a fresh reading");
-        Expect(StatusCards.DesktopSpent(spent with { ResetAt = Now.AddMinutes(-1) }, Now) is null, "a cycle past its reset awaits a new reading");
-        Expect(Notes(new GrokSides(GrokAt(), DeskAt(spent), false)).Contains("Grok Build desktop's quota is used up, resets in 12d"), "on the card billed apart");
-        L10n.Current = L10n.Language.SimplifiedChinese;
-        var zh = StatusCards.DesktopSpent(spent, Now)?.Text;
-        Expect(zh == "Grok Build 桌面版的额度已用完，12 天后重置", "Chinese: " + zh);
-    });
-
     private static void TestTrayFigure() => InEnglish(() =>
     {
         Expect(StatusCards.TrayFigure(Meters(new GrokSides(null, DeskAt(), false))) == "60%", "the desktop app's line when it is the only one");
@@ -268,7 +240,6 @@ public static class SharedSubscriptionTests
                 texts.AddRange(Meters(new GrokSides(GrokAt(), DeskAt(), false)).SelectMany(m => new[] { m.Label, m.CardLabel }));
                 texts.AddRange(Meters(new GrokSides(null, DeskAt(), false)).Select(m => m.Label));
                 texts.AddRange(AgentReports.GrokWarnings(null, "http 500", grokDetected: true));
-                texts.Add(StatusCards.DesktopSpent(DesktopCycle with { UsedPercent = 1 }, Now)?.Text ?? "");
                 texts.Add(L10n.Tr("Grok Build desktop data unavailable"));
                 texts.Add(L10n.Tr("Grok Build desktop billing cycle"));
                 texts.Add(L10n.Tr("Shares Grok's quota pool"));
@@ -282,9 +253,6 @@ public static class SharedSubscriptionTests
         finally { L10n.Current = previous; }
     }
 
-    private static readonly Func<bool> Apart = () => false;
-    private static readonly Func<bool> Shared = () => true;
-    private static readonly Func<bool> NotAsked = () => throw new Exception("asked whether the pool is shared for no reason");
 
     private static void TestTokenSum()
     {

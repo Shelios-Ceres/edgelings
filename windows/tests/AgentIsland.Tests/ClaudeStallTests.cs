@@ -1,5 +1,6 @@
 using System.Globalization;
 using AgentIsland.Core;
+using AgentIsland.Localization;
 using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
@@ -20,7 +21,8 @@ public static class ClaudeStallTests
             ("claude third failed connection attempt is network trouble", TestRepeatedRetriesAreNetworkTrouble),
             ("claude single retry is still working", TestSingleRetryIsWorking),
             ("claude retries long over are working again", TestOldRetriesAreWorking),
-            ("claude session limit is out of quota", TestSessionLimitIsRateLimited),
+            ("claude session limit is an error the user sees, not a quota state", TestSessionLimitIsRateLimited),
+            ("claude rate-limit and other errors keep playing as errors for as long as the scan holds the turn", TestErrorHoldsWhileTheTurnWaits),
             ("claude sign-in error needs sign-in", TestNotLoggedInNeedsSignIn),
             ("claude connection error that ended the turn is network trouble", TestFinalConnectionErrorIsNetworkTrouble),
             ("claude other API error is an error, not your turn", TestOtherApiErrorIsError),
@@ -94,7 +96,65 @@ public static class ClaudeStallTests
     {
         var status = Scan(new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "You've hit your session limit · resets 2am (Asia/Shanghai)") },
             Start.AddMinutes(3), lastWorking: Start.AddMinutes(1));
-        Expect(status == ActivityState.RateLimited, $"a session limit is out of quota, got {status}");
+        Expect(status == ActivityState.NeedsYou, $"a session limit ends the turn back to the user, got {status}");
+        var lines = new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "You've hit your session limit · resets 2am (Asia/Shanghai)") };
+        var phase = AgentPhases.Combine(status, AgentPhaseClassifier.Claude(lines, Start.AddMinutes(3)));
+        Expect(phase == AgentPhase.Failed, $"the character plays an error, got {phase}");
+    }
+
+    /// 以前分类器 5 分钟后把错误读数老化成空闲，角色就退回“等你回复”；
+    /// 现在扫描还把这回合当作 NeedsYou（最多 20 分钟）时，一直演出错。
+    private static void TestErrorHoldsWhileTheTurnWaits()
+    {
+        var limit = new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "You've hit your session limit · resets 2am (Asia/Shanghai)") };
+        var other = new[] { Prompt(Start), ApiError(Start.AddMinutes(1), "API Error: 500 Internal server error") };
+        foreach (var minutes in new[] { 3, 7, 19 })
+        {
+            var now = Start.AddMinutes(1 + minutes);
+            var (state, phase, detail) = Played(limit, now);
+            Expect(state == ActivityState.NeedsYou && phase == AgentPhase.Failed, $"{minutes} min on, a rate-limit stop is still an error, got {state}/{phase}");
+            Expect(detail == L10n.Tr("Interrupted by a rate limit"), $"{minutes} min on, it still says why, got {detail}");
+            var (otherState, otherPhase, _) = Played(other, now);
+            Expect(otherState == ActivityState.NeedsYou && otherPhase == AgentPhase.Failed, $"{minutes} min on, any other error too, got {otherState}/{otherPhase}");
+        }
+        var previous = L10n.Current;
+        try
+        {
+            L10n.Current = L10n.Language.SimplifiedChinese;
+            Expect(Played(limit, Start.AddMinutes(7)).Detail == "被限流打断", "in Chinese: 被限流打断");
+        }
+        finally
+        {
+            L10n.Current = previous;
+        }
+        var (late, latePhase, _) = Played(limit, Start.AddMinutes(25));
+        Expect(late == ActivityState.Idle && latePhase == AgentPhase.Idle, $"past the scan's own cap it rests, got {late}/{latePhase}");
+        var (_, cleanPhase, _) = Played(new[] { Prompt(Start), Text(Start.AddMinutes(1)) }, Start.AddMinutes(7));
+        Expect(cleanPhase == AgentPhase.Finished, $"a clean finish is still your turn, got {cleanPhase}");
+    }
+
+    private static string Text(DateTimeOffset at) =>
+        Line(at, """{"type":"assistant","uuid":"a9","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}""");
+
+    /// 走一遍真实路径：扫描状态、扫描给出的“出错结束”标记、分类器读数，再合成阶段。
+    private static (ActivityState State, AgentPhase Phase, string? Detail) Played(string[] lines, DateTimeOffset now)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"agentisland-claude-played-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(path, string.Join("\n", lines) + "\n");
+        File.SetLastWriteTimeUtc(path, now.UtcDateTime.AddSeconds(-1));
+        try
+        {
+            var seen = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [path] = Start.AddMinutes(1) };
+            var state = SessionScanner.SessionState(path, now, seen, null, SessionTurnState.Claude);
+            var failed = SessionScanner.EndedInError(path, state.Status, SessionTurnState.Claude);
+            var reading = AgentPhaseClassifier.Claude(lines, now);
+            var phase = AgentPhases.Combine(state.Status, reading, failed);
+            return (state.Status, phase, reading.Phase == phase ? reading.Detail : null);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static void TestNotLoggedInNeedsSignIn()
@@ -124,7 +184,7 @@ public static class ClaudeStallTests
         var now = Start.AddMinutes(3);
         var status = Scan(lines, now, lastWorking: Start.AddMinutes(1));
         Expect(status == ActivityState.NeedsYou, $"a turn that ended on an error is back to the user, got {status}");
-        var phase = AgentPhases.Combine(status, AgentPhaseClassifier.Claude(lines, now), quotaExhausted: false);
+        var phase = AgentPhases.Combine(status, AgentPhaseClassifier.Claude(lines, now));
         Expect(phase == AgentPhase.Failed, $"it shows as an error, not your turn, got {phase}");
     }
 

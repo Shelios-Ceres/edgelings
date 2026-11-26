@@ -230,7 +230,7 @@ public static class AppModel
             var tool = b.Provider.ToTriggerTool();
             var thread = monitor.ThreadFor(tool);
             return (Bot: b, Tool: tool, State: monitor.StateFor(tool), Path: thread?.TranscriptPath,
-                Running: monitor.RunningFor(tool), Prompt: thread?.PendingPrompt);
+                Running: monitor.RunningFor(tool), Prompt: thread?.PendingPrompt, TurnFailed: thread?.TurnFailed ?? false);
         }).ToList();
         if (now - _presenceAt >= 1)
         {
@@ -244,7 +244,7 @@ public static class AppModel
                 && job.Path is { } path
                 ? SafeClassify(job.Tool, path, at)
                 : null);
-            var phase = AgentPhases.Combine(job.State, reading, ProviderUsage.For(job.Bot.Provider).IsExhausted(DateTimeOffset.Now));
+            var phase = AgentPhases.Combine(job.State, reading, job.TurnFailed);
             var detail = reading is { } r && r.Phase == phase ? r.Detail : null;
             if (phase == AgentPhase.NetworkTrouble && detail is null && monitor.IsOffline) detail = L10n.Tr("No internet connection");
             results.Add((job.Bot, phase, detail, job.Running));
@@ -389,7 +389,6 @@ public static class AppModel
     {
         AgentPhase.Finished => "done",
         AgentPhase.Failed or AgentPhase.NetworkTrouble => "error",
-        AgentPhase.RateLimited => "plain",
         _ => "waiting",
     };
 

@@ -89,7 +89,6 @@ should too: the mapping, tests and pacing then apply unchanged.
 | `Finished` | Waiting for your reply | `finished` → rests in `listening` |
 | `Failed` | Something went wrong | `failed` → rests in `broken` |
 | `NetworkTrouble` | Network trouble | `offline` |
-| `RateLimited` | Out of quota | `sleeping` |
 | `AuthRequired` | Sign-in needed | `locked` |
 | `Idle`, while its app is away | Resting | `resting` |
 
@@ -118,9 +117,9 @@ How states behave:
   of `idle`. Any other phase still shows, so a minimized terminal mid-task
   shows its work. The card reads "Resting", with "App closed", "Minimized"
   or "In the tray". Pixel's words follow its looks, since its `resting`
-  draws the z's and its `sleeping` the doze: away reads "Sleeping", and out
-  of quota "Resting". `resting` is a calm loop, set apart from `idle` and
-  from the quota's `sleeping`; it belongs in `PHASES` and `CALM`, and its
+  draws the z's and its `sleeping` the doze: away reads "Sleeping". A spent
+  quota no longer changes the bot's phase. `resting` is a calm loop, set
+  apart from `idle`; it belongs in `PHASES` and `CALM`, and its
   start (phase 0) is the settled pose, which reduced motion holds still
   (Pixel's `sleeping` too). A set that doesn't draw it yet shows `idle`
   without fidgets instead.

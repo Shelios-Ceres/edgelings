@@ -29,6 +29,11 @@ public sealed record ScannedSession(
     /// then how the turn ended, not a retry still under way.
     public bool TurnEnded { get; init; }
 
+    /// The turn ended on an error the user has to see (a rate-limit
+    /// interruption included) and the scan reads it as NeedsYou. The scan
+    /// keeps it that way for up to NeedsYouCap, and so must whatever shows it.
+    public bool TurnFailed { get; init; }
+
     /// The session runs in the agent's desktop app (Kimi Work), not in its CLI:
     /// it is abandoned when that app has no process left (AgentProcesses.DesktopGone).
     public bool DesktopHosted { get; init; }
