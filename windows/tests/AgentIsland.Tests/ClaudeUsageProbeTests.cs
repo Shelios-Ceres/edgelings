@@ -744,6 +744,8 @@ public static class ClaudeUsageProbeTests
 
     private static void ChoosesNative()
     {
+        // 探测只在 Windows 上跑；路径按 Windows 的分隔符拼，Mac 上不成立。
+        if (!OperatingSystem.IsWindows()) return;
         bool Exists(string path) => path.EndsWith(@".local\bin\claude.exe", StringComparison.OrdinalIgnoreCase);
         Expect(ClaudeUsageProbe.ChooseClaude(@"C:\n\claude.cmd", @"C:\Users\x", Exists), @"C:\Users\x\.local\bin\claude.exe");
         Expect(ClaudeUsageProbe.ChooseClaude(@"C:\n\claude.cmd", @"C:\Users\x", _ => false), @"C:\n\claude.cmd");
