@@ -122,7 +122,8 @@ public static class BridgeApi
     /// titles, paths, e-mail addresses or tokens. Sessions and token totals
     /// come from the agents' local files; "fetch":true also asks Claude's and
     /// Codex's usage endpoints for their quota windows, which uses (and may
-    /// rotate) the stored login the way the app does.
+    /// rotate) the stored login the way the app does. Antigravity's quota is
+    /// asked of its language server on loopback every time, fetch or not.
     private static string Diagnose(JsonElement request)
     {
         var fetch = request.TryGetProperty("fetch", out var f) && f.ValueKind == JsonValueKind.True;
@@ -165,6 +166,12 @@ public static class BridgeApi
                     json.WriteEndObject();
                 }
                 json.WriteEndArray();
+                if (tool == TriggerTool.Antigravity)
+                {
+                    json.WriteStartArray("notes");
+                    foreach (var line in Safe(AntigravityDiagnostics.Describe, new List<string> { "quota: diagnostic failed" })) json.WriteStringValue(line);
+                    json.WriteEndArray();
+                }
                 json.WriteEndObject();
             }
             json.WriteEndObject();

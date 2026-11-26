@@ -260,34 +260,32 @@ struct AgentCard: View {
             if RenderFlags.offscreen {
                 KitMenu(store: store, options: [store.t("Switch")], selected: 0, singleChevron: true) { _ in }
             } else {
-                Menu {
-                    if codex?.accounts.isEmpty ?? true { Text(store.t("No saved accounts yet")) }
-                    ForEach(codex?.accounts ?? []) { account in
-                        Button((account.label == codex?.active ? "✓ " : "") + account.label + (account.email.map { "  (\($0))" } ?? "")) {
+                KitMenuButton(store: store, title: store.t("Switch"), build: { menu in
+                    if codex?.accounts.isEmpty ?? true { menu.note(store.t("No saved accounts yet")) }
+                    for account in codex?.accounts ?? [] {
+                        menu.item(account.label + (account.email.map { "  (\($0))" } ?? ""), checked: account.label == codex?.active) {
                             store.send("agent", ["action": "codexSwitch", "id": "codex", "label": account.label])
                         }
                     }
-                    Divider()
-                    Button(store.t("Save current account…")) { saveAccount() }
-                    Button((codex?.autoSwitch == true ? "✓ " : "") + store.t("Auto-switch when exhausted")) {
+                    menu.separator()
+                    menu.item(store.t("Save current account…")) { saveAccount() }
+                    menu.item(store.t("Auto-switch when exhausted"), checked: codex?.autoSwitch == true) {
                         store.send("agent", ["action": "codexAuto", "id": "codex", "on": !(codex?.autoSwitch ?? false)])
                     }
                     if !(codex?.accounts.isEmpty ?? true) {
-                        Menu(store.t("Remove saved account")) {
-                            ForEach(codex?.accounts ?? []) { account in
-                                Button(account.label) { store.send("agent", ["action": "codexForget", "id": "codex", "label": account.label]) }
+                        menu.submenu(store.t("Remove saved account")) { sub in
+                            for account in codex?.accounts ?? [] {
+                                sub.item(account.label) { store.send("agent", ["action": "codexForget", "id": "codex", "label": account.label]) }
                             }
                         }
                     }
-                } label: {
+                }) {
                     HStack(spacing: 6) {
                         SkinText(pixel: store.skin == .pixel, text: store.t("Switch"), pixelSize: 13, size: 13, color: store.palette.color("Text"))
                         if store.skin == .pixel { PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20) }
                         else { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundColor(store.palette.color("Text2")) }
                     }
                 }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
             }
         }
     }

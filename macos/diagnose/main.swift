@@ -8,6 +8,8 @@
 // --fetch also asks Claude's and Codex's usage endpoints for their quota
 // windows. That uses the stored Claude login the way the app does, and can
 // rotate its refresh token (written back to the same Keychain item).
+// Antigravity's quota is asked of its language server on 127.0.0.1 on every
+// run, with or without --fetch.
 import Foundation
 
 let arguments = CommandLine.arguments
@@ -68,6 +70,7 @@ for name in agents.keys.sorted() {
         .map { "\($0) \(text((agent["phases"] as? [String: Any])?[$0]))" }.joined(separator: ", ")
     print("  \(name.padding(toLength: 12, withPad: " ", startingAt: 0)) presence \(text(agent["presence"]).padding(toLength: 9, withPad: " ", startingAt: 0))"
         + " process \(text(agent["processRunning"]))   sessions \(text(agent["sessions"]))\(phases.isEmpty ? "" : " (\(phases))")")
+    for note in agent["notes"] as? [String] ?? [] { print("      \(note)") }
 }
 
 let credentials = report["credentials"] as? [String: Any] ?? [:]

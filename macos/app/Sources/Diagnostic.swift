@@ -43,6 +43,7 @@ enum DiagnosticReport {
             for process in matched {
                 lines.append("      process \(value(process["name"])) x\(value(process["count"])) by \(value(process["rule"])), parent \(value(process["parent"]))")
             }
+            for note in agent["notes"] as? [String] ?? [] { lines.append("      \(note)") }
         }
         if let ledger = report["cursorLedger"] as? [String: Any] {
             lines.append("Cursor ledger: \(value(ledger["bubblesWithTokenCount"])) bubbles with a token count, \(value(ledger["nonZero"])) non-zero, \(value(ledger["nonZeroDated"])) of those dated")
@@ -245,13 +246,20 @@ enum SelfTest {
         }
         // The real apply and show path: a phase change inside a group must not put the bot into the same state
         // again (that restarted the motion from frame 0 and cut the switch to the second slot mid-cycle).
+        // Every other character is hidden and out of any group, so a real working agent on this machine
+        // cannot add its own rotation states to Claude's count.
         let controller = DrawerController()
         var states: [String] = []
-        controller.onSetState = { _, state in states.append(state) }
         let base = bridge.request("frame", ["now": 9.0, "shown": true])
+        let claudeAt = (base["bots"] as? [[String: Any]])?.firstIndex(where: { ($0["id"] as? String) == "claude" })
+        controller.onSetState = { index, state in if index == claudeAt { states.append(state) } }
         func variant(phase: String, seq: Int) -> FrameModel? {
             var copy = base
-            guard var bots = copy["bots"] as? [[String: Any]], let at = bots.firstIndex(where: { ($0["id"] as? String) == "claude" }) else { return nil }
+            guard var bots = copy["bots"] as? [[String: Any]], let at = claudeAt, bots.indices.contains(at) else { return nil }
+            for other in bots.indices where other != at {
+                bots[other]["visible"] = false
+                bots[other]["grouped"] = false
+            }
             bots[at]["visible"] = true
             bots[at]["resting"] = false
             bots[at]["phase"] = phase

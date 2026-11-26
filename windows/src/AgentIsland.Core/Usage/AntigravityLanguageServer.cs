@@ -90,25 +90,34 @@ public static class AntigravityLanguageServer
         }
     }
 
-    private enum ProbeResult { Dead, Unauthorized, Ready }
+    internal enum ProbeResult { Dead, Unauthorized, Ready }
 
     /// Ports are assigned at launch and written nowhere, so they are found
     /// by walking the running Antigravity processes' listening sockets —
     /// GetExtendedTcpTable in-process; shelling out to netstat on every
     /// refresh tick would fork twice a minute for the life of the app.
-    public static async Task<int?> Discover()
+    public static async Task<int?> Discover() => (await DiscoverWithState().ConfigureAwait(false)).Port;
+
+    /// Discover's answer with the owning process and what the probe said about
+    /// the port (Unauthorized when only a 401 came back; Dead when no port).
+    internal static async Task<(int? Port, int Pid, ProbeResult State)> DiscoverWithState()
     {
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return null;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return (null, 0, ProbeResult.Dead);
         var cached = _cachedPort;
         var cachedPid = _cachedPid;
         int? unauthorizedPort = null;
+        var unauthorizedPid = 0;
         // Still the same server's port: one Antigravity let go of can be taken
         // by another product's language server, which answers just the same.
         if (cached > 0 && ResolvePortOwner(cached) == cachedPid)
         {
             var cachedState = await Probe(cached, cachedPid).ConfigureAwait(false);
-            if (cachedState == ProbeResult.Ready) return cached;
-            if (cachedState == ProbeResult.Unauthorized) unauthorizedPort = cached;
+            if (cachedState == ProbeResult.Ready) return (cached, cachedPid, ProbeResult.Ready);
+            if (cachedState == ProbeResult.Unauthorized)
+            {
+                unauthorizedPort = cached;
+                unauthorizedPid = cachedPid;
+            }
         }
         foreach (var pid in ListAntigravityProcessIds())
         {
@@ -120,16 +129,22 @@ public static class AntigravityLanguageServer
                 {
                     _cachedPort = port;
                     _cachedPid = pid;
-                    return port;
+                    return (port, pid, ProbeResult.Ready);
                 }
-                if (state == ProbeResult.Unauthorized) unauthorizedPort ??= port;
+                if (state == ProbeResult.Unauthorized && unauthorizedPort is null)
+                {
+                    unauthorizedPort = port;
+                    unauthorizedPid = pid;
+                }
             }
         }
         // Never pin a port that stayed 401: the next fetch re-scans so a newly
         // started CLI or refreshed IDE server can take over immediately.
         _cachedPort = 0;
         _cachedPid = 0;
-        return unauthorizedPort;
+        return unauthorizedPort is { } port401
+            ? (port401, unauthorizedPid, ProbeResult.Unauthorized)
+            : (null, 0, ProbeResult.Dead);
     }
 
     /// A cheap method answering proves this is the RPC port rather than a
@@ -551,6 +566,51 @@ public static class AntigravityLanguageServer
             }
         }
         return null;
+    }
+
+    /// For the diagnostic: how many hub files there are, how many pass the
+    /// rules HubToken applies (the pid is alive, the file was written no earlier
+    /// than that process started, and the process listens on a port it names),
+    /// and how many of those carry a token. Counts only; nothing is read out.
+    internal static (int Total, int Matching, int WithToken) HubCensus()
+    {
+        var total = 0;
+        var matching = 0;
+        var withToken = 0;
+        var ports = new Dictionary<int, List<int>>();
+        List<string> files;
+        try
+        {
+            files = HubFiles().ToList();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return (0, 0, 0);
+        }
+        foreach (var path in files)
+        {
+            total++;
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length > 4096) continue;
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(path));
+                var root = doc.RootElement;
+                if (root.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                if (Jsonl.GetDouble(root, "pid") is not { } rawPid) continue;
+                var pid = (int)rawPid;
+                if (StartTime(pid) is not { } start || info.LastWriteTimeUtc < start.ToUniversalTime() - HubWrittenSlack) continue;
+                if (!ports.TryGetValue(pid, out var held)) ports[pid] = held = ListListeningPorts(pid);
+                var named = new[] { Jsonl.GetDouble(root, "httpsPort"), Jsonl.GetDouble(root, "httpPort") };
+                if (!named.Any(port => port is { } p && held.Contains((int)p))) continue;
+                matching++;
+                if (Jsonl.GetString(root, "csrfToken") is { Length: > 0 }) withToken++;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+            }
+        }
+        return (total, matching, withToken);
     }
 
     internal static string? ParseCsrfToken(string? commandLine)

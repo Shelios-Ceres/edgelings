@@ -43,7 +43,8 @@ public static class AntigravityQuotaTests
             ("only this process's own hub file gives its token", TestHubToken),
             ("the hub file's token comes before the command line", TestCsrfTokenPrefersHub),
             ("a server without GetUnleashData is found and authenticated from its hub file", TestDiscoverWithoutUnleashData),
-            ("the single-process Windows Job Object blocks grandchild browser/CLI spawns", TestCliSingleProcessJob),
+            ("the diagnostic tells hub files, discovery and the quota call apart, and never shows a token", TestDiagnosticLines),
+        ("the single-process Windows Job Object blocks grandchild browser/CLI spawns", TestCliSingleProcessJob),
             ("refresh cadence keeps the 120s background floor and 1-minute manual floor", TestRefreshCadence),
             ("the CLI usage reply supplies real quota windows", TestCliUsage),
             ("the main group fills the 5-hour and weekly slots", TestSlots),
@@ -555,6 +556,91 @@ public static class AntigravityQuotaTests
             AntigravityLanguageServer.StartTime = prevStarted;
             AntigravityLanguageServer.HubFiles = prevHub;
             AntigravityLanguageServer.ReadCommandLine = prevRead;
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+        }
+    }
+
+    private static void TestDiagnosticLines()
+    {
+        var prevCall = AntigravityLanguageServer.CallRpc;
+        var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
+        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
+        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var prevStarted = AntigravityLanguageServer.StartTime;
+        var prevHub = AntigravityLanguageServer.HubFiles;
+        var prevRead = AntigravityLanguageServer.ReadCommandLine;
+        var prevName = AntigravityDiagnostics.ProcessName;
+        try
+        {
+            using var hub = new HubFolder();
+            var started = DateTime.UtcNow.AddMinutes(-1);
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.HubFiles = () => hub.Files;
+            AntigravityLanguageServer.ReadCommandLine = _ => null;
+            AntigravityLanguageServer.StartTime = pid => pid == 201 ? started : null;
+            AntigravityLanguageServer.ListAntigravityProcessIds = () => new List<int> { 201 };
+            AntigravityLanguageServer.ListListeningPorts = pid => pid == 201 ? new List<int> { 55845, 55846 } : new List<int>();
+            AntigravityLanguageServer.ResolvePortOwner = port => port is 55845 or 55846 ? 201 : null;
+            AntigravityDiagnostics.ProcessName = pid => pid == 201 ? "agy" : null;
+
+            // Nothing written yet: no files, and the probe finds no answering port.
+            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(null);
+            var empty = AntigravityDiagnostics.Describe();
+            Expect(empty[0].Contains("0 found, 0 match"), "no hub files: " + empty[0]);
+            Expect(empty.Any(l => l.Contains("no port found, probe Dead")), "a silent server is Dead: " + string.Join(" | ", empty));
+            Expect(!empty.Any(l => l.Contains("RetrieveUserQuotaSummary")), "no port, no quota call");
+
+            // One file that counts, and four that must not: a stale one, a dead pid, a port the process does not hold, garbage.
+            hub.Add(new { pid = 201, httpsPort = 55845, httpPort = 55846, csrfToken = "secret-live" }, started.AddSeconds(1));
+            hub.Add(new { pid = 201, httpsPort = 55845, httpPort = 55846, csrfToken = "secret-stale" }, started.AddDays(-3));
+            hub.Add(new { pid = 7, httpsPort = 55845, httpPort = 55846, csrfToken = "secret-dead" }, started.AddSeconds(1));
+            hub.Add(new { pid = 201, httpsPort = 1, httpPort = 2, csrfToken = "secret-ports" }, started.AddSeconds(1));
+            hub.Add("not json", started.AddSeconds(1));
+            Expect(AntigravityLanguageServer.HubCensus(), (5, 1, 1));
+
+            // The server wants the token; with it, the quota arrives in five buckets.
+            AntigravityLanguageServer.CallRpc = (method, port, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                port != 55845 ? null
+                : token != "secret-live" ? new(401, Array.Empty<byte>())
+                : method == "RetrieveUserQuotaSummary" ? new(200, Encoding.UTF8.GetBytes(FiveBucketReply))
+                : new(200, Array.Empty<byte>()));
+            var lines = AntigravityDiagnostics.Describe();
+            var text = string.Join("\n", lines);
+            Expect(lines[0].Contains("5 found, 1 match") && lines[0].Contains("1 of those carry a token"), lines[0]);
+            Expect(text.Contains("1 Antigravity process(es), 2 listening port(s)"), text);
+            Expect(text.Contains("a port owned by agy, probe Ready, hub token for that process yes"), text);
+            Expect(text.Contains("RetrieveUserQuotaSummary HTTP 200, 5 bucket(s)"), text);
+            Expect(!text.Contains("secret"), "no token reaches the report");
+
+            // A token the server refuses leaves the 401 and no buckets.
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityLanguageServer.ForgetCsrfTokens();
+            AntigravityLanguageServer.CallRpc = (_, port, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
+                port == 55845 ? new(401, Array.Empty<byte>()) : null);
+            var refused = string.Join("\n", AntigravityDiagnostics.Describe());
+            Expect(refused.Contains("probe Unauthorized"), refused);
+            Expect(refused.Contains("RetrieveUserQuotaSummary HTTP 401, no buckets"), refused);
+
+            // Another product's server is named, not hidden.
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityDiagnostics.ProcessName = _ => "language_server_macos_arm";
+            Expect(string.Join("\n", AntigravityDiagnostics.Describe()).Contains("a port owned by language_server,"), "language_server is told apart");
+            AntigravityLanguageServer.ForgetCachedPort();
+            AntigravityDiagnostics.ProcessName = _ => "antigravity";
+            Expect(string.Join("\n", AntigravityDiagnostics.Describe()).Contains("a port owned by antigravity,"), "the desktop app is told apart");
+        }
+        finally
+        {
+            AntigravityLanguageServer.CallRpc = prevCall;
+            AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
+            AntigravityLanguageServer.ListListeningPorts = prevPorts;
+            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
+            AntigravityLanguageServer.StartTime = prevStarted;
+            AntigravityLanguageServer.HubFiles = prevHub;
+            AntigravityLanguageServer.ReadCommandLine = prevRead;
+            AntigravityDiagnostics.ProcessName = prevName;
             AntigravityLanguageServer.ForgetCachedPort();
             AntigravityLanguageServer.ForgetCsrfTokens();
         }

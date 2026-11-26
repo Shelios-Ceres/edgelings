@@ -2,8 +2,10 @@
 // menu, a button, a page title. Pixel draws them as stepped plates in the
 // pixel face; Classic as rounded paper with the system's own look.
 import SwiftUI
+import AppKit
+import CoreText
 
-/// ImageRenderer cannot draw AppKit-backed controls (Menu); offscreen renders show their label instead.
+/// ImageRenderer cannot draw AppKit-backed controls (Toggle, the menus' anchor); offscreen renders show their label instead.
 enum RenderFlags {
     static var offscreen = false
 }
@@ -140,16 +142,16 @@ struct KitMenu: View {
     var singleChevron = false
     let change: (Int) -> Void
 
+    private var text: String { options.indices.contains(selected) ? options[selected] : (options.first ?? "") }
+
     private var label: some View {
-        let text = options.indices.contains(selected) ? options[selected] : (options.first ?? "")
-        return HStack(spacing: 6) {
+        HStack(spacing: 6) {
             SkinText(pixel: store.skin == .pixel, text: text, pixelSize: 13, size: 13, weight: .regular, color: store.palette.color("Text"))
-            // Pixel draws its own chevron; Classic keeps the system's.
             if store.skin == .pixel {
                 PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20)
             } else if singleChevron {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundColor(store.palette.color("Text2"))
-            } else if RenderFlags.offscreen {
+            } else {
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundColor(store.palette.color("Text2"))
             }
         }
@@ -159,19 +161,131 @@ struct KitMenu: View {
         if RenderFlags.offscreen {
             label.padding(.horizontal, 10).padding(.vertical, 5).modifier(MenuPlate(store: store))
         } else {
-            Menu {
-                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                    Button(option) { change(index) }
+            KitMenuButton(store: store, title: text, build: { menu in
+                for (index, option) in options.enumerated() {
+                    menu.item(option, checked: index == selected) { change(index) }
                 }
-            } label: {
+            }) {
                 label
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(store.skin == .pixel ? .hidden : .visible)
-            .fixedSize()
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .modifier(MenuPlate(store: store))
         }
+    }
+}
+
+/// A plate that pops an AppKit menu below itself. SwiftUI's Menu on macOS draws only plain text or a
+/// system image in its label, so the skins' own text and icons came out as an empty box.
+struct KitMenuButton<Label: View>: View {
+    @ObservedObject var store: SettingsStore
+    let title: String
+    let build: (KitMenuBuilder) -> Void
+    let label: Label
+    @State private var anchor = KitMenuAnchor()
+
+    init(store: SettingsStore, title: String, build: @escaping (KitMenuBuilder) -> Void, @ViewBuilder label: () -> Label) {
+        _store = ObservedObject(wrappedValue: store)
+        self.title = title
+        self.build = build
+        self.label = label()
+    }
+
+    var body: some View {
+        Button(action: open) {
+            label
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .modifier(MenuPlate(store: store))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .background(KitMenuAnchorView(anchor: anchor))
+        .accessibilityLabel(Text(title))
+    }
+
+    private func open() {
+        let builder = KitMenuBuilder(font: store.skin == .pixel ? PixelTypeset.font(PixelFace.size(13)) : nil)
+        build(builder)
+        let menu = builder.menu
+        // Held until the next open: the items' targets live on it, and AppKit keeps only weak targets.
+        anchor.menu = menu
+        guard let view = anchor.view, view.window != nil else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            return
+        }
+        menu.minimumWidth = view.bounds.width
+        let below = NSPoint(x: view.bounds.minX, y: view.isFlipped ? view.bounds.maxY + 4 : view.bounds.minY - 4)
+        menu.popUp(positioning: nil, at: below, in: view)
+    }
+}
+
+/// The items of a KitMenuButton's menu; under Pixel they set in the pixel face, under Classic in the system's.
+struct KitMenuBuilder {
+    let menu = NSMenu()
+    let font: CTFont?
+
+    init(font: CTFont?) {
+        self.font = font
+        menu.autoenablesItems = false
+    }
+
+    private func titled(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        // Font only: a fixed colour would stop the highlighted item from inverting.
+        if let font { item.attributedTitle = NSAttributedString(string: title, attributes: [.font: font]) }
+        menu.addItem(item)
+        return item
+    }
+
+    func item(_ title: String, checked: Bool = false, _ run: @escaping () -> Void) {
+        let item = titled(title)
+        let action = KitMenuAction(run)
+        item.target = action
+        item.action = #selector(KitMenuAction.pick(_:))
+        item.representedObject = action
+        item.state = checked ? .on : .off
+    }
+
+    func note(_ title: String) {
+        titled(title).isEnabled = false
+    }
+
+    func separator() {
+        menu.addItem(.separator())
+    }
+
+    func submenu(_ title: String, _ fill: (KitMenuBuilder) -> Void) {
+        let sub = KitMenuBuilder(font: font)
+        fill(sub)
+        titled(title).submenu = sub.menu
+    }
+}
+
+final class KitMenuAction: NSObject {
+    let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func pick(_ sender: NSMenuItem) { run() }
+}
+
+final class KitMenuAnchor {
+    weak var view: NSView?
+    var menu: NSMenu?
+}
+
+/// The view a KitMenuButton's menu pops up from; it lets every click through to the button above it.
+final class KitMenuAnchorNSView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+struct KitMenuAnchorView: NSViewRepresentable {
+    let anchor: KitMenuAnchor
+
+    func makeNSView(context: Context) -> KitMenuAnchorNSView {
+        let view = KitMenuAnchorNSView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ view: KitMenuAnchorNSView, context: Context) {
+        anchor.view = view
     }
 }
 
