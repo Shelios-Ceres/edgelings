@@ -990,8 +990,6 @@ public static class ClaudeCredentialsTests
     {
         var tokens = new ClaudeCredentials.RefreshedTokens("SECRET-ACCESS", "SECRET-REFRESH", 1);
         Expect(!tokens.ToString().Contains("SECRET"), "RefreshedTokens");
-        var entry = new GrokAuthEntry("scope", "SECRET-ACCESS", null, "oidc", "person@example.test");
-        Expect(!entry.ToString().Contains("SECRET") && !entry.ToString().Contains("person"), "GrokAuthEntry");
         return Task.CompletedTask;
     }
 

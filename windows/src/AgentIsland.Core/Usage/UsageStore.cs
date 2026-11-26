@@ -330,18 +330,13 @@ public sealed class UsageStore : INotifyPropertyChanged
         }, CancellationToken.None);
     }
 
-    /// Grok, Kimi Code, Antigravity and Cursor ride this exact cadence (poll /
-    /// wake / unlock / network / manual) instead of owning timers; their stores
-    /// no-op when the provider is undetected or when kicked again inside their
-    /// own attempt floors. Guests re-probe every refresh cycle (macOS
-    /// redetectGuests): signing into agy/grok/Cursor while the app runs claims
-    /// the slot without a relaunch.
+    /// Kimi Code rides this exact cadence (poll / wake / unlock / network /
+    /// manual) instead of owning a timer; its store no-ops when the provider is
+    /// undetected or when kicked again inside its own attempt floors. Guests
+    /// re-probe every refresh cycle (macOS redetectGuests).
     private static void KickOtherProviders()
     {
         Model.ProviderVisibilityStore.Shared.RedetectGuests();
-        GrokUsageStore.Shared.KickRefresh();
-        AntigravityUsageStore.Shared.KickRefresh();
-        CursorUsageStore.Shared.KickRefresh();
         KimiUsageStore.Shared.KickRefresh();
     }
 
@@ -657,8 +652,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// any provider that just went from hidden to shown.
     private void HandleVisibilityChange(Dictionary<Model.DisplayProvider, bool> current)
     {
-        if (!current[Model.DisplayProvider.Antigravity]) AntigravityUsageStore.Shared.CancelPending();
-        if (!current[Model.DisplayProvider.Grok]) GrokUsageStore.Shared.CancelPending();
         CancelIfHidden();
         RefreshWarning = WarningFor(_codexFailed, _claudeFailed);
         var previous = _lastShown;

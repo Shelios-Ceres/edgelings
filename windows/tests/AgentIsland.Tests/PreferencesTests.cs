@@ -28,9 +28,6 @@ public static class PreferencesTests
         Check(new Dictionary<string, TokenTotals> { ["claude"] = new(when, 1, 2, 3, 4) },
             v => v is { Count: 1 } && v["claude"].Month == 3, "Dictionary<string, TokenTotals>");
         Check(new UsageCacheSnapshot(), v => v is not null, "UsageCacheSnapshot");
-        Check(new CursorUsageStore.Cached(), v => v is not null, "CursorUsageStore.Cached");
-        Check(new AntigravityUsageStore.CachedSnapshot(null, when, "me@example.com"), v => v?.Email == "me@example.com" && v.UpdatedAt == when, "AntigravityUsageStore.CachedSnapshot");
-        Check(new GrokCachedSnapshot { UpdatedAt = when }, v => v?.UpdatedAt == when, "GrokCachedSnapshot");
         Check(new Dictionary<string, string> { ["a"] = "b" }, v => v is { Count: 1 } && v["a"] == "b", "Dictionary<string, string>");
         Check(new KimiCachedSnapshot { UpdatedAt = when }, v => v?.UpdatedAt == when, "KimiCachedSnapshot");
         Preferences.Remove("AgentIsland.test.roundtrip");
@@ -88,6 +85,25 @@ public static class PreferencesTests
             Preferences.Set("AgentIsland.test.key", 3);
             Expect(Preferences.Get<int>("AgentIsland.test.key") == 3 && File.Exists(aside[0]), "the next save writes a fresh file beside it");
             Console.WriteLine("PASS preferences: a corrupt file is moved aside and logged, not overwritten");
+
+            // 已删除的额度缓存键只清一次；别的键不动；没有旧键时不写盘。
+            var retired = Path.Combine(root, "retired", "settings.json");
+            Preferences.FileOverride = retired;
+            Preferences.Forget();
+            Preferences.Set("AgentIsland.test.keep", 5);
+            Directory.CreateDirectory(Path.GetDirectoryName(retired)!);
+            var keys = new[] { "AntigravityUsageStore.lastSnapshot.v1", "CursorUsageStore.lastSnapshot.v1", "GrokUsageStore.lastSnapshot.v1", "GrokUsageFetcher.refused.v1" };
+            foreach (var key in keys) Preferences.Set(key, "me@example.com");
+            Preferences.Forget();
+            Preferences.RemoveRetiredKeys();
+            Preferences.Forget();
+            Expect(keys.All(key => !Preferences.Has(key)), "the retired keys are gone");
+            Expect(Preferences.Get<int>("AgentIsland.test.keep") == 5, "an ordinary key stays");
+            Expect(!File.ReadAllText(retired).Contains("me@example.com"), "the file no longer holds the old value");
+            var stamp = File.GetLastWriteTimeUtc(retired);
+            Preferences.RemoveRetiredKeys();
+            Expect(File.GetLastWriteTimeUtc(retired) == stamp, "nothing to remove writes nothing");
+            Console.WriteLine("PASS preferences: retired keys are swept once and ordinary keys stay");
             Console.WriteLine("PreferencesTests GREEN");
         }
         finally

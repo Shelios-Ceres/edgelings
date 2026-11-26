@@ -274,9 +274,6 @@ internal sealed partial class DrawerWindow : Window
         _subscriptions.Add(() => ActivityMonitor.Shared.WaitingChanged -= RefreshCard);
         Watch(UsageStore.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
-        Watch(GrokUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Grok));
-        Watch(CursorUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Cursor));
-        Watch(AntigravityUsageStore.Shared, () => RefreshCardFor(DisplayProvider.Antigravity));
         Watch(QuotaDisplayModeStore.Shared, RefreshCard);
         Watch(TokenCountModeStore.Shared, RefreshCard);
         Watch(CostStore.Shared, RefreshCard);

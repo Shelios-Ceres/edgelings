@@ -36,6 +36,7 @@ public sealed partial class App : Application
         UiThread.Capture();
         CoreLog.Sink = CrashLog.Write;
         Preferences.MigrateLegacyPrefix();
+        Preferences.RemoveRetiredKeys();
         AppLanguageStore.ApplyAtStartup();
         // Copies a crash left next to the credential files; off the UI thread, and a failure is no one's business.
         _ = System.Threading.Tasks.Task.Run(AgentIsland.Usage.CredentialWriteBacks.CleanUpLeftovers);

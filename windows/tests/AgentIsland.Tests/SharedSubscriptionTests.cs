@@ -7,33 +7,21 @@ using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
-/// Cursor works under Grok's character: it plays the busier app's phase,
-/// adds up both apps' tokens, and shows one quota pool when both are on one
-/// X Subscription (detected from the reset both report).
+/// Cursor works under Grok's character: it plays the busier app's phase and
+/// adds up both apps' tokens. Neither has a quota any more.
 public static class SharedSubscriptionTests
 {
-    private static readonly DateTimeOffset Reset = new(2026, 10, 20, 2, 36, 35, 781, TimeSpan.Zero);
-
     public static void RunAll()
     {
         var tests = new (string Name, Action Test)[]
         {
-            ("one pool reset is one subscription", TestSharedPool),
-            ("separate plans keep two pools", TestSeparatePlans),
             ("the busier app's phase wins, unnamed", TestPickBusier),
             ("a tie goes to Grok", TestPickTie),
             ("quota plays no part: the phases alone decide, billed apart or not", TestPickIgnoresQuota),
-            ("kept numbers say how old they are, the desktop app's named beside Grok's", TestCursorQuotaAge),
-            ("one pool is one line and one account", TestOnePoolOneLine),
-            ("one pool keeps Grok's reading unless it is stale", TestOnePoolFresher),
-            ("Grok Build desktop alone keeps its line, account and warning, unnamed", TestDesktopAlone),
-            ("installed but signed out, the desktop app adds no line and no warning", TestDesktopSignedOut),
-            ("Grok not detected: none of its cached numbers, account or warning", TestGrokNotDetected),
-            ("billed apart, two lines and both accounts; the desktop line is Desk on the card", TestBilledApart),
-            ("the tray reads the card's first line", TestTrayFigure),
-            ("no line, warning or note on Grok's card names Cursor", TestNoCursorWord),
+            ("no text on Grok's card names Cursor", TestNoCursorWord),
+            ("the tray figure is the first line's percent, else null", TestTrayFigure),
+            ("Grok Bot alone makes Grok detected, and so do sessions or auth.json", TestGrokDetection),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
-            ("the character's plan is the X Subscription's tier when shared, never a stale Grok badge", TestPlan),
         };
         foreach (var (name, test) in tests)
         {
@@ -41,20 +29,6 @@ public static class SharedSubscriptionTests
             Console.WriteLine($"PASS {name}");
         }
         Console.WriteLine("SharedSubscriptionTests GREEN");
-    }
-
-    private static void TestSharedPool()
-    {
-        Expect(SharedSubscription.GrokWithCursor(Reset, Reset), "the same reset instant is one pool");
-        Expect(SharedSubscription.GrokWithCursor(Reset, Reset.AddSeconds(30)), "API rounding still counts as one pool");
-    }
-
-    private static void TestSeparatePlans()
-    {
-        Expect(!SharedSubscription.GrokWithCursor(Reset, Reset.AddMinutes(2)), "resets minutes apart are two plans");
-        Expect(!SharedSubscription.GrokWithCursor(Reset, Reset.AddDays(-12)), "a monthly Cursor cycle is its own plan");
-        Expect(!SharedSubscription.GrokWithCursor(null, Reset) && !SharedSubscription.GrokWithCursor(Reset, null),
-            "without both pools there is nothing to merge");
     }
 
     private static void TestPickBusier()
@@ -87,146 +61,6 @@ public static class SharedSubscriptionTests
         Expect(cursorDone.Phase == AgentPhase.AuthRequired, $"a lapsed sign-in written in a transcript outranks a finished turn: {cursorDone}");
     }
 
-    private static readonly DateTimeOffset Now = new(2026, 11, 26, 12, 0, 0, TimeSpan.Zero);
-    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
-    private static readonly WindowUsage GrokWeek = new(0.25, Now.AddDays(3), null, 7 * 86400) { Observed = true };
-    private static readonly WindowUsage DesktopCycle = new(0.6, Now.AddDays(12).AddMinutes(5), null, CursorUsageStore.CycleSeconds) { Observed = true };
-
-    private static GrokSide GrokAt(WindowUsage? window = null, DateTimeOffset? at = null, string? account = null, string? warning = null) =>
-        new(window ?? GrokWeek, at ?? Now.AddMinutes(-1), account, warning);
-
-    private static GrokSide DeskAt(WindowUsage? window = null, DateTimeOffset? at = null, string? account = null, string? warning = null) =>
-        new(window ?? DesktopCycle, at ?? Now.AddMinutes(-1), account, warning);
-
-    private static StatusMeter Meter(WindowUsage window, string label) => StatusCards.MeterFor(window, L10n.Tr(label), false, Now);
-
-    private static IReadOnlyList<StatusMeter> Meters(GrokSides sides) => StatusCards.GrokMeters(sides, Now, Meter);
-
-    private static IReadOnlyList<string> Notes(GrokSides sides) => StatusCards.GrokNotes(sides, Now, Interval).Select(n => n.Text).ToList();
-
-    private static void InEnglish(Action test)
-    {
-        var previous = L10n.Current;
-        L10n.Current = L10n.Language.English;
-        try { test(); }
-        finally { L10n.Current = previous; }
-    }
-
-    private static string Lines(IReadOnlyList<StatusMeter> meters) => string.Join(" | ", meters.Select(m => $"{m.Label}/{m.CardLabel} {m.Value} {m.Resets}"));
-
-    /// Cursor's last numbers were kept through two days of failed refreshes.
-    private static void TestCursorQuotaAge() => InEnglish(() =>
-    {
-        var kept = new WindowUsage(0.4, Now.AddDays(10), "network drop") { Kept = true, Observed = true };
-        var alone = Notes(new GrokSides(null, DeskAt(kept, Now.AddDays(-2)), false));
-        Expect(alone.SequenceEqual(new[] { "Quota updated 2d ago" }), "alone, unnamed: " + string.Join(" | ", alone));
-        var beside = Notes(new GrokSides(GrokAt(), DeskAt(kept, Now.AddDays(-2)), false));
-        Expect(beside.SequenceEqual(new[] { "Grok Build desktop: Quota updated 2d ago" }), "beside Grok's, named: " + string.Join(" | ", beside));
-        var own = Notes(new GrokSides(GrokAt(kept, Now.AddDays(-2)), null, false));
-        Expect(own.SequenceEqual(new[] { "Quota updated 2d ago" }), "Grok's own: " + string.Join(" | ", own));
-        Expect(Notes(new GrokSides(GrokAt(), DeskAt(), false)).Count == 0, "live numbers need no note");
-        Expect(Notes(new GrokSides(null, null, false)).Count == 0, "no numbers, no note");
-        var kimi = StatusCards.QuotaAges((new AppUsage(kept, WindowUsage.Unknown), Now.AddDays(-2), false), Now, Interval);
-        Expect(kimi.Count == 1 && kimi[0].Text == "Quota updated 2d ago", "other cards keep their own age");
-    });
-
-    private static void TestOnePoolOneLine() => InEnglish(() =>
-    {
-        var sides = new GrokSides(GrokAt(account: "me@x.example"), DeskAt(account: "me@x.example"), true);
-        var one = Meters(sides);
-        Expect(one.Count == 1 && one[0].Label == "Week" && one[0].Value == "25%", "one pool, Grok's reading: " + Lines(one));
-        var noGrokNumbers = Meters(new GrokSides(GrokAt(WindowUsage.Unknown), DeskAt(), true));
-        Expect(noGrokNumbers.Count == 1 && noGrokNumbers[0].Value == "60%", "without Grok's numbers the desktop app's stand in: " + Lines(noGrokNumbers));
-        Expect(AgentReports.GrokAccount(sides) == "me@x.example", "one account");
-        Expect(AgentReports.GrokAccount(null, "me@x.example", shared: true) == "me@x.example", "the desktop app's when Grok's is missing");
-        Expect(AgentReports.GrokAccount("grok@x.example", "desktop@x.example", shared: true) == "grok@x.example", "Grok's first");
-        Expect(!new GrokSides(null, DeskAt(), true).Shared, "the same reset with Grok absent is no shared line");
-    });
-
-    /// Each app refreshes on its own: the newer reading is the pool as it is now.
-    private static void TestOnePoolFresher() => InEnglish(() =>
-    {
-        foreach (var (grokAt, deskAt) in new[] { (Now.AddMinutes(-10), Now.AddMinutes(-1)), (Now.AddMinutes(-1), Now.AddMinutes(-10)) })
-        {
-            var steady = Meters(new GrokSides(GrokAt(GrokWeek, grokAt), DeskAt(DesktopCycle, deskAt), true));
-            Expect(steady.Single().Value == "25%", "Grok's reading whichever refreshed last: " + Lines(steady));
-        }
-        var keptGrok = new GrokSides(GrokAt(GrokWeek with { Error = "http 500", Kept = true }), DeskAt(), true);
-        Expect(Meters(keptGrok).Single().Value == "60%", "Grok's kept numbers give way to the desktop app's fresh ones: " + Lines(Meters(keptGrok)));
-        var pastReset = new GrokSides(GrokAt(GrokWeek with { ResetAt = Now.AddMinutes(-1) }), DeskAt(), true);
-        Expect(Meters(pastReset).Single().Value == "60%", "so do Grok's numbers past their reset: " + Lines(Meters(pastReset)));
-        var bothKept = new GrokSides(GrokAt(GrokWeek with { Error = "http 500", Kept = true }), DeskAt(DesktopCycle with { Error = "http 500", Kept = true }), true);
-        Expect(Meters(bothKept).Single().Value == "25%", "neither fresh: Grok's: " + Lines(Meters(bothKept)));
-    });
-
-    private static void TestDesktopAlone() => InEnglish(() =>
-    {
-        var sides = new GrokSides(null, DeskAt(account: "desk@x.example", warning: "http 500"), false);
-        var alone = Meters(sides);
-        Expect(alone.Count == 1 && alone[0].Label == "30d" && alone[0].CardLabel == "30d" && alone[0].Value == "60%" && alone[0].Resets == "Resets in 12d",
-            "one line, labelled by its window: " + Lines(alone));
-        var failed = Meters(new GrokSides(null, DeskAt(new WindowUsage(0, null, "Grok Build desktop data unavailable")), false));
-        Expect(failed.Count == 1 && failed[0].Value == "—", "a signed-in app whose read failed keeps its line: " + Lines(failed));
-        Expect(AgentReports.GrokAccount(sides) == "desk@x.example", "the desktop app's account");
-        Expect(AgentReports.GrokWarnings(sides).SequenceEqual(new[] { "http 500" }), "alone, its warning needs no name");
-        Expect(Meters(new GrokSides(null, null, false)).Count == 0, "neither app, no line");
-    });
-
-    /// Cursor installed and never signed in: the store has no session and no snapshot.
-    private static void TestDesktopSignedOut()
-    {
-        Expect(!GrokSides.DesktopPresent(detected: true, hasSnapshot: false, signedIn: false), "installed, signed out, nothing kept: absent");
-        Expect(GrokSides.DesktopPresent(detected: true, hasSnapshot: false, signedIn: true), "signed in, before its first numbers: present");
-        Expect(GrokSides.DesktopPresent(detected: true, hasSnapshot: true, signedIn: false), "kept numbers: present");
-        Expect(!GrokSides.DesktopPresent(detected: false, hasSnapshot: true, signedIn: true), "not installed: absent");
-        var store = new CursorUsageStore(null, _ => { });
-        store.Apply(new CursorUsageFetcher.Outcome.ReauthRequired(), new CursorCredentials.Snapshot(null, "free", null));
-        Expect(!store.SignedIn && store.Snapshot is null && store.ErrorCaption is not null, "the store reads as signed out, with a sign-in caption");
-        var sides = new GrokSides(GrokAt(warning: null),
-            GrokSides.DesktopPresent(true, store.Snapshot is not null, store.SignedIn) ? DeskAt(warning: store.ErrorCaption) : null, false);
-        Expect(Meters(sides).Count == 1 && AgentReports.GrokWarnings(sides).Count == 0, "Grok's card: Grok's line only, no desktop warning: " + Lines(Meters(sides)));
-        store.Apply(new CursorUsageFetcher.Outcome.Failed("timeout"), new CursorCredentials.Snapshot(new CursorCredentials.Session("dummy-token", "account-a"), "pro", "a@x.example"));
-        Expect(store.SignedIn, "a session reads as signed in");
-    }
-
-    /// grok CLI not detected: what Grok's store kept from an earlier login stays off the card.
-    private static void TestGrokNotDetected() => InEnglish(() =>
-    {
-        var sides = new GrokSides(null, DeskAt(account: "desk@x.example"), SameReset: true);
-        Expect(Meters(sides).Single().Label == "30d", "the desktop app's own line, not a shared one: " + Lines(Meters(sides)));
-        Expect(AgentReports.GrokAccount(sides) == "desk@x.example", "only the desktop app's account");
-        Expect(AgentReports.GrokWarnings(sides).Count == 0, "no Grok warning");
-        Expect(Notes(sides).Count == 0, "no Grok quota age");
-    });
-
-    private static void TestBilledApart() => InEnglish(() =>
-    {
-        var sides = new GrokSides(GrokAt(account: "grok@x.example", warning: "sign in again — run grok login"),
-            DeskAt(account: "desk@x.example", warning: "http 500"), false);
-        var two = Meters(sides);
-        Expect(two.Count == 2 && two[0].Label == "Week" && two[0].Value == "25%" && two[1].Label == "desktop" && two[1].CardLabel == "Desk" && two[1].Value == "60%",
-            "Grok's week, then the desktop cycle, short on the card: " + Lines(two));
-        Expect(AgentReports.GrokAccount(sides) == "grok@x.example · desk@x.example", "both accounts");
-        Expect(AgentReports.GrokAccount("me@x.example", "ME@x.example", shared: false) == "me@x.example", "the same account once");
-        Expect(AgentReports.GrokWarnings(sides).SequenceEqual(new[] { "sign in again — run grok login", "Grok Build desktop: http 500" }),
-            "the desktop app's warning is named: " + string.Join(" | ", AgentReports.GrokWarnings(sides)));
-        var self = AgentReports.GrokWarnings(null, "sign in again — open Grok Build desktop (Cursor)", grokDetected: true);
-        Expect(self.SequenceEqual(new[] { "sign in again — open Grok Build desktop (Cursor)" }), "a warning naming the app is not named twice");
-        Expect(AgentReports.GrokWarnings("same", "same", grokDetected: true).Count == 1, "one warning once");
-        L10n.Current = L10n.Language.SimplifiedChinese;
-        var zh = Meters(sides);
-        Expect(zh[1].Label == "桌面版" && zh[1].CardLabel == "桌面版", "in Chinese: " + Lines(zh));
-        Expect(AgentReports.GrokWarnings(null, "parse error", grokDetected: true).Single() == "Grok Build 桌面版：parse error", "named in Chinese");
-    });
-
-    private static void TestTrayFigure() => InEnglish(() =>
-    {
-        Expect(StatusCards.TrayFigure(Meters(new GrokSides(null, DeskAt(), false))) == "60%", "the desktop app's line when it is the only one");
-        Expect(StatusCards.TrayFigure(Meters(new GrokSides(GrokAt(), DeskAt(), false))) == "25%", "the first line");
-        Expect(StatusCards.TrayFigure(Meters(new GrokSides(null, DeskAt(new WindowUsage(0, null, "http 500")), false))) is null, "no figure without a reading");
-        Expect(StatusCards.TrayFigure(Array.Empty<StatusMeter>()) is null, "no line, no figure");
-    });
-
     /// 用户 2026-11-26 定：Cursor 按 Grok Build 桌面版处理，Grok 卡上两种语言都不出现 Cursor。
     private static void TestNoCursorWord()
     {
@@ -237,12 +71,6 @@ public static class SharedSubscriptionTests
             {
                 L10n.Current = language;
                 var texts = new List<string>();
-                texts.AddRange(Meters(new GrokSides(GrokAt(), DeskAt(), false)).SelectMany(m => new[] { m.Label, m.CardLabel }));
-                texts.AddRange(Meters(new GrokSides(null, DeskAt(), false)).Select(m => m.Label));
-                texts.AddRange(AgentReports.GrokWarnings(null, "http 500", grokDetected: true));
-                texts.Add(L10n.Tr("Grok Build desktop data unavailable"));
-                texts.Add(L10n.Tr("Grok Build desktop billing cycle"));
-                texts.Add(L10n.Tr("Shares Grok's quota pool"));
                 texts.Add(L10n.Tr("Grok and Grok Build desktop closed"));
                 texts.Add(L10n.Tr("Grok and Grok Build desktop"));
                 var named = texts.Where(t => t.Contains("Cursor", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -253,6 +81,21 @@ public static class SharedSubscriptionTests
         finally { L10n.Current = previous; }
     }
 
+
+    private static void TestTrayFigure()
+    {
+        Expect(StatusCards.TrayFigure(new[] { new StatusMeter("Week", "25%", 0.25, 0.25) }) == "25%", "a reading gives NN%");
+        Expect(StatusCards.TrayFigure(new[] { new StatusMeter("5h", "—", null, null) }) is null, "a line without a reading gives null");
+        Expect(StatusCards.TrayFigure(Array.Empty<StatusMeter>()) is null, "no line gives null");
+    }
+
+    private static void TestGrokDetection()
+    {
+        Expect(!ProviderVisibilityStore.DetectGrok(_ => false, _ => false, false), "nothing there");
+        Expect(ProviderVisibilityStore.DetectGrok(_ => false, _ => false, true), "Grok Bot alone");
+        Expect(ProviderVisibilityStore.DetectGrok(_ => true, _ => false, false), "the sessions folder");
+        Expect(ProviderVisibilityStore.DetectGrok(_ => false, _ => true, false), "auth.json");
+    }
 
     private static void TestTokenSum()
     {
@@ -265,17 +108,5 @@ public static class SharedSubscriptionTests
         Expect(sum.AsOf == cursor.AsOf, "dated by the older count");
         Expect(TokenTotals.Sum(grok, null) == grok && TokenTotals.Sum(null, cursor) == cursor && TokenTotals.Sum(null, null) is null,
             "a missing side leaves the other as it is");
-    }
-
-    private static void TestPlan()
-    {
-        Expect(SharedSubscription.Plan("SUPERGROK", "PREMIUM", shared: true) == "PREMIUM", "Cursor reports the subscription's tier");
-        Expect(SharedSubscription.Plan("SUPERGROK", null, shared: true) == "SUPERGROK", "Grok's badge stands in without it");
-        Expect(SharedSubscription.Plan("SUPERGROK", "PRO", shared: false) == "SUPERGROK", "billed apart, the badge is Grok's");
-        Expect(SharedSubscription.Plan(null, "PRO", shared: false) == "PRO", "with only Cursor, its plan");
-        Expect(SharedSubscription.Plan(null, null, shared: true) is null, "no plan, no chip");
-        Expect(AgentReports.GrokPlan(false, "SUPERGROK", "PRO", sameReset: true) == "PRO", "Grok not detected: its cached badge is not used");
-        Expect(AgentReports.GrokPlan(false, "SUPERGROK", null, sameReset: true) is null, "Grok not detected and no desktop plan: no chip");
-        Expect(AgentReports.GrokPlan(true, "SUPERGROK", "PRO", sameReset: false) == "SUPERGROK", "Grok detected keeps its badge");
     }
 }

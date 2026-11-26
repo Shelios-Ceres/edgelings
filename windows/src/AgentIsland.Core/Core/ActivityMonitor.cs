@@ -169,7 +169,6 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     internal void Tick()
     {
         KimiUsageStore.Shared.NoticeSignIn();
-        GrokUsageStore.Shared.NoticeCredentialChange();
         // One scan at a time; a kick that lands mid-scan queues exactly one
         // follow-up so the trailing write of a turn is never dropped.
         if (_scanInFlight)

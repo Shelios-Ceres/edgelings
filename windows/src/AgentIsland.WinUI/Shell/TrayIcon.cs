@@ -115,7 +115,7 @@ internal sealed class TrayIcon : IDisposable
         var parts = new List<string>();
         foreach (var provider in DrawerStore.Shared.Order.Where(ProviderVisibilityStore.Shared.IsShown))
         {
-            // Cursor's state counts; its quota is on Grok's card.
+            // Cursor 的状态算在内；Antigravity、Grok、Cursor 没有额度，不出数字。
             if (provider.HasCharacter() && StatusCards.TrayFigure(StatusCards.Meters(provider)) is { } figure)
             {
                 parts.Add($"{ProviderIdentity.DisplayName(provider)} {figure}");

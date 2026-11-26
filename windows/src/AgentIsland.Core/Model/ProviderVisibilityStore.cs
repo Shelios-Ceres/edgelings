@@ -71,15 +71,6 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
         if (changed) Raise();
     }
 
-    /// Re-probe one guest, for when its own file shows up or goes between polls.
-    public void Redetect(DisplayProvider provider)
-    {
-        var detected = Probe(provider);
-        if (_detected.TryGetValue(provider, out var known) && known == detected) return;
-        _detected[provider] = detected;
-        Raise();
-    }
-
     private static bool Probe(DisplayProvider provider)
     {
         var home = IslandPaths.Home;
@@ -87,21 +78,22 @@ public sealed class ProviderVisibilityStore : INotifyPropertyChanged
         {
             DisplayProvider.Claude => HasDir(home, ".claude") || HasDir(home, ".config", "claude"),
             DisplayProvider.Codex => HasDir(home, ".codex"),
-            // Antigravity is probed by its data roots: running agy (or the
-            // IDE) once creates them, and sign-in state lives in the
-            // platform credential store where a presence probe proves
-            // nothing about the local quota server being reachable anyway.
+            // 只看文件或目录在不在，不读内容。
+            // Antigravity：运行过 agy 或 IDE 就会建数据目录。
             DisplayProvider.Antigravity => AntigravityCredentials.Detected,
-            DisplayProvider.Grok => GrokAuthFile.Exists(),
-            // Cursor's editor state db is also where its session token lives.
-            DisplayProvider.Cursor => CursorCredentials.Exists(),
-            // Both write their session trees on first use. Kimi Code's plan
-            // quota comes through its own local server (KimiUsageFetcher).
+            // Grok：会话目录、auth.json 或 Grok Bot 安装路径在不在。
+            DisplayProvider.Grok => DetectGrok(Directory.Exists, File.Exists, GrokBot.Installed),
+            // Cursor：编辑器状态库在不在。
+            DisplayProvider.Cursor => File.Exists(IslandPaths.CursorStateDb),
+            // Kimi Code 和 DeepSeek 首次使用时会写会话目录。
             DisplayProvider.Kimi => Directory.Exists(IslandPaths.KimiSessionsRoot) || Directory.Exists(IslandPaths.KimiWorkSessionsRoot),
             DisplayProvider.DeepSeek => Directory.Exists(IslandPaths.DeepSeekSessionsRoot),
             _ => false,
         };
     }
+
+    internal static bool DetectGrok(Func<string, bool> dirExists, Func<string, bool> fileExists, bool botInstalled) =>
+        dirExists(IslandPaths.GrokSessionsRoot) || fileExists(IslandPaths.GrokAuthFilePath) || botInstalled;
 
     private static bool HasDir(params string[] parts) => Directory.Exists(Path.Combine(parts));
 

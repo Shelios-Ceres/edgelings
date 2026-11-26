@@ -71,6 +71,7 @@ public static class AppModel
         GrokHooks.UseShell = true;
         CoreLog.Sink = (error, context) => AppLog.Write($"{context}: {error.GetType().Name}");
         Preferences.MigrateLegacyPrefix();
+        Preferences.RemoveRetiredKeys();
         AppLanguageStore.ApplyAtStartup();
         ActivityMonitor.Shared.SessionEventsRaised += events =>
         {

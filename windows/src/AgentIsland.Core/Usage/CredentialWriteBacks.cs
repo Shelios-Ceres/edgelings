@@ -72,8 +72,8 @@ public static class CredentialWriteBacks
     public static void CleanUpLeftovers()
     {
         AtomicReplace.CleanUpLeftovers(Core.IslandPaths.ClaudeCredentialsFile);
-        // Limen no longer writes auth.json; this only clears the temporary copies an
-        // older version left beside it, by their own names, and never touches the file.
-        AtomicReplace.CleanUpLeftovers(GrokAuthFile.DefaultPath);
+        // 已发布的旧版本写回 Grok 的 auth.json 时可能在旁边留下带完整凭证的临时副本。
+        // 现在不再写这个文件；这里只按文件名和修改时间清理副本，不读内容。先保留一个版本再删。
+        AtomicReplace.CleanUpLeftovers(Core.IslandPaths.GrokAuthFilePath);
     }
 }

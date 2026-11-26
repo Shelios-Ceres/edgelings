@@ -165,17 +165,14 @@ public static class StatusCards
             DisplayProvider.Claude => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
             DisplayProvider.Codex when usage.SecondaryMissing => new[] { Meter(usage.FiveHour, "Week") },
             DisplayProvider.Codex => new[] { Meter(usage.FiveHour, "5h"), Meter(usage.Weekly, "Week") },
-            DisplayProvider.Antigravity => AntigravityMeters(usage, AntigravityUsageStore.Shared.Snapshot, AntigravityUsageStore.Shared.StatusCaption, Meter),
-            DisplayProvider.Cursor => new[] { Meter(usage.FiveHour, "30d") },
-            DisplayProvider.Grok => GrokMeters(Meter),
             DisplayProvider.Kimi => KimiMeters(Meter),
-            // No quota source: the card shows phases and tokens only.
-            DisplayProvider.DeepSeek => Array.Empty<StatusMeter>(),
+            // 没有官方额度：卡片只显示阶段和本地 token。
+            DisplayProvider.Antigravity or DisplayProvider.Grok or DisplayProvider.Cursor or DisplayProvider.DeepSeek => Array.Empty<StatusMeter>(),
             _ => new[] { Meter(usage.FiveHour, "Week") },
         };
     }
 
-    /// 托盘提示里的用量：卡上第一条额度线的数字，免得 Grok 卡只有桌面版那条线时，托盘读成 Grok 的旧缓存。
+    /// 托盘提示里的用量：卡上第一条额度线的数字。
     public static string? TrayFigure(IReadOnlyList<StatusMeter> meters) =>
         meters is [{ Used: { } used }, ..] ? $"{Formatting.PercentInt(used)}%" : null;
 
@@ -198,63 +195,6 @@ public static class StatusCards
             shown / 100,
             current.UsedPercent,
             resets);
-    }
-
-    private static IReadOnlyList<StatusMeter> GrokMeters(Func<WindowUsage, string, StatusMeter> meter) =>
-        GrokMeters(GrokSides.Now(), DateTimeOffset.Now, meter);
-
-    /// 标签里不出现 Cursor。悬浮卡的标签列只有 “Tokens” 那么宽，所以桌面版那条在卡上写短的 “Desk”。
-    internal static IReadOnlyList<StatusMeter> GrokMeters(GrokSides sides, DateTimeOffset now, Func<WindowUsage, string, StatusMeter> meter)
-    {
-        if (sides.SharedReading(now) is { } shared) return new[] { meter(shared.Window, "Week") };
-        var meters = new List<StatusMeter>();
-        if (sides.Grok is { } grok) meters.Add(meter(grok.Window, "Week"));
-        if (sides.Desktop is { } desktop)
-        {
-            meters.Add(sides.Grok is null
-                ? meter(desktop.Window, "30d")
-                : meter(desktop.Window, "desktop") with { CardLabel = L10n.Tr("Desk") });
-        }
-        return meters;
-    }
-
-    /// Gemini's 5-hour and longer windows, then one meter per further Gemini
-    /// group under Google's own name for it (Gemini 4 Argon). Claude and GPT's
-    /// pool stays out. A single-window snapshot keeps today's one meter. Each
-    /// meter is labelled by its window: 5 hours, a day, else the week.
-    internal static IReadOnlyList<StatusMeter> AntigravityMeters(
-        AppUsage usage, AntigravityQuotaSnapshot? snapshot, string? caption, Func<WindowUsage, string, StatusMeter> meter)
-    {
-        static string Label(double? period) => period switch
-        {
-            5 * 3600 => "5h",
-            24 * 3600 => "24h",
-            _ => "Week",
-        };
-        var meters = new List<StatusMeter>();
-        if (snapshot is null || usage.SecondaryMissing)
-        {
-            // A 5-hour bucket is known by its id too, whatever its window says.
-            meters.Add(meter(usage.FiveHour, snapshot?.GeminiPools.ShortWindow is not null ? "5h" : Label(usage.FiveHour.PeriodSeconds)));
-        }
-        else
-        {
-            meters.Add(meter(usage.FiveHour, "5h"));
-            meters.Add(meter(usage.Weekly, Label(usage.Weekly.PeriodSeconds)));
-        }
-        foreach (var extra in snapshot?.GeminiPools.Extras ?? Array.Empty<AntigravityQuotaBucket>())
-        {
-            meters.Add(meter(ProviderUsage.AntigravityWindow(extra, caption), extra.GroupLabel) with { CardLabel = CardLabelOf(extra.GroupLabel) });
-        }
-        return meters;
-    }
-
-    /// A group's name for the hover card: its last word ("Gemini 4 Argon" is
-    /// "Argon"), cut to the width of "Tokens" without an ellipsis.
-    internal static string CardLabelOf(string group)
-    {
-        var word = group.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? group;
-        return word.Length > 6 ? word[..6] : word;
     }
 
     /// Every window Kimi Code's plan reports: 5 hours, the week, the month.
@@ -322,11 +262,6 @@ public static class StatusCards
         var now = DateTimeOffset.Now;
         var monthEnded = provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now;
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
-        if (provider == DisplayProvider.Grok)
-        {
-            parts.AddRange(GrokNotes(GrokSides.Now(), now, interval));
-            return parts;
-        }
         parts.AddRange(QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval));
         if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
         if (provider != DisplayProvider.Codex) return parts;
@@ -347,27 +282,6 @@ public static class StatusCards
         var ages = new List<StatusPhrase>();
         if (QuotaAge(own.Usage, own.UpdatedAt, own.MonthEnded, now, interval) is { } age) ages.Add(age);
         return ages;
-    }
-
-    /// 每条额度线的读数多旧，和 GrokMeters 一一对应：同池时只说那一条线所用读数的；
-    /// 不同池时桌面版那条和 Grok 并列，要冠上名字。
-    internal static IReadOnlyList<StatusPhrase> GrokNotes(GrokSides sides, DateTimeOffset now, TimeSpan interval)
-    {
-        static AppUsage Usage(GrokSide side) => new(side.Window, WindowUsage.Unknown);
-        var notes = new List<StatusPhrase>();
-        if (sides.SharedReading(now) is { } shared && sides.Desktop is { } pooled)
-        {
-            var side = shared.FromDesktop ? pooled : sides.Grok;
-            if (side is not null && QuotaAge(Usage(side), side.UpdatedAt, false, now, interval) is { } age) notes.Add(age);
-            return notes;
-        }
-        if (sides.Grok is { } grok && QuotaAge(Usage(grok), grok.UpdatedAt, false, now, interval) is { } grokAge) notes.Add(grokAge);
-        if (sides.Desktop is not { } desktop) return notes;
-        if (QuotaAge(Usage(desktop), desktop.UpdatedAt, false, now, interval) is { } desktopAge)
-        {
-            notes.Add(desktopAge with { Text = AgentReports.DesktopNamed(desktopAge.Text, sides.Grok is not null) });
-        }
-        return notes;
     }
 
     /// Explain the wait at a reset boundary before showing an age for old
@@ -391,9 +305,6 @@ public static class StatusCards
     {
         DisplayProvider.Claude => UsageStore.Shared.ClaudeUpdatedAt,
         DisplayProvider.Codex => UsageStore.Shared.CodexUpdatedAt,
-        DisplayProvider.Antigravity => AntigravityUsageStore.Shared is { Snapshot: not null } antigravity ? antigravity.LastUpdated : null,
-        DisplayProvider.Grok => GrokUsageStore.Shared is { Snapshot: not null } grok ? grok.LastUpdated : null,
-        DisplayProvider.Cursor => CursorUsageStore.Shared is { Snapshot: not null } cursor ? cursor.LastUpdated : null,
         DisplayProvider.Kimi => KimiUsageStore.Shared is { Snapshot: not null } kimi ? kimi.LastUpdated : null,
         _ => null,
     };

@@ -11,41 +11,12 @@ public static class CursorDatabaseTests
 {
     public static void RunAll()
     {
-        Run("current WAL identity replaces older token with later expiration", CurrentIdentity);
-        Run("deleted and rolled back credentials cannot become current", DeletedIdentity);
         Run("unreadable ledger faults instead of replacing totals with zero", ReadFailure);
         Run("empty ledger is a successful zero and WAL deletion is respected", EmptyLedger);
         Run("an unchanged ledger is not read again, a commit is", UnchangedLedger);
         Run("a WAL commit that keeps every length and write time still moves the stamp", WalCommitSameLength);
         Run("packaged SQLite engine includes the security fix", EngineVersion);
         Console.WriteLine("CursorDatabaseTests GREEN");
-    }
-
-    private static void CurrentIdentity()
-    {
-        using var fixture = new Fixture();
-        fixture.Identity("old-account", 2_000_000_000, "old@example.invalid", "pro");
-        fixture.Sql("PRAGMA wal_checkpoint(TRUNCATE)");
-        fixture.Identity("current-account", 1_900_000_000, "current@example.invalid", "ultra");
-        var snapshot = CursorCredentials.ReadDatabase(fixture.Path);
-        Expect(snapshot.Session?.UserId == "current-account", "must query the live row, not the token's expiration");
-        Expect(snapshot.Email == "current@example.invalid" && snapshot.Plan == "ultra", "identity fields must share the committed snapshot");
-        using var transaction = fixture.Connection.BeginTransaction();
-        fixture.Identity("uncommitted", 2_100_000_000, "pending@example.invalid", "free", transaction);
-        Expect(CursorCredentials.ReadDatabase(fixture.Path).Session?.UserId == "current-account", "uncommitted WAL must remain invisible");
-        transaction.Rollback();
-    }
-
-    private static void DeletedIdentity()
-    {
-        using var fixture = new Fixture();
-        fixture.Identity("removed", 2_000_000_000, "removed@example.invalid", "pro");
-        fixture.Sql("PRAGMA wal_checkpoint(TRUNCATE)");
-        fixture.Sql("DELETE FROM ItemTable");
-        var snapshot = CursorCredentials.ReadDatabase(fixture.Path);
-        Expect(snapshot.Session is null && snapshot.Email is null && snapshot.Plan is null, "deleted rows and their freed pages must not be recovered as live credentials");
-        fixture.Sql("INSERT INTO ItemTable VALUES('cursorAuth/accessToken','not-a-jwt')");
-        Expect(CursorCredentials.ReadDatabase(fixture.Path).Session is null, "malformed token must not create a session");
     }
 
     private static void ReadFailure()
@@ -57,7 +28,6 @@ public static class CursorDatabaseTests
         using (var locked = new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
             MustFail(() => CursorLogReader.ReadDatabase(fixture.Path, 1));
-            MustFail(() => CursorCredentials.ReadDatabase(fixture.Path));
         }
         fixture.Connection.Open();
         fixture.Sql("DROP TABLE cursorDiskKV");

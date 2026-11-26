@@ -108,9 +108,6 @@ internal sealed partial class SettingsWindow : Window
         _subscriptions.Watch(ProviderVisibilityStore.Shared, regroup);
 
         Watch(UsageStore.Shared);
-        Watch(AntigravityUsageStore.Shared);
-        Watch(GrokUsageStore.Shared);
-        Watch(CursorUsageStore.Shared);
         Watch(KimiUsageStore.Shared);
         Watch(CostStore.Shared);
         Watch(ProviderVisibilityStore.Shared);

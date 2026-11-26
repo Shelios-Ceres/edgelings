@@ -40,8 +40,6 @@ internal sealed class AgentSection
     private readonly FaceSpinner _signInRing = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly PixelSpinner _signInSpinner = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel _header;
-    private readonly SettingsCard? _cursor;
-    private readonly TextBlock _cursorPlan = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly LookRow? _look;
     private bool _updating;
 
@@ -123,14 +121,6 @@ internal sealed class AgentSection
         _activity = new SettingsCard { Header = L10n.Tr("Right now"), Description = _activityText, HeaderIcon = Icon("\uE9D9") };
         Name(_activity, "Activity", L10n.Tr("Right now"));
         Expander.Items.Add(_activity);
-        // Cursor works under Grok's character; its line sits in Grok's card.
-        if (provider == DisplayProvider.Grok)
-        {
-            _cursor = new SettingsCard { Header = L10n.Tr("Grok Build desktop"), HeaderIcon = new ImageIcon(), Content = _cursorPlan };
-            Name(_cursor, "Cursor", L10n.Tr("Grok Build desktop"));
-            _ = LoadCursorMarkAsync(_cursor);
-            Expander.Items.Add(_cursor);
-        }
         _tokens = new SettingsCard { Header = L10n.Tr("Tokens"), HeaderIcon = Icon("\uE8EF"), Content = _tokensText };
         Expander.Items.Add(_tokens);
         _note = new SettingsCard { HeaderIcon = Icon("\uE946") };
@@ -304,7 +294,6 @@ internal sealed class AgentSection
         else _signInButton.ClearValue(FrameworkElement.StyleProperty);
 
         _activity.Visibility = report.Detected ? Visibility.Visible : Visibility.Collapsed;
-        if (_cursor is not null) UpdateCursor(_cursor);
         _updating = false;
     }
 
@@ -352,29 +341,6 @@ internal sealed class AgentSection
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
             ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth);
         }
-    }
-
-    /// Cursor's line in Grok's card: on one X Subscription with Grok it shares
-    /// the pool above; billed apart, its own freshness or trouble.
-    private void UpdateCursor(SettingsCard card)
-    {
-        var cursor = AgentReports.For(DisplayProvider.Cursor);
-        card.Visibility = ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor) ? Visibility.Visible : Visibility.Collapsed;
-        _cursorPlan.Text = cursor.Plan ?? "";
-        SetDescription(card, GrokSides.Now().Shared
-            ? L10n.Tr("Shares Grok's quota pool")
-            : cursor.Warning ?? cursor.Status);
-    }
-
-    /// 改名前先用 Grok 的标志，Grok Build 有自己的标志后再换。
-    private static async Task LoadCursorMarkAsync(SettingsCard card)
-    {
-        if (Looks.Pixel)
-        {
-            card.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(DisplayProvider.Grok) };
-            return;
-        }
-        if (await Brand.MarkAsync(DisplayProvider.Grok, Brand.IsDark()) is { } mark) card.HeaderIcon = new ImageIcon { Source = mark, Width = 16, Height = 16 };
     }
 
     /// AGENTISLAND_DEBUG_SETTINGS_FILM: the first meter counts to a share, as
@@ -450,8 +416,6 @@ internal sealed class AgentSection
         _ when label == L10n.Tr("5h") => L10n.Tr("5-hour window"),
         _ when label == L10n.Tr("Week") => L10n.Tr("Weekly window"),
         _ when label == L10n.Tr("24h") => L10n.Tr("Daily window"),
-        _ when label == L10n.Tr("30d") => L10n.Tr("Billing cycle"),
-        _ when label == L10n.Tr("desktop") => L10n.Tr("Grok Build desktop billing cycle"),
         _ when label == L10n.Tr("Month") => L10n.Tr("Monthly window"),
         _ => label,
     };
@@ -547,7 +511,6 @@ internal sealed class AgentSection
     private async Task LoadMarkAsync()
     {
         _markLook = PickedLook();
-        if (_cursor is not null) _ = LoadCursorMarkAsync(_cursor);
         if (Looks.Pixel)
         {
             Expander.HeaderIcon = new ImageIcon { Source = PixelIcons.Face(_provider), Opacity = _header.Opacity };

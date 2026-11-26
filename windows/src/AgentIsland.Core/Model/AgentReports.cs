@@ -53,9 +53,9 @@ public static class AgentReports
     {
         DisplayProvider.Claude => "Not detected — install Claude Code and sign in",
         DisplayProvider.Codex => "Not detected — install the Codex CLI and sign in",
-        DisplayProvider.Antigravity => "Not detected — sign in with the antigravity CLI",
-        DisplayProvider.Grok => "Not detected — sign in with the grok CLI or inside Grok Build desktop (Cursor)",
-        DisplayProvider.Cursor => "Not detected — sign in inside Grok Build desktop (Cursor)",
+        DisplayProvider.Antigravity => "Not detected — run antigravity once",
+        DisplayProvider.Grok => "Not detected — run grok once, or open Grok Build desktop (Cursor) once",
+        DisplayProvider.Cursor => "Not detected — open Grok Build desktop (Cursor) once",
         DisplayProvider.Kimi => "Not detected — open Kimi once",
         _ => "Not detected — open DeepSeek Harness once",
     };
@@ -77,10 +77,6 @@ public static class AgentReports
     {
         DisplayProvider.Claude => UsageStore.Shared.Claude.Plan?.ToUpperInvariant(),
         DisplayProvider.Codex => UsageStore.Shared.Codex.Plan?.ToUpperInvariant(),
-        DisplayProvider.Antigravity => AntigravityUsageStore.Shared.TierBadge,
-        DisplayProvider.Grok => GrokPlan(ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Grok),
-            GrokUsageStore.Shared.AuthModeBadge, CursorUsageStore.Shared.PlanBadge, SharedSubscription.GrokWithCursor()),
-        DisplayProvider.Cursor => CursorUsageStore.Shared.PlanBadge,
         DisplayProvider.Kimi => KimiUsageStore.Shared.PlanBadge,
         _ => null,
     };
@@ -88,72 +84,28 @@ public static class AgentReports
     private static string? Account(DisplayProvider provider) => provider switch
     {
         DisplayProvider.Codex => CodexAccountSwitcher.ActiveLabel(),
-        DisplayProvider.Antigravity => AntigravityUsageStore.Shared.AccountEmail,
-        DisplayProvider.Grok => GrokAccount(GrokSides.Now()),
-        DisplayProvider.Cursor => CursorUsageStore.Shared.AccountEmail,
         _ => null,
     };
 
-    /// Cursor 按 Grok Build 桌面版处理（用户 2026-11-26 定）。同池就是同一个账号，
-    /// 分开计费时两个登录可能不是同一个人，所以两个都列出来。
-    /// 和 GrokSides 一样：grok CLI 没检测到时，不用它缓存里的旧标签，也不算同池。
-    internal static string? GrokPlan(bool grokDetected, string? grokBadge, string? desktopBadge, bool sameReset) =>
-        SharedSubscription.Plan(grokDetected ? grokBadge : null, desktopBadge, grokDetected && sameReset);
-
-    internal static string? GrokAccount(GrokSides sides) => GrokAccount(sides.Grok?.Account, sides.Desktop?.Account, sides.Shared);
-
-    internal static string? GrokAccount(string? grok, string? desktop, bool shared)
-    {
-        if (shared) return grok ?? desktop;
-        var accounts = new[] { grok, desktop }.OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return accounts.Count > 0 ? string.Join(" · ", accounts) : null;
-    }
-
-    /// Freshness first: when the numbers were last synced (Grok's, or
-    /// Cursor's for a character with only Cursor), or that only local logs
-    /// are read.
+    /// Freshness first: when the numbers were last synced, or that only local
+    /// logs are read (Antigravity, Grok, Cursor and DeepSeek have no quota).
     private static string Status(DisplayProvider provider)
     {
         DateTimeOffset? synced = provider switch
         {
             DisplayProvider.Claude => UsageStore.Shared.ClaudeUpdatedAt,
             DisplayProvider.Codex => UsageStore.Shared.CodexUpdatedAt,
-            DisplayProvider.Antigravity => AntigravityUsageStore.Shared.LastUpdated,
-            DisplayProvider.Grok => (ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Grok) ? GrokUsageStore.Shared.LastUpdated : null)
-                ?? CursorUsageStore.Shared.LastUpdated,
-            DisplayProvider.Cursor => CursorUsageStore.Shared.LastUpdated,
             DisplayProvider.Kimi => KimiUsageStore.Shared.LastUpdated,
             _ => null,
         };
-        if (provider is DisplayProvider.DeepSeek) return L10n.Tr("Local sessions only — no quota to sync");
+        if (provider is DisplayProvider.DeepSeek or DisplayProvider.Antigravity or DisplayProvider.Grok or DisplayProvider.Cursor) return L10n.Tr("Local sessions only — no quota to sync");
         return synced is { } stamp
             ? L10n.TrFormat("synced {0}", Formatting.RelativeAgo(DateTimeOffset.Now - stamp, L10n.IsChinese))
             : L10n.Tr("Waiting for the first sync");
     }
 
-    internal static IReadOnlyList<string> Warnings(DisplayProvider provider) => provider == DisplayProvider.Grok
-        ? GrokWarnings(GrokSides.Now())
-        : Warning(provider) is { } own ? new[] { own } : Array.Empty<string>();
-
-    internal static IReadOnlyList<string> GrokWarnings(GrokSides sides) =>
-        GrokWarnings(sides.Grok?.Warning, sides.Desktop?.Warning, sides.Grok is not null);
-
-    internal static IReadOnlyList<string> GrokWarnings(string? grok, string? desktop, bool grokDetected)
-    {
-        var warnings = new List<string>();
-        if (grok is not null) warnings.Add(grok);
-        if (desktop is not null && !warnings.Contains(desktop)) warnings.Add(DesktopNamed(desktop, grokDetected));
-        return warnings;
-    }
-
-    /// 和 grok CLI 的内容并列时，“http 500”这类原始文字分不清是哪个入口的，
-    /// 所以冠上桌面版的名字；文字里已经写了这个名字就不再重复，只有桌面版时也不用冠。
-    /// 两种语言的名字都比对，因为文字可能是在另一种语言下生成的。
-    internal static string DesktopNamed(string text, bool grokDetected) =>
-        grokDetected && !text.Contains("Grok Build desktop", StringComparison.Ordinal)
-            && !text.Contains("Grok Build 桌面版", StringComparison.Ordinal)
-            ? L10n.TrFormat("Grok Build desktop: {0}", text)
-            : text;
+    internal static IReadOnlyList<string> Warnings(DisplayProvider provider) =>
+        Warning(provider) is { } own ? new[] { own } : Array.Empty<string>();
 
     internal static string? Warning(DisplayProvider provider)
     {
@@ -163,9 +115,6 @@ public static class AgentReports
                 ? null
                 : WindowError(UsageStore.Shared.Claude),
             DisplayProvider.Codex => WindowError(UsageStore.Shared.Codex),
-            DisplayProvider.Antigravity => AntigravityUsageStore.Shared.StatusCaption,
-            DisplayProvider.Grok => GrokUsageStore.Shared.ErrorCaption,
-            DisplayProvider.Cursor => CursorUsageStore.Shared.ErrorCaption,
             DisplayProvider.Kimi => KimiUsageStore.Shared.ErrorCaption,
             _ => null,
         };
@@ -243,16 +192,6 @@ public static class AgentReports
                 {
                     UsageStore.Shared.Refresh(fetchClaude: false, fetchCodex: true);
                 }
-                break;
-            case DisplayProvider.Antigravity:
-                AntigravityUsageStore.Shared.KickRefresh(manual: true);
-                break;
-            case DisplayProvider.Grok:
-                GrokUsageStore.Shared.KickRefresh();
-                CursorUsageStore.Shared.KickRefresh();
-                break;
-            case DisplayProvider.Cursor:
-                CursorUsageStore.Shared.KickRefresh();
                 break;
             case DisplayProvider.Kimi:
                 KimiUsageStore.Shared.KickRefresh();

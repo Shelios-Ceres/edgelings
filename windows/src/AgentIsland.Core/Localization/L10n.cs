@@ -197,17 +197,15 @@ public static class L10n
         ["Cancel"] = "取消",
         // Five-provider settings rows (2.x). The %d/%@ holes of the macOS
         // strings become {0} here; the copy itself is byte-identical.
-        ["Open Antigravity or agy to sync"] = "打开 Antigravity 或 agy 后同步",
         ["Next"] = "下一页",
         ["Back"] = "上一页",
         ["Notes"] = "版本说明",
         ["About"] = "关于",
         ["View"] = "查看",
         ["Monitor"] = "监视器",
-        ["Not detected — sign in with the antigravity CLI"] = "未检测到 — 用 antigravity CLI 登录",
-        ["Not detected — sign in with the grok CLI"] = "未检测到 grok CLI 登录",
-        ["Not detected — sign in with the grok CLI or inside Grok Build desktop (Cursor)"] = "未检测到：请用 grok CLI 或在 Grok Build 桌面版（Cursor）里登录",
-        ["Not detected — sign in inside Grok Build desktop (Cursor)"] = "未检测到 — 请在 Grok Build 桌面版（Cursor）里登录",
+        ["Not detected — run antigravity once"] = "未检测到 — 先运行一次 antigravity",
+        ["Not detected — run grok once, or open Grok Build desktop (Cursor) once"] = "未检测到 — 先运行一次 grok，或打开一次 Grok Build 桌面版（Cursor）",
+        ["Not detected — open Grok Build desktop (Cursor) once"] = "未检测到 — 先打开一次 Grok Build 桌面版（Cursor）",
         ["Not detected — open Kimi once"] = "未检测到 — 先打开一次 Kimi",
         ["Not detected — open DeepSeek Harness once"] = "未检测到 — 先打开一次 DeepSeek Harness",
         // Codex account switching
@@ -225,12 +223,7 @@ public static class L10n
         // Guest-provider status captions. Values are the shipped zh-Hans.lproj
         // strings; without these rows the guest strips fell back to English
         // inside an otherwise Chinese panel.
-        ["Open grok to sync"] = "打开 grok 同步一下",
-        ["sign in again — open Grok Build desktop (Cursor)"] = "需要重新登录 — 打开 Grok Build 桌面版（Cursor）",
-        // Tile window labels the guests need: Gemini meters a daily bucket,
-        // Cursor a ~30-day billing cycle. Values from zh-Hans.lproj:201-202.
         ["24h"] = "24 小时",
-        ["30d"] = "30 天",
 
         // Side drawer: placement, live phases, character menu.
         ["Show drawer"] = "显示抽屉",
@@ -294,7 +287,6 @@ public static class L10n
         ["5-hour window"] = "5 小时额度",
         ["Weekly window"] = "每周额度",
         ["Daily window"] = "每日额度",
-        ["Billing cycle"] = "计费周期",
         ["Resets {0}"] = "{0}重置",
         ["Account"] = "账户",
         ["Not saved yet"] = "尚未保存",
@@ -308,7 +300,6 @@ public static class L10n
         ["Local sessions only — no quota to sync"] = "只读取本机会话——没有可同步的配额",
         ["Waiting for the first sync"] = "等待首次同步",
         ["Awaiting sync"] = "等待同步",
-        ["Grok Build desktop data unavailable"] = "暂时无法读取 Grok Build 桌面版的数据",
         ["Couldn't switch account"] = "无法切换账号",
         ["Switch canceled. Credentials could not be read or safely saved. Check file access and try again."] = "切换已取消：无法读取或安全保存登录凭据。请检查文件访问权限后重试。",
         ["Couldn't save account"] = "无法保存账号",
@@ -439,13 +430,7 @@ public static class L10n
         ["Busiest agent"] = "最忙的智能体",
         ["No activity yet"] = "还没有活动",
         ["{0} tokens"] = "{0} Token",
-        ["Shares Grok's quota pool"] = "和 Grok 共用一个额度池",
-        ["Grok Build desktop"] = "Grok Build 桌面版",
         ["Grok and Grok Build desktop"] = "Grok 和 Grok Build 桌面版",
-        ["desktop"] = "桌面版",
-        ["Desk"] = "桌面版",
-        ["Grok Build desktop billing cycle"] = "Grok Build 桌面版计费周期",
-        ["Grok Build desktop: {0}"] = "Grok Build 桌面版：{0}",
         ["Models"] = "模型",
         ["Models, last 5 hours"] = "模型（最近 5 小时）",
         ["no price"] = "无价格",

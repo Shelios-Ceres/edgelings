@@ -241,7 +241,7 @@ public static class GrokHooksTests
         Expect(IslandPaths.GrokHomeFrom(@"~\grok"), Path.Combine(home, "grok"));
         var grokHome = IslandPaths.GrokHome;
         Expect(IslandPaths.GrokSessionsRoot, Path.Combine(grokHome, "sessions"));
-        Expect(AgentIsland.Usage.GrokAuthFile.DefaultPath, Path.Combine(grokHome, "auth.json"));
+        Expect(IslandPaths.GrokAuthFilePath, Path.Combine(grokHome, "auth.json"));
         var before = GrokHooks.HooksDirectory;
         GrokHooks.HooksDirectory = "";
         try

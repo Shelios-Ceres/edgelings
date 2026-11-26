@@ -103,6 +103,27 @@ public static class Preferences
         }
     }
 
+    private static readonly string[] RetiredKeys =
+    {
+        "AntigravityUsageStore.lastSnapshot.v1",
+        "CursorUsageStore.lastSnapshot.v1",
+        "GrokUsageStore.lastSnapshot.v1",
+        "GrokUsageFetcher.refused.v1",
+    };
+
+    /// 一次性清掉已删除的额度缓存键（里面有邮箱）。确实删了东西才写盘。
+    public static void RemoveRetiredKeys()
+    {
+        lock (Gate)
+        {
+            if (LoadFromDisk() is not { } values) return;
+            _values = values;
+            var removed = false;
+            foreach (var key in RetiredKeys) removed |= _values.Remove(key);
+            if (removed) Save();
+        }
+    }
+
     /// The values in memory, read on first use. A file that cannot be read
     /// right now is read again next time rather than taken as empty.
     private static Dictionary<string, JsonElement> Values()
@@ -208,8 +229,5 @@ public static class Preferences
 [JsonSerializable(typeof(Dictionary<string, TokenTotals>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(UsageCacheSnapshot))]
-[JsonSerializable(typeof(CursorUsageStore.Cached))]
-[JsonSerializable(typeof(AntigravityUsageStore.CachedSnapshot))]
-[JsonSerializable(typeof(GrokCachedSnapshot))]
 [JsonSerializable(typeof(KimiCachedSnapshot))]
 internal sealed partial class PreferencesJson : JsonSerializerContext;

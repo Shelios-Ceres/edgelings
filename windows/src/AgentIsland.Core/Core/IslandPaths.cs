@@ -122,6 +122,9 @@ public static class IslandPaths
     /// session, the live event stream at updates.jsonl.
     public static string GrokSessionsRoot => Path.Combine(GrokHome, "sessions");
 
+    /// 只用来判断 grok 装没装：看这个文件在不在，不读内容。
+    public static string GrokAuthFilePath => Path.Combine(GrokHome, "auth.json");
+
     /// Kimi Code (CLI and desktop app share it): one folder per working
     /// directory, one per session, the live event log at agents/main/wire.jsonl.
     public static string KimiSessionsRoot => Path.Combine(KimiHome, "sessions");

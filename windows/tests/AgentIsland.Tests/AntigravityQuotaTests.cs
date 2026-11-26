@@ -8,59 +8,26 @@ using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
-/// Antigravity's Gemini pools: the five-bucket reply a Google AI Pro account
-/// returns, how its main group fills the 5-hour and weekly slots, the extra
-/// Gemini 4 Argon meter, and the rule that only the main group's pools put
-/// the bot to sleep. Claude and GPT's pool stays out of every view.
+/// Antigravity's local language server: which process owns a port, where the
+/// CSRF token comes from, how discovery picks a port. Its quota is gone; the
+/// session watch (AntigravityLiveCascades) and the cost reader still use it.
 public static class AntigravityQuotaTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
-
-    private const string FiveBucketReply = """
-        {"response":{"groups":[
-          {"displayName":"Gemini Models","buckets":[
-            {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.98,"resetTime":"2026-10-25T11:36:10Z"},
-            {"bucketId":"gemini-5h","window":"5h","remainingFraction":1,"resetTime":"2026-10-21T06:10:54Z"}]},
-          {"displayName":"Claude and GPT models","buckets":[
-            {"bucketId":"3p-weekly","window":"weekly","remainingFraction":1,"resetTime":"2026-10-28T01:10:54Z"},
-            {"bucketId":"3p-5h","window":"5h","remainingFraction":1,"resetTime":"2026-10-21T06:10:54Z"}]},
-          {"displayName":"Gemini 4 Argon","buckets":[
-            {"bucketId":"gemini-argon-wtu-weekly","window":"weekly","remainingFraction":0.25,"resetTime":"2026-10-25T11:35:55Z"}]}
-        ],"description":"Within each group, models share a weekly limit."}}
-        """;
 
     public static void RunAll()
     {
         var tests = new (string Name, Action Test)[]
         {
-            ("the parser keeps all five buckets of a Pro account", TestParsesFiveBuckets),
             ("only this process's own hub file gives its token", TestHubToken),
             ("the hub file's token comes before the command line", TestCsrfTokenPrefersHub),
             ("a server without GetUnleashData is found and authenticated from its hub file", TestDiscoverWithoutUnleashData),
-            ("the diagnostic tells hub files, discovery and the quota call apart, and never shows a token", TestDiagnosticLines),
             ("the single-process Windows Job Object blocks grandchild spawns", TestSingleProcessJob),
-            ("with no language server the last snapshot stays, with its sync time and no warning", TestNoServerKeepsSnapshot),
-            ("with no language server and no snapshot the card gives a neutral hint, not a sign-in prompt", TestNoServerNoSnapshotShowsNeutralHint),
-            ("a snapshot older than eight days is still restored after a restart", TestOldSnapshotSurvivesRestart),
-            ("a language server answering 401 keeps the snapshot under a quota HTTP 401 caption", TestServer401KeepsSnapshotUnderCaption),
-            ("a cancelled token ends a quota call still waiting on the server", TestCancelEndsPendingQuotaCall),
-            ("refresh cadence keeps the 120s background floor and 1-minute manual floor", TestRefreshCadence),
-            ("the main group fills the 5-hour and weekly slots", TestSlots),
-            ("a snapshot with no 5-hour bucket keeps one weekly window", TestSingleWindow),
-            ("a snapshot with no Gemini bucket falls back to its first", TestNoGemini),
-            ("the card shows 5h, Week and the Argon pool, never Claude or GPT", TestMeters),
-            ("a single window keeps one meter, and no snapshot shows a dash", TestMeterFallbacks),
-            ("each meter is labelled by its own window", TestMeterLabels),
-            ("Argon running out still shows its own meter", TestArgonMeter),
-            ("a snapshot saved before this change still restores", TestOldSnapshotRoundTrip),
-            ("a failed refresh keeps every pool under its caption", TestKeptPools),
-            ("a spent bucket whose zero fraction was left out stays, at 100%", TestOmittedZeroFraction),
             ("only Antigravity's own language server is asked, never Windsurf's or Codeium's", TestLanguageServerOwner),
             ("a port is traced to the process listening on it", TestPortOwner),
             ("a port with several different listeners has no owner, and an exact 127.0.0.1 bind wins", TestPortOwnerAmbiguity),
             ("a process's CSRF token is read once, and looked for again only after a while", TestCsrfTokenIsRemembered),
             ("a quoted or equals-separated CSRF token is still read from the command line", TestParseCsrfToken),
-            ("a CSRF retry surfaces its real failure instead of reporting 401", TestCsrfRetrySurfacesRealReply),
             ("discovery skips a 401-only port when another Antigravity port authenticates", TestDiscoverPrefersAuthenticatedPort),
             ("a helper that hangs is stopped at its timeout", TestHelperTimeout),
         };
@@ -72,7 +39,7 @@ public static class AntigravityQuotaTests
             foreach (var (name, test) in tests)
             {
                 test();
-                Console.WriteLine($"PASS antigravity quota: {name}");
+                Console.WriteLine($"PASS antigravity server: {name}");
             }
         }
         finally
@@ -80,44 +47,6 @@ public static class AntigravityQuotaTests
             AntigravityLanguageServer.HubFiles = realHub;
         }
         Console.WriteLine("AntigravityQuotaTests GREEN");
-    }
-
-    private static AntigravityQuotaSnapshot Pro(double argonUsed = 0.75, double weeklyUsed = 0.02, double fiveHourUsed = 0)
-    {
-        var parsed = AntigravityQuotaParser.ParseQuotaSummary(Encoding.UTF8.GetBytes(FiveBucketReply));
-        var buckets = parsed!.Value.Buckets
-            .Select(b => b.BucketId switch
-            {
-                "gemini-argon-wtu-weekly" => b with { UsedPercent = argonUsed },
-                "gemini-weekly" => b with { UsedPercent = weeklyUsed },
-                "gemini-5h" => b with { UsedPercent = fiveHourUsed },
-                _ => b,
-            })
-            .ToList();
-        return new AntigravityQuotaSnapshot(buckets, "g1-pro-tier", "Google AI Pro");
-    }
-
-    private static IReadOnlyList<StatusMeter> Meters(AntigravityQuotaSnapshot? snapshot, string? caption = null)
-    {
-        var usage = ProviderUsage.AntigravityFrom(snapshot, caption, null);
-        return StatusCards.AntigravityMeters(usage, snapshot, caption,
-            (window, label) => StatusCards.MeterFor(window, label, showsRemaining: false, Now));
-    }
-
-    private static void TestParsesFiveBuckets()
-    {
-        var parsed = AntigravityQuotaParser.ParseQuotaSummary(Encoding.UTF8.GetBytes(FiveBucketReply));
-        Expect(parsed is not null, "the reply parses");
-        var (buckets, note) = parsed!.Value;
-        Expect(buckets.Count, 5);
-        Expect(buckets.Select(b => b.BucketId).SequenceEqual(
-            new[] { "gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h", "gemini-argon-wtu-weekly" }),
-            "the buckets keep Google's order");
-        Expect(Math.Round(buckets[0].UsedPercent, 2), 0.02);
-        Expect(buckets[4].UsedPercent, 0.75);
-        Expect(buckets[4].GroupLabel, "Gemini 4 Argon");
-        Expect(buckets[1].PeriodSeconds, 5.0 * 3600);
-        Expect(note is not null, "Google's note comes along");
     }
 
     private sealed class HubFolder : IDisposable
@@ -291,91 +220,6 @@ public static class AntigravityQuotaTests
         }
     }
 
-    private static void TestDiagnosticLines()
-    {
-        var prevCall = AntigravityLanguageServer.CallRpc;
-        var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
-        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
-        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
-        var prevStarted = AntigravityLanguageServer.StartTime;
-        var prevHub = AntigravityLanguageServer.HubFiles;
-        var prevRead = AntigravityLanguageServer.ReadCommandLine;
-        var prevName = AntigravityDiagnostics.ProcessName;
-        try
-        {
-            using var hub = new HubFolder();
-            var started = DateTime.UtcNow.AddMinutes(-1);
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityLanguageServer.ForgetCsrfTokens();
-            AntigravityLanguageServer.HubFiles = () => hub.Files;
-            AntigravityLanguageServer.ReadCommandLine = _ => null;
-            AntigravityLanguageServer.StartTime = pid => pid == 201 ? started : null;
-            AntigravityLanguageServer.ListAntigravityProcessIds = () => new List<int> { 201 };
-            AntigravityLanguageServer.ListListeningPorts = pid => pid == 201 ? new List<int> { 55845, 55846 } : new List<int>();
-            AntigravityLanguageServer.ResolvePortOwner = port => port is 55845 or 55846 ? 201 : null;
-            AntigravityDiagnostics.ProcessName = pid => pid == 201 ? "agy" : null;
-
-            // Nothing written yet: no files, and the probe finds no answering port.
-            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(null);
-            var empty = AntigravityDiagnostics.Describe();
-            Expect(empty[0].Contains("0 found, 0 match"), "no hub files: " + empty[0]);
-            Expect(empty.Any(l => l.Contains("no port found, probe Dead")), "a silent server is Dead: " + string.Join(" | ", empty));
-            Expect(!empty.Any(l => l.Contains("RetrieveUserQuotaSummary")), "no port, no quota call");
-
-            // One file that counts, and four that must not: a stale one, a dead pid, a port the process does not hold, garbage.
-            hub.Add(new { pid = 201, httpsPort = 55845, httpPort = 55846, csrfToken = "secret-live" }, started.AddSeconds(1));
-            hub.Add(new { pid = 201, httpsPort = 55845, httpPort = 55846, csrfToken = "secret-stale" }, started.AddDays(-3));
-            hub.Add(new { pid = 7, httpsPort = 55845, httpPort = 55846, csrfToken = "secret-dead" }, started.AddSeconds(1));
-            hub.Add(new { pid = 201, httpsPort = 1, httpPort = 2, csrfToken = "secret-ports" }, started.AddSeconds(1));
-            hub.Add("not json", started.AddSeconds(1));
-            Expect(AntigravityLanguageServer.HubCensus(), (5, 1, 1));
-
-            // The server wants the token; with it, the quota arrives in five buckets.
-            AntigravityLanguageServer.CallRpc = (method, port, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
-                port != 55845 ? null
-                : token != "secret-live" ? new(401, Array.Empty<byte>())
-                : method == "RetrieveUserQuotaSummary" ? new(200, Encoding.UTF8.GetBytes(FiveBucketReply))
-                : new(200, Array.Empty<byte>()));
-            var lines = AntigravityDiagnostics.Describe();
-            var text = string.Join("\n", lines);
-            Expect(lines[0].Contains("5 found, 1 match") && lines[0].Contains("1 of those carry a token"), lines[0]);
-            Expect(text.Contains("1 Antigravity process(es), 2 listening port(s)"), text);
-            Expect(text.Contains("a port owned by agy, probe Ready, hub token for that process yes"), text);
-            Expect(text.Contains("RetrieveUserQuotaSummary HTTP 200, 5 bucket(s)"), text);
-            Expect(!text.Contains("secret"), "no token reaches the report");
-
-            // A token the server refuses leaves the 401 and no buckets.
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityLanguageServer.ForgetCsrfTokens();
-            AntigravityLanguageServer.CallRpc = (_, port, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
-                port == 55845 ? new(401, Array.Empty<byte>()) : null);
-            var refused = string.Join("\n", AntigravityDiagnostics.Describe());
-            Expect(refused.Contains("probe Unauthorized"), refused);
-            Expect(refused.Contains("RetrieveUserQuotaSummary HTTP 401, no buckets"), refused);
-
-            // Another product's server is named, not hidden.
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityDiagnostics.ProcessName = _ => "language_server_macos_arm";
-            Expect(string.Join("\n", AntigravityDiagnostics.Describe()).Contains("a port owned by language_server,"), "language_server is told apart");
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityDiagnostics.ProcessName = _ => "antigravity";
-            Expect(string.Join("\n", AntigravityDiagnostics.Describe()).Contains("a port owned by antigravity,"), "the desktop app is told apart");
-        }
-        finally
-        {
-            AntigravityLanguageServer.CallRpc = prevCall;
-            AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
-            AntigravityLanguageServer.ListListeningPorts = prevPorts;
-            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
-            AntigravityLanguageServer.StartTime = prevStarted;
-            AntigravityLanguageServer.HubFiles = prevHub;
-            AntigravityLanguageServer.ReadCommandLine = prevRead;
-            AntigravityDiagnostics.ProcessName = prevName;
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityLanguageServer.ForgetCsrfTokens();
-        }
-    }
-
     private static IDisposable GeminiHomeWithAntigravity()
     {
         var root = Path.Combine(AntigravityCredentials.GeminiHome, "antigravity");
@@ -392,144 +236,14 @@ public static class AntigravityQuotaTests
     // Neither the app nor agy is running: Limen starts neither, so nothing is
     // read, and the card keeps its last numbers with their time. It is not a
     // sign-in problem and must not look like one.
-    private static void TestNoServerKeepsSnapshot()
-    {
-        using var home = GeminiHomeWithAntigravity();
-        var store = AntigravityUsageStore.Shared;
-        try
-        {
-            AntigravityLanguageServer.ForgetCachedPort();
-            var outcome = AntigravityUsageFetcher.Fetch().GetAwaiter().GetResult();
-            Expect(outcome is AntigravityUsageFetcher.Outcome.NotRunning, "no server is NotRunning, not a failure");
-
-            var saved = Pro(argonUsed: 0.5);
-            store.Apply(new AntigravityUsageFetcher.Outcome.Success(saved, "me@example.com"));
-            var syncedAt = store.LastUpdated;
-            Expect(syncedAt is not null, "the good reading is stamped");
-
-            store.Apply(outcome);
-            Expect(ReferenceEquals(store.Snapshot, saved), "the snapshot stays");
-            Expect(store.LastUpdated == syncedAt, "with the time of the reading it shows");
-            Expect(store.AccountEmail, "me@example.com");
-            Expect(store.StatusCaption is null, "and no warning or sign-in line");
-            Expect(AgentReports.Warning(DisplayProvider.Antigravity) is null, "the character carries no warning");
-            Expect(Meters(store.Snapshot, store.StatusCaption).All(m => m.Value != "—"), "every meter keeps its number");
-        }
-        finally
-        {
-            store.ResetForTests();
-            AntigravityLanguageServer.ForgetCachedPort();
-        }
-    }
-
     // Nothing was ever read: the card says how to get a reading, in words
     // that are not about signing in, and the numbers show a dash.
-    private static void TestNoServerNoSnapshotShowsNeutralHint()
-    {
-        var store = AntigravityUsageStore.Shared;
-        try
-        {
-            store.ResetForTests();
-            store.Apply(new AntigravityUsageFetcher.Outcome.NotRunning());
-            Expect(store.Snapshot is null, "no snapshot appears");
-            Expect(store.StatusCaption, L10n.Tr("Open Antigravity or agy to sync"));
-            Expect(!L10n.Tr("Open Antigravity or agy to sync").Contains("sign", StringComparison.OrdinalIgnoreCase)
-                && !L10n.Tr("Open Antigravity or agy to sync").Contains("登录"), "and it never talks of signing in");
-            Expect(AgentReports.Warning(DisplayProvider.Antigravity) is { Length: > 0 }, "the hint reaches the card");
-            Expect(Meters(null, store.StatusCaption).All(m => m.Value == "—"), "every meter shows a dash");
-            var language = L10n.Current;
-            try
-            {
-                L10n.Current = L10n.Language.SimplifiedChinese;
-                var zh = L10n.Tr("Open Antigravity or agy to sync");
-                Expect(zh != "Open Antigravity or agy to sync" && !zh.Contains("登录"), "the Chinese line exists and never talks of signing in");
-            }
-            finally { L10n.Current = language; }
-        }
-        finally { store.ResetForTests(); }
-    }
-
     // A week of an app left closed must not blank the card: the snapshot
     // is kept at any age, with the time it was read.
-    private static void TestOldSnapshotSurvivesRestart()
-    {
-        using var home = GeminiHomeWithAntigravity();
-        var readAt = DateTimeOffset.Now.AddDays(-30);
-        try
-        {
-            Preferences.Set(AntigravityUsageStore.CacheKey,
-                new AntigravityUsageStore.CachedSnapshot(Pro(), readAt, "me@example.com"));
-            var restarted = new AntigravityUsageStore();
-            Expect(restarted.Snapshot is not null, "a 30-day-old snapshot is restored");
-            Expect(restarted.LastUpdated == readAt, "with the time it was read");
-            Expect(restarted.AccountEmail, "me@example.com");
-            Expect(restarted.StatusCaption is null, "and no warning");
-        }
-        finally { Preferences.Remove(AntigravityUsageStore.CacheKey); }
-    }
-
     // The server is there but turns Limen away. That is a real fault worth
     // saying, so the caption stays and the numbers stay under it.
-    private static void TestServer401KeepsSnapshotUnderCaption()
-    {
-        using var home = GeminiHomeWithAntigravity();
-        var store = AntigravityUsageStore.Shared;
-        var prevCall = AntigravityLanguageServer.CallRpc;
-        var prevPids = AntigravityLanguageServer.ListAntigravityProcessIds;
-        var prevPorts = AntigravityLanguageServer.ListListeningPorts;
-        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
-        try
-        {
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityLanguageServer.ForgetCsrfTokens();
-            AntigravityLanguageServer.ListAntigravityProcessIds = () => new List<int> { 101 };
-            AntigravityLanguageServer.ListListeningPorts = _ => new List<int> { 51001 };
-            AntigravityLanguageServer.ResolvePortOwner = _ => null;
-            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) =>
-                Task.FromResult<AntigravityLanguageServer.Reply?>(new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
-
-            var outcome = AntigravityUsageFetcher.Fetch().GetAwaiter().GetResult();
-            Expect(outcome is AntigravityUsageFetcher.Outcome.Failed { Message: "quota HTTP 401" }, "a refusing server is a failure with its status");
-
-            var saved = Pro();
-            store.Apply(new AntigravityUsageFetcher.Outcome.Success(saved, null));
-            store.Apply(outcome);
-            Expect(ReferenceEquals(store.Snapshot, saved), "the snapshot stays");
-            Expect(store.StatusCaption, "quota HTTP 401");
-            Expect(Meters(store.Snapshot, store.StatusCaption).All(m => m.Value != "—"), "the numbers stay under the caption");
-        }
-        finally
-        {
-            AntigravityLanguageServer.CallRpc = prevCall;
-            AntigravityLanguageServer.ListAntigravityProcessIds = prevPids;
-            AntigravityLanguageServer.ListListeningPorts = prevPorts;
-            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
-            AntigravityLanguageServer.ForgetCachedPort();
-            AntigravityLanguageServer.ForgetCsrfTokens();
-            store.ResetForTests();
-        }
-    }
-
     // Hiding Antigravity cancels the poll's token: a call still waiting on
     // the server ends at once instead of running beside the next poll.
-    private static void TestCancelEndsPendingQuotaCall()
-    {
-        var prevCall = AntigravityLanguageServer.CallRpc;
-        try
-        {
-            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) =>
-                new TaskCompletionSource<AntigravityLanguageServer.Reply?>().Task;
-            using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            var cancelled = false;
-            try { AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}", cancel.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException) { cancelled = true; }
-            Expect(cancelled, "the call ends as cancelled");
-            Expect(clock.Elapsed < TimeSpan.FromSeconds(3), $"and long before the server answers, took {clock.Elapsed}");
-        }
-        finally { AntigravityLanguageServer.CallRpc = prevCall; }
-    }
-
     private static void TestSingleProcessJob()
     {
         if (!OperatingSystem.IsWindows()) return;
@@ -597,28 +311,6 @@ public static class AntigravityQuotaTests
         };
         Expect(WindowsJobProcess.RunInSingleProcessJob(spawnChild, TimeSpan.FromSeconds(5)) is null,
             "ActiveProcessLimit=1 must block the child's own CreateProcess calls at kernel level");
-    }
-
-    private static void TestRefreshCadence()
-    {
-        Expect(AntigravityUsageStore.EffectiveFloor(manual: false), TimeSpan.FromSeconds(120));
-        Expect(AntigravityUsageStore.EffectiveFloor(manual: true), TimeSpan.FromMinutes(1));
-    }
-
-    private static void TestSlots()
-    {
-        var pools = Pro().GeminiPools;
-        Expect(pools.ShortWindow?.BucketId, "gemini-5h");
-        Expect(pools.LongWindow?.BucketId, "gemini-weekly");
-        Expect(pools.Extras.Count, 1);
-        Expect(pools.Extras[0].BucketId, "gemini-argon-wtu-weekly");
-
-        var usage = ProviderUsage.AntigravityFrom(Pro(), null, "Google AI Pro");
-        Expect(usage.FiveHour.PeriodSeconds, 5.0 * 3600);
-        Expect(usage.Weekly.PeriodSeconds, (double?)AntigravityQuotaBucket.WeekSeconds);
-        Expect(Math.Round(usage.Weekly.UsedPercent, 2), 0.02);
-        Expect(!usage.SecondaryMissing, "two windows are not a single-window provider");
-        Expect(usage.Plan, "google ai pro");
     }
 
     private static void TestLanguageServerOwner()
@@ -718,62 +410,6 @@ public static class AntigravityQuotaTests
         Expect(AntigravityLanguageServer.ParseCsrfToken("language_server.exe --port 1") is null, "missing flag returns null");
     }
 
-    private static void TestCsrfRetrySurfacesRealReply()
-    {
-        var prevCall = AntigravityLanguageServer.CallRpc;
-        var prevOwner = AntigravityLanguageServer.ResolvePortOwner;
-        var prevStarted = AntigravityLanguageServer.StartTime;
-        AntigravityLanguageServer.StartTime = _ => Now.UtcDateTime;
-        var prevRead = AntigravityLanguageServer.ReadCommandLine;
-        try
-        {
-            AntigravityLanguageServer.ForgetCsrfTokens();
-            var pid = Environment.ProcessId;
-            AntigravityLanguageServer.ResolvePortOwner = _ => pid;
-            AntigravityLanguageServer.ReadCommandLine = _ => "language_server.exe --csrf_token tok-1";
-
-            // Authenticated retry succeeds.
-            AntigravityLanguageServer.CallRpc = (_, _, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
-                token == "tok-1"
-                    ? new AntigravityLanguageServer.Reply(200, Array.Empty<byte>())
-                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
-            var ok = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
-            Expect(ok?.Status, 200);
-
-            // Authenticated retry returns 503: must surface 503, not the initial 401.
-            AntigravityLanguageServer.CallRpc = (_, _, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
-                token == "tok-1"
-                    ? new AntigravityLanguageServer.Reply(503, Array.Empty<byte>())
-                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
-            var backendErr = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
-            Expect(backendErr?.Status, 503);
-
-            // Authenticated retry times out (null): must surface null, not the initial 401.
-            AntigravityLanguageServer.CallRpc = (_, _, _, token, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
-                token == "tok-1"
-                    ? null
-                    : new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
-            var timedOut = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
-            Expect(timedOut is null, "a timed-out retry returns null instead of 401");
-
-            // No token available: stays 401.
-            AntigravityLanguageServer.ForgetCsrfTokens();
-            AntigravityLanguageServer.ReadCommandLine = _ => "language_server.exe --port 50001";
-            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) => Task.FromResult<AntigravityLanguageServer.Reply?>(
-                new AntigravityLanguageServer.Reply(401, Array.Empty<byte>()));
-            var noToken = AntigravityUsageFetcher.CallWithCsrfRetry("RetrieveUserQuotaSummary", 50001, "{}").GetAwaiter().GetResult();
-            Expect(noToken?.Status, 401);
-        }
-        finally
-        {
-            AntigravityLanguageServer.CallRpc = prevCall;
-            AntigravityLanguageServer.ResolvePortOwner = prevOwner;
-            AntigravityLanguageServer.StartTime = prevStarted;
-            AntigravityLanguageServer.ReadCommandLine = prevRead;
-            AntigravityLanguageServer.ForgetCsrfTokens();
-        }
-    }
-
     private static void TestDiscoverPrefersAuthenticatedPort()
     {
         var prevCall = AntigravityLanguageServer.CallRpc;
@@ -855,144 +491,4 @@ public static class AntigravityQuotaTests
         Expect(clock.Elapsed < TimeSpan.FromSeconds(5), $"and is not waited out, took {clock.Elapsed.TotalSeconds:F1}s");
     }
 
-    private static void TestOmittedZeroFraction()
-    {
-        const string spent = """
-            {"response":{"groups":[
-              {"displayName":"Gemini Models","buckets":[
-                {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.4,"resetTime":"2026-10-25T11:36:10Z"},
-                {"bucketId":"gemini-5h","window":"5h","resetTime":"2026-10-20T14:10:54Z"},
-                {"bucketId":"gemini-unknown","window":"weekly"},
-                {"bucketId":"gemini-garbled","window":"weekly","remainingFraction":"lots","resetTime":"2026-10-25T11:36:10Z"}]}
-            ]}}
-            """;
-        var buckets = AntigravityQuotaParser.ParseQuotaSummary(Encoding.UTF8.GetBytes(spent))!.Value.Buckets;
-        Expect(buckets.Select(b => b.BucketId).SequenceEqual(new[] { "gemini-weekly", "gemini-5h" }),
-            "only the rows that say nothing, or something unreadable, are dropped: " + string.Join(", ", buckets.Select(b => b.BucketId)));
-        Expect(buckets[1].UsedPercent, 1.0);
-        var snapshot = new AntigravityQuotaSnapshot(buckets);
-        Expect(snapshot.GeminiPools.ShortWindow?.BucketId, "gemini-5h");
-        Expect(Meters(snapshot)[0].Value, "100%");
-    }
-
-    private static void TestSingleWindow()
-    {
-        var weeklyOnly = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("gemini-weekly", "Gemini Models", "weekly", 0.3, Now.AddDays(3)),
-            new AntigravityQuotaBucket("3p-weekly", "Claude and GPT models", "weekly", 0.9, Now.AddDays(3)),
-        });
-        var usage = ProviderUsage.AntigravityFrom(weeklyOnly, null, null);
-        Expect(usage.FiveHour.UsedPercent, 0.3);
-        Expect(usage.FiveHour.PeriodSeconds, (double?)AntigravityQuotaBucket.WeekSeconds);
-        Expect(usage.SecondaryMissing, "the second slot stays the no-data sentinel");
-        Expect(weeklyOnly.GeminiPools.Extras.Count, 0);
-    }
-
-    private static void TestNoGemini()
-    {
-        var other = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("pool-a", "Pool A", "weekly", 0.4),
-            new AntigravityQuotaBucket("pool-b", "Pool B", "weekly", 0.8),
-        });
-        var usage = ProviderUsage.AntigravityFrom(other, null, null);
-        Expect(usage.FiveHour.UsedPercent, 0.4);
-        Expect(usage.SecondaryMissing, "a lone fallback pool is single-window");
-        Expect(other.GeminiPools.Extras.Count, 0);
-
-        var empty = ProviderUsage.AntigravityFrom(new AntigravityQuotaSnapshot(), null, null);
-        Expect(empty.FiveHour.Error, "no data");
-    }
-
-    private static void TestMeters()
-    {
-        var meters = Meters(Pro());
-        Expect(meters.Select(m => m.Label).SequenceEqual(new[] { "5h", "Week", "Gemini 4 Argon" }),
-            "labels: " + string.Join(", ", meters.Select(m => m.Label)));
-        Expect(meters[0].Value, "0%");
-        Expect(meters[1].Value, "2%");
-        Expect(meters[2].Value, "75%");
-        Expect(meters.Select(m => m.CardLabel).SequenceEqual(new[] { "5h", "Week", "Argon" }), "the hover card says Argon");
-        Expect(meters[2].Label, "Gemini 4 Argon");
-        Expect(StatusCards.CardLabelOf("Gemini 4 Carbon"), "Carbon");
-        Expect(StatusCards.CardLabelOf("Gemini 4 Neon"), "Neon");
-        Expect(StatusCards.CardLabelOf("Gemini 4 Hydrogen"), "Hydrog");
-        Expect(StatusCards.CardLabelOf("Gemini Ultra Premium"), "Premiu");
-        Expect(meters.All(m => m.Resets is not null || m.Value != "—"), "every pool is read");
-        Expect(!meters.Any(m => m.Label.Contains("Claude") || m.Label.Contains("GPT")), "Claude and GPT stay out");
-    }
-
-    private static void TestMeterFallbacks()
-    {
-        var weeklyOnly = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("gemini-weekly", "Gemini Models", "weekly", 0.3, Now.AddDays(3)),
-        });
-        var single = Meters(weeklyOnly);
-        Expect(single.Count, 1);
-        Expect(single[0].Label, "Week");
-
-        var cold = Meters(null);
-        Expect(cold.Count, 1);
-        Expect(cold[0].Label, "Week");
-        Expect(cold[0].Value, "—");
-    }
-
-    /// A daily bucket is "24h", never "Week"; a 5-hour bucket known only by
-    /// its id is still "5h".
-    private static void TestMeterLabels()
-    {
-        var dailyOnly = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("gemini-daily", "Gemini Models", "daily", 0.4, Now.AddHours(9)),
-        });
-        Expect(Meters(dailyOnly).Single().Label, "24h");
-        var fiveHourById = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("gemini-5h", "Gemini Models", null, 0.1, Now.AddHours(2)),
-        });
-        Expect(Meters(fiveHourById).Single().Label, "5h");
-        var fiveHourAndDaily = new AntigravityQuotaSnapshot(new[]
-        {
-            new AntigravityQuotaBucket("gemini-5h", "Gemini Models", "5h", 0.1, Now.AddHours(2)),
-            new AntigravityQuotaBucket("gemini-daily", "Gemini Models", "1d", 0.4, Now.AddHours(9)),
-        });
-        Expect(string.Join(",", Meters(fiveHourAndDaily).Select(m => m.Label)), "5h,24h");
-    }
-
-    private static void TestArgonMeter()
-    {
-        Expect(Meters(Pro(argonUsed: 1))[2].Value == "100%", "Argon running out still shows on its meter");
-    }
-
-    private static void TestOldSnapshotRoundTrip()
-    {
-        // The v1 cache holds the buckets and tier only; the pools are derived.
-        const string saved = """
-            {"Snapshot":{"Buckets":[
-              {"BucketId":"gemini-weekly","GroupLabel":"Gemini Models","Window":"weekly","UsedPercent":0.016,"ResetAt":"2026-10-25T11:36:10+00:00"},
-              {"BucketId":"gemini-5h","GroupLabel":"Gemini Models","Window":"5h","UsedPercent":0,"ResetAt":"2026-10-21T06:10:54+00:00"},
-              {"BucketId":"gemini-argon-wtu-weekly","GroupLabel":"Gemini 4 Argon","Window":"weekly","UsedPercent":0.75,"ResetAt":"2026-10-25T11:35:55+00:00"}],
-             "TierId":"g1-pro-tier","TierLabel":"Google AI Pro","Note":"n"},
-             "UpdatedAt":"2026-10-20T21:10:56-04:00","Email":"a@b.c"}
-            """;
-        var cached = JsonSerializer.Deserialize<AntigravityUsageStore.CachedSnapshot>(saved)!;
-        Expect(cached.Snapshot!.GeminiPools.Extras.Count, 1);
-        Expect(cached.Snapshot.GeminiPools.ShortWindow?.BucketId, "gemini-5h");
-
-        var again = JsonSerializer.Serialize(cached);
-        Expect(!again.Contains("GeminiPools"), "the derived pools are not written");
-        Expect(JsonSerializer.Deserialize<AntigravityUsageStore.CachedSnapshot>(again)!.Snapshot!.Buckets.Count, 3);
-    }
-
-    private static void TestKeptPools()
-    {
-        var meters = Meters(Pro(), caption: "Antigravity is not running");
-        Expect(meters.Count, 3);
-        Expect(meters[0].Value, "0%");
-        Expect(meters[2].Value, "75%");
-        var usage = ProviderUsage.AntigravityFrom(Pro(), "Antigravity is not running", null);
-        Expect(usage.FiveHour.Kept && usage.Weekly.Kept, "both windows keep their numbers");
-    }
 }

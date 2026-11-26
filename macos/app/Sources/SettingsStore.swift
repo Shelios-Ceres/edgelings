@@ -286,7 +286,7 @@ enum UIStrings {
         "Last scanned {0}", "Memory (background)", "synced {0}", "Quota updated {0}", "Waiting for the first sync", "Resets {0}",
         "5h", "Week", "today", "{0} this month", "Look",
         "Shown", "Hidden", "Move up", "Move down", "Right now", "Account", "Not saved yet",
-        "5-hour window", "Weekly window", "Daily window", "Billing cycle", "Monthly window", "Permission prompts",
+        "5-hour window", "Weekly window", "Daily window", "Monthly window", "Permission prompts",
         "Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up.",
         "Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up.",
         "A file named agentisland-notify.json is already in ~/.grok/hooks and isn't Limen's, so this stays off.",
