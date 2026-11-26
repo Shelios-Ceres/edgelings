@@ -305,7 +305,8 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// 只在门控开着（Windows 探测）时补，30 秒内最多补一次，免得一直落空时来回补取。
     private void RetryAfterSkip(bool viaEvent, bool manual)
     {
-        if (!ClaudeGateEnabled) return;
+        // Skipped 只会来自 Windows 上的探测；Mac 走 FetchClaude，不补取。
+        if (!OperatingSystem.IsWindows() || !ClaudeGateEnabled) return;
         var now = Clock();
         if (now - _lastSkipRetry < TimeSpan.FromSeconds(30) && now >= _lastSkipRetry) return;
         if (Interlocked.Exchange(ref _skipRetryPending, 1) == 1) return;
