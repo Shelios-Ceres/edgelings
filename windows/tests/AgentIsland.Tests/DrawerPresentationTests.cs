@@ -37,8 +37,8 @@ public static class DrawerPresentationTests
     private static void TestIndependentActivity()
     {
         var frame = Frame(AgentPhase.Writing, "Edit", 2);
-        Expect(frame.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Writing, "Cursor · Edit", 2),
-            "Grok's character follows Cursor, naming it");
+        Expect(frame.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Writing, "Edit", 2),
+            "Grok's character follows Cursor, without naming it");
         Expect(frame.ForProvider(DisplayProvider.Grok) == DrawerActivity.Idle, "Grok's own reading stays idle");
         Expect(frame.ForProvider(DisplayProvider.Cursor) == new DrawerActivity(AgentPhase.Writing, "Edit", 2),
             "Cursor keeps its own phase, detail and running count");
@@ -47,7 +47,7 @@ public static class DrawerPresentationTests
     private static void TestActivityChanges()
     {
         var finished = Frame(AgentPhase.Finished, null, 0);
-        Expect(finished.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Finished, "Cursor", 0),
+        Expect(finished.ForCharacter(DisplayProvider.Grok) == new DrawerActivity(AgentPhase.Finished, null, 0),
             "next frame replaces activity without stale tasks");
         var grokWorks = new DrawerActivityFrame(new[]
         {

@@ -197,23 +197,15 @@ public static class StatusCards
             resets);
     }
 
-    /// Grok's weekly window, which is Cursor's too on one X Subscription;
-    /// billed apart, Cursor's own cycle follows under its name. Each app's
-    /// line shows only once that app has been here.
+    /// Grok's weekly window, which is Cursor's too on one X Subscription.
+    /// Grok's card names no other app (the user's call, 2026-11-26: Grok,
+    /// Grok Bot and Cursor are one family), so Cursor's own line is not shown.
     private static IReadOnlyList<StatusMeter> GrokMeters(Func<WindowUsage, string, StatusMeter> meter)
     {
-        var visibility = ProviderVisibilityStore.Shared;
         var meters = new List<StatusMeter>();
-        if (visibility.IsDetected(DisplayProvider.Grok)) meters.Add(meter(ProviderUsage.For(DisplayProvider.Grok).FiveHour, "Week"));
-        if (CursorHasOwnLine())
-        {
-            meters.Add(meter(ProviderUsage.For(DisplayProvider.Cursor).FiveHour, ProviderIdentity.DisplayName(DisplayProvider.Cursor)));
-        }
+        if (ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Grok)) meters.Add(meter(ProviderUsage.For(DisplayProvider.Grok).FiveHour, "Week"));
         return meters;
     }
-
-    private static bool CursorHasOwnLine() =>
-        ProviderVisibilityStore.Shared.IsDetected(DisplayProvider.Cursor) && !SharedSubscription.GrokWithCursor();
 
     /// Gemini's 5-hour and longer windows, then one meter per further Gemini
     /// group under Google's own name for it (Gemini 4 Argon). Claude and GPT's
@@ -320,9 +312,6 @@ public static class StatusCards
         var monthEnded = provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now;
         parts.AddRange(QuotaAges(
             (ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded),
-            provider == DisplayProvider.Grok && CursorHasOwnLine()
-                ? (ProviderUsage.For(DisplayProvider.Cursor), QuotaUpdatedAt(DisplayProvider.Cursor))
-                : null,
             now, TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds)));
         if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
         if (provider != DisplayProvider.Codex) return parts;
@@ -335,19 +324,13 @@ public static class StatusCards
         return parts;
     }
 
-    /// How old a card's quota numbers are: its agent's, then on Grok's card
-    /// Cursor's own line, named for Cursor as its warning is.
+    /// How old a card's quota numbers are.
     internal static IReadOnlyList<StatusPhrase> QuotaAges(
         (AppUsage Usage, DateTimeOffset? UpdatedAt, bool MonthEnded) own,
-        (AppUsage Usage, DateTimeOffset? UpdatedAt)? cursorLine,
         DateTimeOffset now, TimeSpan interval)
     {
         var ages = new List<StatusPhrase>();
         if (QuotaAge(own.Usage, own.UpdatedAt, own.MonthEnded, now, interval) is { } age) ages.Add(age);
-        if (cursorLine is { } line && QuotaAge(line.Usage, line.UpdatedAt, false, now, interval) is { } cursor)
-        {
-            ages.Add(cursor with { Text = $"{ProviderIdentity.DisplayName(DisplayProvider.Cursor)}: {cursor.Text}" });
-        }
         return ages;
     }
 

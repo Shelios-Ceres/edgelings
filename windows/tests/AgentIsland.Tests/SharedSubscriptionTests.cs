@@ -21,10 +21,10 @@ public static class SharedSubscriptionTests
         {
             ("one pool reset is one subscription", TestSharedPool),
             ("separate plans keep two pools", TestSeparatePlans),
-            ("the busier app's phase wins, named", TestPickBusier),
-            ("a tie goes to Grok, only Cursor's work is named", TestPickTie),
+            ("the busier app's phase wins, unnamed", TestPickBusier),
+            ("a tie goes to Grok", TestPickTie),
             ("billed apart, one app's spent quota never sleeps over the other's work", TestStandingStateBilledApart),
-            ("Cursor's kept numbers on Grok's card say how old they are", TestCursorQuotaAge),
+            ("kept numbers say how old they are, and Grok's card names no other app", TestCursorQuotaAge),
             ("both apps' tokens add up, dated by the older count", TestTokenSum),
             ("the character's plan is the X Subscription's tier when shared", TestPlan),
         };
@@ -53,11 +53,11 @@ public static class SharedSubscriptionTests
     private static void TestPickBusier()
     {
         var cursorWrites = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.Writing, "Edit"), NotAsked);
-        Expect(cursorWrites == (AgentPhase.Writing, $"{Cursor} · Edit"), $"Cursor at work shows, named: {cursorWrites}");
+        Expect(cursorWrites == (AgentPhase.Writing, "Edit"), $"Cursor at work shows, without naming the app: {cursorWrites}");
         var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.Idle, null), NotAsked);
         Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok at work shows as itself: {grokRuns}");
         var cursorDone = SharedSubscription.Pick((AgentPhase.Working, null), (AgentPhase.Finished, null), NotAsked);
-        Expect(cursorDone == (AgentPhase.Finished, Cursor), $"a finished turn waiting on you outranks work: {cursorDone}");
+        Expect(cursorDone == (AgentPhase.Finished, null), $"a finished turn waiting on you outranks work: {cursorDone}");
         var grokAsks = SharedSubscription.Pick((AgentPhase.Asking, null), (AgentPhase.Failed, null), NotAsked);
         Expect(grokAsks.Phase == AgentPhase.Asking, $"a question outranks an error: {grokAsks}");
     }
@@ -75,13 +75,13 @@ public static class SharedSubscriptionTests
         var grokRuns = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Apart);
         Expect(grokRuns == (AgentPhase.Running, "Bash"), $"Grok works while Cursor's own quota is spent: {grokRuns}");
         var cursorWrites = SharedSubscription.Pick((AgentPhase.RateLimited, null), (AgentPhase.Writing, "Edit"), Apart);
-        Expect(cursorWrites == (AgentPhase.Writing, $"{Cursor} · Edit"), $"Cursor works while Grok's weekly pool is spent: {cursorWrites}");
+        Expect(cursorWrites == (AgentPhase.Writing, "Edit"), $"Cursor works while Grok's weekly pool is spent: {cursorWrites}");
         var cursorDone = SharedSubscription.Pick((AgentPhase.AuthRequired, null), (AgentPhase.Finished, null), Apart);
-        Expect(cursorDone == (AgentPhase.Finished, Cursor), $"a finished turn beats the other app's lapsed sign-in: {cursorDone}");
+        Expect(cursorDone == (AgentPhase.Finished, null), $"a finished turn beats the other app's lapsed sign-in: {cursorDone}");
         var idle = SharedSubscription.Pick((AgentPhase.Idle, null), (AgentPhase.RateLimited, null), NotAsked);
-        Expect(idle == (AgentPhase.RateLimited, Cursor), $"with nothing else going on, the spent quota still shows: {idle}");
+        Expect(idle == (AgentPhase.RateLimited, null), $"with nothing else going on, the spent quota still shows: {idle}");
         var shared = SharedSubscription.Pick((AgentPhase.Running, "Bash"), (AgentPhase.RateLimited, null), Shared);
-        Expect(shared == (AgentPhase.RateLimited, Cursor), $"one shared pool spent is the character's: {shared}");
+        Expect(shared == (AgentPhase.RateLimited, null), $"one shared pool spent is the character's: {shared}");
     }
 
     /// No grok CLI login, so Grok's own numbers are missing; Cursor's last
@@ -96,11 +96,11 @@ public static class SharedSubscriptionTests
         L10n.Current = L10n.Language.English;
         try
         {
-            var ages = StatusCards.QuotaAges(noGrok, (kept, now.AddDays(-2)), now, interval);
-            Expect(ages.Count == 1 && ages[0].Text == $"{Cursor}: Quota updated 2d ago", "named: " + string.Join(" | ", ages.Select(a => a.Text)));
+            var ages = StatusCards.QuotaAges((kept, now.AddDays(-2), false), now, interval);
+            Expect(ages.Count == 1 && ages[0].Text == "Quota updated 2d ago", "named: " + string.Join(" | ", ages.Select(a => a.Text)));
             var live = new AppUsage(new WindowUsage(0.4, now.AddDays(10), null) { Observed = true }, WindowUsage.Unknown);
-            Expect(StatusCards.QuotaAges(noGrok, (live, now.AddMinutes(-1)), now, interval).Count == 0, "live numbers need no note");
-            Expect(StatusCards.QuotaAges(noGrok, null, now, interval).Count == 0, "no Cursor line, no Cursor note");
+            Expect(StatusCards.QuotaAges((live, now.AddMinutes(-1), false), now, interval).Count == 0, "live numbers need no note");
+            Expect(StatusCards.QuotaAges(noGrok, now, interval).Count == 0, "no numbers, no note");
         }
         finally
         {

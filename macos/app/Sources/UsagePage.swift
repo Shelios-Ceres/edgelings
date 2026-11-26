@@ -171,6 +171,9 @@ struct UsageAgentCard: View {
     let agent: UsageAgent
     let period: UsagePeriod
 
+    // Grok's card names no other app (the user's call, 2026-11-26): Cursor's part stays in the totals, not on the card.
+    private var parts: [UsagePart] { agent.parts.filter { $0.id != "cursor" } }
+
     var body: some View {
         let kit = Kit(store: store)
         let palette = store.palette
@@ -180,9 +183,9 @@ struct UsageAgentCard: View {
                 AgentFace(id: agent.id, look: agent.look, swatch: agent.swatch, skin: kit.pixel ? .pixel : .classic, size: kit.pixel ? 20 : 22)
                 SkinText(pixel: store.skin == .pixel, text: agent.name, pixelSize: 14, size: 14, weight: .semibold, color: palette.color("Text"))
                 Spacer()
-                if agent.parts.count == 1, let part = agent.parts.first, part.scanned { hero(part, kit: kit, palette: palette) }
+                if parts.count == 1, let part = parts.first, part.scanned { hero(part, kit: kit, palette: palette) }
             }
-            ForEach(agent.parts) { part in
+            ForEach(parts) { part in
                 partView(part, identity: identity, kit: kit, palette: palette)
             }
         }
@@ -226,11 +229,11 @@ struct UsageAgentCard: View {
     @ViewBuilder private func partView(_ part: UsagePart, identity: Color, kit: Kit, palette: Palette) -> some View {
         let data = slice(part)
         VStack(alignment: .leading, spacing: 8) {
-            if agent.parts.count > 1 { SkinText(pixel: store.skin == .pixel, text: part.name, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2")) }
+            if parts.count > 1 { SkinText(pixel: store.skin == .pixel, text: part.name, pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2")) }
             if !part.scanned {
                 SkinText(pixel: store.skin == .pixel, text: store.t("Not scanned yet"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text3"))
             } else {
-                if agent.parts.count > 1 { hero(part, kit: kit, palette: palette).frame(maxWidth: .infinity, alignment: .trailing) }
+                if parts.count > 1 { hero(part, kit: kit, palette: palette).frame(maxWidth: .infinity, alignment: .trailing) }
                 let values = series(part)
                 if values.contains(where: { $0 > 0 }) {
                     if kit.pixel {

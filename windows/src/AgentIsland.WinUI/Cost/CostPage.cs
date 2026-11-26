@@ -578,29 +578,9 @@ internal sealed partial class CostPage : IDisposable
             // Today's models are the last five hours'; earlier work is on the chart.
             panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in the last 5 hours"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
         }
-        if (slice.Cursor is { } cursor && (TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? cursor.Billable : cursor.Tokens) is > 0 and var cursorTokens)
-        {
-            panel.Children.Add(CursorLine(cursorTokens));
-        }
+        // Cursor's tokens are already in Grok's numbers; Grok's card names no
+        // other app (the user's call, 2026-11-26).
         return Surface(panel);
-    }
-
-    /// Cursor's tokens on Grok's card, with how Cursor bills them.
-    private static FrameworkElement CursorLine(long tokens)
-    {
-        var line = new Grid { ColumnSpacing = 8 };
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        line.Children.Add(new TextBlock { Text = ProviderIdentity.DisplayName(DisplayProvider.Cursor), TextTrimming = TextTrimming.CharacterEllipsis });
-        var amount = new TextBlock
-        {
-            Text = $"{Formatting.CompactTokens(tokens)} {L10n.Tr("tokens · billed by Cursor's own plan")}",
-            Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
-        };
-        if (!Looks.Pixel) amount.FontSize = 12;
-        Grid.SetColumn(amount, 1);
-        line.Children.Add(amount);
-        return line;
     }
 
     /// Bars scaled to the period's largest, rounded more at the top, at

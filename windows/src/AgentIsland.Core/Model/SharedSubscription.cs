@@ -25,7 +25,7 @@ public static class SharedSubscription
         shared ? cursorBadge ?? grokBadge : grokBadge ?? cursorBadge;
 
     /// The character plays the more urgent of the two apps' phases, Grok's on
-    /// a tie; work done in Cursor says so in its detail. Billed apart, one
+    /// a tie, its detail without naming the app. Billed apart, one
     /// app's spent quota or lapsed sign-in is its own: it never puts the
     /// character to sleep over the other app's work or news. shared is asked
     /// only then.
@@ -39,9 +39,7 @@ public static class SharedSubscription
             ? Standing(grok.Phase)
             : AgentPhases.Priority(cursor.Phase) < AgentPhases.Priority(grok.Phase);
         var (phase, detail) = fromCursor ? cursor : grok;
-        if (phase == AgentPhase.Idle) return (phase, null);
-        if (!fromCursor) return (phase, detail);
-        var app = ProviderIdentity.DisplayName(DisplayProvider.Cursor);
-        return (phase, detail is null ? app : $"{app} · {detail}");
+        // Grok's card names no other app (the user's call, 2026-11-26).
+        return phase == AgentPhase.Idle ? (phase, null) : (phase, detail);
     }
 }

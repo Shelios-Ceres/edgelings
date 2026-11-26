@@ -85,15 +85,12 @@ public static class AgentReports
         _ => null,
     };
 
-    /// Grok's account and, signed in apart, Cursor's.
+    /// Grok's card names only Grok's account (see StatusCards.GrokMeters).
     private static string? Account(DisplayProvider provider) => provider switch
     {
         DisplayProvider.Codex => CodexAccountSwitcher.ActiveLabel(),
         DisplayProvider.Antigravity => AntigravityUsageStore.Shared.AccountEmail,
-        DisplayProvider.Grok => new[] { GrokUsageStore.Shared.AccountEmail, CursorUsageStore.Shared.AccountEmail }
-            .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList() is { Count: > 0 } accounts
-            ? string.Join(" · ", accounts)
-            : null,
+        DisplayProvider.Grok => GrokUsageStore.Shared.AccountEmail,
         DisplayProvider.Cursor => CursorUsageStore.Shared.AccountEmail,
         _ => null,
     };
@@ -119,16 +116,12 @@ public static class AgentReports
             : L10n.Tr("Waiting for the first sync");
     }
 
-    /// The character's warnings: its agent's, and for Grok's Cursor's too,
-    /// named so it is clear which app it is about.
+    /// The character's warnings: its own agent's only. Grok's card carries no
+    /// Cursor line (see StatusCards.GrokMeters).
     internal static IReadOnlyList<string> Warnings(DisplayProvider provider)
     {
         var warnings = new List<string>();
         if (Warning(provider) is { } own) warnings.Add(own);
-        if (provider == DisplayProvider.Grok && Warning(DisplayProvider.Cursor) is { } cursor && !warnings.Contains(cursor))
-        {
-            warnings.Add($"{ProviderIdentity.DisplayName(DisplayProvider.Cursor)}: {cursor}");
-        }
         return warnings;
     }
 
