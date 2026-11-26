@@ -133,6 +133,7 @@ public static class Program
                 ("LaunchAtLoginTests", LaunchAtLoginTests.RunAll, "Registry Run key"),
                 ("ScannerCwdTests", ScannerCwdTests.RunAll, null),
                 ("AgentPresenceTests", AgentPresenceTests.RunAll, null),
+                ("AgentSurfacesTests", AgentSurfacesTests.RunAll, null),
                 ("SessionEventTests", SessionEventTests.RunAll, null),
                 ("GrokHooksTests", GrokHooksTests.RunAll, "starts powershell.exe"),
                 ("ShellHooksTests", ShellHooksTests.RunAll, null),

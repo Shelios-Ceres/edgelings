@@ -123,7 +123,9 @@ internal static class AgentProcesses
         if (!OperatingSystem.IsWindows()) return new HashSet<TriggerTool>();
         try
         {
-            var running = new List<(string Name, string? Path)>();
+            var running = new List<(int Id, string Name, string? Path)>();
+            // Limen 自己起的探测进程不算 agent 还活着。
+            var own = OwnProcesses.Excluded(AgentPresences.Processes);
             foreach (var process in Process.GetProcesses())
             {
                 using (process)
@@ -134,16 +136,20 @@ internal static class AgentProcesses
                     var path = known.PathHint is null ? null : Hosts.Contains(name) ? CommandLineOf(process.Id) : PathOf(process);
                     // The memory plugin's headless runs are not Kimi being open.
                     if (KimiRunOf(process.Id, name, path).MemoryRun) continue;
-                    running.Add((name, path));
+                    running.Add((process.Id, name, path));
                 }
             }
-            return Gone(running);
+            return Gone(running, own);
         }
         catch
         {
             return new HashSet<TriggerTool>();
         }
     }
+
+    /// 去掉 excluded（Limen 自己起的进程和它们的子孙）之后，还有没有 agent 的进程。
+    internal static IReadOnlySet<TriggerTool> Gone(IEnumerable<(int Id, string Name, string? Path)> running, IReadOnlySet<int> excluded) =>
+        Gone(running.Where(p => !excluded.Contains(p.Id)).Select(p => (p.Name, p.Path)));
 
     [System.Runtime.Versioning.SupportedOSPlatform("macos")]
     private static IReadOnlySet<TriggerTool> GoneOnMac()

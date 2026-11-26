@@ -25,6 +25,12 @@ public static class AgentPresences
     {
         /// A headless `kimi -p` run: no window, so never a sign that Kimi is open.
         public bool Headless { get; init; }
+
+        /// 命令行里入口判定要用的几个布尔值（AgentSurfaces 读）；整行不保留。
+        public AgentSurfaces.CommandTraits Traits { get; init; }
+
+        /// 进程的创建时间（UTC）。只有 OwnProcesses 找子孙时用，按需才读；没读就是 null。
+        public DateTime? Started { get; init; }
     }
 
     /// A top-level app window: whose it is, and whether it is minimized (on a
@@ -54,7 +60,8 @@ public static class AgentPresences
         if (!OperatingSystem.IsWindows()) return AgentProcesses.Known.Select(k => k.Tool).Distinct().ToDictionary(tool => tool, _ => AgentPresence.Open);
         try
         {
-            var processes = Processes();
+            // Limen 自己起的探测进程不是 agent 开着。
+            var processes = OwnProcesses.Without(Processes());
             if (processes.Any(p => string.Equals(p.Name, GrokBot.ProcessName, StringComparison.OrdinalIgnoreCase))) GrokBot.NoteRunning();
             return Of(processes, Windows(), id => PathOf(id) is { } path && IsConsoleImage(path));
         }
@@ -225,7 +232,7 @@ public static class AgentPresences
 
     // MARK: - The system's view
 
-    private static List<Running> Processes()
+    internal static List<Running> Processes()
     {
         var list = new List<Running>();
         var snapshot = CreateToolhelp32Snapshot(SnapProcess, 0);
@@ -293,7 +300,7 @@ public static class AgentPresences
         }
     });
 
-    private static string? PathOf(int id)
+    internal static string? PathOf(int id)
     {
         var process = OpenProcess(QueryLimitedInformation, false, (uint)id);
         if (process == IntPtr.Zero) return null;

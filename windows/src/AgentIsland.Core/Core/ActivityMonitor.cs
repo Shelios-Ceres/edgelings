@@ -190,7 +190,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                 var offline = InternetStatus.IsOffline(now);
                 var scanned = CoreProfile.Time("scan: all agents", () => Scanner(now, lastWorkingSnapshot));
                 var sessions = CoreProfile.Time("scan: prepare and settle", () => Settle(PrepareSessions(scanned, now), gone, offline, desktopGone));
-                return new Scan(sessions, offline, CoreProfile.Time("scan: session events", () => _events.Observe(sessions, now)));
+                var surfaces = CoreProfile.Time("scan: entries", AgentSurfaces.ReadNow);
+                return new Scan(sessions, offline, CoreProfile.Time("scan: session events", () => _events.Observe(sessions, now)), surfaces);
             })
             .ContinueWith(task =>
             {
@@ -204,6 +205,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                     {
                         var scan = task.Result;
                         IsOffline = scan.Offline;
+                        if (scan.Surfaces is { } surfaces) AgentSurfaces.Shared.Observe(surfaces);
                         Apply(scan.Sessions, now);
                         var waitingChanged = !SameWaiting(Waiting, scan.Observed.Waiting);
                         Waiting = scan.Observed.Waiting;
@@ -229,7 +231,7 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             }, UiThread.Scheduler);
     }
 
-    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed);
+    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed, AgentSurfaces.Reading? Surfaces);
 
     internal static List<ScannedSession> PrepareSessions(IEnumerable<ScannedSession> sessions, DateTimeOffset now)
     {

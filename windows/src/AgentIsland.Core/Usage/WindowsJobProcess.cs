@@ -3,6 +3,7 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
+using AgentIsland.Core;
 
 namespace AgentIsland.Usage;
 
@@ -31,6 +32,7 @@ internal static class WindowsJobProcess
         var values = Marshal.AllocHGlobal(4 * IntPtr.Size);
         bool initialized = false;
         ProcessInfo child = default;
+        IDisposable? own = null;
         try
         {
             initialized = InitializeProcThreadAttributeList(list, 2, 0, ref size);
@@ -51,6 +53,8 @@ internal static class WindowsJobProcess
                 if (!CreateProcessW(start.FileName, command, 0, 0, true, flags, environment,
                         string.IsNullOrEmpty(start.WorkingDirectory) ? null : start.WorkingDirectory, ref si, out child))
                     return false;
+                // 挂起状态下就登记：它和它的子孙都不算用户的 agent 开着。
+                own = OwnProcesses.Register((int)child.ProcessId);
                 return ResumeThread(child.Thread) == 1;
             }
             if (!(permitLaunch is null ? Launch() : permitLaunch(Launch))) return null;
@@ -77,6 +81,7 @@ internal static class WindowsJobProcess
                 CloseHandle(child.Thread);
                 CloseHandle(child.Process);
             }
+            own?.Dispose();
             if (initialized) DeleteProcThreadAttributeList(list);
             Marshal.FreeHGlobal(values);
             Marshal.FreeHGlobal(list);
