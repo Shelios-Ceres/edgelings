@@ -1,14 +1,18 @@
 namespace AgentIsland.Cost;
 
-/// Hardcoded price table (USD per million tokens), refreshed 2026-11-22 from
-/// the first-party entries in LiteLLM's model_prices_and_context_window.json,
-/// with Moonshot's K3.1 Pro, K3 and K2.7 Code rows read from its pricing
-/// page (platform.kimi.ai/docs/pricing/chat) and Google's Gemini rows read
-/// from ai.google.dev/gemini-api/docs/pricing (Standard tier). DeepSeek's rows
-/// are its peak rates (api-docs.deepseek.com/quick_start/pricing); outside its
-/// peak hours it bills half. Unknown models price at $0 (ccusage parity) and
-/// are surfaced so the UI can warn about unpriced spend. Moonshot and DeepSeek
-/// bill cache writes as ordinary input, so their creation rate is the input rate.
+/// Hardcoded price table (USD per million tokens), checked line by line against
+/// each maker's own pricing page on 2026-11-27 (no third-party aggregators):
+///   Anthropic  https://platform.claude.com/docs/en/about-claude/pricing
+///   OpenAI     https://developers.openai.com/api/docs/pricing and the per-model
+///              pages https://developers.openai.com/api/docs/models/<id>
+///   Moonshot   https://platform.kimi.ai/docs/pricing/chat
+///   DeepSeek   https://api-docs.deepseek.com/quick_start/pricing (peak rates;
+///              outside peak hours it bills half)
+///   Google     https://ai.google.dev/gemini-api/docs/pricing (Standard tier)
+/// Ids a maker's page does not list are marked "non-official" where they appear.
+/// Unknown models price at $0 (ccusage parity) and are surfaced so the UI can
+/// warn about unpriced spend. Moonshot's K2 rows, DeepSeek and Gemini bill cache
+/// writes as ordinary input, so their creation rate is the input rate.
 public static class Pricing
 {
     private sealed record Price(double Input, double Output, double CacheCreation, double CacheRead, double? CacheCreation1h = null);
@@ -20,7 +24,8 @@ public static class Pricing
 
     private static readonly Dictionary<string, Price> Table = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Anthropic
+        // Anthropic, checked 2026-11-27 against platform.claude.com/docs/en/about-claude/pricing.
+        // Haiku 5.5 charges 5x for prompts over 100k tokens; that tier is not modelled here.
         ["claude-fable-5-2"] = Anthropic(8, 40, 0.2),
         ["claude-fable-5-1"] = Anthropic(10, 50, 0.25),
         ["claude-fable-5"] = Anthropic(10, 50, 1.0),
@@ -40,7 +45,11 @@ public static class Pricing
         ["claude-sonnet-4-6"] = Anthropic(3, 15, 0.3),
         ["claude-sonnet-4-5"] = Anthropic(3, 15, 0.3),
         ["claude-haiku-4-5"] = Anthropic(1, 5, 0.1),
-        // OpenAI
+        // OpenAI, checked 2026-11-27 against developers.openai.com/api/docs/pricing
+        // (Standard tier, short context; prompts over 272K bill 2x input and 1.5x
+        // output) and developers.openai.com/api/docs/models/<id>. Cache writes bill
+        // at 1.25x input for GPT-6 and GPT-5.6 only. gpt-5.6 mirrors gpt-5.6-sol's
+        // price on its model page.
         ["gpt-6.2-astra"] = new(8, 40, 10, 0.4),
         ["gpt-6.2-sol"] = new(2, 10, 2.5, 0.1),
         ["gpt-6.1-sol"] = new(2, 10, 2.5, 0.1),
@@ -58,14 +67,14 @@ public static class Pricing
         ["gpt-5.1"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5.3-codex"] = new(1.75, 14, 1.75, 0.175),
-        ["gpt-5.3-codex-spark"] = new(1.75, 14, 1.75, 0.175),
         ["gpt-5.2-codex"] = new(1.75, 14, 1.75, 0.175),
         ["gpt-5.1-codex"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5.1-codex-max"] = new(1.25, 10, 1.25, 0.125),
         ["gpt-5.1-codex-mini"] = new(0.25, 2, 0.25, 0.025),
         ["gpt-5-codex"] = new(1.25, 10, 1.25, 0.125),
-        // Codex's Guardian auto-review model is included free on Codex accounts
-        // and does not consume quota; keep it known at $0 rather than unpriced.
+        // Non-official: OpenAI's pricing pages list no codex-auto-review. It is the
+        // Codex Guardian auto-review model, included free on Codex accounts and not
+        // consuming quota; kept known at $0 rather than unpriced.
         ["codex-auto-review"] = new(0, 0, 0, 0),
         ["gpt-5.4-mini"] = new(0.75, 4.5, 0.75, 0.075),
         ["gpt-5.4-nano"] = new(0.2, 1.25, 0.2, 0.02),
@@ -75,38 +84,49 @@ public static class Pricing
         ["gpt-5.4-pro"] = new(30, 180, 30, 3),
         ["gpt-5.2-pro"] = new(21, 168, 21, 0),
         ["gpt-5-pro"] = new(15, 120, 15, 0),
-        // Moonshot — Kimi Code's plan aliases for K3 (both context sizes), K3.1 Pro
-        // and K2.7 Code.
-        ["kimi-k3.1-pro"] = new(2, 10, 2, 0.2),
-        ["kimi-code/k3.1-pro"] = new(2, 10, 2, 0.2),
-        ["kimi-k3.1-pro-highspeed"] = new(4, 20, 4, 0.2),
-        ["kimi-code/k3.1-pro-highspeed"] = new(4, 20, 4, 0.2),
-        ["kimi-k3"] = new(3, 15, 3, 0.3),
-        ["kimi-code/k3"] = new(3, 15, 3, 0.3),
-        ["kimi-code/k3-256k"] = new(3, 15, 3, 0.3),
+        // Moonshot, checked 2026-11-27 against platform.kimi.ai/docs/pricing/chat.
+        // The page lists kimi-k3.1-pro, kimi-k3.1-pro-highspeed, kimi-k3 (5m and 1h
+        // cache writes billed separately, 1h = 2x input) and kimi-k2.7-code,
+        // kimi-k2.7-code-highspeed, kimi-k2.6 (cache hit only). The kimi-code/* ids
+        // are Kimi Code plan aliases, not on the page; they price as the API model
+        // they front (non-official mapping).
+        ["kimi-k3.1-pro"] = new(2, 10, 2, 0.2, 4),
+        ["kimi-code/k3.1-pro"] = new(2, 10, 2, 0.2, 4),
+        ["kimi-k3.1-pro-highspeed"] = new(4, 20, 4, 0.2, 8),
+        ["kimi-code/k3.1-pro-highspeed"] = new(4, 20, 4, 0.2, 8),
+        ["kimi-k3"] = new(3, 15, 3, 0.3, 6),
+        ["kimi-code/k3"] = new(3, 15, 3, 0.3, 6),
+        ["kimi-code/k3-256k"] = new(3, 15, 3, 0.3, 6),
         ["kimi-k2.7-code"] = new(0.95, 4, 0.95, 0.19),
         ["kimi-k2.7-code-highspeed"] = new(1.9, 8, 1.9, 0.38),
         ["kimi-code/kimi-for-coding-highspeed"] = new(1.9, 8, 1.9, 0.38),
-        // K2.8 Preview: Moonshot publishes no price, so this is Tencent TokenHub's
-        // ($1 in, $4 out, $0.25 cache hit, via LiteLLM), as the user chose.
+        // Non-official: Moonshot's pricing page lists no K2.8 Preview. This price is
+        // Tencent TokenHub's ($1 in, $4 out, $0.25 cache hit), as the user chose.
         ["kimi-code/kimi-for-coding"] = new(1, 4, 1, 0.25),
         ["kimi-k2.6"] = new(0.95, 4, 0.95, 0.16),
-        // The model ids Kimi's desktop app (Kimi Work) writes to its logs. k3d1 is K3.1 Pro,
-        // k3 is K3, k2d8-preview is K2.8 Preview (the user's price above) and k2d6 is K2.6.
+        // Non-official ids: the model ids Kimi's desktop app (Kimi Work) writes to its logs.
+        // k3d1 is K3.1 Pro, k3 is K3, k2d8-preview is K2.8 Preview (the TokenHub price above)
+        // and k2d6 is K2.6.
         // Any other model it writes has no known price and stays tokens only.
-        ["k3d1-agent"] = new(2, 10, 2, 0.2),
-        ["k3-agent"] = new(3, 15, 3, 0.3),
+        ["k3d1-agent"] = new(2, 10, 2, 0.2, 4),
+        ["k3-agent"] = new(3, 15, 3, 0.3, 6),
         ["k2d8-preview"] = new(1, 4, 1, 0.25),
         ["k2d6-agent"] = new(0.95, 4, 0.95, 0.16),
-        // DeepSeek
+        // DeepSeek, checked 2026-11-27 against api-docs.deepseek.com/quick_start/pricing.
+        // The page lists deepseek-v4-pro and deepseek-flash at these peak rates; the
+        // deepseek-v4-flash id is not on it (non-official alias of deepseek-flash).
         ["deepseek-v4-pro"] = new(1.32, 3.96, 1.32, 0.044),
         ["deepseek-v4-flash"] = new(0.3, 1.2, 0.3, 0.006),
         ["deepseek-flash"] = new(0.3, 1.2, 0.3, 0.006),
-        // Google Gemini (models without a scheduled price change; implicit caching
-        // has no write charge, so creation is the input rate).
+        // Google Gemini, checked 2026-11-27 against ai.google.dev/gemini-api/docs/pricing
+        // (models without a scheduled price change; implicit caching has no write
+        // charge, so creation is the input rate). gemini-3.1-flash-lite audio input
+        // ($0.50) is not modelled; text, image and video rate shown.
         ["gemini-4-neon"] = new(3, 15, 3, 0.15),
         ["gemini-4-hydrogen"] = new(1.5, 7.5, 1.5, 0.075),
-        // Antigravity Orchestrator internal routing aliases: Neon planner and Hydrogen worker.
+        // Non-official ids: Antigravity Orchestrator internal routing aliases (Neon planner
+        // and Hydrogen worker); the page does not list them and says Antigravity bills at
+        // standard Gemini list rates.
         ["gemini-pro-orchestrator-neon"] = new(3, 15, 3, 0.15),
         ["gemini-flash-worker-agy"] = new(1.5, 7.5, 1.5, 0.075),
         ["gemini-3.5-flash-lite"] = new(0.3, 2.5, 0.3, 0.03),
@@ -114,7 +134,7 @@ public static class Pricing
     };
 
     // Models whose price changes on a date: Google announced these rises ahead
-    // of time. Each list starts at MinValue and the last row whose date has
+    // of time on ai.google.dev/gemini-api/docs/pricing (checked 2026-11-27). Each list starts at MinValue and the last row whose date has
     // passed applies, by the event's own time. Rates change at midnight
     // Pacific time, which is UTC-8 on both dates. Gemini's implicit caching
     // has no write charge, so creation is the input rate.
@@ -130,7 +150,7 @@ public static class Pricing
             (DateTimeOffset.MinValue, new Price(2, 10, 2, 0.1)),
             (MidnightPacific(2026, 12, 1), new Price(4, 20, 4, 0.2)),
         },
-        // Antigravity Orchestrator (Argon) planner alias.
+        // Non-official id: Antigravity Orchestrator (Argon) planner alias.
         ["gemini-pro-orchestrator-g1-pro"] = new[]
         {
             (DateTimeOffset.MinValue, new Price(2, 10, 2, 0.1)),
@@ -143,7 +163,7 @@ public static class Pricing
         },
     };
 
-    // DeepSeek's peak hours are 01:00-04:00 and 06:00-10:00 UTC, Monday to
+    // DeepSeek's peak hours (api-docs.deepseek.com/quick_start/pricing, 2026-11-27) are 01:00-04:00 and 06:00-10:00 UTC, Monday to
     // Friday; the rest of the week, weekends included, bills at half on all
     // four rates. Chinese public holidays are not modelled and price as peak.
     private static readonly HashSet<string> DeepSeekModels = new(StringComparer.OrdinalIgnoreCase)
@@ -196,7 +216,7 @@ public static class Pricing
         tokenEvent.SelfReportedCostUSD is not null || TryPrice(tokenEvent, out _);
 
     /// 价格表最后一次核对的日期，Usage 页写在金额旁边。
-    public static readonly DateOnly TableDate = new(2026, 11, 22);
+    public static readonly DateOnly TableDate = new(2026, 11, 27);
 
     public static bool IsKnown(string model) =>
         Table.ContainsKey(CanonicalModelName(model)) || Dated.ContainsKey(CanonicalModelName(model));

@@ -138,7 +138,7 @@ public static class PricingTests
         Rate("gpt-6.2-astra", 8, 40, 10, 0.4);
         Rate("gpt-6.2-sol", 2, 10, 2.5, 0.1);
         Rate("gpt-6.1-terra", 1, 5, 1.25, 0.05);
-        Rate("gpt-5.3-codex-spark", 1.75, 14, 1.75, 0.175);
+        Expect(!Pricing.IsKnown("gpt-5.3-codex-spark"), "gpt-5.3-codex-spark has no official price, so it stays unpriced");
         Expect(Pricing.IsKnown("codex-auto-review"), "codex-auto-review is known (free Guardian reviewer)");
         Expect(Math.Abs(Million("codex-auto-review")) < 1e-9, "codex-auto-review bills $0");
         Expect(Pricing.IsFree("codex-auto-review"), "codex-auto-review is marked free");
