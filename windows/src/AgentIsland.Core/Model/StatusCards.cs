@@ -120,6 +120,21 @@ public sealed record StatusCard(
 
     /// Sessions of this agent that wait on the user.
     public StatusWaitingList Waiting { get; init; } = StatusWaitingList.Empty;
+
+    /// 任务列表（主对话和挂在下面的子任务），新卡以它为主。
+    public IReadOnlyList<StatusTaskRow> TaskRows { get; init; } = Array.Empty<StatusTaskRow>();
+
+    /// 头部右侧的紧凑额度；没有读数时为 null。
+    public StatusQuota? Quota { get; init; }
+
+    /// 应用没开、最小化或在托盘时头部右侧的说法；为 null 时没有任务就写“空闲”。
+    public string? Away { get; init; }
+
+    /// 第一次扫描还没完成。
+    public bool Loading { get; init; }
+
+    /// 要留在卡上的 agent 警告（例如要重新登录）。
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }
 
 public static class StatusCards
@@ -261,13 +276,20 @@ public static class StatusCards
     /// Kimi app, and its booster balance.
     public static IReadOnlyList<StatusPhrase> NoteParts(DisplayProvider provider)
     {
-        var parts = new List<StatusPhrase>();
+        var parts = new List<StatusPhrase>(QuotaAgeParts(provider));
+        if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
+        return parts;
+    }
+
+    /// 额度读数不是最新的（上次刷新失败、太久没变，或在等同步）：卡头部的数字改用三级墨色。
+    public static bool QuotaStale(DisplayProvider provider) => QuotaAgeParts(provider).Count > 0;
+
+    private static IReadOnlyList<StatusPhrase> QuotaAgeParts(DisplayProvider provider)
+    {
         var now = DateTimeOffset.Now;
         var monthEnded = provider == DisplayProvider.Kimi && KimiUsageStore.Shared.Snapshot?.Month?.ResetAt is { } monthReset && monthReset <= now;
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
-        parts.AddRange(QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval, AwaitingText(provider)));
-        if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
-        return parts;
+        return QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval, AwaitingText(provider));
     }
 
     /// How old a card's quota numbers are.

@@ -46,6 +46,7 @@ internal static class PixelTokens
         ("AccentTint", 0xE9E3FF, 0x2E2852),
         ("Caution", 0x8A5300, 0xF2B544),
         ("Critical", 0xC42B1C, 0xFF99A4),
+        ("Success", 0x2E7D32, 0x7BD88F),
         ("Smoke", 0x2B2B33, 0x000000),
         // The toggle's knob when on: paper in light, onAccent in dark.
         ("KnobOn", 0xFFFDF7, 0x1B1238),

@@ -30,6 +30,7 @@ internal static class ClassicTokens
         ("DisabledFill", 0xF3F4F6, 0x2E2F35),
         ("Critical", 0xC42B1C, 0xFF99A4),
         ("Caution", 0x935600, 0xF2B544),
+        ("Success", 0x0F7B0F, 0x6CCB5F),
         ("TipFill", 0x17191F, 0xF3F4F6),
         ("TipText", 0xFFFFFF, 0x17191F),
         ("Smoke", 0x17191F, 0x000000),

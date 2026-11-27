@@ -341,14 +341,22 @@ silence everything. The two styles space and merge differently:
 | How long | 5.5 s; a merged one 7 s | `clamp(2 + 0.05 × weight, 4.5, 9)` s (a CJK character weighs 2); a request at least 8 s |
 | The character | hops once with the bubble (the click's hop), but not for an error, not when its phase just changed, not under reduced motion | `cue(kind)`: `done` hops, `ask` and `alert` pop the emote, `error` flinches; skipped when the bot's state already shows it; reduced motion keeps only `ask` and `alert` |
 
-**The card** lists, between the Tasks row and the meters, the sessions that
-wait on the user: Pixel at most three (approval, question, error, done; the
-newest first), Classic at most four with its status words and colours (a
-finished turn or an error for 15 minutes), then "+N more". A session's title
-is the user's own text, so a row may wrap to two lines and trim. Under Pixel a
-title holding CJK characters (the face has none) gives way to "A session";
-Classic shows it as written. The list shows whether character lines are on or
-off. The all-agents card has none.
+**The card** is a task list (`Model/StatusTaskRows.cs` builds it,
+`Drawer/HoverCard.Tasks.cs` draws it). Each conversation is a bold name over
+a line saying what it is doing; its subagents, workflows and swarms hang under
+it, indented 12 DIP a level, no deeper than two levels (deeper ones flatten
+onto the second). A list of more than three children shows two and folds the
+rest into "+N subtasks", except that every child that errs or waits on the
+user always shows. A section shows at most three conversations (the most
+urgent first), then "+N more conversations". Four states, each told by shape,
+colour and word: running (neutral ink, a breathing dot in Classic, a stepping
+block in Pixel), waiting on you (amber ring; a finished turn of a conversation
+counts as this), error (red cross) and just done (green tick, subtasks only,
+for a minute). Names trim to one line; under Pixel in English they are set in
+the system font, since the pixel face has no CJK. The header keeps the quota
+to one line on the right; the bottom line is today's and this month's tokens.
+The all-agents card adds a header (what needs you, what runs, Claude's quota)
+and one total line of tokens.
 
 ## 4. Free to change (may)
 
@@ -383,11 +391,12 @@ off. The all-agents card has none.
 
 ## 5. Fixed (must not change)
 
-- **What the card says.** A theme restyles what `StatusCards.For` returns
-  and never drops or invents data. A card shows, wherever the data exists,
-  the agent's name and phase, its detail, its running tasks, each quota
-  window (label, bar and value), today's and this month's tokens, then its
-  notes: warnings first, then the quota's age, reset cards and agent notes.
+- **What the card says.** A theme restyles what the card is given and never
+  drops or invents data. A card shows, wherever the data exists, the agent's
+  name and plan, its task list (`StatusCard.TaskRows`), its compact quota
+  (`StatusCard.Quota`: the 5-hour and weekly windows, greyed when stale),
+  its warnings, and today's and this month's tokens. The full quota bars,
+  reset times and agent notes belong to Settings.
 - **Interaction.** A pointer resting on a bot for 200 ms opens its card; a
   click pokes the bot and opens its agent in Settings; a drag moves the
   drawer, and a locked drawer says so instead; right-click opens the menu;
@@ -465,11 +474,14 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   |---|---|
   | `AGENTISLAND_DEBUG_BUBBLE=<n>` or `all` | Opens the card of visible bot `n` (counting from 0), or every agent's card |
   | `AGENTISLAND_DEBUG_SNAPSHOT=<dir>` | With the above, saves that card as a PNG rendered off-screen; with `AGENTISLAND_DEBUG_OPEN_SETTINGS=1`, saves every settings page; with `AGENTISLAND_DEBUG_OPEN_COST=1`, the Usage & cost page in each period |
-  | `AGENTISLAND_DEBUG_CARD_TEXT=long` | Fills every card with the longest it says (a long phase and detail, several notes, a tip that can't be split), to check how its phrases flow from line to line |
   | `AGENTISLAND_DEBUG_WORK_HEIGHT=<DIP>` | Gives the card only that much of the screen's height, to check how every agent's card takes columns on a shorter screen (690 is a 1080p screen at 150 %) |
   | `AGENTISLAND_DEBUG_SAY=<Phase>` or `Locked` | Makes the first bot say that phase's line, or the line a locked drawer answers a drag with |
   | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
+  | `AGENTISLAND_DEBUG_TASK_SHOTS=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, saves the card's task view on sample data (one task, subtasks, a folded list, every agent, more than three conversations, an error) as PNGs and quits. Set `LIMEN_ROOT` to a scratch folder so it touches no real settings |
+  | `AGENTISLAND_DEBUG_TASK_MOTION=1` | With the above, saves frames of the markers' motion instead: running markers 300 ms apart, a row turning to waiting, and the card closed and opened again |
+  | `AGENTISLAND_DEBUG_CARD_LOOK=classic` or `pixel` | Shows the test window's card in that look, whatever the drawer's |
+  | `AGENTISLAND_DEBUG_PIXEL_SCALE=<scale>` | Picks the pixel face's size as at that display scale (`1.25` is the tightest), to check how the card trims without changing Windows' scale |
   | `AGENTISLAND_DEBUG_DRAWER_STATS=<file>` | Logs the frame rate and CPU once a second |
   | `AGENTISLAND_DEBUG_DRAWER_FILM=<dir>` | Renders the drawer off-screen at 150 %, on light and dark ground: each drawer moment frame by frame, and a sheet of every bot in each state a phase plays (resting too, where its set draws it), in each of its fidgets, and poked while it rests |
   | `AGENTISLAND_DEBUG_FILM_ONLY=<names>` | With the drawer film: only the moments and sheets of those names (`m20-flip`, `idle`, `writing`, ...) |

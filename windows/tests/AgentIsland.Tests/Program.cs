@@ -223,6 +223,7 @@ public static class Program
                 ("LookCatalogTests", LookCatalogTests.RunAll, null),
                 ("StateGroupsTests", StateGroupsTests.RunAll, null),
                 ("TaskTreeTests", TaskTreeTests.RunAll, null),
+                ("StatusTaskRowsTests", StatusTaskRowsTests.RunAll, null),
                 ("PixelChineseTests", PixelChineseTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
                 ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),

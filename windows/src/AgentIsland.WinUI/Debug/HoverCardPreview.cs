@@ -18,7 +18,7 @@ using WinRT.Interop;
 
 namespace AgentIsland.WinUI.Shell;
 
-internal sealed class HoverCardPreview : Window
+internal sealed partial class HoverCardPreview : Window
 {
     private static readonly string[] Names = { "Claude", "Codex", "Kimi" };
     private static readonly uint[] Swatches = { 0xE49A79, 0x9EBDF5, 0x88CDB6 };
@@ -26,8 +26,14 @@ internal sealed class HoverCardPreview : Window
 
     private readonly Canvas _surface = new();
     private readonly HoverCard _card;
-    // The card and bubbles in the drawer's current style.
-    private readonly bool _pixel = DrawerStore.Shared.Theme == CharacterTheme.Pixel;
+    // The card and bubbles in the drawer's current style, or with
+    // AGENTISLAND_DEBUG_CARD_LOOK=classic|pixel the one named.
+    private readonly bool _pixel = Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_CARD_LOOK") switch
+    {
+        "classic" => false,
+        "pixel" => true,
+        _ => DrawerStore.Shared.Theme == CharacterTheme.Pixel,
+    };
     private SpeechBubble? _bubble;
     private readonly Button _passThrough = new() { Content = "透明区点击", Width = 140, Height = 36 };
     private int _passThroughClicks;
@@ -157,7 +163,8 @@ internal sealed class HoverCardPreview : Window
         AutomationProperties.SetName(_diagnostics, "悬浮卡诊断计数");
         _surface.Children.Add(_status);
         _surface.Children.Add(_diagnostics);
-        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_POPUP_FILM") is { Length: > 0 })
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_POPUP_FILM") is { Length: > 0 }
+            || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_TASK_SHOTS") is { Length: > 0 })
         {
             // A film shows the card and the bubble alone, not the test window's own text.
             foreach (var element in new UIElement[] { heading, description, actions, motion, _passThrough, _status, _diagnostics })
@@ -169,6 +176,7 @@ internal sealed class HoverCardPreview : Window
             if (_closed) return;
             Layout();
             if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_POPUP_FILM") is { Length: > 0 } film) _ = FilmAsync(film);
+            else if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_TASK_SHOTS") is { Length: > 0 } shots) _ = TaskShotsAsync(shots);
             else Select(0);
         };
 
@@ -376,36 +384,6 @@ internal sealed class HoverCardPreview : Window
             await Film(Path.Combine(directory, $"m3-open-{name}.png"), card, () => ShowTarget(0));
             await Film(Path.Combine(directory, $"m3-switch-{name}.png"), card, () => ShowTarget(1));
             await Film(Path.Combine(directory, $"m3-close-{name}.png"), card, () => _card.Hide(animated: true));
-            // M4: Codex's card refreshes in place: a meter climbs past 90 %,
-            // and its phase and detail change.
-            ShowTarget(1);
-            UiMoment.Finish();
-            await Task.Delay(500);
-            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-refresh-{name}.png"), () =>
-                _card.Show(new[] { (Refreshed(), Swatches[1]) }, _pixel, characterRight: true, Anchor(1), Area, Motion.ReducedMotion), _pixel, Crop(card));
-            // M4 with a height change: from a one-line status, the detail wraps
-            // onto a second line (the same layout, taller) and back; then a
-            // meter row appears (a new layout) and goes.
-            UiMoment.Finish();
-            await Task.Delay(500);
-            ShowRefreshed(Refreshed("Synthetic edit"));
-            UiMoment.Finish();
-            await Task.Delay(500);
-            const string longer = "Synthetic edit · a longer motion preview detail that needs a second line";
-            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-taller-{name}.png"), () => ShowRefreshed(Refreshed(longer)), _pixel, Crop(card), before: true);
-            UiMoment.Finish();
-            await Task.Delay(500);
-            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-shorter-{name}.png"), () => ShowRefreshed(Refreshed("Synthetic edit")), _pixel, Crop(card), before: true);
-            UiMoment.Finish();
-            await Task.Delay(500);
-            ShowRefreshed(Refreshed(longer));
-            UiMoment.Finish();
-            await Task.Delay(500);
-            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-row-{name}.png"), () => ShowRefreshed(Refreshed(longer, month: true)), _pixel, Crop(card), before: true);
-            UiMoment.Finish();
-            await Task.Delay(500);
-            await PopupPrint.FilmSequenceAsync(Path.Combine(directory, $"m4-row-gone-{name}.png"), () => ShowRefreshed(Refreshed(longer)), _pixel, Crop(card), before: true);
-            _card.Hide();
             // M3 for the all-agents card, which takes a second column here: it
             // opens, gives way to one character's card, and closes.
             var all = new Rect(area.Right - 92 - 10 - 580, area.Top, 620, area.Height);
@@ -454,7 +432,7 @@ internal sealed class HoverCardPreview : Window
     private string Stock(string line) => L10n.Tr(line);
 
     /// Phase 3: the bubbles that say only stock lines (a merged one says how
-    /// many sessions wait), and the card's list of waiting sessions.
+    /// many sessions wait).
     private async Task SessionFilm(string directory, string name, Rect bubble)
     {
         string File(string take) => Path.Combine(directory, $"{take}-{name}.png");
@@ -469,36 +447,6 @@ internal sealed class HoverCardPreview : Window
         string Count(int n) => BotLines.SummaryTitle(n);
         await Film(File("m5-merged"), bubble, () => Say(Count(_pixel ? 3 : 2), LineKind.Waiting));
         _bubble!.Hide(animated: false);
-
-        var card = new Rect(Area.Right - 92 - 10 - 300, Area.Top, 380, Area.Height);
-        var few = new[]
-        {
-            Waiting("Refactor login", SessionEventKind.Approval),
-            Waiting("Fix flaky test", SessionEventKind.Done, 3),
-            Waiting("Review notes", SessionEventKind.Mail) with { Count = 2 },
-            Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
-        };
-        var many = new[]
-        {
-            Waiting("Refactor login", SessionEventKind.Approval),
-            Waiting("Fix flaky test", SessionEventKind.Question),
-            Waiting("A very long session title that has to wrap onto a second line and then trim", SessionEventKind.Error),
-            Waiting("\u6D4B\u8BD5", SessionEventKind.Done, 2),
-            Waiting("Update docs", SessionEventKind.Done, 4),
-            Waiting("Add tests", SessionEventKind.Done, 6),
-            Waiting("Clean up scripts", SessionEventKind.Done, 8),
-        };
-        StatusWaitingList List(SessionEvent[] events) =>
-            _pixel ? StatusWaitingList.Of(events) : StatusWaitingList.ForClassic(events, FilmNow);
-        await Film(File("m6-waiting-few"), card, () =>
-            _card.Show(new[] { (Card(0) with { Waiting = List(few) }, Swatches[0]) }, _pixel, characterRight: true, Anchor(0), Area, reduced));
-        // A card shown over a card is a refresh, not an open: close it first.
-        _card.Hide();
-        UiMoment.Finish();
-        await Task.Delay(500);
-        await Film(File("m6-waiting-many"), card, () =>
-            _card.Show(new[] { (Card(0) with { Waiting = List(many) }, Swatches[0]) }, _pixel, characterRight: true, Anchor(0), Area, reduced));
-        _card.Hide();
     }
 
     /// AGENTISLAND_DEBUG_QUEUE_FILM=<dir>: two sessions of one agent finish a
@@ -578,29 +526,6 @@ internal sealed class HoverCardPreview : Window
         _card.Show(Names.Select((_, i) => (Card(i), Swatches[i])).ToArray(), _pixel, characterRight: true,
             Anchor(1), Area, reducedMotion: _reduced.IsChecked == true || Motion.ReducedMotion);
 
-    private void ShowRefreshed(StatusCard card) =>
-        _card.Show(new[] { (card, Swatches[1]) }, _pixel, characterRight: true, Anchor(1), Area, Motion.ReducedMotion);
-
-    /// Codex's card after a refresh: busier, and its 5-hour window past 90 %;
-    /// with month, a third meter.
-    private static StatusCard Refreshed(string detail = "Synthetic edit · motion preview", bool month = false) => new(DisplayProvider.Codex, "Codex", "Editing files",
-        detail,
-        new("Tasks", "3 running", "3"),
-        month
-            ? new[]
-            {
-                new StatusMeter("5h", "93%", 0.93, 0.93, "Resets in 1h 38m"),
-                new StatusMeter("Week", "31%", 0.31, 0.31, "Resets in 4d 6h"),
-                new StatusMeter("Month", "12%", 0.12, 0.12, "Resets in 20d"),
-            }
-            : new[]
-            {
-                new StatusMeter("5h", "93%", 0.93, 0.93, "Resets in 1h 38m"),
-                new StatusMeter("Week", "31%", 0.31, 0.31, "Resets in 4d 6h"),
-            },
-        new("Tokens", "Today 131K", "131K", "This month 2.4M", "2.4M"),
-        new[] { new StatusPhrase("2 reset cards · synthetic preview", new[] { "2" }) });
-
     /// One moment's frames, printed and cropped to `crop` (DIPs), in rows of eight.
     private async Task Film(string path, Rect crop, Action trigger)
     {
@@ -641,30 +566,11 @@ internal sealed class HoverCardPreview : Window
         await strip.SaveAsync(path);
     }
 
-    private static StatusCard Card(int target) => target switch
+    /// 预览和 M3 拍片用的三张样卡：Claude 带子任务，Codex 一个等你批准、一个在跑，Kimi 一个在跑。
+    private StatusCard Card(int target) => target switch
     {
-        0 => new(DisplayProvider.Claude, "Claude", DrawerLooks.PhaseLabel(AgentPhase.Thinking), null,
-            StatusCards.Tasks(2),
-            new[] { new StatusMeter(L10n.Tr("5h"), "42%", 0.42, 0.42, L10n.TrFormat("Resets {0}", "2h 15m")) },
-            null, Array.Empty<StatusPhrase>()),
-        1 => new(DisplayProvider.Codex, "Codex", "Running commands", "Synthetic tool · build preview",
-            new("Tasks", "3 running", "3"),
-            new[]
-            {
-                new StatusMeter("5h", "67%", 0.67, 0.67, "Resets in 1h 40m"),
-                new StatusMeter("Week", "28%", 0.28, 0.28, "Resets in 4d 6h"),
-            },
-            new("Tokens", "Today 128K", "128K", "This month 2.4M", "2.4M"),
-            new[] { new StatusPhrase("2 reset cards · synthetic preview", new[] { "2" }) }),
-        _ => new(DisplayProvider.Kimi, "Kimi", "Waiting for your approval", "Synthetic permission prompt",
-            new("Tasks", "1 running", "1"),
-            new[]
-            {
-                new StatusMeter("5h", "19%", 0.19, 0.19, "Resets in 3h 10m"),
-                new StatusMeter("Week", "38%", 0.38, 0.38, "Resets in 5d 2h"),
-                new StatusMeter("Month", "54%", 0.54, 0.54, "Resets in 18d"),
-            },
-            new("Tokens", "Today 96K", "96K", "This month 1.8M", "1.8M"),
-            new[] { new StatusPhrase("Kimi Code 35% · Kimi app 19%", new[] { "35%", "19%" }) { Lead = "Month:" } }),
+        0 => WithSubtasks(),
+        1 => AllCodex(),
+        _ => KimiBusy(),
     };
 }

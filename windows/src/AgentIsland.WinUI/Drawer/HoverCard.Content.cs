@@ -1,4 +1,3 @@
-using AgentIsland.Core;
 using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
@@ -28,53 +27,83 @@ internal sealed partial class HoverCard
     // The room the content was built for.
     private Size _room;
 
+    // 正在构建的是 Pixel 卡时它的字号（量宽度之前就要套上像素字体），Classic 为 null。
+    private double? _face;
+
     /// The card's sections, divided. The all-agents card stands in one
     /// column while it fits the screen's height; past it, its sections run
     /// down one column and on to the next, in as few columns as fit, cut so
     /// the tallest is as short as it can be, each column as wide as one
-    /// character's card, with a divider between them.
+    /// character's card, with a divider between them. 全员卡的面板头和合计行横跨所有栏，不参与分栏。
     private void Build(Request request)
     {
         var pixel = request.Pixel;
         _body.Children.Clear();
-        _built = new();
-        _counting.Clear();
+        StopMarkers();
+        _reduced = request.ReducedMotion;
+        var size = PixelPlate.FontSize(FontScale(request.Scale));
+        _face = pixel ? size : null;
+        var states = new Dictionary<string, StatusTaskState>();
         var padding = pixel ? PixelPadding : PaperPadding;
         var column = (pixel ? PixelCardWidth : CardWidth) - padding.Left - padding.Right;
+        var single = request.Sections.Count == 1;
         var sections = request.Sections.Select(section =>
         {
-            var built = Section(section.Card, section.Swatch, pixel);
-            if (pixel) ApplyPixelFace(built, PixelPlate.FontSize(request.Scale));
+            var built = Section(section.Card, section.Swatch, pixel, single, column, states);
+            if (pixel) ApplyPixelFace(built, size);
             return built;
         }).ToList();
-        var columns = Columns(sections, column, pixel, Room(request));
+        _rowStates = states;
+        var head = request.Panel is { } panel && !single ? PanelHead(request, panel, column) : null;
+        var foot = request.Panel?.Total is { } total && !single ? TokenLine(total, 0, column, pixel, "tokens:total", 0) : null;
+        if (pixel)
+        {
+            if (head is not null) ApplyPixelFace(head, size);
+            if (foot is not null) ApplyPixelFace(foot, size);
+        }
+        var room = Room(request);
+        var chrome = 0.0;
+        foreach (var extra in new UIElement?[] { head, foot })
+        {
+            if (extra is null) continue;
+            extra.Measure(new Size(column, double.PositiveInfinity));
+            chrome += extra.DesiredSize.Height + 2 * 10 + 1;
+        }
+        var columns = Columns(sections, column, pixel, new Size(room.Width, Math.Max(0, room.Height - chrome)));
         _width = padding.Left + columns.Count * column + (columns.Count - 1) * Gutter(pixel) + padding.Right;
+        if (head is not null) _body.Children.Add(head);
         if (columns.Count == 1)
         {
             Stack(_body, sections, column, pixel);
-            _shares = _built;
-            return;
         }
-        var grid = new Grid();
-        var tallest = 0.0;
-        for (var c = 0; c < columns.Count; c++)
+        else
         {
-            if (c > 0) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gutter(pixel)) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(column) });
-            var stack = new StackPanel();
-            Stack(stack, columns[c], column, pixel);
-            Grid.SetColumn(stack, 2 * c);
-            grid.Children.Add(stack);
-            tallest = Math.Max(tallest, Tall(columns[c], pixel));
+            var grid = new Grid();
+            var tallest = 0.0;
+            for (var c = 0; c < columns.Count; c++)
+            {
+                if (c > 0) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gutter(pixel)) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(column) });
+                var stack = new StackPanel();
+                Stack(stack, columns[c], column, pixel);
+                Grid.SetColumn(stack, 2 * c);
+                grid.Children.Add(stack);
+                tallest = Math.Max(tallest, Tall(columns[c], pixel));
+            }
+            for (var c = 1; c < columns.Count; c++)
+            {
+                var rule = Rule(pixel, tallest);
+                Grid.SetColumn(rule, 2 * c - 1);
+                grid.Children.Add(rule);
+            }
+            _body.Children.Add(grid);
         }
-        for (var c = 1; c < columns.Count; c++)
+        if (foot is not null)
         {
-            var rule = Rule(pixel, tallest);
-            Grid.SetColumn(rule, 2 * c - 1);
-            grid.Children.Add(rule);
+            _body.Children.Add(Divider(pixel, _width - padding.Left - padding.Right));
+            _body.Children.Add(foot);
         }
-        _body.Children.Add(grid);
-        _shares = _built;
+        StartMarkers();
     }
 
     /// The sections in columns, as few as fit the room's height and width,
@@ -136,27 +165,27 @@ internal sealed partial class HoverCard
     {
         for (var i = 0; i < sections.Count; i++)
         {
-            if (i > 0)
-            {
-                panel.Children.Add(pixel
-                    ? new Line
-                    {
-                        X2 = width,
-                        StrokeThickness = PixelPlate.Cell,
-                        StrokeDashArray = new DoubleCollection { 1, 1 },
-                        Stroke = Res<Brush>("DividerStrokeColorDefaultBrush"),
-                        Margin = new Thickness(0, 9, 0, 9),
-                    }
-                    : new Rectangle
-                    {
-                        Height = 1,
-                        Fill = Res<Brush>("DividerStrokeColorDefaultBrush"),
-                        Margin = new Thickness(0, 10, 0, 10),
-                    });
-            }
+            if (i > 0) panel.Children.Add(Divider(pixel, width));
             panel.Children.Add(sections[i]);
         }
     }
+
+    /// The divider between sections: Pixel's dashed a cell thick, Classic's a hairline.
+    private static FrameworkElement Divider(bool pixel, double width) => pixel
+        ? new Line
+        {
+            X2 = width,
+            StrokeThickness = PixelPlate.Cell,
+            StrokeDashArray = new DoubleCollection { 1, 1 },
+            Stroke = Res<Brush>("DividerStrokeColorDefaultBrush"),
+            Margin = new Thickness(0, 9, 0, 9),
+        }
+        : new Rectangle
+        {
+            Height = 1,
+            Fill = Res<Brush>("DividerStrokeColorDefaultBrush"),
+            Margin = new Thickness(0, 10, 0, 10),
+        };
 
     /// The divider between columns, down the tallest: Pixel's dashed a cell
     /// wide on whole cells, Classic's a hairline.
@@ -180,6 +209,10 @@ internal sealed partial class HoverCard
             HorizontalAlignment = HorizontalAlignment.Center,
         };
 
+    // D6：Pixel 英文界面里任务名这一列用系统字体，像素字体画不了的中文标题照原样显示。
+    private const string SystemFace = "system-face";
+    private static readonly FontFamily SystemFont = new("Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI");
+
     /// Every line of a pixel panel in the pixel face, at a size that keeps
     /// its pixels whole. Weights stay regular: the face has no bold, and a
     /// synthetic one smears it; emphasis is the primary ink alone.
@@ -198,6 +231,11 @@ internal sealed partial class HoverCard
             case Border { Child: { } child }:
                 ApplyPixelFace(child, size);
                 break;
+            case TextBlock { Tag: SystemFace } name when !L10n.IsChinese:
+                // 系统字体有粗体：主对话名照 Classic 保留 SemiBold。
+                name.FontFamily = SystemFont;
+                name.FontSize = 12;
+                break;
             case TextBlock text:
                 text.FontFamily = PixelPlate.Font;
                 text.FontSize = size;
@@ -206,6 +244,19 @@ internal sealed partial class HoverCard
                 foreach (var inline in text.Inlines) inline.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
                 break;
         }
+    }
+
+    /// 量宽度之前先套上这张卡的字体：Pixel 的像素字体比系统字体宽。
+    private T Faced<T>(T element) where T : UIElement
+    {
+        if (_face is { } size) ApplyPixelFace(element, size);
+        return element;
+    }
+
+    private static double Wide(UIElement element)
+    {
+        element.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return element.DesiredSize.Width;
     }
 
     /// The plan as a small chip in the agent's tint, like the Settings
@@ -234,16 +285,34 @@ internal sealed partial class HoverCard
         };
     }
 
-    private UIElement Section(StatusCard card, uint swatch, bool pixel)
+    /// 一个 agent 的分段：头部一行（头像、名字、套餐，右边是额度或“空闲”），任务列表，
+    /// 警告，单角色卡再加 token 行。
+    private UIElement Section(StatusCard card, uint swatch, bool pixel, bool single, double column, Dictionary<string, StatusTaskState> states)
     {
         // Rows indent past the face; the pixel panel keeps whole cells.
         var indent = pixel ? 14.0 : 24.0;
-        var labelWidth = pixel ? PixelLabelWidth : LabelWidth;
-        var valueWidth = pixel ? PixelValueWidth : ValueWidth;
         var panel = new StackPanel();
-        // Marker, name and plan. Pixel follows them with the phase when it
-        // fits, else gives it the next line; Classic starts line 2 with it,
-        // since English phases rarely fit beside a name and plan at 264 DIP.
+        panel.Children.Add(Head(card, swatch, pixel, single, column));
+        if (card.TaskRows.Count > 0)
+        {
+            panel.Children.Add(Tasks(card.TaskRows, indent, column - indent, pixel, states));
+        }
+        else if (card.Loading)
+        {
+            panel.Children.Add(Caption(L10n.Tr("Reading sessions…"), "TextFillColorTertiaryBrush", new Thickness(indent, 8, 0, 0)));
+        }
+        if (card.Warnings.Count > 0) panel.Children.Add(Warnings(card.Warnings, indent, pixel));
+        if (single && card.Tokens is { } tokens)
+        {
+            panel.Children.Add(TokenLine(tokens, indent, column - indent, pixel, $"tokens:{(int)card.Provider}", card.TaskRows.Count > 0 ? 12 : 8));
+        }
+        return panel;
+    }
+
+    /// 头部一行。单角色卡右边是这一家的紧凑额度；没有任务时右边写“空闲”或应用不在的说法。
+    /// 放不下时先去掉套餐 chip，再只留用得更多的那个窗口（设计稿 §2.6）。
+    private FrameworkElement Head(StatusCard card, uint swatch, bool pixel, bool single, double column)
+    {
         var who = new StackPanel { Orientation = Orientation.Horizontal };
         who.Children.Add(pixel
             ? new Rectangle
@@ -266,184 +335,168 @@ internal sealed partial class HoverCard
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
         });
+        Border? chip = null;
         if (card.Plan is { Length: > 0 } plan)
         {
-            var chip = PlanChip(plan, swatch, pixel);
+            chip = PlanChip(plan, swatch, pixel);
             chip.Margin = new Thickness(6, 0, 0, 0);
             who.Children.Add(chip);
         }
-        // A phrase that breaks carries on about a space in (two whole cells
-        // under Pixel), so it reads as one.
-        const double carry = 4;
+        FrameworkElement? right = null;
+        StatusQuota? quota = null;
+        if (card.TaskRows.Count == 0 && !card.Loading)
+        {
+            right = Caption(card.Away ?? L10n.Tr("Idle"), "TextFillColorTertiaryBrush");
+        }
+        else if (single && card.Quota is { } own)
+        {
+            quota = own;
+            right = QuotaText(own, own.Windows, null, pixel);
+        }
+        var head = new Grid { ColumnSpacing = 8 };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Place(head, who, 0, 0);
+        if (right is null) return head;
+        Faced(who);
+        Faced(right);
+        bool Fits() => Wide(who) + 8 + Wide(right) <= column;
+        if (!Fits() && chip is not null) who.Children.Remove(chip);
+        if (!Fits() && quota is { Windows.Count: > 1, Busiest: { } busiest }) right = Faced(QuotaText(quota, new[] { busiest }, null, pixel));
+        right.VerticalAlignment = VerticalAlignment.Center;
+        right.HorizontalAlignment = HorizontalAlignment.Right;
+        Place(head, right, 0, 1);
+        return head;
+    }
+
+    /// 紧凑额度：“5h 38% · 周 61%”。标签用三级墨色，数字用二级（旧读数也用三级，Classic 后面加时钟图标），
+    /// 到 90% 的数字用 Critical（Classic 再加粗）。lead 是全员卡钉住的那家的名字。
+    private static TextBlock QuotaText(StatusQuota quota, IEnumerable<StatusQuotaWindow> windows, string? lead, bool pixel)
+    {
+        var text = new TextBlock { FontSize = pixel ? 12 : 11, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+        var label = Res<Brush>("TextFillColorTertiaryBrush");
+        if (lead is not null) text.Inlines.Add(new Run { Text = lead + " ", Foreground = label });
+        var first = true;
+        foreach (var window in windows)
+        {
+            if (!first) text.Inlines.Add(new Run { Text = " · ", Foreground = label });
+            first = false;
+            text.Inlines.Add(new Run { Text = window.Label + " ", Foreground = label });
+            var value = new Run
+            {
+                Text = window.Value,
+                Foreground = window.Warn ? Ink("Critical")
+                    : Res<Brush>(quota.Stale || window.Used is null ? "TextFillColorTertiaryBrush" : "TextFillColorSecondaryBrush"),
+            };
+            if (window.Warn && !pixel) value.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            text.Inlines.Add(value);
+        }
+        if (quota.Stale && !pixel)
+        {
+            text.Inlines.Add(new Run { Text = " ", FontFamily = Icons, FontSize = 10, Foreground = label });
+        }
+        return text;
+    }
+
+    private static readonly FontFamily Icons = new("Segoe Fluent Icons,Segoe MDL2 Assets");
+
+    /// 全员卡的面板头：左边是汇总（有出错的用 Critical 色，有等你的用 Caution 色），右边是钉住的额度。
+    /// 放不下时汇总只留最紧急的一段，再放不下额度只留用得更多的窗口。
+    private FrameworkElement PanelHead(Request request, HoverCardPanel panel, double width)
+    {
+        var rows = request.Sections.SelectMany(section => section.Card.TaskRows).ToList();
+        var tally = StatusTaskRows.Tally(rows);
+        TextBlock Summary(bool urgentOnly)
+        {
+            var text = Caption(StatusTaskRows.Summary(rows, urgentOnly), "TextFillColorSecondaryBrush");
+            if (tally.Errors > 0) text.Foreground = Ink("Critical");
+            else if (tally.Waiting > 0) text.Foreground = Ink("Caution");
+            return Faced(text);
+        }
+        var head = new Grid { ColumnSpacing = 8, Margin = new Thickness(0, 0, 0, 10) };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var left = Summary(false);
+        if (panel.Pinned is { } quota)
+        {
+            var right = Faced(QuotaText(quota, quota.Windows, panel.PinnedName, request.Pixel));
+            if (Wide(left) + 8 + Wide(right) > width) left = Summary(true);
+            if (Wide(left) + 8 + Wide(right) > width && quota is { Windows.Count: > 1, Busiest: { } busiest })
+            {
+                right = Faced(QuotaText(quota, new[] { busiest }, panel.PinnedName, request.Pixel));
+            }
+            right.HorizontalAlignment = HorizontalAlignment.Right;
+            Place(head, right, 0, 1);
+        }
+        Place(head, left, 0, 0);
+        return head;
+    }
+
+    /// 留在卡上的 agent 警告：图标加二级墨色的文字，可以折行。不用红色，这不是任务出错。
+    private static FrameworkElement Warnings(IReadOnlyList<string> warnings, double indent, bool pixel)
+    {
+        var line = new Grid { Margin = new Thickness(indent, 8, 0, 0), ColumnSpacing = 6 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        FrameworkElement sign;
         if (pixel)
         {
-            var head = PhraseFlow.Of(new FrameworkElement[] { who, Phrase(card.Phase, "TextFillColorSecondaryBrush", carry, 13) },
-                () => Separator("TextFillColorSecondaryBrush", 13), hang: indent);
-            head.BreakFirst = _phaseBelow.Contains(card.Provider);
-            head.Broke = () => _phaseBelow.Add(card.Provider);
-            panel.Children.Add(head);
-            if (card.Detail is { } detail)
-            {
-                panel.Children.Add(Flow(Parts(detail).Select(part => Phrase(part, "TextFillColorTertiaryBrush", carry)), "TextFillColorTertiaryBrush", new Thickness(indent, 1, 0, 0)));
-            }
+            var icon = PixelIcons.Icon("warning");
+            icon.Foreground = Res<Brush>("TextFillColorSecondaryBrush");
+            sign = icon;
         }
         else
         {
-            panel.Children.Add(who);
-            // The phase, then the detail's parts; what doesn't fit moves to the next line.
-            var status = new List<FrameworkElement> { Phrase(card.Phase, "TextFillColorPrimaryBrush", carry) };
-            if (card.Detail is { } detail) status.AddRange(Parts(detail).Select(part => Phrase(part, "TextFillColorSecondaryBrush", carry)));
-            panel.Children.Add(Flow(status, "TextFillColorSecondaryBrush", new Thickness(indent, 1, 0, 0)));
+            sign = new FontIcon { Glyph = "", FontSize = 12, FontFamily = Icons, Foreground = Res<Brush>("TextFillColorSecondaryBrush") };
         }
-
-        // Fixed label and value columns line the rows up across sections.
-        var top = 7.0;
-        if (card.Tasks is { } tasks)
-        {
-            var line = Line(top, indent, labelWidth);
-            Place(line, Caption(tasks.Label, "TextFillColorSecondaryBrush"), 0, 0);
-            Place(line, Emphasised(tasks.Text, tasks.Number), 0, 1);
-            panel.Children.Add(line);
-            top = 4;
-        }
-        if (card.Waiting.Rows.Count > 0)
-        {
-            panel.Children.Add(WaitingList(card.Waiting, indent, top, pixel));
-            top = 4;
-        }
-        var meters = new Grid { Margin = new Thickness(indent, top, 0, 0), RowSpacing = 6, ColumnSpacing = 8 };
-        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
-        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        meters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(valueWidth) });
-        var row = 0;
-        foreach (var meter in card.Meters)
-        {
-            meters.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var warn = meter.Used >= 0.9;
-            Place(meters, Caption(meter.CardLabel, "TextFillColorSecondaryBrush"), row, 0);
-            FrameworkElement bar = pixel
-                ? new PixelBar { VerticalAlignment = VerticalAlignment.Center }
-                : new QuotaBar(6) { VerticalAlignment = VerticalAlignment.Center };
-            Place(meters, bar, row, 1);
-            var value = Caption(meter.Value, warn ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
-            value.HorizontalAlignment = HorizontalAlignment.Right;
-            if (warn && !pixel) value.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-            Place(meters, value, row, 2);
-            Count((IQuotaBar)bar, bar, value, $"{(int)card.Provider}|{meter.Label}", meter, warn, Brand.Rgb(swatch), pixel);
-            row++;
-        }
-        if (row > 0)
-        {
-            panel.Children.Add(meters);
-            top = 4;
-        }
-        if (card.Tokens is { } tokens)
-        {
-            var line = new Grid { Margin = new Thickness(indent, top, 0, 0), ColumnSpacing = 8, RowSpacing = 2 };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(valueWidth) });
-            line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var label = Caption(tokens.Label, "TextFillColorSecondaryBrush");
-            label.VerticalAlignment = VerticalAlignment.Top;
-            Grid.SetRowSpan(label, 2);
-            Place(line, label, 0, 0);
-            if (tokens.TodayNumber.Length == 0)
-            {
-                var pending = Caption(tokens.Today, "TextFillColorTertiaryBrush");
-                Grid.SetColumnSpan(pending, 2);
-                Place(line, pending, 0, 1);
-            }
-            else
-            {
-                Place(line, Caption(L10n.Tr("Today"), "TextFillColorSecondaryBrush"), 0, 1);
-                Place(line, Caption(L10n.Tr("This month"), "TextFillColorSecondaryBrush"), 1, 1);
-                var today = Emphasised(tokens.TodayNumber, tokens.TodayNumber);
-                today.HorizontalAlignment = HorizontalAlignment.Right;
-                Place(line, today, 0, 2);
-                var month = Emphasised(tokens.MonthNumber, tokens.MonthNumber);
-                month.HorizontalAlignment = HorizontalAlignment.Right;
-                Place(line, month, 1, 2);
-            }
-            panel.Children.Add(line);
-        }
-        if (card.Note.Count > 0)
-        {
-            // The notes flow, but for one with a lead: its lead on a line,
-            // each of its parts on a line under it.
-            var notes = new StackPanel { Margin = new Thickness(indent, pixel ? 5 : 6, 0, 0) };
-            var run = new List<FrameworkElement>();
-            void EndRun()
-            {
-                if (run.Count > 0) notes.Children.Add(Flow(run, "TextFillColorTertiaryBrush", default));
-                run = new List<FrameworkElement>();
-            }
-            foreach (var note in card.Note)
-            {
-                var parts = Parts(note.Text).Select(part => Phrase(part, "TextFillColorTertiaryBrush", carry, numbers: note.Numbers));
-                if (note.Lead is not { } lead)
-                {
-                    run.AddRange(parts);
-                    continue;
-                }
-                EndRun();
-                notes.Children.Add(Phrase(lead, "TextFillColorTertiaryBrush", carry));
-                foreach (var part in parts) notes.Children.Add(part);
-            }
-            EndRun();
-            panel.Children.Add(notes);
-        }
-        return panel;
+        sign.VerticalAlignment = VerticalAlignment.Top;
+        sign.Margin = new Thickness(0, 2, 0, 0);
+        Place(line, sign, 0, 0);
+        var text = Caption(string.Join(" · ", warnings), "TextFillColorSecondaryBrush");
+        text.TextTrimming = TextTrimming.None;
+        text.TextWrapping = TextWrapping.Wrap;
+        Place(line, text, 0, 1);
+        return line;
     }
 
-    /// The sessions that wait on the user: a title and what it waits for on
-    /// each row. A title is the user's own text, so it trims after two lines
-    /// rather than flows.
-    private static StackPanel WaitingList(StatusWaitingList waiting, double indent, double top, bool pixel)
+    /// Token 行：先试一行“今天 1.2M · 本月 38.4M”，放不下就回退成两行（今天、本月各一行，
+    /// 数字右对齐）。回退过的在卡关闭前保持两行。
+    private FrameworkElement TokenLine(StatusTokens tokens, double indent, double width, bool pixel, string id, double top)
     {
-        var list = new StackPanel { Margin = new Thickness(indent, top, 0, 0), Spacing = 2 };
-        foreach (var row in waiting.Rows)
-        {
-            var line = new Grid { ColumnSpacing = 8 };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var title = Caption(row.Title, "TextFillColorSecondaryBrush");
-            title.TextWrapping = TextWrapping.Wrap;
-            title.MaxLines = 2;
-            Place(line, title, 0, 0);
-            var word = Caption(row.Word, row.Kind == SessionEventKind.Error ? "SystemFillColorCriticalBrush" : "TextFillColorTertiaryBrush");
-            if (!pixel)
-            {
-                // Classic's words are coloured by what they ask for.
-                word.Foreground = row.Kind switch
-                {
-                    SessionEventKind.Approval => ClassicTokens.Brush("Caution", _dark),
-                    SessionEventKind.Question => ClassicTokens.Brush("AccentText", _dark),
-                    SessionEventKind.Error or SessionEventKind.TaskSkipped => ClassicTokens.Brush("Critical", _dark),
-                    _ => ClassicTokens.Brush("Text2", _dark),
-                };
-                title.Foreground = ClassicTokens.Brush("Text", _dark);
-            }
-            word.HorizontalAlignment = HorizontalAlignment.Right;
-            word.VerticalAlignment = VerticalAlignment.Top;
-            Place(line, word, 0, 1);
-            list.Children.Add(line);
-        }
-        if (waiting.More > 0)
-        {
-            list.Children.Add(Caption(string.Format(L10n.Tr("+{0} more"), waiting.More), pixel ? "TextFillColorSecondaryBrush" : "TextFillColorTertiaryBrush"));
-        }
-        return list;
-    }
-
-    /// A label column, a stretching value and an end-aligned value.
-    private static Grid Line(double top, double indent, double labelWidth)
-    {
-        var line = new Grid { Margin = new Thickness(indent, top, 0, 0), ColumnSpacing = 8 };
+        var labelWidth = pixel ? PixelLabelWidth : LabelWidth;
+        var line = new Grid { Margin = new Thickness(indent, top, 0, 0), ColumnSpacing = 8, RowSpacing = 2 };
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var label = Caption(tokens.Label, "TextFillColorSecondaryBrush");
+        label.VerticalAlignment = VerticalAlignment.Top;
+        Place(line, label, 0, 0);
+        if (tokens.TodayNumber.Length == 0)
+        {
+            Place(line, Caption(tokens.Today, "TextFillColorTertiaryBrush"), 0, 1);
+            return line;
+        }
+        if (!_shortened.Contains(id))
+        {
+            var one = Faced(Emphasised($"{tokens.Today} · {tokens.Month}", tokens.TodayNumber, tokens.MonthNumber));
+            if (Wide(one) <= width - labelWidth - 8)
+            {
+                Place(line, one, 0, 1);
+                return line;
+            }
+            _shortened.Add(id);
+        }
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(pixel ? PixelValueWidth : ValueWidth) });
+        line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        line.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRowSpan(label, 2);
+        Place(line, Caption(L10n.Tr("Today"), "TextFillColorSecondaryBrush"), 0, 1);
+        Place(line, Caption(L10n.Tr("This month"), "TextFillColorSecondaryBrush"), 1, 1);
+        var today = Emphasised(tokens.TodayNumber, tokens.TodayNumber);
+        today.HorizontalAlignment = HorizontalAlignment.Right;
+        Place(line, today, 0, 2);
+        var month = Emphasised(tokens.MonthNumber, tokens.MonthNumber);
+        month.HorizontalAlignment = HorizontalAlignment.Right;
+        Place(line, month, 1, 2);
         return line;
     }
 
@@ -452,36 +505,6 @@ internal sealed partial class HoverCard
         Grid.SetRow(element, row);
         Grid.SetColumn(element, column);
         grid.Children.Add(element);
-    }
-
-    /// A meter's bar and value. A card refreshing in place counts them from
-    /// what it showed before (M4), once the new bar is on screen; otherwise
-    /// they show their share at once.
-    private void Count(IQuotaBar bar, FrameworkElement element, TextBlock value, string key, StatusMeter meter, bool warn, Windows.UI.Color color, bool pixel)
-    {
-        var share = meter.Shown ?? 0;
-        _built[key] = (share, warn);
-        if (!_recount || meter.Shown is null || !_shares.TryGetValue(key, out var was) || Math.Abs(was.Share - share) < 0.0005)
-        {
-            bar.Set(meter.Shown, color, warn, _dark);
-            return;
-        }
-        void Follow(double shown, bool warning)
-        {
-            value.Text = QuotaCount.Percent(shown, share, meter.Value);
-            value.Foreground = Res<Brush>(warning ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
-            if (!pixel) value.FontWeight = warning ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-        }
-        bar.Set(was.Share, color, was.Warn, _dark);
-        Follow(was.Share, was.Warn);
-        _counting.Add(value);
-        RoutedEventHandler? loaded = null;
-        loaded = (_, _) =>
-        {
-            element.Loaded -= loaded;
-            bar.Set(meter.Shown, color, warn, _dark, Follow);
-        };
-        element.Loaded += loaded;
     }
 
     private static TextBlock Caption(string text, string brush, Thickness margin = default) => new()
@@ -493,43 +516,10 @@ internal sealed partial class HoverCard
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    /// Details and notes carry warnings (a dropped connection, stale quota):
-    /// their phrases flow whole from line to line, never shortened.
-    private static PhraseFlow Flow(IEnumerable<FrameworkElement> phrases, string separator, Thickness margin)
-    {
-        var flow = PhraseFlow.Of(phrases.ToList(), () => Separator(separator));
-        flow.Margin = margin;
-        return flow;
-    }
-
-    /// One phrase as its words, its numbers lifted to primary ink: whole
-    /// where a line holds it, else breaking only at its spaces, carrying on
-    /// a step in; a word longer than a line breaks inside.
-    private static PhraseFlow Phrase(string text, string brush, double carry, double size = 12, IReadOnlyList<string>? numbers = null) =>
-        PhraseFlow.Words(PhraseFlow.SplitWords(text).Select(word =>
-        {
-            var block = new TextBlock { FontSize = size, Foreground = Res<Brush>(brush), TextWrapping = TextWrapping.Wrap };
-            Append(block, word, numbers?.Where(word.Contains).ToList() ?? new List<string>());
-            return block;
-        }), carry);
-
-    private static TextBlock Separator(string brush, double size = 12) => new()
-    {
-        // Room as margins: a text block measures without trailing spaces.
-        Text = "·",
-        Margin = new Thickness(4, 0, 4, 0),
-        FontSize = size,
-        Foreground = Res<Brush>(brush),
-    };
-
-    /// A detail's or a note's parts, as they are joined ("Cursor · Bash").
-    private static IEnumerable<string> Parts(string detail) =>
-        detail.Split(" · ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
     /// A tertiary phrase whose numbers are lifted to primary ink.
     private static TextBlock Emphasised(string phrase, params string[] numbers)
     {
-        var text = new TextBlock { FontSize = 12, Foreground = Res<Brush>("TextFillColorTertiaryBrush") };
+        var text = new TextBlock { FontSize = 12, Foreground = Res<Brush>("TextFillColorTertiaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis };
         Append(text, phrase, numbers);
         return text;
     }
@@ -566,4 +556,7 @@ internal sealed partial class HoverCard
         "DividerStrokeColorDefaultBrush" => ClassicTokens.Brush("LineSoft", _dark),
         _ => null,
     };
+
+    /// 状态色（Caution、Critical、Success）取这套外观自己的 token。
+    private static SolidColorBrush Ink(string token) => _paperInk ? ClassicTokens.Brush(token, _dark) : PixelTokens.Brush(token, _dark);
 }

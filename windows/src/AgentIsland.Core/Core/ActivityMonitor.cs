@@ -92,12 +92,22 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
     /// Windows has reported no internet for a while.
     public bool IsOffline { get; private set; }
 
+    /// 上一次扫描得到的平铺会话（每个会话只留最新的一份），悬浮卡的任务列表从这里取。
+    public IReadOnlyList<ScannedSession> Sessions { get; private set; } = Array.Empty<ScannedSession>();
+
+    /// 没在空闲的会话此刻在做什么，按 ScannedSession.Id。
+    public IReadOnlyDictionary<string, PhaseReading> Phases { get; private set; } = new Dictionary<string, PhaseReading>();
+
+    /// 至少完成过一次扫描。
+    public bool HasScanned { get; private set; }
+
     /// Test seams: the scan each tick runs, and the task that applies its result.
     internal Func<DateTimeOffset, IReadOnlyDictionary<string, DateTimeOffset>, List<ScannedSession>> Scanner { get; set; } =
         SessionScanner.MonitoringScan;
     /// 测试缝：哪些 agent 已经没有进程。默认读真实进程表；测试里换掉，免得结果取决于这台机器开着什么。
     internal Func<IReadOnlySet<TriggerTool>> GoneProcesses { get; set; } = AgentProcesses.Gone;
     internal Func<IReadOnlySet<TriggerTool>> GoneDesktopApps { get; set; } = AgentProcesses.DesktopGone;
+    internal Func<TriggerTool, string, DateTimeOffset, PhaseReading?> ClassifyPhase { get; set; } = CachedPhase.Classify;
     internal Task? LastScan { get; private set; }
 
     private UiTimer? _timer;
@@ -196,7 +206,8 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                 var scanned = CoreProfile.Time("scan: all agents", () => Scanner(now, lastWorkingSnapshot));
                 var sessions = CoreProfile.Time("scan: prepare and settle", () => Settle(PrepareSessions(scanned, now), gone, offline, desktopGone));
                 var surfaces = CoreProfile.Time("scan: entries", AgentSurfaces.ReadNow);
-                return new Scan(sessions, offline, CoreProfile.Time("scan: session events", () => _events.Observe(sessions, now)), surfaces);
+                var observed = CoreProfile.Time("scan: session events", () => _events.Observe(sessions, now));
+                return new Scan(sessions, offline, observed, surfaces, CoreProfile.Time("scan: phases", () => PhasesOf(sessions, now, ClassifyPhase)));
             })
             .ContinueWith(task =>
             {
@@ -211,6 +222,9 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
                         var scan = task.Result;
                         IsOffline = scan.Offline;
                         if (scan.Surfaces is { } surfaces) AgentSurfaces.Shared.Observe(surfaces);
+                        Sessions = scan.Sessions;
+                        Phases = scan.Phases;
+                        HasScanned = true;
                         Apply(scan.Sessions, now);
                         var waitingChanged = !SameWaiting(Waiting, scan.Observed.Waiting);
                         Waiting = scan.Observed.Waiting;
@@ -236,7 +250,23 @@ public sealed class ActivityMonitor : INotifyPropertyChanged
             }, UiThread.Scheduler);
     }
 
-    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed, AgentSurfaces.Reading? Surfaces);
+    private sealed record Scan(List<ScannedSession> Sessions, bool Offline, SessionObservation Observed, AgentSurfaces.Reading? Surfaces,
+        IReadOnlyDictionary<string, PhaseReading> Phases);
+
+    /// 每个没在空闲的会话此刻在做什么。读的是同一个按文件变动缓存的结果，
+    /// “轮到你”的检测这一轮已经读过，所以几乎不花额外的读。
+    internal static IReadOnlyDictionary<string, PhaseReading> PhasesOf(
+        IEnumerable<ScannedSession> sessions, DateTimeOffset now, Func<TriggerTool, string, DateTimeOffset, PhaseReading?> classify)
+    {
+        var phases = new Dictionary<string, PhaseReading>(StringComparer.Ordinal);
+        foreach (var session in sessions)
+        {
+            if (session.Status is not (ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou)
+                || session.TranscriptPath is not { } path) continue;
+            if (classify(session.Tool, path, now) is { } reading) phases[session.Id] = reading;
+        }
+        return phases;
+    }
 
     internal static List<ScannedSession> PrepareSessions(IEnumerable<ScannedSession> sessions, DateTimeOffset now)
     {

@@ -59,19 +59,14 @@ internal sealed partial class HoverCard : IDisposable
     // The moment playing (M3), and the old content fading out in a switch.
     private UiMoment? _motion;
     private Border? _outgoing;
-    // The agents whose phase has needed a line of its own (Pixel) since the
-    // card opened: it keeps the line until the card closes, so the card
-    // doesn't gain and lose a line as phases come and go.
-    private readonly HashSet<DisplayProvider> _phaseBelow = new();
+    // 第二行放不下完整说法、改用短词的任务，和回退成两行的 token 行：卡关闭前不再变回去，
+    // 免得说法一换卡就跟着长一行、缩一行。
+    private readonly HashSet<string> _shortened = new();
+    // 上次构建时各任务行的状态，用来认出“刚进入等你”，只在这时播一次入场。
+    private Dictionary<string, StatusTaskState> _rowStates = new();
     // The texts a Classic refresh is swapping in (M4), with their own margins.
     private readonly List<(FrameworkElement Text, Thickness Margin)> _swapping = new();
 
-    // M4: each meter's share as the card last showed it, to count from when
-    // the card refreshes in place; the values counting now.
-    private Dictionary<string, (double Share, bool Warn)> _shares = new();
-    private Dictionary<string, (double Share, bool Warn)> _built = new();
-    private readonly HashSet<UIElement> _counting = new();
-    private bool _recount;
     private int _generation;
     private bool _closing;
     private bool _animating;
@@ -100,7 +95,7 @@ internal sealed partial class HoverCard : IDisposable
     private sealed record Request(
         IReadOnlyList<(StatusCard Card, uint Swatch)> Sections, bool Pixel,
         bool CharacterRight, Rect Anchor, Rect Area, bool ReducedMotion,
-        double Scale, bool Dark, string Key, string Identity);
+        double Scale, bool Dark, string Key, string Identity, HoverCardPanel? Panel);
 
     internal double DebugDurationScale { get; set; } = 1;
 
@@ -150,6 +145,16 @@ internal sealed partial class HoverCard : IDisposable
     /// Open and not on its way out.
     public bool IsOpen => _popup.IsOpen && !_closing;
 
+    /// 卡此刻盖住了这个点（抽屉窗口的 DIP）。卡本身不接指针，D5 靠它判断指针停在卡上。
+    public bool Covers(Point point) => IsOpen && _bounds.Contains(point);
+
+    /// AGENTISLAND_DEBUG_PIXEL_SCALE=1.25：Pixel 的字号按这个缩放挑，在别的缩放下看 125% 的最坏情况。
+    private static readonly double? DebugPixelScale =
+        double.TryParse(Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_PIXEL_SCALE"), System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var scale) && scale > 0 ? scale : null;
+
+    private static double FontScale(double scale) => DebugPixelScale ?? scale;
+
     /// The card's content, for the verification snapshot.
     public UIElement Visual => _host;
 
@@ -169,7 +174,8 @@ internal sealed partial class HoverCard : IDisposable
     /// draws the pixel panel instead of the paper.
     /// The transparent popup is a staging area; plate and content move as
     /// one element within it, without moving a native window on every frame.
-    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion)
+    public void Show(IReadOnlyList<(StatusCard Card, uint Swatch)> sections, bool pixel, bool characterRight, Rect anchor, Rect area, bool reducedMotion,
+        HoverCardPanel? panel = null)
     {
         var started = Stopwatch.GetTimestamp();
         _requests++;
@@ -180,8 +186,8 @@ internal sealed partial class HoverCard : IDisposable
             _popup.XamlRoot = xamlRoot;
             var dark = Brand.IsDark();
             var request = new Request(sections.ToArray(), pixel, characterRight, anchor, area, reducedMotion,
-                xamlRoot.RasterizationScale, dark, HoverCardContentKey.Create(sections, dark, pixel, xamlRoot.RasterizationScale),
-                string.Join(",", sections.Select(s => (int)s.Card.Provider)));
+                xamlRoot.RasterizationScale, dark, HoverCardContentKey.Create(sections, dark, pixel, FontScale(xamlRoot.RasterizationScale), panel),
+                string.Join(",", sections.Select(s => (int)s.Card.Provider)), panel);
             if (_displayed is { } before && !SameFrame(before, request)) Hide();
             if (!_popup.IsOpen)
             {
@@ -208,15 +214,13 @@ internal sealed partial class HoverCard : IDisposable
                 return;
             }
             // M4: the same card with new content. Classic glides and swaps
-            // what changed; the meters count in both looks.
+            // what changed.
             if (!request.Pixel && !request.ReducedMotion)
             {
                 Refresh(request);
                 return;
             }
-            _recount = true;
             Present(request);
-            _recount = false;
             Rest();
         }
         finally { _lastShowMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds; }
@@ -452,7 +456,11 @@ internal sealed partial class HoverCard : IDisposable
     {
         _generation++;
         _popup.IsOpen = false;
-        _phaseBelow.Clear();
+        // 标记动画（和减少动效的开关）只在构建时启动：关掉以后再打开同样的内容也要重建。
+        _contentKey = null;
+        _shortened.Clear();
+        _rowStates = new();
+        StopMarkers();
         Rest();
         _closing = _animating = false;
         _refresh = null;

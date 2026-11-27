@@ -19,6 +19,7 @@ public static class DrawerPresentationTests
             ("the Agents page lists the shown in order, the rest below", TestLineup),
             ("pixel card rebuilds across DPI changes", TestPixelScale),
             ("glass card keeps its DPI-independent content cache", TestGlassScale),
+            ("the card rebuilds for its task rows, not for notes it no longer shows", TestTaskKey),
         };
         foreach (var (name, test) in tests)
         {
@@ -121,6 +122,20 @@ public static class DrawerPresentationTests
         var moved = HoverCardContentKey.Create(Sections, false, true, 1.5);
         Expect(first != moved, "identical data at a new DPI cannot reuse old pixel fonts and measurements");
         Expect(first == HoverCardContentKey.Create(Sections, false, true, 1), "returning to the original DPI is stable");
+    }
+
+    /// 任务行的状态一变卡就重建；卡上已不显示的 note（“N 分钟前更新”）变了不重建。
+    private static void TestTaskKey()
+    {
+        var card = Sections[0].Card with
+        {
+            TaskRows = new[] { new StatusTaskRow("a", StatusRowKind.Task, 0, "Refactor", StatusTaskState.Running, "Editing") { Activity = "Editing code" } },
+        };
+        string Key(StatusCard c, HoverCardPanel? panel = null) => HoverCardContentKey.Create(new[] { (c, 0x3388FFu) }, false, false, 1, panel);
+        var before = Key(card);
+        Expect(before != Key(card with { TaskRows = new[] { card.TaskRows[0] with { State = StatusTaskState.NeedsYou } } }), "a row that changes state rebuilds");
+        Expect(before == Key(card with { Note = new[] { new StatusPhrase("Quota updated 3 min ago", Array.Empty<string>()) } }), "a note the card no longer shows does not rebuild");
+        Expect(before != Key(card, new HoverCardPanel(null, "Claude", null)), "the all-agents panel is part of the key");
     }
 
     private static void TestGlassScale() =>

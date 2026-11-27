@@ -191,8 +191,8 @@ internal sealed partial class HoverCard
     /// tail over 250 ms on inOut; each text that changed fades out over 83 ms
     /// as its new reading fades in after it over 167, settling 3 DIP, while
     /// its block eases from its old height to its new one with the paper, so
-    /// the rows below glide and the bottom padding holds. The meters count by
-    /// themselves. Content laid out anew cross-fades whole. Either way, while
+    /// the rows below glide and the bottom padding holds. Content laid out
+    /// anew cross-fades whole. Either way, while
     /// the paper glides, the content stays inside it, clear of its padding.
     private void Refresh(Request request)
     {
@@ -204,9 +204,7 @@ internal sealed partial class HoverCard
         // Read before the old content leaves the card, which resets its sizes.
         var olds = Texts(_body).Select(text => (Text: text, Slot: text.DesiredSize.Height)).ToList();
         var outgoing = Detach();
-        _recount = true;
         Present(request);
-        _recount = false;
         if (Math.Abs(_width - width) > 0.5)
         {
             // The all-agents card gained or lost a column: it swaps at once.
@@ -229,7 +227,7 @@ internal sealed partial class HoverCard
             for (var i = 0; i < olds.Count; i++)
             {
                 var (old, fresh) = (olds[i].Text, news[i]);
-                if (Said(old) == Said(fresh) || _counting.Contains(fresh)) continue;
+                if (Said(old) == Said(fresh)) continue;
                 swaps.Add((old, fresh, olds[i].Slot, fresh.DesiredSize.Height, fresh.Margin));
             }
             // A change in height the changed texts don't account for is a new layout.

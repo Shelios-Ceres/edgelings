@@ -273,6 +273,8 @@ internal sealed partial class DrawerWindow : Window
         ActivityMonitor.Shared.WaitingChanged += RefreshCard;
         _subscriptions.Add(() => ActivityMonitor.Shared.WaitingChanged -= RefreshCard);
         Watch(UsageStore.Shared, RefreshCard);
+        // 每次扫描后：子任务的状态和“刚完成”的到期都不会改角色的 phase，卡要自己跟上。
+        Watch(ActivityMonitor.Shared, RefreshCard);
         Watch(KimiUsageStore.Shared, RefreshCard);
         Watch(QuotaDisplayModeStore.Shared, RefreshCard);
         Watch(TokenCountModeStore.Shared, RefreshCard);
