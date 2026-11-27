@@ -265,7 +265,7 @@ enum UIStrings {
         "Startup", "Launch at login", "Language", "App language", "English", "About", "Thanks", "Crash log", "Open folder", "Quit Limen", "Quit",
         "Today", "This month", "On", "Off", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
         "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price", "free",
-        "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
+        "Tokens per hour (unpriced)", "Tokens per day (unpriced)", "Models", "Models, last 5 hours", "No sessions in this period",
         "Look",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",
         "Permission hook", "Not detected", "{0}. What {1} wears in the drawer, on its card and in menus", "Models, last 5 hours", "{0} · Local time zone: {1}", "Today starts at this computer's midnight. Previous days stay in history.",

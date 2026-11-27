@@ -336,7 +336,7 @@ public static class StatusCards
     public static string? Note(DisplayProvider provider) =>
         NoteParts(provider) is { Count: > 0 } parts ? string.Join(" · ", parts.Select(p => p.Line)) : null;
 
-    private static IReadOnlyList<StatusPhrase> KimiNote()
+    public static IReadOnlyList<StatusPhrase> KimiNote()
     {
         if (KimiUsageStore.Shared.Snapshot is not { } snapshot) return Array.Empty<StatusPhrase>();
         var parts = new List<StatusPhrase>();

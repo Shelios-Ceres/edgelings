@@ -401,7 +401,7 @@ internal sealed class AgentSection
         return Brand.Rgb(Brand.Readable(DrawerLooks.Swatch(_provider, DrawerStore.Shared.Theme), Brand.IsDark()));
     }
 
-    private static string MeterTitle(string label) => label switch
+    internal static string MeterTitle(string label) => label switch
     {
         _ when label == L10n.Tr("5h") => L10n.Tr("5-hour window"),
         _ when label == L10n.Tr("Week") => L10n.Tr("Weekly window"),

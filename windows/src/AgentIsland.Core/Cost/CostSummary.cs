@@ -6,6 +6,55 @@ public sealed record DailyTokenBucket(DateTimeOffset DayStart, long Tokens, long
 
 public sealed record ModelSpend(string Model, long Tokens, long BillableTokens, double Dollars)
 {
+    /// Tokens 拆成四类：输入（不含缓存）、输出、写入缓存、读取缓存。
+    public long InputTokens { get; init; }
+    public long OutputTokens { get; init; }
+    public long CacheCreationTokens { get; init; }
+    public long CacheReadTokens { get; init; }
+
+    /// 没有价格的调用的 token 数（价格表查不到，日志也没自带金额）。
+    /// 这些调用不进 Dollars，也就不进任何合计金额。
+    public long UnpricedTokens { get; init; }
+
+    /// 全部调用都没有价格：界面写“未定价”，不写 $0。
+    public bool Unpriced => Tokens > 0 && UnpricedTokens >= Tokens;
+
+    /// 一部分调用没有价格：Dollars 只是有价格那部分的金额。
+    public bool PartlyUnpriced => UnpricedTokens > 0 && UnpricedTokens < Tokens;
+
+    /// 几行加成一行（一个 agent 一个时段的合计），Model 为空。
+    public static ModelSpend Total(IEnumerable<ModelSpend> models)
+    {
+        long tokens = 0, billable = 0, input = 0, output = 0, creation = 0, read = 0, unpriced = 0;
+        double dollars = 0;
+        foreach (var model in models)
+        {
+            tokens += model.Tokens;
+            billable += model.BillableTokens;
+            dollars += model.Dollars;
+            input += model.InputTokens;
+            output += model.OutputTokens;
+            creation += model.CacheCreationTokens;
+            read += model.CacheReadTokens;
+            unpriced += model.UnpricedTokens;
+        }
+        return new ModelSpend("", tokens, billable, dollars)
+        {
+            InputTokens = input,
+            OutputTokens = output,
+            CacheCreationTokens = creation,
+            CacheReadTokens = read,
+            UnpricedTokens = unpriced,
+        };
+    }
+
+    /// 合计金额：只加有价格的部分；没有一行带价格时为 null（不是 0）。
+    public static double? PricedDollars(IEnumerable<ModelSpend> models)
+    {
+        var list = models.ToList();
+        return list.Any(model => model.Tokens > model.UnpricedTokens) ? list.Sum(model => model.Dollars) : null;
+    }
+
     /// Largest first by the page's token mode: billable (input + output) or
     /// wire (all tokens). The summary's own lists stay sorted by billable.
     public static List<ModelSpend> Ranked(IEnumerable<ModelSpend> models, bool billable) =>
@@ -91,7 +140,7 @@ public static class CostSummarizer
         var billableBuckets = new long[dayCount];
         var dollarBuckets = new double[dayCount];
         double dollars = 0;
-        var byModel = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
+        var byModel = new Dictionary<string, Tally>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var tokenEvent in events)
         {
@@ -105,11 +154,7 @@ public static class CostSummarizer
                 dollarBuckets[dayOffset] += tokenEvent.Dollars;
             }
             dollars += tokenEvent.Dollars;
-            var model = Pricing.CanonicalModelName(tokenEvent.Model);
-            byModel.TryGetValue(model, out var entry);
-            byModel[model] = (entry.Tokens + tokenEvent.WireTokens,
-                entry.Billable + tokenEvent.BillableTokens,
-                entry.Dollars + tokenEvent.Dollars);
+            Accumulate(byModel, Pricing.CanonicalModelName(tokenEvent.Model), tokenEvent, tokenEvent.Dollars, Pricing.HasPrice(tokenEvent));
         }
 
         var daily = new List<DailyTokenBucket>(dayCount);
@@ -123,9 +168,7 @@ public static class CostSummarizer
         return new ReportSlice(
             daily,
             dollars,
-            byModel.Select(kv => new ModelSpend(kv.Key, kv.Value.Tokens, kv.Value.Billable, kv.Value.Dollars))
-                .OrderByDescending(spend => spend.BillableTokens)
-                .ToList());
+            ToSpendList(byModel));
     }
 
     public static int YearHistoryDays(DateTimeOffset now)
@@ -158,10 +201,10 @@ public static class CostSummarizer
         var hourlyTokens = new long[24];
         var hourlyBillable = new long[24];
         var daily = new double[DateTime.DaysInMonth(today.Year, today.Month)];
-        var recent = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
-        var todayModels = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
-        var weekly = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
-        var month = new Dictionary<string, (long Tokens, long Billable, double Dollars)>(StringComparer.OrdinalIgnoreCase);
+        var recent = new Dictionary<string, Tally>(StringComparer.OrdinalIgnoreCase);
+        var todayModels = new Dictionary<string, Tally>(StringComparer.OrdinalIgnoreCase);
+        var weekly = new Dictionary<string, Tally>(StringComparer.OrdinalIgnoreCase);
+        var month = new Dictionary<string, Tally>(StringComparer.OrdinalIgnoreCase);
         var history = new Dictionary<DateTime, (long Tokens, long Billable, double Dollars)>();
         var unknown = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -170,6 +213,7 @@ public static class CostSummarizer
             var local = TimeZoneInfo.ConvertTime(tokenEvent.Timestamp, zone);
             if (local > now || local.Year != today.Year) continue;
             var dollars = tokenEvent.Dollars;
+            var priced = Pricing.HasPrice(tokenEvent);
             var model = Pricing.CanonicalModelName(tokenEvent.Model);
             if (!Pricing.IsKnown(tokenEvent.PricedAs ?? model)) unknown.Add(model);
 
@@ -182,7 +226,7 @@ public static class CostSummarizer
                 hourly[hour] += dollars;
                 hourlyTokens[hour] += tokenEvent.WireTokens;
                 hourlyBillable[hour] += tokenEvent.BillableTokens;
-                Accumulate(todayModels, model, tokenEvent, dollars);
+                Accumulate(todayModels, model, tokenEvent, dollars, priced);
             }
             if (local.Month == today.Month)
             {
@@ -190,10 +234,10 @@ public static class CostSummarizer
                 monthTokens += tokenEvent.WireTokens;
                 monthBillable += tokenEvent.BillableTokens;
                 daily[Math.Clamp(local.Day - 1, 0, daily.Length - 1)] += dollars;
-                Accumulate(month, model, tokenEvent, dollars);
+                Accumulate(month, model, tokenEvent, dollars, priced);
             }
-            if (local >= fiveHoursAgo) Accumulate(recent, model, tokenEvent, dollars);
-            if (local >= sevenDaysAgo) Accumulate(weekly, model, tokenEvent, dollars);
+            if (local >= fiveHoursAgo) Accumulate(recent, model, tokenEvent, dollars, priced);
+            if (local >= sevenDaysAgo) Accumulate(weekly, model, tokenEvent, dollars, priced);
 
             var day = local.Date;
             history.TryGetValue(day, out var bucket);
@@ -240,21 +284,40 @@ public static class CostSummarizer
         };
     }
 
-    private static void Accumulate(
-        Dictionary<string, (long Tokens, long Billable, double Dollars)> sink,
-        string model,
-        TokenEvent tokenEvent,
-        double dollars)
+    /// 一个模型的累计，按引用改。
+    private sealed class Tally
     {
-        sink.TryGetValue(model, out var entry);
-        sink[model] = (entry.Tokens + tokenEvent.WireTokens,
-            entry.Billable + tokenEvent.BillableTokens,
-            entry.Dollars + dollars);
+        public long Tokens, Billable, Input, Output, CacheCreation, CacheRead, Unpriced;
+        public double Dollars;
     }
 
-    private static List<ModelSpend> ToSpendList(
-        Dictionary<string, (long Tokens, long Billable, double Dollars)> sink) =>
-        sink.Select(kv => new ModelSpend(kv.Key, kv.Value.Tokens, kv.Value.Billable, kv.Value.Dollars))
+    private static void Accumulate(
+        Dictionary<string, Tally> sink,
+        string model,
+        TokenEvent tokenEvent,
+        double dollars,
+        bool priced)
+    {
+        if (!sink.TryGetValue(model, out var entry)) sink[model] = entry = new Tally();
+        entry.Tokens += tokenEvent.WireTokens;
+        entry.Billable += tokenEvent.BillableTokens;
+        entry.Dollars += dollars;
+        entry.Input += tokenEvent.InputTokens;
+        entry.Output += tokenEvent.OutputTokens;
+        entry.CacheCreation += tokenEvent.CacheCreationTokens;
+        entry.CacheRead += tokenEvent.CacheReadTokens;
+        if (!priced) entry.Unpriced += tokenEvent.WireTokens;
+    }
+
+    private static List<ModelSpend> ToSpendList(Dictionary<string, Tally> sink) =>
+        sink.Select(kv => new ModelSpend(kv.Key, kv.Value.Tokens, kv.Value.Billable, kv.Value.Dollars)
+            {
+                InputTokens = kv.Value.Input,
+                OutputTokens = kv.Value.Output,
+                CacheCreationTokens = kv.Value.CacheCreation,
+                CacheReadTokens = kv.Value.CacheRead,
+                UnpricedTokens = kv.Value.Unpriced,
+            })
             .OrderByDescending(spend => spend.BillableTokens)
             .ToList();
 }

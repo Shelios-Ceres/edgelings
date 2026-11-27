@@ -164,10 +164,16 @@ internal sealed partial class SettingsWindow
     private void BuildUsage(StackPanel body)
     {
         body.Children.Add(PageTitle(L10n.Tr("Usage & cost")));
-        body.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.")));
+        body.Children.Add(PageIntro(L10n.Tr("Estimated at API list prices from this computer's session logs — not a bill.") + " "
+            + L10n.TrFormat("Prices as of {0}.", AgentIsland.Cost.Pricing.TableDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))));
         _costPage = new Cost.CostPage(DispatcherQueue, () => AppWindow.IsVisible && _page == Page.Usage, () => SelectPage(Page.Agents));
         body.Children.Add(_costPage.View);
         body.Children.Add(Section(L10n.Tr("Quota")));
+        // 完整的额度条、重置倒计时和同步时间（悬浮卡上只留一行）。
+        body.Children.Add(PageIntro(L10n.Tr("Each app's own quota report, refreshed on the interval below")));
+        _quotaSection = new Cost.QuotaSection(DispatcherQueue, () => AppWindow.IsVisible && _page == Page.Usage);
+        _quotaSection.View.Margin = new Thickness(0, 4, 0, 8);
+        body.Children.Add(_quotaSection.View);
         var presets = RefreshIntervalStore.Presets;
         body.Children.Add(Card(L10n.Tr("Refresh interval"),
             L10n.Tr("Providers rate-limit their usage endpoints, so nothing shorter than five minutes is offered"), "\uE895",
@@ -188,12 +194,15 @@ internal sealed partial class SettingsWindow
 
     // The usage numbers on the Usage & cost page, while it shows.
     private Cost.CostPage? _costPage;
+    private Cost.QuotaSection? _quotaSection;
     private SettingsExpander? _about;
 
     private void EndCostPage()
     {
         _costPage?.Dispose();
         _costPage = null;
+        _quotaSection?.Dispose();
+        _quotaSection = null;
     }
 
     private void BuildGeneral(StackPanel body)

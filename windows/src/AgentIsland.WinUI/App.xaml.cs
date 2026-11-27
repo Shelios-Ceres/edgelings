@@ -57,6 +57,12 @@ public sealed partial class App : Application
             _hoverPreview.Activate();
             return;
         }
+        // Usage 页拍片：只开设置窗口，不建抽屉和托盘，不启动任何刷新。
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_USAGE_SHOTS") is { Length: > 0 } usageShots)
+        {
+            _ = Settings.SettingsWindow.UsageShotsAsync(usageShots);
+            return;
+        }
 #if !DEBUG
         // Debug runs stay out of the Run key.
         LaunchAtLogin.Repoint();

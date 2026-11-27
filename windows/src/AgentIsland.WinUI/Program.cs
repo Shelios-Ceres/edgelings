@@ -15,6 +15,8 @@ public static class Program
             CrashLog.Write(e.Exception, "Task");
             e.SetObserved();
         };
+        // Usage 页拍片只在隔离的 LIMEN_ROOT 下跑：它不抢单实例锁，不能碰真实的设置。
+        if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_USAGE_SHOTS") is { Length: > 0 } && IslandPaths.RootOverride is null) return 1;
         if (!ClaimSingleInstance()) return 0;
         // Only the copy that stays: a second launch that bows out must not
         // make the new folder from settings the running copy is still changing.
@@ -39,7 +41,8 @@ public static class Program
         // stores or background readers.
         if (Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_HOVER_PREVIEW") == "1"
             || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_FILM") is { Length: > 0 }
-            || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_SPIKE") == "1") return true;
+            || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_FRAME_SPIKE") == "1"
+            || Environment.GetEnvironmentVariable("AGENTISLAND_DEBUG_USAGE_SHOTS") is { Length: > 0 }) return true;
         // This copy holds both names. The first is what Agent Island's builds
         // (this app before its rename) use: one of them that is still running
         // makes this launch bow out, and one started later bows out against us.

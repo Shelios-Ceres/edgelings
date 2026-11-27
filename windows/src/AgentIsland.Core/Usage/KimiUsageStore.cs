@@ -18,7 +18,7 @@ public sealed class KimiUsageStore : GuestUsageStore
 {
     public static KimiUsageStore Shared { get; } = new();
 
-    private const string CacheKey = "KimiUsageStore.lastSnapshot.v1";
+    internal const string CacheKey = "KimiUsageStore.lastSnapshot.v1";
     // Properties, not static readonly fields: Shared is constructed before
     // later static fields are set, so the restore below read a zero age
     // limit and dropped every saved snapshot.

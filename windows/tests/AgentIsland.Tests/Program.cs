@@ -201,6 +201,7 @@ public static class Program
                 ("TokenAccountingTests", TokenAccountingTests.RunAll, null),
                 ("OtherTokenAccountingTests", OtherTokenAccountingTests.RunAll, null),
                 ("PricingTests", PricingTests.RunAll, null),
+                ("UsageBreakdownTests", UsageBreakdownTests.RunAll, null),
                 ("AntigravityCostTests", AntigravityCostTests.RunAll, null),
                 ("CursorDatabaseTests", CursorDatabaseTests.RunAll, null),
                 ("DrawerPresentationTests", DrawerPresentationTests.RunAll, null),

@@ -89,6 +89,13 @@ public sealed class CostStore : INotifyPropertyChanged
         else if (provider == DisplayProvider.Codex) Raise(nameof(Codex));
     }
 
+    /// 拍片用（AGENTISLAND_DEBUG_USAGE_SHOTS）：直接放进几份假的汇总，不扫描日志、不存盘。
+    internal void DebugCommit(IReadOnlyDictionary<DisplayProvider, ProviderCostSummary> summaries)
+    {
+        foreach (var (provider, summary) in summaries) SetSummary(provider, summary);
+        LastUpdated = DateTimeOffset.Now;
+    }
+
     public void StartAutoRefresh()
     {
         Refresh();

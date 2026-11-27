@@ -190,6 +190,14 @@ public static class Pricing
                 + tokenEvent.CacheReadTokens * price.CacheRead) / 1_000_000.0;
     }
 
+    /// 这条调用有没有价格：日志自带金额（Grok），或者价格表里查得到它的计价名。
+    /// 没有价格的调用 Cost 记 0，界面写“未定价”，不进合计金额。
+    public static bool HasPrice(TokenEvent tokenEvent) =>
+        tokenEvent.SelfReportedCostUSD is not null || TryPrice(tokenEvent, out _);
+
+    /// 价格表最后一次核对的日期，Usage 页写在金额旁边。
+    public static readonly DateOnly TableDate = new(2026, 11, 22);
+
     public static bool IsKnown(string model) =>
         Table.ContainsKey(CanonicalModelName(model)) || Dated.ContainsKey(CanonicalModelName(model));
 

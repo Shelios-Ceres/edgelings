@@ -34,7 +34,7 @@ internal sealed partial class CostPage : IDisposable
     // Narrower than these, the totals and the agents' cards stand in one
     // column; narrower than the first, the scan takes a row of its own.
     private const double ThreeTotals = 600;
-    private const double TwoColumns = 560;
+    internal const double TwoColumns = 560;
 
     private readonly SelectorBar _periods = new();
     private readonly StackPanel _body = new() { Spacing = 12 };
@@ -43,6 +43,7 @@ internal sealed partial class CostPage : IDisposable
     private readonly Border _periodRange = new();
     private readonly Border _calendarNote = new();
     private readonly bool _pixel = Looks.Pixel;
+    private bool _disposed;
     private readonly Subscriptions _subscriptions = new();
     private readonly DispatcherQueue _queue;
     private readonly DispatcherQueueTimer _clock;
@@ -70,7 +71,7 @@ internal sealed partial class CostPage : IDisposable
         _clock.Interval = TimeSpan.FromSeconds(5);
         _clock.Tick += (_, _) =>
         {
-            if (!_visible()) return;
+            if (!Live()) return;
             var text = Scanned();
             if (text != _scanned.Text) _scanned.Text = text;
         };
@@ -81,8 +82,12 @@ internal sealed partial class CostPage : IDisposable
     /// the agents' cards.
     public FrameworkElement View { get; }
 
+    /// 还在页面上，而且外观没变：换外观时整页重建，已排队的回调不能在旧页上再画。
+    private bool Live() => !_disposed && Looks.Pixel == _pixel && _visible();
+
     public void Dispose()
     {
+        _disposed = true;
         _clock.Stop();
         _count?.Stop();
         _glide?.Stop();
@@ -100,7 +105,7 @@ internal sealed partial class CostPage : IDisposable
             _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
             {
                 _pending = false;
-                if (_visible()) Recount();
+                if (Live()) Recount();
             });
         };
         _subscriptions.Watch(source, handler);
@@ -120,15 +125,14 @@ internal sealed partial class CostPage : IDisposable
         /// The chart shows tokens, since none of them has a price.
         public bool TokenChart { get; init; }
 
-        /// Anything in the last five hours, which Today's models cover.
-        public bool Recent { get; init; }
-
         /// The models the card lists, ranked by the page's token mode.
         public IReadOnlyList<ModelSpend> Listed { get; init; } = Array.Empty<ModelSpend>();
 
-        /// Every model the period's spend covers: Today's Models are the
-        /// last five hours', its spend the whole day's.
+        /// Every model the period's spend covers (Today: the whole day).
         public IReadOnlyList<ModelSpend> PeriodModels { get; init; } = Array.Empty<ModelSpend>();
+
+        /// Kimi Code 的 K2 模型不单列（用户定的），但计入合计：卡上要说一句。
+        public bool HiddenModels { get; init; }
 
         /// What the agent calls its models.
         public Func<string, string> NameOf { get; init; } = model => model;
@@ -245,7 +249,7 @@ internal sealed partial class CostPage : IDisposable
 
     /// Cards in count equal columns, or in one where the page is narrower
     /// than narrow: the totals three to a row, the agents' cards two.
-    private static Grid Columns(IReadOnlyList<FrameworkElement> cards, int count, double narrow, Thickness margin = default)
+    internal static Grid Columns(IReadOnlyList<FrameworkElement> cards, int count, double narrow, Thickness margin = default)
     {
         var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12, Margin = margin };
         var columns = 0;
@@ -330,9 +334,9 @@ internal sealed partial class CostPage : IDisposable
                 Tokens = slice.Tokens + cursor.Tokens,
                 Billable = slice.Billable + cursor.Billable,
                 AsOf = slice.AsOf ?? cursor.AsOf,
+                PeriodModels = slice.PeriodModels.Concat(cursor.PeriodModels).ToList(),
                 Cursor = (cursor.Tokens, cursor.Billable),
                 TokenBars = slice.TokenBars.Select(bar => (bar.Label, bar.Value + cursorBars.GetValueOrDefault(bar.Label))).ToList(),
-                Recent = slice.Recent || cursor.Recent,
             };
         }
         return slice.Dollars && slice.Bars.All(bar => bar.Value <= 0) && slice.TokenBars.Any(bar => bar.Value > 0)
@@ -342,7 +346,7 @@ internal sealed partial class CostPage : IDisposable
 
     /// A provider's numbers; with AGENTISLAND_DEBUG_COST_SAMPLE=1, a sample
     /// for two agents, to check a chart with no spend, a day used without a
-    /// price and a quiet last five hours (render after 8:00): Kimi Code's K3
+    /// price (render after 8:00): Kimi Code's K3
     /// at noon yesterday and a model with no price at 1:00 and 3:00 today,
     /// and Grok at 2:00.
     private static ProviderCostSummary Summary(DisplayProvider provider)
@@ -388,7 +392,7 @@ internal sealed partial class CostPage : IDisposable
                 var spent = cumulative.Select((total, h) => ($"{h}:00", total - (h > 0 ? cumulative[h - 1] : 0))).ToList();
                 var used = (billableMode ? summary.TodayHourlyBillableTokens : summary.TodayHourlyTokens).Select((tokens, h) => ($"{h}:00", (double)tokens)).ToList();
                 slice = new Slice(provider, dollars, summary.TodayDollars, summary.TodayTokens, summary.TodayBillableTokens,
-                    dollars ? spent : used, summary.RecentModels, summary.AsOf) { TokenBars = used };
+                    dollars ? spent : used, summary.TodayModels, summary.AsOf) { TokenBars = used };
                 break;
             case Period.Week:
                 var week = summary.LastSevenDays;
@@ -404,22 +408,23 @@ internal sealed partial class CostPage : IDisposable
                     Days(first, DayValue), summary.MonthModels, summary.AsOf) { TokenBars = Days(first, DayTokens) };
                 break;
         }
+        var listed = Listed(provider, slice.Models, summary, billableMode);
         return slice with
         {
-            Recent = summary.RecentModels.Count > 0,
             NameOf = summary.NameOf,
-            Listed = Listed(provider, slice.Models, summary, billableMode),
-            PeriodModels = _period == Period.Today ? summary.TodayModels : slice.Models,
+            Listed = listed,
+            PeriodModels = slice.Models,
+            HiddenModels = listed.Count < slice.Models.Count,
         };
     }
 
     /// The model rows an agent's card shows, ranked by the page's token mode:
-    /// the top three, except Kimi Code's, which lists every K3-or-later model
-    /// and every connected provider's. Its K2 models stay in the totals and the charts.
+    /// every model of the period (a connected API's among them, under its own
+    /// name), except Kimi Code's K2 models, which stay in the totals and the charts.
     private static IReadOnlyList<ModelSpend> Listed(DisplayProvider provider, IReadOnlyList<ModelSpend> models, ProviderCostSummary summary, bool billable)
     {
         var ranked = ModelSpend.Ranked(models, billable);
-        if (provider != DisplayProvider.Kimi) return ranked.Take(3).ToList();
+        if (provider != DisplayProvider.Kimi) return ranked;
         return ranked
             .Where(model => !KimiLogReader.IsK2(model.Model, summary.ModelNames.GetValueOrDefault(model.Model)))
             .ToList();
@@ -430,12 +435,66 @@ internal sealed partial class CostPage : IDisposable
     private static bool ProvidesDollars(DisplayProvider provider) =>
         provider is not DisplayProvider.Cursor;
 
-    /// A model the price table does not know and the log did not price.
-    private static bool Unpriced(ModelSpend model) =>
-        model.Dollars == 0 && model.Tokens > 0 && !Pricing.IsKnown(model.Model);
-
     private static string Tokens(Slice slice) => Formatting.CompactTokens(
         TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? slice.Billable : slice.Tokens);
+
+    /// 一个 agent 这段时间用过、却一点价格都没有：卡上的大数字写“未定价”，不写 $0。
+    private static bool AllUnpriced(Slice slice) =>
+        slice.Dollars && slice.PeriodModels.Count > 0 && ModelSpend.PricedDollars(slice.PeriodModels) is null;
+
+    /// 四类 token 一行：输入、输出，有缓存才写缓存写入和读取。
+    private static string Split(ModelSpend spend)
+    {
+        var parts = new List<string>
+        {
+            L10n.TrFormat("Input {0}", Formatting.CompactTokens(spend.InputTokens)),
+            L10n.TrFormat("Output {0}", Formatting.CompactTokens(spend.OutputTokens)),
+        };
+        if (spend.CacheCreationTokens > 0) parts.Add(L10n.TrFormat("Cache write {0}", Formatting.CompactTokens(spend.CacheCreationTokens)));
+        if (spend.CacheReadTokens > 0) parts.Add(L10n.TrFormat("Cache read {0}", Formatting.CompactTokens(spend.CacheReadTokens)));
+        return string.Join(" · ", parts);
+    }
+
+    /// A small line under a card's numbers, wrapping on a narrow card.
+    private static TextBlock Caption(string text, string brush) => new()
+    {
+        Text = text,
+        Style = Res<Style>("CaptionTextBlockStyle"),
+        Foreground = Res<Brush>(brush),
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    /// 一个模型一行：名字和 token、金额（或“未定价”），下面一行是四类 token。
+    private static FrameworkElement ModelRow(Slice slice, ModelSpend model, bool billable)
+    {
+        var line = new Grid { ColumnSpacing = 8 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var name = slice.NameOf(model.Model);
+        var modelName = new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis };
+        // The pixel face is the kit's only type; Fluent shows names in a mono face.
+        if (!Looks.Pixel)
+        {
+            modelName.FontFamily = new FontFamily("Cascadia Mono, Consolas");
+            modelName.FontSize = 12;
+        }
+        SetTip(modelName, name);
+        line.Children.Add(modelName);
+        var price = !slice.Dollars ? ""
+            : model.Unpriced ? "  ·  " + L10n.Tr("Unpriced")
+            : "  ·  " + Formatting.Money(model.Dollars)
+                + (Pricing.IsFree(model.Model) ? " " + L10n.Tr("free") : "")
+                + (model.PartlyUnpriced ? "  ·  " + L10n.Tr("partly unpriced") : "");
+        var amount = new TextBlock
+        {
+            Text = Formatting.CompactTokens(billable ? model.BillableTokens : model.Tokens) + price,
+            Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
+        };
+        if (!Looks.Pixel) amount.FontSize = 12;
+        Grid.SetColumn(amount, 1);
+        line.Children.Add(amount);
+        return new StackPanel { Children = { line, Caption(Split(model), "TextFillColorTertiaryBrush") } };
+    }
 
     private UIElement Totals(IReadOnlyList<Slice> slices)
     {
@@ -473,11 +532,14 @@ internal sealed partial class CostPage : IDisposable
             }, totals: true);
             stats.Add(card);
         }
-        var unpriced = slices.Where(s => s.Dollars).SelectMany(s => s.PeriodModels).Count(Unpriced);
-        Stat(L10n.Tr("Estimated cost"), scanned ? Formatting.Money(spend) : "—", unpriced > 0
-            ? L10n.TrFormat(unpriced == 1 ? "{0} model has no price and counts as $0" : "{0} models have no price and count as $0", unpriced)
+        // 完全没有价格的模型不进合计金额：按模型名去重，数一数有几个。
+        var priced = slices.Where(s => s.Dollars).SelectMany(s => s.PeriodModels).ToList();
+        var unpriced = priced.Where(model => model.Unpriced).Select(model => model.Model).Distinct().Count();
+        var noPriceAtAll = priced.Count > 0 && ModelSpend.PricedDollars(priced) is null;
+        Stat(L10n.Tr("Estimated cost"), !scanned ? "—" : noPriceAtAll ? L10n.Tr("Unpriced") : Formatting.Money(spend), unpriced > 0
+            ? L10n.TrFormat(unpriced == 1 ? "{0} model unpriced, not in the total" : "{0} models unpriced, not in the total", unpriced)
             : L10n.Tr("At API list prices"),
-            count: scanned ? ("cost", spend, Formatting.Money) : null);
+            count: scanned && !noPriceAtAll ? ("cost", spend, Formatting.Money) : null);
         Stat(L10n.Tr("Tokens"), scanned ? Formatting.CompactTokens(tokens) : "—",
             TokenDisplayText.ModeLabel(TokenCountModeStore.Shared.Mode),
             count: scanned ? ("tokens", tokens, CountedTokens) : null);
@@ -493,9 +555,10 @@ internal sealed partial class CostPage : IDisposable
     private FrameworkElement AgentCard(Slice slice)
     {
         var panel = new StackPanel { Spacing = 10 };
-        var heroText = HeroNumber(slice.AsOf is null ? "—" : slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice));
+        var allUnpriced = AllUnpriced(slice);
+        var heroText = HeroNumber(slice.AsOf is null ? "—" : allUnpriced ? L10n.Tr("Unpriced") : slice.Dollars ? Formatting.Money(slice.Spend) : Tokens(slice));
         var sliceTokens = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable ? slice.Billable : slice.Tokens;
-        if (slice.AsOf is not null)
+        if (slice.AsOf is not null && !allUnpriced)
         {
             if (slice.Dollars) Counted(heroText, $"{slice.Provider}-spend", slice.Spend, Formatting.Money);
             else Counted(heroText, $"{slice.Provider}-tokens", sliceTokens, CountedTokens);
@@ -525,7 +588,7 @@ internal sealed partial class CostPage : IDisposable
                     chart,
                     new TextBlock
                     {
-                        Text = L10n.Tr(_period == Period.Today ? "Tokens per hour (no price)" : "Tokens per day (no price)"),
+                        Text = L10n.Tr(_period == Period.Today ? "Tokens per hour (unpriced)" : "Tokens per day (unpriced)"),
                         Style = Res<Style>("CaptionTextBlockStyle"),
                         Foreground = Res<Brush>("TextFillColorTertiaryBrush"),
                     },
@@ -533,50 +596,25 @@ internal sealed partial class CostPage : IDisposable
             });
         }
 
+        // 这段时间全部模型的四类 token，加在一起。
+        if (slice.AsOf is not null && slice.PeriodModels.Count > 0)
+        {
+            panel.Children.Add(Caption(Split(ModelSpend.Total(slice.PeriodModels)), "TextFillColorSecondaryBrush"));
+        }
+
         var models = slice.Listed;
         if (models.Count > 0)
         {
-            panel.Children.Add(new TextBlock
-            {
-                Text = L10n.Tr(_period == Period.Today ? "Models, last 5 hours" : "Models"),
-                Style = Res<Style>("CaptionTextBlockStyle"),
-                Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
-            });
+            var list = new StackPanel { Spacing = _pixel ? 6 : 8 };
+            list.Children.Add(Caption(L10n.Tr("Models"), "TextFillColorSecondaryBrush"));
             var billable = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable;
-            foreach (var model in models)
-            {
-                var line = new Grid { ColumnSpacing = 8 };
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var modelName = new TextBlock { Text = slice.NameOf(model.Model), TextTrimming = TextTrimming.CharacterEllipsis };
-                // The pixel face is the kit's only type; Fluent shows names in a mono face.
-                if (!Looks.Pixel)
-                {
-                    modelName.FontFamily = new FontFamily("Cascadia Mono, Consolas");
-                    modelName.FontSize = 12;
-                }
-                line.Children.Add(modelName);
-                var price = !slice.Dollars ? "" : Unpriced(model) ? "  ·  " + L10n.Tr("no price")
-                    : "  ·  " + Formatting.Money(model.Dollars) + (Pricing.IsFree(model.Model) ? " " + L10n.Tr("free") : "");
-                var amount = new TextBlock
-                {
-                    Text = Formatting.CompactTokens(billable ? model.BillableTokens : model.Tokens) + price,
-                    Foreground = Res<Brush>("TextFillColorSecondaryBrush"),
-                };
-                if (!Looks.Pixel) amount.FontSize = 12;
-                Grid.SetColumn(amount, 1);
-                line.Children.Add(amount);
-                panel.Children.Add(line);
-            }
+            foreach (var model in models) list.Children.Add(ModelRow(slice, model, billable));
+            if (slice.HiddenModels) list.Children.Add(Caption(L10n.Tr("K2 models aren't listed; their tokens count in the totals"), "TextFillColorTertiaryBrush"));
+            panel.Children.Add(list);
         }
         else if (slice.AsOf is not null && slice.Tokens == 0)
         {
             panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in this period"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
-        }
-        else if (slice.AsOf is not null && _period == Period.Today && !slice.Recent)
-        {
-            // Today's models are the last five hours'; earlier work is on the chart.
-            panel.Children.Add(new TextBlock { Text = L10n.Tr("No sessions in the last 5 hours"), Foreground = Res<Brush>("TextFillColorTertiaryBrush") });
         }
         // Cursor's tokens are already in Grok's numbers; Grok's card names no
         // other app (the user's call, 2026-11-26).
@@ -675,7 +713,7 @@ internal sealed partial class CostPage : IDisposable
 
     /// A card's head: the agent's mark and name, and at the right its number
     /// over a caption.
-    private static Grid Head(DisplayProvider provider, FrameworkElement numbers)
+    internal static Grid Head(DisplayProvider provider, FrameworkElement numbers)
     {
         var head = new Grid { ColumnSpacing = 10 };
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -741,7 +779,7 @@ internal sealed partial class CostPage : IDisposable
 
     /// A card: paper with the card edge, or under Pixel a stepped plate.
     /// The totals are rounded 14 with 16/14 padding; agent cards 16 with 18/16.
-    private static FrameworkElement Surface(UIElement child, bool totals = false)
+    internal static FrameworkElement Surface(UIElement child, bool totals = false)
     {
         if (Looks.Pixel)
         {
