@@ -141,8 +141,8 @@ public static class KimiLogReader
         }
     }
 
-    /// Kimi's K2 models are being retired, so the Usage & cost page leaves them
-    /// out of its model rows (their tokens still count in every total). A model
+    /// Kimi's K2 models are being retired; the Mac settings page still leaves
+    /// them out of its model rows (their tokens count in every total). A model
     /// is K2 by the name Kimi gives it ("K2.8 Preview"); one with no name is K2
     /// by its id: the two plan aliases that were K2, or any `kimi-k2…` id.
     /// Kimi pointing an alias at a K3 model, under a K3 name, lists it again.

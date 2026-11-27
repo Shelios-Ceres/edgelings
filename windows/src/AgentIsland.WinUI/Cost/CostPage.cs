@@ -131,9 +131,6 @@ internal sealed partial class CostPage : IDisposable
         /// Every model the period's spend covers (Today: the whole day).
         public IReadOnlyList<ModelSpend> PeriodModels { get; init; } = Array.Empty<ModelSpend>();
 
-        /// Kimi Code 的 K2 模型不单列（用户定的），但计入合计：卡上要说一句。
-        public bool HiddenModels { get; init; }
-
         /// What the agent calls its models.
         public Func<string, string> NameOf { get; init; } = model => model;
     }
@@ -408,26 +405,12 @@ internal sealed partial class CostPage : IDisposable
                     Days(first, DayValue), summary.MonthModels, summary.AsOf) { TokenBars = Days(first, DayTokens) };
                 break;
         }
-        var listed = Listed(provider, slice.Models, summary, billableMode);
         return slice with
         {
             NameOf = summary.NameOf,
-            Listed = listed,
+            Listed = ModelSpend.Ranked(slice.Models, billableMode),
             PeriodModels = slice.Models,
-            HiddenModels = listed.Count < slice.Models.Count,
         };
-    }
-
-    /// The model rows an agent's card shows, ranked by the page's token mode:
-    /// every model of the period (a connected API's among them, under its own
-    /// name), except Kimi Code's K2 models, which stay in the totals and the charts.
-    private static IReadOnlyList<ModelSpend> Listed(DisplayProvider provider, IReadOnlyList<ModelSpend> models, ProviderCostSummary summary, bool billable)
-    {
-        var ranked = ModelSpend.Ranked(models, billable);
-        if (provider != DisplayProvider.Kimi) return ranked;
-        return ranked
-            .Where(model => !KimiLogReader.IsK2(model.Model, summary.ModelNames.GetValueOrDefault(model.Model)))
-            .ToList();
     }
 
     /// Cursor bills by its own plan and requests, not tokens. Everyone else
@@ -609,7 +592,6 @@ internal sealed partial class CostPage : IDisposable
             list.Children.Add(Caption(L10n.Tr("Models"), "TextFillColorSecondaryBrush"));
             var billable = TokenCountModeStore.Shared.Mode == TokenCountMode.Billable;
             foreach (var model in models) list.Children.Add(ModelRow(slice, model, billable));
-            if (slice.HiddenModels) list.Children.Add(Caption(L10n.Tr("K2 models aren't listed; their tokens count in the totals"), "TextFillColorTertiaryBrush"));
             panel.Children.Add(list);
         }
         else if (slice.AsOf is not null && slice.Tokens == 0)

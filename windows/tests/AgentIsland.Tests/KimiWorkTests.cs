@@ -287,6 +287,10 @@ public static class KimiWorkTests
         var events = new[] { Event("k2d6-agent"), Event("k2d8-preview"), Event("k3d1-agent") }.ToList();
         var summary = CostSummarizer.Summarize(events, DateTimeOffset.UtcNow.AddMinutes(5));
         Expect(summary.RecentModels.Sum(m => m.Tokens), events.Sum(e => e.WireTokens));
+        // The Usage page lists them as rows: the ranked rows add up to the month's total.
+        var rows = ModelSpend.Ranked(summary.MonthModels, false);
+        Expect(rows.Count, 3);
+        Expect(rows.Sum(m => m.Tokens), summary.MonthTokens);
     }
 
     private static readonly Running Explorer = new(1, 0, "explorer");

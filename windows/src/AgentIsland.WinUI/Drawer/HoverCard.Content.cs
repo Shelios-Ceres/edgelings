@@ -302,6 +302,10 @@ internal sealed partial class HoverCard
         {
             panel.Children.Add(Caption(L10n.Tr("Reading sessions…"), "TextFillColorTertiaryBrush", new Thickness(indent, 8, 0, 0)));
         }
+        else if (single && card.Quota is not null)
+        {
+            panel.Children.Add(Caption(card.Away ?? L10n.Tr("Idle"), "TextFillColorTertiaryBrush", new Thickness(indent, 8, 0, 0)));
+        }
         if (card.Warnings.Count > 0) panel.Children.Add(Warnings(card.Warnings, indent, pixel));
         if (single && card.Tokens is { } tokens)
         {
@@ -345,14 +349,14 @@ internal sealed partial class HoverCard
         }
         FrameworkElement? right = null;
         StatusQuota? quota = null;
-        if (card.TaskRows.Count == 0 && !card.Loading)
-        {
-            right = Caption(card.Away ?? L10n.Tr("Idle"), "TextFillColorTertiaryBrush");
-        }
-        else if (single && card.Quota is { } own)
+        if (single && card.Quota is { } own)
         {
             quota = own;
             right = QuotaText(own, own.Windows, null, pixel);
+        }
+        else if (card.TaskRows.Count == 0 && !card.Loading)
+        {
+            right = Caption(card.Away ?? L10n.Tr("Idle"), "TextFillColorTertiaryBrush");
         }
         var head = new Grid { ColumnSpacing = 8 };
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

@@ -420,7 +420,6 @@ public static class L10n
         ["Output {0}"] = "输出 {0}",
         ["Cache write {0}"] = "缓存写入 {0}",
         ["Cache read {0}"] = "缓存读取 {0}",
-        ["K2 models aren't listed; their tokens count in the totals"] = "K2 模型不单列，token 计入合计",
         ["Each app's own quota report, refreshed on the interval below"] = "各家官方程序自己报的额度，按下面的刷新间隔更新",
         ["No quota to show yet. Claude, Codex and Kimi show theirs here once detected and synced."] = "暂时没有额度可显示。检测到 Claude、Codex 或 Kimi 并同步后，会显示在这里。",
         ["No sessions in this period"] = "这段时间没有会话",

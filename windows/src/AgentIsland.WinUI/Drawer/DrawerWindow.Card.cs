@@ -72,12 +72,12 @@ internal sealed partial class DrawerWindow
     }
 
     /// 全员卡的面板：默认钉 Claude 的额度（D3，悬停某个角色时会换成它的单角色卡，那里有它自己的额度），
-    /// 底部一行是所有角色的 token 合计（D2）。
+    /// 底部一行是所有检测到的角色（含收起、隐藏的）的 token 合计（D2）。
     private HoverCardPanel PanelFor(IEnumerable<Bot> bots)
     {
         var shown = bots.ToList();
         var pinned = shown.Any(b => b.Provider == DisplayProvider.Claude) ? StatusTaskRows.Quota(DisplayProvider.Claude) : null;
-        var total = StatusTaskRows.Total(shown.Select(b => StatusTaskRows.Totals(b.Provider)), TokenCountModeStore.Shared.Mode, DateTimeOffset.Now);
+        var total = StatusTaskRows.Total(_bots.Select(b => StatusTaskRows.Totals(b.Provider)), TokenCountModeStore.Shared.Mode, DateTimeOffset.Now);
         return new HoverCardPanel(pinned, ProviderIdentity.DisplayName(DisplayProvider.Claude), total);
     }
 
