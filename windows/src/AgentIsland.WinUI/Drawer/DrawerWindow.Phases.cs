@@ -29,14 +29,17 @@ internal sealed partial class DrawerWindow
             // how they work, network trouble for a prompt that may be open, and
             // finished turns for whether they ended on an error.
             var lookAround = _clock.Elapsed.TotalSeconds - _presenceAt >= 1;
-            var (readings, presence) = await Task.Run(() =>
+            var sessions = monitor.Sessions;
+            var (readings, presence, metricsChanged) = await Task.Run(() =>
             {
                 return (jobs
                     .Select(job => job.Prompt ?? (job.State is ActivityState.Working or ActivityState.NetworkTrouble or ActivityState.NeedsYou
                         && job.Path is { } path
                         ? AgentPhaseClassifier.Classify(job.Tool, path, now)
                         : null))
-                    .ToList(), lookAround ? AgentPresences.Now() : null);
+                    .ToList(), lookAround ? AgentPresences.Now() : null,
+                    // 缓存率和速度也在这里读（本机日志尾部，每个会话最多 5 秒一次），不占 UI 线程。
+                    SessionMetricsStore.Shared.Refresh(sessions));
             });
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;
@@ -69,6 +72,12 @@ internal sealed partial class DrawerWindow
             }
             // A task can start or end without the shown phase changing.
             if (recounted) RefreshCard();
+            // 卡开着时每 5 秒换一次缓存率和速度：读数变了，或者速度因为太久没有新输出该藏了。
+            else if (_card.IsOpen && (metricsChanged || seconds - _metricsCardAt >= SessionMetricsStore.Interval.TotalSeconds))
+            {
+                _metricsCardAt = seconds;
+                RefreshCard();
+            }
             PumpSpeech(seconds);
         }
         catch (Exception error)

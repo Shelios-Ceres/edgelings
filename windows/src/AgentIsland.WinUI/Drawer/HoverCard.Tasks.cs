@@ -1,4 +1,5 @@
 using System.Numerics;
+using AgentIsland.Localization;
 using AgentIsland.Model;
 using AgentIsland.WinUI.Shell;
 using Microsoft.UI.Composition;
@@ -59,16 +60,50 @@ internal sealed partial class HoverCard
         name.VerticalAlignment = VerticalAlignment.Center;
         Place(first, name, 0, 1);
         stack.Children.Add(first);
-        var activity = Activity(row, width - Mark);
-        activity.Margin = new Thickness(Mark, 0, 0, 0);
-        stack.Children.Add(activity);
+        var room = width - Mark;
+        if (row.Metrics is not { } metrics)
+        {
+            var alone = Activity(row, room, withObject: true).Text;
+            alone.Margin = new Thickness(Mark, 0, 0, 0);
+            stack.Children.Add(alone);
+            return stack;
+        }
+        // 第二行右侧是缓存率和速度；有指标时左边只写状态词，不写对象（设计稿 §2.4）。
+        var parts = Metrics(metrics);
+        Faced(parts.Line);
+        _metricParts[row.Id] = parts;
+        if (!_metricsBelow.Contains(row.Id))
+        {
+            var (text, fits) = Activity(row, room - Wide(parts.Line) - MetricsGap, withObject: false);
+            if (fits)
+            {
+                var second = new Grid { Margin = new Thickness(Mark, 0, 0, 0), ColumnSpacing = MetricsGap };
+                second.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                second.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                Place(second, text, 0, 0);
+                parts.Line.HorizontalAlignment = HorizontalAlignment.Right;
+                parts.Line.VerticalAlignment = VerticalAlignment.Center;
+                Place(second, parts.Line, 0, 1);
+                stack.Children.Add(second);
+                return stack;
+            }
+            // 短词也放不下：指标挪到第 3 行，卡关闭前不再挪回来。
+            _metricsBelow.Add(row.Id);
+        }
+        var said = Activity(row, room, withObject: false).Text;
+        said.Margin = new Thickness(Mark, 0, 0, 0);
+        stack.Children.Add(said);
+        parts.Line.Margin = new Thickness(Mark, 0, 0, 0);
+        parts.Line.HorizontalAlignment = HorizontalAlignment.Left;
+        stack.Children.Add(parts.Line);
         return stack;
     }
 
     /// 第二行：状态词按状态上色，后面跟对象（次墨色），从末尾截断。完整说法放不下就换短词，
     /// 并记住这一行，卡关闭前不再换回去（设计稿 §2.4）。对象连头几个字都放不下时整段不写，
-    /// 免得只剩一个省略号。
-    private TextBlock Activity(StatusTaskRow row, double width)
+    /// 免得只剩一个省略号。withObject 为 false（这一行右边有指标）时不写对象，
+    /// Fits 说的是状态词（完整的或短的）放不放得下。
+    private (TextBlock Text, bool Fits) Activity(StatusTaskRow row, double width, bool withObject)
     {
         TextBlock Make(string said, string? detail)
         {
@@ -90,17 +125,82 @@ internal sealed partial class HoverCard
             if (Measure(full) <= width) said = full;
             else _shortened.Add(row.Id);
         }
-        var detail = row.Object;
+        var fits = Measure(said) <= width;
+        var detail = withObject ? row.Object : null;
         if (detail is not null && Measure($"{said} · {detail}") > width
             && Measure($"{said} · {detail[..Math.Min(detail.Length, ObjectAtLeast)]}…") > width)
         {
             detail = null;
         }
-        return Make(said, detail);
+        return (Make(said, detail), fits);
     }
 
     // 对象至少要露出这么多个字才值得写。
     private const int ObjectAtLeast = 4;
+
+    // 第二行里状态词和指标之间的间距。
+    private const double MetricsGap = 8;
+
+    // 指标挪到第 3 行的主对话，和各主对话指标里的文字块（按任务 id，卡内容没变时原地换数字）。
+    private readonly HashSet<string> _metricsBelow = new();
+    private readonly Dictionary<string, MetricParts> _metricParts = new();
+
+    /// 一行指标的各个部分：“缓存 92% · 41 tok/s”。标签、分隔和单位用三级墨色，数字用二级；
+    /// 数字各有 MinWidth（按 “100%” 和 “999” 的宽度）并右对齐，数字变化时文字不左右跳（设计稿 §4.1）。
+    /// 只有缓存率或只有速度时，另一半和分隔符收起。
+    private sealed record MetricParts(StackPanel Line, TextBlock Label, TextBlock Cache, TextBlock Separator, TextBlock Speed, TextBlock Unit);
+
+    private MetricParts Metrics(StatusMetrics metrics)
+    {
+        TextBlock Part(string text, string brush, Thickness margin)
+        {
+            var part = Caption(text, brush, margin);
+            part.TextTrimming = TextTrimming.None;
+            part.VerticalAlignment = VerticalAlignment.Center;
+            return part;
+        }
+        TextBlock Number(string widest)
+        {
+            var number = Part("", "TextFillColorSecondaryBrush", default);
+            number.TextAlignment = TextAlignment.Right;
+            number.MinWidth = Math.Max(Wide(Faced(Caption(widest, "TextFillColorSecondaryBrush"))), widest == "999" ? Wide(Faced(Caption("1.2k", "TextFillColorSecondaryBrush"))) : 0);
+            return number;
+        }
+        var label = Part(L10n.Tr("Cache"), "TextFillColorTertiaryBrush", new Thickness(0, 0, 4, 0));
+        var cache = Number("100%");
+        var separator = Part("·", "TextFillColorTertiaryBrush", new Thickness(4, 0, 4, 0));
+        var speed = Number("999");
+        var unit = Part("tok/s", "TextFillColorTertiaryBrush", new Thickness(4, 0, 0, 0));
+        var line = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var part in new[] { label, cache, separator, speed, unit }) line.Children.Add(part);
+        var parts = new MetricParts(line, label, cache, separator, speed, unit);
+        ApplyMetrics(parts, metrics);
+        return parts;
+    }
+
+    private static void ApplyMetrics(MetricParts parts, StatusMetrics metrics)
+    {
+        var cache = metrics.CachePercent is not null;
+        var speed = metrics.Speed is not null;
+        if (metrics.CachePercent is { } percent) parts.Cache.Text = percent + "%";
+        if (metrics.Speed is { } text) parts.Speed.Text = text;
+        parts.Label.Visibility = parts.Cache.Visibility = cache ? Visibility.Visible : Visibility.Collapsed;
+        parts.Speed.Visibility = parts.Unit.Visibility = speed ? Visibility.Visible : Visibility.Collapsed;
+        parts.Separator.Visibility = cache && speed ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// 卡内容没变（key 不含数字）时，把新的缓存率和速度原地换进已画好的文字块。
+    /// 有没有缓存率、有没有速度变了，key 会变，卡会重建，到不了这里。
+    private void UpdateMetrics(IEnumerable<StatusCard> cards)
+    {
+        foreach (var card in cards)
+        {
+            foreach (var row in card.TaskRows)
+            {
+                if (row.Metrics is { } metrics && _metricParts.TryGetValue(row.Id, out var parts)) ApplyMetrics(parts, metrics);
+            }
+        }
+    }
 
     /// 子任务：标记、名字（常规字重；Pixel 没有粗体，用次墨色和主对话区分）、右侧的短状态词。
     /// 状态词列优先，名字从末尾截断。

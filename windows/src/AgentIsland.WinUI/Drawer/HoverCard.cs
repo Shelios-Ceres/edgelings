@@ -206,7 +206,13 @@ internal sealed partial class HoverCard : IDisposable
                 Return(request);
                 return;
             }
-            if (SamePresentation(_displayed!, request)) { _refresh = null; _skips++; return; }
+            if (SamePresentation(_displayed!, request))
+            {
+                UpdateMetrics(request.Sections.Select(section => section.Card));
+                _refresh = null;
+                _skips++;
+                return;
+            }
             if (_animating)
             {
                 _refresh = request;
@@ -459,6 +465,8 @@ internal sealed partial class HoverCard : IDisposable
         // 标记动画（和减少动效的开关）只在构建时启动：关掉以后再打开同样的内容也要重建。
         _contentKey = null;
         _shortened.Clear();
+        _metricsBelow.Clear();
+        _metricParts.Clear();
         _rowStates = new();
         StopMarkers();
         Rest();

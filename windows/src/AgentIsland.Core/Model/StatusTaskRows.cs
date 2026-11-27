@@ -35,10 +35,34 @@ public sealed record StatusTaskRow(string Id, StatusRowKind Kind, int Depth, str
     /// 主对话第二行的对象（工具名、重连第几次），接在说法后面，从末尾截断。
     public string? Object { get; init; }
 
+    /// 主对话第二行右侧的缓存率和速度（设计稿 §4）；没有可显示的就是 null。只有在跑的主对话有。
+    public StatusMetrics? Metrics { get; init; }
+
     public bool IsMain => Kind == StatusRowKind.Task && Depth == 0;
 
     /// “+N 个对话”这一行：被收起的对话里有几个在等你、出错、在跑，面板头的汇总要算上它们。
     public StatusTally Hidden { get; init; }
+}
+
+/// 缓存率和速度，已经按 §4.3 判断过能显示的部分：CachePercent 是向下取整的 0–100，Speed 是写好的 tok/s
+/// 数字（41、1.2k）。两项至少有一项，都没有时行上就是 null，不写占位。
+public sealed record StatusMetrics(int? CachePercent, string? Speed)
+{
+    /// 一个会话的读数按“现在”判断要不要显示：数据不足、速度太久没更新或低于 1 tok/s，都在 SessionMetrics.Shown 里。
+    public static StatusMetrics? From(SessionMetrics? metrics, DateTimeOffset now)
+    {
+        if (metrics?.Shown(now) is not { } shown) return null;
+        return new StatusMetrics(shown.CachePercent, shown.Speed is { } speed ? SpeedText(speed) : null);
+    }
+
+    /// 取整；1000 以上写 1.2k（一位小数，向下取）。
+    internal static string SpeedText(double speed)
+    {
+        var whole = Math.Round(speed, MidpointRounding.AwayFromZero);
+        return whole >= 1000
+            ? (Math.Floor(whole / 100) / 10).ToString("0.0", CultureInfo.InvariantCulture) + "k"
+            : whole.ToString("0", CultureInfo.InvariantCulture);
+    }
 }
 
 /// 面板头汇总用的计数：等你和出错的算所有层级，在跑的只算主对话。
@@ -81,13 +105,20 @@ public static class StatusTaskRows
 
     /// 一个角色的任务列表。sessions 是这个角色名下的平铺会话；phases 是各会话（按 ScannedSession.Id）
     /// 此刻在做什么，角色自己的头号会话可以传角色正在演的 phase，好和动画一致。
+    /// metrics 是各会话（按 ScannedSession.Id）最近算出的缓存率和速度，由后台读好再传进来
+    /// （SessionMetricsStore.Snapshot），这里不读文件；只在跑的主对话上显示，等你、出错的不显示。
     public static IReadOnlyList<StatusTaskRow> Build(
-        IEnumerable<ScannedSession> sessions, IReadOnlyDictionary<string, PhaseReading> phases, DateTimeOffset now, bool pixel)
+        IEnumerable<ScannedSession> sessions, IReadOnlyDictionary<string, PhaseReading> phases, DateTimeOffset now, bool pixel,
+        IReadOnlyDictionary<string, SessionMetrics>? metrics = null)
     {
         var latest = ActivityMonitor.LatestSessions(sessions).ToList();
         var mains = latest
             .Select(session => Main(session, phases.TryGetValue(session.Id, out var reading) ? reading : null, now))
             .OfType<MainTask>()
+            .Select(main => metrics is not null && main.Row.State == StatusTaskState.Running
+                && metrics.TryGetValue(main.Session.Id, out var own) && StatusMetrics.From(own, now) is { } shown
+                    ? main with { Row = main.Row with { Metrics = shown } }
+                    : main)
             .ToList();
         // 挂在父会话下的侧边对话：状态取它在平铺列表里那一行（一轮做完是“等你回复”，D4），
         // 不用节点自己的“完成”。
@@ -491,7 +522,10 @@ public static class StatusTaskRows
         {
             key.Append(row.Id).Append('|').Append((int)row.Kind).Append('|').Append(row.Depth.ToString(CultureInfo.InvariantCulture))
                 .Append('|').Append(row.Name).Append('|').Append((int)row.State).Append('|').Append(row.Word)
-                .Append('|').Append(row.Activity).Append('|').Append(row.Object).Append('\n');
+                .Append('|').Append(row.Activity).Append('|').Append(row.Object)
+                // 只记有没有缓存率、有没有速度，不记数字：数字每 5 秒变一次，由卡原地更新，不重建。
+                .Append('|').Append(row.Metrics?.CachePercent is not null ? 'c' : '-').Append(row.Metrics?.Speed is not null ? 's' : '-')
+                .Append('\n');
         }
         return key.ToString();
     }

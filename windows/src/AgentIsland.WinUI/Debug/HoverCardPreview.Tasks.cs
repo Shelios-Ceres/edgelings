@@ -40,6 +40,8 @@ internal sealed partial class HoverCardPreview
             await Shot(File("1.1-single-one-task"), new[] { (OneTask(), Swatches[0]) }, 0, null);
             await Shot(File("1.2-single-subtasks"), new[] { (WithSubtasks(), Swatches[0]) }, 0, null);
             await Shot(File("1.2b-single-folded"), new[] { (Folded(), Swatches[0]) }, 0, null);
+            // 第 8 批：只有缓存率（日志里没有速度，或太久没有新输出）。
+            await Shot(File("1.5-single-cache-only"), new[] { (WithSubtasks(cacheOnly: true), Swatches[0]) }, 0, null);
             var all = new[] { (AllClaude(), Swatches[0]), (AllCodex(), Swatches[1]), (IdleKimi(), Swatches[2]) };
             var panel = new HoverCardPanel(ClaudeQuota(), "Claude",
                 StatusTaskRows.Total(new TokenTotals?[] { Totals(1_200_000, 38_400_000), Totals(2_200_000, 57_700_000), null }, TokenCountMode.All, DateTimeOffset.Now));
@@ -110,11 +112,16 @@ internal sealed partial class HoverCardPreview
             UpdatedAt = ShotNow.AddSeconds(-5),
         };
 
-    private static IReadOnlyList<StatusTaskRow> Rows(bool pixel, IEnumerable<(ScannedSession Session, AgentPhase Phase, string? Detail)> sessions)
+    /// 样本里的缓存率和速度（第 8 批）：在跑的主对话带上，其余按状态自己不显示。
+    private static readonly SessionMetrics SampleMetrics = new(92, 41.4, 5, ShotNow);
+
+    private static IReadOnlyList<StatusTaskRow> Rows(bool pixel, IEnumerable<(ScannedSession Session, AgentPhase Phase, string? Detail)> sessions,
+        SessionMetrics? metrics = null)
     {
         var list = sessions.ToList();
         var phases = list.ToDictionary(s => s.Session.Id, s => new PhaseReading(s.Phase, s.Detail, ShotNow));
-        return StatusTaskRows.Build(list.Select(s => s.Session), phases, ShotNow, pixel);
+        var each = list.ToDictionary(s => s.Session.Id, _ => metrics ?? SampleMetrics);
+        return StatusTaskRows.Build(list.Select(s => s.Session), phases, ShotNow, pixel, each);
     }
 
     private StatusCard Card(DisplayProvider provider, string name, string? plan, IReadOnlyList<StatusTaskRow> rows, StatusQuota? quota, long today, long month) =>
@@ -130,7 +137,7 @@ internal sealed partial class HoverCardPreview
         Rows(_pixel, new[] { (Conversation("a", "重构 kit panel 的布局", ActivityState.Working), AgentPhase.Writing, (string?)"Edit") }),
         ClaudeQuota(), 1_200_000, 38_400_000);
 
-    private StatusCard WithSubtasks()
+    private StatusCard WithSubtasks(bool cacheOnly = false)
     {
         var session = Conversation("a", "重构 kit panel 的布局", ActivityState.Working) with
         {
@@ -144,7 +151,8 @@ internal sealed partial class HoverCardPreview
             },
         };
         return Card(DisplayProvider.Claude, "Claude", "MAX",
-            Rows(_pixel, new[] { (session, AgentPhase.WaitingOnAgents, (string?)null) }), ClaudeQuota(), 1_200_000, 38_400_000);
+            Rows(_pixel, new[] { (session, AgentPhase.WaitingOnAgents, (string?)null) }, cacheOnly ? new SessionMetrics(88, null, 5, ShotNow) : null),
+            ClaudeQuota(), 1_200_000, 38_400_000);
     }
 
     private StatusCard Folded()

@@ -478,7 +478,7 @@ Paths are under `windows/src/AgentIsland.WinUI` unless noted.
   | `AGENTISLAND_DEBUG_SAY=<Phase>` or `Locked` | Makes the first bot say that phase's line, or the line a locked drawer answers a drag with |
   | `AGENTISLAND_DEBUG_STATES=<dir>` | Saves the kit's controls at rest, hovered, pressed and focused |
   | `AGENTISLAND_DEBUG_HOVER_PREVIEW=1` | Opens a test window whose card and bubble stay inside it, so a print of the window shows the paper's shadow |
-  | `AGENTISLAND_DEBUG_TASK_SHOTS=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, saves the card's task view on sample data (one task, subtasks, a folded list, every agent, more than three conversations, an error) as PNGs and quits. Set `LIMEN_ROOT` to a scratch folder so it touches no real settings |
+  | `AGENTISLAND_DEBUG_TASK_SHOTS=<dir>` | With `AGENTISLAND_DEBUG_HOVER_PREVIEW=1`, saves the card's task view on sample data (one task, subtasks, a folded list, a card with the cache rate alone, every agent, more than three conversations, an error; running conversations carry a sample cache rate and speed) as PNGs and quits. Set `LIMEN_ROOT` to a scratch folder so it touches no real settings |
   | `AGENTISLAND_DEBUG_TASK_MOTION=1` | With the above, saves frames of the markers' motion instead: running markers 300 ms apart, a row turning to waiting, and the card closed and opened again |
   | `AGENTISLAND_DEBUG_CARD_LOOK=classic` or `pixel` | Shows the test window's card in that look, whatever the drawer's |
   | `AGENTISLAND_DEBUG_PIXEL_SCALE=<scale>` | Picks the pixel face's size as at that display scale (`1.25` is the tightest), to check how the card trims without changing Windows' scale |

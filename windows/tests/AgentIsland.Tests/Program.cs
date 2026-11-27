@@ -224,6 +224,7 @@ public static class Program
                 ("StateGroupsTests", StateGroupsTests.RunAll, null),
                 ("TaskTreeTests", TaskTreeTests.RunAll, null),
                 ("StatusTaskRowsTests", StatusTaskRowsTests.RunAll, null),
+                ("SessionMetricsTests", SessionMetricsTests.RunAll, null),
                 ("PixelChineseTests", PixelChineseTests.RunAll, null),
                 ("CharacterHostTests", CharacterHostTests.RunAll, null),
                 ("ClaudeCredentialsTests", ClaudeCredentialsTests.RunAll, null),

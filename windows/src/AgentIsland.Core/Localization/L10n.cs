@@ -515,6 +515,7 @@ public static class L10n
         ["Mail (short)"] = "有消息",
         ["5h (card)"] = "5h",
         ["Wk"] = "周",
+        ["Cache"] = "缓存",
         ["syncing"] = "同步中",
         ["Total"] = "合计",
         ["{0} need you"] = "{0} 个在等你",

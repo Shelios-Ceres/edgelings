@@ -40,6 +40,7 @@ internal sealed partial class HoverCard
         var pixel = request.Pixel;
         _body.Children.Clear();
         StopMarkers();
+        _metricParts.Clear();
         _reduced = request.ReducedMotion;
         var size = PixelPlate.FontSize(FontScale(request.Scale));
         _face = pixel ? size : null;

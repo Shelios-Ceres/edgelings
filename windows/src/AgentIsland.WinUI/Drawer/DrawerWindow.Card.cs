@@ -24,6 +24,9 @@ internal sealed partial class DrawerWindow
         ShowCard();
     }
 
+    // 上次因为缓存率和速度刷新卡的时刻（秒，_clock）。
+    private double _metricsCardAt;
+
     private void RefreshCard()
     {
         if (_closed || !_card.IsOpen || _cardRefreshPending) return;
@@ -65,7 +68,7 @@ internal sealed partial class DrawerWindow
         {
             phases[bot.Tool.RawValue() + ":" + thread.SessionId] = new PhaseReading(bot.Phase, bot.Detail, null);
         }
-        return StatusTaskRows.Build(sessions, phases, DateTimeOffset.UtcNow, theme == CharacterTheme.Pixel);
+        return StatusTaskRows.Build(sessions, phases, DateTimeOffset.UtcNow, theme == CharacterTheme.Pixel, SessionMetricsStore.Shared.Snapshot());
     }
 
     /// 全员卡的面板：默认钉 Claude 的额度（D3，悬停某个角色时会换成它的单角色卡，那里有它自己的额度），
