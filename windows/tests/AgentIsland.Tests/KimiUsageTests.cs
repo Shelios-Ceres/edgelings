@@ -133,7 +133,7 @@ public static class KimiUsageTests
     {
         var home = Directory.CreateTempSubdirectory("limen-kimi-");
         var previousHome = Environment.GetEnvironmentVariable("KIMI_CODE_HOME");
-        var previousOwner = AntigravityLanguageServer.ResolvePortOwner;
+        var previousOwner = LoopbackPorts.ResolvePortOwner;
         try
         {
             Environment.SetEnvironmentVariable("KIMI_CODE_HOME", home.FullName);
@@ -146,22 +146,22 @@ public static class KimiUsageTests
             var me = Environment.ProcessId;
 
             Register($"\"pid\":{me},");
-            AntigravityLanguageServer.ResolvePortOwner = _ => me;
+            LoopbackPorts.ResolvePortOwner = _ => me;
             Expect(KimiUsageFetcher.LocalServer()?.BaseUrl, "http://127.0.0.1:52096/api/v1");
             Expect(KimiUsageFetcher.LocalServer()?.Token, "secret-token");
 
-            AntigravityLanguageServer.ResolvePortOwner = _ => me + 1;
+            LoopbackPorts.ResolvePortOwner = _ => me + 1;
             Expect(KimiUsageFetcher.LocalServer(), null);
-            AntigravityLanguageServer.ResolvePortOwner = _ => null;
+            LoopbackPorts.ResolvePortOwner = _ => null;
             Expect(KimiUsageFetcher.LocalServer(), null);
 
             Register("");
-            AntigravityLanguageServer.ResolvePortOwner = _ => me;
+            LoopbackPorts.ResolvePortOwner = _ => me;
             Expect(KimiUsageFetcher.LocalServer(), null);
         }
         finally
         {
-            AntigravityLanguageServer.ResolvePortOwner = previousOwner;
+            LoopbackPorts.ResolvePortOwner = previousOwner;
             Environment.SetEnvironmentVariable("KIMI_CODE_HOME", previousHome);
             home.Delete(true);
         }

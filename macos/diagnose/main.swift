@@ -8,8 +8,6 @@
 // --fetch also asks Claude's and Codex's usage endpoints for their quota
 // windows. That uses the stored Claude login the way the app does, and can
 // rotate its refresh token (written back to the same Keychain item).
-// Antigravity's quota is asked of its language server on 127.0.0.1 on every
-// run, with or without --fetch.
 import Foundation
 
 let arguments = CommandLine.arguments

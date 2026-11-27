@@ -9,44 +9,9 @@ internal static class RuntimeBoundaryTests
 {
     public static void RunAll()
     {
-        VerifyServerIdentity();
         VerifyVisibility();
         VerifySerialMonitor();
         Console.WriteLine("RuntimeBoundaryTests GREEN");
-    }
-
-    private static void VerifyServerIdentity()
-    {
-        var owner = AntigravityLanguageServer.ResolvePortOwner;
-        var started = AntigravityLanguageServer.StartTime;
-        var call = AntigravityLanguageServer.CallRpc;
-        try
-        {
-            var stamp = DateTime.UtcNow;
-            var server = new AntigravityLiveCascades.Server(1234, 44, stamp, "fixture");
-            var calls = 0;
-            AntigravityLanguageServer.CallRpc = (_, _, _, _, _) =>
-            {
-                calls++;
-                return Task.FromResult<AntigravityLanguageServer.Reply?>(new(200, []));
-            };
-            AntigravityLanguageServer.StartTime = _ => stamp;
-            AntigravityLanguageServer.ResolvePortOwner = _ => 45;
-            server.Call("probe", "{}").GetAwaiter().GetResult();
-            AntigravityLanguageServer.ResolvePortOwner = _ => 44;
-            AntigravityLanguageServer.StartTime = _ => stamp.AddTicks(1);
-            server.Call("probe", "{}").GetAwaiter().GetResult();
-            Expect(calls, 0);
-            AntigravityLanguageServer.StartTime = _ => stamp;
-            server.Call("probe", "{}").GetAwaiter().GetResult();
-            Expect(calls, 1);
-        }
-        finally
-        {
-            AntigravityLanguageServer.ResolvePortOwner = owner;
-            AntigravityLanguageServer.StartTime = started;
-            AntigravityLanguageServer.CallRpc = call;
-        }
     }
 
     private sealed class Guest : GuestUsageStore
@@ -93,22 +58,14 @@ internal static class RuntimeBoundaryTests
             ".system_generated", "logs", "transcript_full.jsonl");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "{}");
-        var list = AntigravityLanguageServer.ListAntigravityProcessIds;
-        int lists = 0;
-        AntigravityLanguageServer.ListAntigravityProcessIds = () => { lists++; return []; };
         try
         {
             var future = DateTimeOffset.UtcNow.AddDays(1);
             Expect(SessionScanner.ScanAntigravity(future, new Dictionary<string, DateTimeOffset>()).Count > 0,
                 "hidden sessions remain in history");
-            Expect(lists, 0);
-            store.SetShown(DisplayProvider.Antigravity, true);
-            SessionScanner.ScanAntigravity(future.AddMinutes(6), new Dictionary<string, DateTimeOffset>());
-            Expect(lists > 0, "shown provider consults live state");
         }
         finally
         {
-            AntigravityLanguageServer.ListAntigravityProcessIds = list;
             store.SetShown(DisplayProvider.Antigravity, false);
         }
         var resumed = false;

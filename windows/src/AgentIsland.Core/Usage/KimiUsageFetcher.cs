@@ -83,7 +83,7 @@ public static class KimiUsageFetcher
             // a registration without a pid, or a port someone else listens on, gets none.
             if (Jsonl.GetLong(doc.RootElement, "pid") is not { } pid || !ProcessAlive(pid)) return null;
             if (ServerBaseUrl(doc.RootElement, DateTimeOffset.UtcNow) is not { } baseUrl) return null;
-            return AntigravityLanguageServer.ResolvePortOwner(new Uri(baseUrl).Port) == pid ? (baseUrl, token) : null;
+            return LoopbackPorts.ResolvePortOwner(new Uri(baseUrl).Port) == pid ? (baseUrl, token) : null;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
         {

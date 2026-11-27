@@ -5,10 +5,8 @@ namespace AgentIsland.Usage;
 /// the separate `antigravity-cli` root), so every known variant is probed
 /// rather than one hardcoded guess.
 ///
-/// Sign-in state is deliberately NOT probed here: the CLI parks its token
-/// in the platform credential store (go-keyring), and the quota fetch
-/// against the local language server is the honest liveness signal anyway —
-/// a stored token proves nothing about the server being reachable.
+/// Sign-in state is deliberately NOT probed here, and no credential is read:
+/// only whether the data folders exist.
 public static class AntigravityCredentials
 {
     public static string GeminiHome =>

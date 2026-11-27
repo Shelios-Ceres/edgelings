@@ -1,4 +1,3 @@
-using System.Text;
 using AgentIsland.Core;
 using AgentIsland.Cost;
 using AgentIsland.Localization;
@@ -7,8 +6,8 @@ using static AgentIsland.Tests.Check;
 namespace AgentIsland.Tests;
 
 /// Antigravity's cost from its conversation transcripts: the step parser, the
-/// model each step is matched to by its three counts, the price a model id
-/// trims to, and Gemini's prices that change on a date.
+/// model each step names, the price a model id trims to, and Gemini's prices
+/// that change on a date.
 public static class AntigravityCostTests
 {
     private const string Conversation = "11111111-2222-3333-4444-555555555555";
@@ -22,33 +21,20 @@ public static class AntigravityCostTests
             ("a zero count is left out of a step and still reads as zero", StepZeroFields),
             ("steps with no model call or no tokens are skipped", StepsSkipped),
             ("a file counts each step once, under its conversation", FileOnce),
-            ("a step takes the model whose generation has its three counts", MatchOnCounts),
-            ("a step nobody names is unpriced under a placeholder", PlaceholderUnpriced),
-            ("two models with the same counts leave the step unnamed", AmbiguousCounts),
-            ("a conversation is asked about once per length", AskedOncePerLength),
-            ("no server running leaves the question for next time", NoServerNotRemembered),
-            ("the models survive a restart", ModelsSurviveRestart),
             ("a model id trims to its longest price key", FamilyTrim),
             ("Gemini 3.8 Flash changes price at midnight Pacific on 2027-01-01", FlashDated),
             ("Gemini 4 Argon changes price at midnight Pacific on 2026-12-01", ArgonDated),
             ("Gemini 4 Carbon, Neon, Hydrogen and Flash-Lite price at their published rates", NewGeminiModels),
             ("an unnamed step reads in the language of the page that shows it", UnnamedInShownLanguage),
-            ("a step carrying an inline model resolves without asking a server", InlineModelNamed),
+            ("a step takes its model from the transcript; one without is unpriced", InlineModelNamed),
             ("SYSTEM CHECKPOINT compaction steps with tokens are counted", CheckpointCounted),
             ("distinct model calls reusing a step_index are not dropped", ReusedStepIndexPreserved),
             ("Orchestrator Neon, Argon and Hydrogen worker aliases price and name cleanly", OrchestratorAliases),
         };
-        try
+        foreach (var (name, test) in tests)
         {
-            foreach (var (name, test) in tests)
-            {
-                test();
-                Console.WriteLine($"PASS antigravity cost: {name}");
-            }
-        }
-        finally
-        {
-            foreach (var map in TempMaps) File.Delete(map);
+            test();
+            Console.WriteLine($"PASS antigravity cost: {name}");
         }
         Console.WriteLine("AntigravityCostTests GREEN");
     }
@@ -69,31 +55,6 @@ public static class AntigravityCostTests
 
     private static TokenEvent Planned(int index, long input, long cacheRead, long output) =>
         AntigravityLogReader.Parse(Step(index, "2026-10-26T12:00:00Z", input, cacheRead, output), Conversation)!;
-
-    /// A server's GetCascadeTrajectoryGeneratorMetadata reply: counts as strings, zero counts left out.
-    private static byte[] Reply(params (string Model, long Input, long CacheRead, long Output)[] generations)
-    {
-        string Counts(long input, long cacheRead, long output)
-        {
-            var fields = new List<string>();
-            if (input != 0) fields.Add($"\"inputTokens\":\"{input}\"");
-            if (cacheRead != 0) fields.Add($"\"cacheReadTokens\":\"{cacheRead}\"");
-            if (output != 0) fields.Add($"\"outputTokens\":\"{output}\"");
-            return string.Join(",", fields);
-        }
-        var entries = generations.Select(g =>
-            $"{{\"chatModel\":{{\"responseModel\":\"{g.Model}\",\"usage\":{{{Counts(g.Input, g.CacheRead, g.Output)}}}}}}}");
-        return Encoding.UTF8.GetBytes($"{{\"generatorMetadata\":[{string.Join(",", entries)}]}}");
-    }
-
-    private static readonly List<string> TempMaps = new();
-
-    private static string TempMap()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "island-ag-" + Guid.NewGuid().ToString("N") + ".json");
-        TempMaps.Add(path);
-        return path;
-    }
 
     private static void StepFields()
     {
@@ -149,89 +110,6 @@ public static class AntigravityCostTests
         finally
         {
             Directory.Delete(root, recursive: true);
-        }
-    }
-
-    private static void MatchOnCounts()
-    {
-        var map = new AntigravityModelMap(TempMap());
-        var steps = new List<TokenEvent> { Planned(2, 27596, 0, 495), Planned(5, 9557, 34979, 1003) };
-        var named = map.Resolve(steps, _ => new AntigravityModelMap.Generations(true, Reply(
-            ("gemini-3.8-flash-n", 27596, 0, 495), ("gemini-4-argon-trial", 9557, 34979, 1003), ("gemini-4-argon-trial", 1, 2, 3))));
-        Expect(named[0].Model, "gemini-3.8-flash");
-        Expect(named[1].Model, "gemini-4-argon");
-        Expect(named[0].Dollars > 0 && named[1].Dollars > 0, "both are priced");
-    }
-
-    private static void PlaceholderUnpriced()
-    {
-        var map = new AntigravityModelMap(TempMap());
-        var steps = new List<TokenEvent> { Planned(2, 27596, 0, 495), Planned(5, 9557, 34979, 1003) };
-        var named = map.Resolve(steps, _ => new AntigravityModelMap.Generations(true, Reply(("gemini-4-argon-trial", 9557, 34979, 1003))));
-        Expect(named[0].Model, "antigravity-unknown");
-        Expect(named[0].Dollars, 0.0);
-        Expect(!Pricing.IsKnown(named[0].Model), "the placeholder has no price");
-        Expect(named[0].InputTokens, 27596L);
-        Expect(named[1].Model, "gemini-4-argon");
-        var refused = new AntigravityModelMap(TempMap()).Resolve(steps, _ => new AntigravityModelMap.Generations(true, null));
-        Expect(refused.All(step => step.Model == "antigravity-unknown"), "a server that refuses names nothing");
-    }
-
-    private static void AmbiguousCounts()
-    {
-        var map = new AntigravityModelMap(TempMap());
-        var named = map.Resolve(new List<TokenEvent> { Planned(2, 100, 0, 5) },
-            _ => new AntigravityModelMap.Generations(true, Reply(("gemini-4-argon-trial", 100, 0, 5), ("gemini-3.8-flash-n", 100, 0, 5))));
-        Expect(named[0].Model, "antigravity-unknown");
-    }
-
-    private static void AskedOncePerLength()
-    {
-        var map = new AntigravityModelMap(TempMap());
-        var asked = 0;
-        AntigravityModelMap.Generations Ask(string conversation)
-        {
-            asked++;
-            Expect(conversation, Conversation);
-            return new AntigravityModelMap.Generations(true, null);
-        }
-        var steps = new List<TokenEvent> { Planned(2, 100, 0, 5) };
-        map.Resolve(steps, Ask);
-        map.Resolve(steps, Ask);
-        Expect(asked, 1);
-        steps.Add(Planned(5, 200, 0, 6));
-        map.Resolve(steps, Ask);
-        Expect(asked, 2);
-        map.Resolve(steps, Ask);
-        Expect(asked, 2);
-    }
-
-    private static void NoServerNotRemembered()
-    {
-        var map = new AntigravityModelMap(TempMap());
-        var asked = 0;
-        var steps = new List<TokenEvent> { Planned(2, 100, 0, 5) };
-        map.Resolve(steps, _ => { asked++; return new AntigravityModelMap.Generations(false, null); });
-        var named = map.Resolve(steps, _ => { asked++; return new AntigravityModelMap.Generations(true, Reply(("gemini-4-argon-trial", 100, 0, 5))); });
-        Expect(asked, 2);
-        Expect(named[0].Model, "gemini-4-argon");
-    }
-
-    private static void ModelsSurviveRestart()
-    {
-        var path = TempMap();
-        try
-        {
-            var steps = new List<TokenEvent> { Planned(2, 100, 0, 5) };
-            new AntigravityModelMap(path).Resolve(steps, _ => new AntigravityModelMap.Generations(true, Reply(("gemini-3.8-flash-n", 100, 0, 5))));
-            var asked = 0;
-            var named = new AntigravityModelMap(path).Resolve(steps, _ => { asked++; return new AntigravityModelMap.Generations(true, null); });
-            Expect(asked, 0);
-            Expect(named[0].Model, "gemini-3.8-flash");
-        }
-        finally
-        {
-            File.Delete(path);
         }
     }
 
@@ -319,15 +197,12 @@ public static class AntigravityCostTests
         var step = AntigravityLogReader.Parse(
             Step(10, "2026-11-20T12:00:00Z", 5000, 20000, 400, model: "gemini-4-neon-xhigh"), Conversation)!;
         Expect(step.Model, "gemini-4-neon");
-        Expect(step.Dollars > 0, "inline model is priced immediately");
-        var asked = 0;
-        var resolved = new AntigravityModelMap(TempMap()).Resolve(new List<TokenEvent> { step }, _ =>
-        {
-            asked++;
-            return new AntigravityModelMap.Generations(true, null);
-        });
-        Expect(asked, 0);
-        Expect(resolved[0].Model, "gemini-4-neon");
+        Expect(step.Dollars > 0, "the transcript's model is priced");
+        var unnamed = Planned(11, 5000, 20000, 400);
+        Expect(unnamed.Model, AntigravityLogReader.UnknownModel);
+        Expect(unnamed.Dollars, 0.0);
+        Expect(!Pricing.IsKnown(unnamed.Model), "the placeholder has no price");
+        Expect(unnamed.InputTokens, 5000L);
     }
 
     private static void CheckpointCounted()

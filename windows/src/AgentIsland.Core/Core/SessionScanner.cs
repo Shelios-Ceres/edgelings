@@ -254,6 +254,8 @@ public static partial class SessionScanner
         TranscriptCwds.Clear();
         DesktopSessions.Clear();
         AntigravityTitles.Clear();
+        AntigravityCalls.Clear();
+        AntigravitySubFiles.Clear();
         AntigravityHistories.Clear();
         GrokTitles.Clear();
         _codexTitles = new("", new());

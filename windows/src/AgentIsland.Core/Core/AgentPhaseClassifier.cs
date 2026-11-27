@@ -556,7 +556,7 @@ public static class AgentPhaseClassifier
                 or "team_task_create" => AgentPhase.Spawning,
             "wait_agent" or "wait" or "list_agents" or "TaskOutput" or "get_command_or_subagent_output" => AgentPhase.WaitingOnAgents,
             "SendMessage" or "send_message" => AgentPhase.Sending,
-            "AskUserQuestion" or "ExitPlanMode" or "request_user_input" or "request_user_input_async"
+            "AskUserQuestion" or "ExitPlanMode" or "ask_question" or "exit_plan_mode" or "request_user_input" or "request_user_input_async"
                 or "ask_user_question" or "notify_user" => AgentPhase.Asking,
             "browser_subagent" => AgentPhase.Controlling,
             _ => AgentPhase.Working,

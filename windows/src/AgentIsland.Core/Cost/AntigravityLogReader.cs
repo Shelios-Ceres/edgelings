@@ -1,6 +1,4 @@
-using System.Text.Json;
 using AgentIsland.Core;
-using AgentIsland.Usage;
 
 namespace AgentIsland.Cost;
 
@@ -12,12 +10,12 @@ namespace AgentIsland.Cost;
 ///   %USERPROFILE%\.gemini\&lt;antigravity | antigravity-ide | antigravity-cli&gt;\brain\&lt;conversation&gt;\.system_generated\logs\transcript_full.jsonl
 ///
 /// The desktop app and the CLI write the same shape into their own roots.
-/// Newer transcripts name the model directly on each step; older steps without
-/// one fall back to AntigravityModelMap asking the language servers, and a
-/// step nobody can name counts as tokens with no price.
+/// Newer transcripts name the model directly on each step (`model`); a step
+/// that does not counts as tokens with no price. Nothing outside the files
+/// is asked.
 public static class AntigravityLogReader
 {
-    /// The model of a step that neither the transcript nor a server named.
+    /// The model of a step the transcript did not name.
     internal const string UnknownModel = "antigravity-unknown";
 
     private static readonly string[] RootNames = { "antigravity", "antigravity-ide", "antigravity-cli" };
@@ -25,18 +23,16 @@ public static class AntigravityLogReader
     // v2 reads inline model ids, counts SYSTEM/CHECKPOINT compaction calls, and
     // keeps distinct calls that reuse a step_index.
     private static readonly LogParseCache Cache = new(TriggerTool.Antigravity, "antigravity-parse-cache.v2.json");
-    private static readonly AntigravityModelMap Models = new(Path.Combine(IslandPaths.CacheDir, "antigravity-models.v1.json"));
 
     public static List<TokenEvent> Scan(int lookbackDays)
     {
         var files = TranscriptFiles();
         if (files.Count == 0) return new List<TokenEvent>();
-        var steps = Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
-        return Models.Resolve(steps, AskServers);
+        return Deduplicate(Cache.Walk(files, DateTimeOffset.Now.AddDays(-lookbackDays), ParseFile));
     }
 
     /// What Antigravity calls the models its steps name, by price id. A step
-    /// no server named is put into words where it is shown (NameOf), in the
+    /// that names none is put into words where it is shown (NameOf), in the
     /// page's language, not here on the scan thread.
     public static IReadOnlyDictionary<string, string> ModelNames() => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -68,26 +64,6 @@ public static class AntigravityLogReader
             }
         }
         return files;
-    }
-
-    /// Asks every running server, the desktop app's with its token and the
-    /// CLI's with none, until one names the conversation's models.
-    private static AntigravityModelMap.Generations AskServers(string conversation)
-    {
-        if (!Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Antigravity))
-        {
-            return new AntigravityModelMap.Generations(false, null);
-        }
-        var servers = AntigravityLiveCascades.Servers(DateTimeOffset.Now);
-        if (servers.Count == 0) return new AntigravityModelMap.Generations(false, null);
-        var body = "{\"cascadeId\":" + JsonSerializer.Serialize(conversation, CoreJson.Default.String) + "}";
-        foreach (var server in servers)
-        {
-            var reply = server.Call("GetCascadeTrajectoryGeneratorMetadata", body)
-                .GetAwaiter().GetResult();
-            if (reply is { Status: 200 }) return new AntigravityModelMap.Generations(true, reply.Body);
-        }
-        return new AntigravityModelMap.Generations(true, null);
     }
 
     internal static List<TokenEvent> ParseFile(string path)

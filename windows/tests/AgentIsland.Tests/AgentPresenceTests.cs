@@ -218,7 +218,7 @@ public static class AgentPresenceTests
             }),
             ("lsof's field output keeps only the sockets that 127.0.0.1 reaches", () =>
             {
-                var rows = AgentIsland.Usage.AntigravityLanguageServer.ParseLsof("p101\nn127.0.0.1:50321\nn*:8080\nn192.168.1.5:9000\np202\nn[::1]:5000\nn[fe80::1]:5001\nnnot-a-socket\n");
+                var rows = AgentIsland.Usage.LoopbackPorts.ParseLsof("p101\nn127.0.0.1:50321\nn*:8080\nn192.168.1.5:9000\np202\nn[::1]:5000\nn[fe80::1]:5001\nnnot-a-socket\n");
                 if (string.Join(",", rows.Select(r => r.Pid + ":" + r.Port)) != "101:50321,101:8080") throw new Exception(string.Join(",", rows));
             }),
             ("a CLI under a desktop app in the tray stays in the tray beside a terminal", () => Expect(TriggerTool.Claude, AgentPresence.Hidden,

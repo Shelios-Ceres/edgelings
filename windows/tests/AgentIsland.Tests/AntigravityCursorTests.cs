@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentIsland.Core;
 using static AgentIsland.Tests.Check;
@@ -7,11 +6,10 @@ using static AgentIsland.Tests.Check;
 namespace AgentIsland.Tests;
 
 /// Pins how Antigravity and Cursor runs read: Antigravity's step records
-/// (written once each step is done) and what its language server says about
-/// a run, and a Cursor tool still running. Synthetic records mirroring the
-/// shapes observed on 2026-10-16: transcript_full.jsonl steps with
-/// source/type/status/tool_calls, GetAllCascadeTrajectories' summaries,
-/// and Cursor bubbles' toolFormerData.
+/// (written once each step is done) and a Cursor tool still running.
+/// Synthetic records mirroring the shapes observed on 2026-10-16:
+/// transcript_full.jsonl steps with source/type/status/tool_calls, and
+/// Cursor bubbles' toolFormerData.
 public static class AntigravityCursorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
@@ -36,27 +34,6 @@ public static class AntigravityCursorTests
                 Step("MODEL", "PLANNER_RESPONSE", 9, content: "All set."), Step("SYSTEM_SDK", "EPHEMERAL_MESSAGE", 8))),
             ("antigravity phase: a prompt is thinking", () => AntigravityPhase(AgentPhase.Thinking,
                 Step("USER_EXPLICIT", "USER_INPUT", 3))),
-            ("antigravity server: run statuses parse by cascade", ServerParse),
-            ("antigravity server: a running cascade works through silence", () =>
-                Expect(AntigravityLiveCascades.Apply(ActivityState.Idle, Run("CASCADE_RUN_STATUS_RUNNING", null)), ActivityState.Working)),
-            ("antigravity server: an idle cascade mid-turn waits on the user", () =>
-                Expect(AntigravityLiveCascades.Apply(ActivityState.Working, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_HALTED_STEP")),
-                    ActivityState.NeedsYou)),
-            ("antigravity server: a cancelled run owes nothing", () =>
-                Expect(AntigravityLiveCascades.Apply(ActivityState.Working, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_USER_CANCELED")),
-                    ActivityState.Idle)),
-            ("antigravity server: an answered run leaves the transcript's reading", () =>
-                Expect(AntigravityLiveCascades.Apply(ActivityState.NeedsYou, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL")),
-                    ActivityState.NeedsYou)),
-            ("antigravity server: an idle reading older than a prompt just sent is not your turn", () =>
-            {
-                Expect(AntigravityLiveCascades.Apply(ActivityState.Working, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL"),
-                    readSinceTranscript: false), ActivityState.Working);
-                Expect(AntigravityLiveCascades.Apply(ActivityState.Working, Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_USER_CANCELED"),
-                    readSinceTranscript: false), ActivityState.Working);
-                Expect(AntigravityLiveCascades.Apply(ActivityState.Idle, Run("CASCADE_RUN_STATUS_RUNNING", null), readSinceTranscript: false),
-                    ActivityState.Working);
-            }),
             ("cursor turn: a tool still running is not an answer", () => CursorDone(false, Bubble(2, "loading"))),
             ("cursor turn: a finished tool is", () => CursorDone(true, Bubble(2, "completed"))),
             ("cursor turn: plain assistant text is an answer, a user bubble is not", () =>
@@ -72,27 +49,6 @@ public static class AntigravityCursorTests
         }
         Console.WriteLine("AntigravityCursorTests GREEN");
     }
-
-    /// The shape Antigravity's desktop server returned on 2026-10-16.
-    private static void ServerParse()
-    {
-        using var doc = JsonDocument.Parse("""
-            {"trajectorySummaries":{
-              "ead2f8c6-4e9e-44c0-a83c-e5a0fc60bcdb":{"summary":"x","stepCount":71,"status":"CASCADE_RUN_STATUS_RUNNING",
-                "lastModifiedTime":"2026-10-16T07:40:43.803919800Z","trajectoryType":"CORTEX_TRAJECTORY_TYPE_CASCADE"},
-              "771b6d91-eb51-47e7-a04b-54799e957d56":{"summary":"y","stepCount":64,"status":"CASCADE_RUN_STATUS_IDLE",
-                "latestExecutorTerminationReason":"EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL"},
-              "broken":{"stepCount":3}}}
-            """);
-        var runs = AntigravityLiveCascades.Parse(doc.RootElement).ToDictionary(r => r.Id, r => r.Run);
-        Expect(runs.Count, 2);
-        Expect(runs["ead2f8c6-4e9e-44c0-a83c-e5a0fc60bcdb"], Run("CASCADE_RUN_STATUS_RUNNING", null));
-        Expect(runs["771b6d91-eb51-47e7-a04b-54799e957d56"], Run("CASCADE_RUN_STATUS_IDLE", "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL"));
-        using var empty = JsonDocument.Parse("{}");
-        Expect(AntigravityLiveCascades.Parse(empty.RootElement).Count(), 0);
-    }
-
-    private static AntigravityLiveCascades.Run Run(string status, string? stopped) => new(status, stopped);
 
     private static void AntigravityDone(bool expected, params string[] lines) =>
         Expect(SessionTurnState.Antigravity(lines).IsDone, expected);

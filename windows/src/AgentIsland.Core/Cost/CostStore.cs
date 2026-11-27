@@ -129,8 +129,7 @@ public sealed class CostStore : INotifyPropertyChanged
         // Seven readers, one gate. Grok self-reports dollars, Cursor yields token
         // counts only and the rest are table-priced — each summarized off the UI
         // thread and committed together so a slow scan never blocks a fast one
-        // twice. Antigravity's may ask its language servers for each step's
-        // model, so it can take a few seconds the first time.
+        // twice.
         var claudeTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan claude", () => ClaudeLogReader.Scan(lookback)), now));
         var codexTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan codex", () => CodexLogReader.Scan(lookback)), now));
         var antigravityTask = Task.Run(() => CostSummarizer.Summarize(CoreProfile.Time("cost scan antigravity", () => AntigravityLogReader.Scan(lookback)), now) with { ModelNames = AntigravityLogReader.ModelNames() });

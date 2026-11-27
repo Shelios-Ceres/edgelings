@@ -150,8 +150,6 @@ public static class Program
         // (which a suite sets for itself when it needs one) start cleared.
         var world = Path.Combine(Path.GetTempPath(), "limen-test-root-" + Guid.NewGuid().ToString("N"));
         IslandPaths.RootOverride = world;
-        // Synthetic transcripts must never cause RPC discovery on the developer's running CLI.
-        AntigravityLanguageServer.ListAntigravityProcessIds = static () => [];
         // 测试里的刷新也不能起开发者真实的 claude：探测默认找不到 claude，要用假的由测试自己给。
         ClaudeUsageProbe.Locate = static () => null;
         foreach (var variable in new[] { "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME", "CLAUDE_CONFIG_DIR" })
@@ -177,7 +175,8 @@ public static class Program
                 ("KimiDeepSeekTests", KimiDeepSeekTests.RunAll, null),
                 ("KimiWorkTests", KimiWorkTests.RunAll, null),
                 ("AntigravityCursorTests", AntigravityCursorTests.RunAll, null),
-                ("AntigravityQuotaTests", AntigravityQuotaTests.RunAll, null),
+                ("AntigravityWatchTests", AntigravityWatchTests.RunAll, null),
+                ("ProcessHelperTests", ProcessHelperTests.RunAll, null),
                 ("SubagentFilterTests", SubagentFilterTests.RunAll, null),
                 ("GrokTurnStateTests", GrokTurnStateTests.RunAll, null),
                 ("GrokStallTests", GrokStallTests.RunAll, null),
