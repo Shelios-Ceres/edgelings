@@ -100,17 +100,14 @@ public static class Pricing
         ["kimi-k2.7-code"] = new(0.95, 4, 0.95, 0.19),
         ["kimi-k2.7-code-highspeed"] = new(1.9, 8, 1.9, 0.38),
         ["kimi-code/kimi-for-coding-highspeed"] = new(1.9, 8, 1.9, 0.38),
-        // Non-official: Moonshot's pricing page lists no K2.8 Preview. This price is
-        // Tencent TokenHub's ($1 in, $4 out, $0.25 cache hit), as the user chose.
-        ["kimi-code/kimi-for-coding"] = new(1, 4, 1, 0.25),
+        // K2.8 Preview (kimi-code/kimi-for-coding, k2d8-preview) is left unpriced on purpose:
+        // Moonshot's pricing page lists no price for it (checked 2026-11-27).
         ["kimi-k2.6"] = new(0.95, 4, 0.95, 0.16),
         // Non-official ids: the model ids Kimi's desktop app (Kimi Work) writes to its logs.
-        // k3d1 is K3.1 Pro, k3 is K3, k2d8-preview is K2.8 Preview (the TokenHub price above)
-        // and k2d6 is K2.6.
+        // k3d1 is K3.1 Pro, k3 is K3 and k2d6 is K2.6.
         // Any other model it writes has no known price and stays tokens only.
         ["k3d1-agent"] = new(2, 10, 2, 0.2, 4),
         ["k3-agent"] = new(3, 15, 3, 0.3, 6),
-        ["k2d8-preview"] = new(1, 4, 1, 0.25),
         ["k2d6-agent"] = new(0.95, 4, 0.95, 0.16),
         // DeepSeek, checked 2026-11-27 against api-docs.deepseek.com/quick_start/pricing.
         // The page lists deepseek-v4-pro and deepseek-flash at these peak rates; the

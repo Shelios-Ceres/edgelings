@@ -264,7 +264,7 @@ public static class KimiWorkTests
             Expect(Math.Abs(Event(work).Dollars - Event(known).Dollars) < 1e-9 && Event(known).Dollars > 0, $"{work} is priced as {known}");
         Same("k3d1-agent", "kimi-code/k3.1-pro");
         Same("k3-agent", "kimi-code/k3");
-        Same("k2d8-preview", "kimi-code/kimi-for-coding");
+        Expect(Event("k2d8-preview").Dollars, 0.0);
         Same("k2d6-agent", "kimi-k2.6");
         // Anything else the desktop app writes has no known price: tokens only.
         Expect(Event("k9d9-agent").Dollars, 0.0);

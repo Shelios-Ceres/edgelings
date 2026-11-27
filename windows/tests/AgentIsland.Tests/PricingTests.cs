@@ -15,7 +15,7 @@ public static class PricingTests
         {
             ("Kimi K3.1 Pro prices the plan id and the API id alike", KimiK31Pro),
             ("Kimi highspeed ids price at their own rates", KimiHighspeed),
-            ("Kimi K2.8 Preview prices at the TokenHub rates the user chose", KimiK28Preview),
+            ("Kimi K2.8 Preview is unpriced (no official price)", KimiK28Preview),
             ("DeepSeek prices at half outside its peak hours, by the event's time", DeepSeekOffPeak),
             ("DeepSeek's peak windows have exact edges", DeepSeekPeakEdges),
             ("DeepSeek weekends are off-peak and other models never halve", DeepSeekWeekendAndOthers),
@@ -108,8 +108,8 @@ public static class PricingTests
 
     private static void KimiK28Preview()
     {
-        Expect(Pricing.IsKnown("kimi-code/kimi-for-coding"), "K2.8 Preview is priced");
-        Rate("kimi-code/kimi-for-coding", 1, 4, 1, 0.25);
+        Expect(!Pricing.IsKnown("kimi-code/kimi-for-coding"), "K2.8 Preview is unpriced");
+        Expect(!Pricing.IsKnown("k2d8-preview"), "K2.8 Preview from Kimi Work is unpriced");
         Rate("kimi-code/k3", 3, 15, 3, 0.3);
     }
 
