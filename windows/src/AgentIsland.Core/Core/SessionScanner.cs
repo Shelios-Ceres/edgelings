@@ -328,7 +328,8 @@ public static partial class SessionScanner
     public static string Fallback(string cwd, string sid)
     {
         var trimmed = cwd.TrimEnd('\\', '/');
-        var basename = trimmed.Length == 0 ? "" : Path.GetFileName(trimmed);
+        // 两种分隔符都认：Mac 上的 Path.GetFileName 不认反斜杠。
+        var basename = trimmed[(trimmed.LastIndexOfAny(['\\', '/']) + 1)..];
         if (string.IsNullOrEmpty(basename))
             return sid.Length <= 8 ? sid : sid[..8];
         return basename;
