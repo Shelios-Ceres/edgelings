@@ -10,18 +10,17 @@ enum RenderSettings {
      "quota":{"interval":300,"presets":[300,900,1800],"showsRemaining":false,"tokenMode":"all","tokenModeLabel":"All tokens (including cache)"},
      "language":"auto","chinese":false,
      "agents":[
-      {"id":"claude","name":"Claude","shown":true,"detected":true,"plan":"MAX","account":"work","status":"synced 2m ago","signIn":"none","signInHint":"Opens a terminal running claude /login","accent":14120791,"swatch":@claude@,"defaultLook":true,
+      {"id":"claude","name":"Claude","shown":true,"detected":true,"plan":"MAX","status":"synced 2m ago","signIn":"none","signInHint":"Opens a terminal running claude /login","accent":14120791,"swatch":@claude@,"defaultLook":true,
        "meters":[{"label":"5h","value":"38%","shown":0.38,"used":0.38,"resets":"Resets in 2h 10m"},{"label":"Week","value":"12%","shown":0.12,"used":0.12}],
        "tokens":{"label":"Tokens","today":"today 1.2M","todayNumber":"1.2M","month":"48M this month","monthNumber":"48M"},
        "look":{"pixel":"clawd","classic":"succulent"}},
-      {"id":"codex","name":"Codex","shown":true,"detected":true,"plan":"PRO","account":"personal","status":"synced 4m ago","warning":"Quota updated 12 min ago","signIn":"available","signInHint":"Opens a terminal running codex login","accent":10396075,"swatch":@codex@,"defaultLook":true,
+      {"id":"codex","name":"Codex","shown":true,"detected":true,"plan":"PRO","status":"synced 4m ago","warning":"Quota updated 12 min ago","signIn":"available","signInHint":"Opens a terminal running codex login","accent":10396075,"swatch":@codex@,"defaultLook":true,
        "meters":[{"label":"5h","value":"93%","shown":0.93,"used":0.93},{"label":"Week","value":"61%","shown":0.61,"used":0.61}],
        "tokens":{"label":"Tokens","today":"today 310K","todayNumber":"310K","month":"9.8M this month","monthNumber":"9.8M"},
        "look":{"pixel":"notebook","classic":"desk-computer"}},
       {"id":"kimi","name":"Kimi","shown":false,"detected":true,"status":"Waiting for the first sync","signIn":"none","signInHint":"","accent":3043319,"swatch":@kimi@,"defaultLook":true,
        "meters":[],"look":{"pixel":"moonlet","classic":"moon-lamp"}}],
-     "hooks":{"claude":false,"grok":false,"grokConflict":false},
-     "codex":{"autoSwitch":false,"active":"personal","accounts":[{"label":"personal","email":"a@example.com"},{"label":"work"}]}}
+     "hooks":{"claude":false,"grok":false,"grokConflict":false}}
     """
 
     private static let usageTemplate = """

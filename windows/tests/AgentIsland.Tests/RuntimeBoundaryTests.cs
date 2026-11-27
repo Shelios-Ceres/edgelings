@@ -10,7 +10,6 @@ internal static class RuntimeBoundaryTests
     public static void RunAll()
     {
         VerifyServerIdentity();
-        VerifyPrivateFiles();
         VerifyVisibility();
         VerifySerialMonitor();
         Console.WriteLine("RuntimeBoundaryTests GREEN");
@@ -48,22 +47,6 @@ internal static class RuntimeBoundaryTests
             AntigravityLanguageServer.StartTime = started;
             AntigravityLanguageServer.CallRpc = call;
         }
-    }
-
-    private static void VerifyPrivateFiles()
-    {
-        if (OperatingSystem.IsWindows()) return;
-        var root = Directory.CreateTempSubdirectory("limen-modes-");
-        try
-        {
-            var dir = Path.Combine(root.FullName, "accounts");
-            CredentialFiles.CreateDirectory(dir);
-            var path = Path.Combine(dir, "sample");
-            CredentialFiles.WriteNew(path, "synthetic");
-            Expect(File.GetUnixFileMode(dir), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            Expect(File.GetUnixFileMode(path), UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        }
-        finally { root.Delete(true); }
     }
 
     private sealed class Guest : GuestUsageStore

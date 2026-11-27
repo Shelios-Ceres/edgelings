@@ -35,7 +35,6 @@ struct AgentModel: Decodable, Identifiable {
     let shown: Bool
     let detected: Bool
     let plan: String?
-    let account: String?
     let status: String
     let warning: String?
     let note: String?
@@ -55,18 +54,6 @@ struct HooksState: Decodable {
     let grokConflict: Bool
 }
 
-struct CodexAccount: Decodable, Identifiable {
-    let label: String
-    let email: String?
-    var id: String { label }
-}
-
-struct CodexState: Decodable {
-    let autoSwitch: Bool
-    let active: String?
-    let accounts: [CodexAccount]
-}
-
 struct SettingsModel: Decodable {
     let drawer: DrawerPrefs
     let quota: QuotaPrefs
@@ -74,7 +61,6 @@ struct SettingsModel: Decodable {
     let chinese: Bool
     let agents: [AgentModel]
     let hooks: HooksState
-    let codex: CodexState
 }
 
 struct ModelRow: Decodable {
@@ -277,15 +263,15 @@ enum UIStrings {
         "Tokens", "Token counting", "Excludes cache reads; new input written to cache still counts. History is kept.",
         "Input + output (excluding cache reads)", "All tokens (including cache)",
         "Startup", "Launch at login", "Language", "App language", "English", "About", "Thanks", "Crash log", "Open folder", "Quit Limen", "Quit",
-        "Today", "This month", "On", "Off", "Switch", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
+        "Today", "This month", "On", "Off", "Sign in again", "Waiting for login…", "Opens a terminal running codex login", "Opens a terminal running claude /login", "Refresh", "Sign in", "Waiting for sign-in", "Scan now", "Not scanned yet",
         "Estimated cost", "Busiest agent", "At API list prices", "No activity yet", "{0} tokens", "no price", "free",
         "Tokens per hour (no price)", "Tokens per day (no price)", "Models", "Models, last 5 hours", "No sessions in this period",
-        "Account", "Look", "Save current account…", "Auto-switch when exhausted", "Auto-switching rewrites ~/.codex/auth.json and may be seen as using several accounts to get around limits, which risks a ban.", "No saved accounts yet", "Remove saved account",
+        "Look",
         "The original app, by {0} · MIT License", "The pixel font, by {0} · SIL Open Font License 1.1",
-        "Permission hook", "Not detected", "{0}. What {1} wears in the drawer, on its card and in menus", "Models, last 5 hours", "{0} · Local time zone: {1}", "Today starts at this computer's midnight. Previous days stay in history.", "Switch",
+        "Permission hook", "Not detected", "{0}. What {1} wears in the drawer, on its card and in menus", "Models, last 5 hours", "{0} · Local time zone: {1}", "Today starts at this computer's midnight. Previous days stay in history.",
         "Last scanned {0}", "Memory (background)", "synced {0}", "Quota updated {0}", "Waiting for the first sync", "Resets {0}",
         "5h", "Week", "today", "{0} this month", "Look",
-        "Shown", "Hidden", "Move up", "Move down", "Right now", "Account", "Not saved yet",
+        "Shown", "Hidden", "Move up", "Move down", "Right now",
         "5-hour window", "Weekly window", "Daily window", "Monthly window", "Permission prompts",
         "Shows when Claude Code waits for you to approve a tool. Adds a small hook to Claude Code's settings.json that records only the session and the prompt type; sessions started afterwards pick it up.",
         "Shows when Grok waits for you to approve a tool. Adds one hook file, agentisland-notify.json, to ~/.grok/hooks that records only the session and the prompt type; sessions started afterwards pick it up.",

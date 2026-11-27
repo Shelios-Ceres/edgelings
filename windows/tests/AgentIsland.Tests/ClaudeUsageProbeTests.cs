@@ -196,14 +196,12 @@ public static class ClaudeUsageProbeTests
             Expect(ClaudeUsageProbe.Interpret(document.RootElement, hasAccount: false).FiveHour.Error, ClaudeUsageProbe.NoAccountMessage);
         }
         Expect(usage.Weekly.Error, ClaudeUsageProbe.NoSubscriptionMessage);
-        Expect(!ClaudeCredentials.IsAuthRecoverableError(usage.FiveHour.Error), "not a sign-in prompt");
     }
 
     private static void NoReading()
     {
         var usage = Interpret(Payload("true", "null", "null"));
         Expect(usage.FiveHour.Error, ClaudeUsageProbe.NoReadingMessage);
-        Expect(!ClaudeCredentials.IsAuthRecoverableError(usage.FiveHour.Error), "not a sign-in prompt");
     }
 
     private static void Unparsable()
@@ -258,7 +256,6 @@ public static class ClaudeUsageProbeTests
     {
         foreach (var message in AllMessages())
         {
-            Expect(!ClaudeCredentials.IsAuthRecoverableError(message), message + " offers no sign-in button");
             var lower = message.ToLowerInvariant();
             foreach (var word in new[] { "auth", "login", "rate limit", "rate_limit" })
                 Expect(!lower.Contains(word), message + " does not contain " + word);
@@ -602,7 +599,7 @@ public static class ClaudeUsageProbeTests
             rig.Settle();
             if (!gated)
             {
-                // Mac 的 FetchClaude：取数没被打断，结果照常显示。
+                // 门控关着（非 Windows）：取数没被打断，结果照常显示。
                 Expect(Math.Abs(rig.Store.Claude.FiveHour.UsedPercent - 0.5) < 1e-9, "the fetch in flight is shown");
             }
         }
@@ -627,18 +624,6 @@ public static class ClaudeUsageProbeTests
 
     private static void CancelledProbeKeepsTheCycle()
     {
-        // 探测进行中 Codex 换号：取消了探测，换号后的这一轮还能再探测。
-        var rig = new StoreRig { Hang = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
-        rig.Store.Refresh();
-        var until = DateTime.UtcNow.AddSeconds(5);
-        while (rig.Claude == 0 && DateTime.UtcNow < until) Thread.Sleep(10);
-        rig.Store.RefreshAfterCodexSwitch();
-        until = DateTime.UtcNow.AddSeconds(5);
-        while (rig.Claude < 2 && DateTime.UtcNow < until) Thread.Sleep(10);
-        Expect(rig.Claude, 2);
-        rig.Hang.SetResult();
-        rig.Settle();
-
         // 这一次没有探测（Skipped）：不当结果，也不占名额。
         var skipped = new StoreRig();
         skipped.Reply = () => ClaudeUsageProbe.Skipped;

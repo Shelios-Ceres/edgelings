@@ -218,7 +218,10 @@ public static class BridgeApi
             if (fetch)
             {
                 json.WriteStartObject("quota");
-                WriteQuota(json, "claude", () => UsageFetcher.FetchClaude());
+                // Mac 上 Claude 额度暂未启用，诊断也不再取数。
+                json.WriteStartObject("claude");
+                json.WriteString("error", ClaudeUsageProbe.MacNotEnabledMessage);
+                json.WriteEndObject();
                 WriteQuota(json, "codex", () => UsageFetcher.FetchCodex());
                 json.WriteEndObject();
             }

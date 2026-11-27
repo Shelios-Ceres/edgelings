@@ -31,7 +31,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     private bool _loading;
     private bool _claudeReauthInProgress;
     private bool _codexReauthInProgress;
-    private string? _codexAutoSwitched;
 
     /// The login the Codex numbers were fetched for.
     private string? _codexLogin;
@@ -46,22 +45,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     private bool _claudeFailed;
     private bool _codexFailed;
     internal bool CodexRefreshFailed => _codexFailed;
-
-    /// Accounts tried since the current exhaustion episode began; cleared the
-    /// moment a reading comes back under 100%, so each episode walks the pool
-    /// at most once and a fully-exhausted pool goes quiet instead of thrashing
-    /// auth.json forever.
-    private readonly HashSet<string> _codexAutoSwitchTried = new(StringComparer.Ordinal);
-
-    /// The parked labels as they stood when the episode began. Activate parks
-    /// the OUTGOING login under a fresh `previous-<stamp>` name whenever it
-    /// matches nothing on disk — and a Codex CLI that rewrites auth.json
-    /// between polls (token refresh) makes that happen on every rotation. The
-    /// pool would then grow exactly as fast as the tried set, so a candidate
-    /// would always exist and the rotation would rewrite auth.json forever.
-    /// Anything that appears after the snapshot is one of those copies and is
-    /// excluded for the rest of the episode.
-    private List<string>? _codexAutoSwitchPool;
 
     private UiTimer? _pollTimer;
     private UiTimer? _resetEdgeTimer;
@@ -151,8 +134,6 @@ public sealed class UsageStore : INotifyPropertyChanged
             ClaudeShown = () => Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Claude);
             CodexShown = () => Model.ProviderVisibilityStore.Shared.IsShown(Model.DisplayProvider.Codex);
             SaveSnapshot = SaveCachedSnapshot;
-            // 自动换号暂时断开：Codex 额度改读 rollout 后，换号之后最新的读数仍是旧账号的
-            // 100%，会把所有存号轮一遍并反复重写 auth.json。整套留到第 4 批删除。
             BeforeRefresh = KickOtherProviders;
         }
         if (restore && LoadCachedSnapshot() is { } snapshot)
@@ -181,10 +162,12 @@ public sealed class UsageStore : INotifyPropertyChanged
 
     private Func<CancellationToken, Task<AppUsage>> _claudeFetcher = DefaultClaudeFetcher;
 
-    /// Windows 上 Claude 额度走 ClaudeUsageProbe（claude 自己报），Mac 继续走 FetchClaude
-    /// 直接读接口。旧的刷新和写回路径 Windows 上不再调用，代码先留着，第 4 批再删。
+    /// Windows 上 Claude 额度走 ClaudeUsageProbe（claude 自己报）。Mac 上暂未启用：
+    /// 返回一条说明，沿用旧快照，不进入“需要登录”，也不算取数失败。
     private static Task<AppUsage> DefaultClaudeFetcher(CancellationToken ct) =>
-        OperatingSystem.IsWindows() ? ClaudeUsageProbe.Fetch(ct) : UsageFetcher.FetchClaude(ct);
+        OperatingSystem.IsWindows()
+            ? ClaudeUsageProbe.Fetch(ct)
+            : Task.FromResult(AppUsage.ErrorPair(ClaudeUsageProbe.MacNotEnabledMessage));
 
     /// 只有默认的 Windows 探测才受门控管：Claude 没开着不探测，终端登录期间不探测，
     /// 每个轮询周期最多一次。换了 ClaudeFetcher（测试）就关掉；要测门控本身时再显式打开。
@@ -201,7 +184,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     internal Func<TimeSpan> ClaudeProbeInterval { get; set; } = () => TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
 
     private DateTimeOffset? _lastClaudeProbeAt;
-    private DateTimeOffset? _probeAtBeforeRefresh;
 
     /// 这一次探测被取消或跳过了，不占这个周期的名额：回到上一次的值（只在它还是最新一次时）。
     private void RevertProbe(DateTimeOffset startedAt, DateTimeOffset? before)
@@ -210,7 +192,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     }
 
     /// 终端登录开始：门控开着（Windows 探测）时，取消登录前起的探测，结果不要了。
-    /// 门控关着（Mac 的 FetchClaude）时不取消，免得把进行中的取数打成错误。
+    /// 门控关着（非 Windows）时不取消，免得把进行中的取数打成错误。
     internal void BeginClaudeReauth()
     {
         ClaudeReauthInProgress = true;
@@ -245,7 +227,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     internal Func<bool> ClaudeShown { get; set; } = () => true;
     internal Func<bool> CodexShown { get; set; } = () => true;
     internal Action<AppUsage, AppUsage, bool, bool, string?> SaveSnapshot { get; set; } = (_, _, _, _, _) => { };
-    internal Action<AppUsage> AutoSwitch { get; set; } = _ => { };
     internal Action BeforeRefresh { get; set; } = () => { };
     internal Task? RefreshTask => _refreshTask;
 
@@ -264,10 +245,6 @@ public sealed class UsageStore : INotifyPropertyChanged
     public bool ClaudeReauthInProgress { get => _claudeReauthInProgress; internal set { _claudeReauthInProgress = value; Raise(nameof(ClaudeReauthInProgress)); } }
     public bool CodexReauthInProgress { get => _codexReauthInProgress; private set { _codexReauthInProgress = value; Raise(nameof(CodexReauthInProgress)); } }
 
-    /// Label the auto-switcher rotated to most recently, shown on the Codex
-    /// card until the next manual action. Real state, not explanation.
-    public string? CodexAutoSwitched { get => _codexAutoSwitched; set { _codexAutoSwitched = value; Raise(nameof(CodexAutoSwitched)); } }
-
     /// Refresh only when the last successful update is older than the poll
     /// interval — the panel-open freshness hook. Capped by the user's refresh
     /// interval so opening the island never polls the rate-limited endpoints
@@ -279,27 +256,13 @@ public sealed class UsageStore : INotifyPropertyChanged
         Refresh();
     }
 
-    /// The Codex login was just switched: the refresh in flight was fetched
-    /// for the old account, so it is cancelled (its result is dropped) and a
-    /// new one starts at once, past the usual guard against overlapping.
-    /// Only Codex is fetched, unless the cancelled refresh was also Claude's.
-    public void RefreshAfterCodexSwitch()
-    {
-        var claudeToo = Loading && _refreshFetchesClaude;
-        // 被取消的探测不占这个周期的名额。
-        if (claudeToo && _lastClaudeProbeAt == _refreshStartedAt) _lastClaudeProbeAt = _probeAtBeforeRefresh;
-        _refreshCts?.Cancel();
-        Loading = false;
-        Refresh(fetchClaude: claudeToo, fetchCodex: true);
-    }
-
     public void Refresh() => Refresh(fetchClaude: true, fetchCodex: true);
 
     /// 唤醒、网络恢复和它们被 2 分钟间隔挡住后的补刷。
     private void RefreshForEvent() => Refresh(fetchClaude: true, fetchCodex: true, viaEvent: true);
 
     /// Fetches only the shown providers among those asked for. A hidden agent's
-    /// quota queries, token refreshes and account rotations stay completely off.
+    /// quota queries stay completely off.
     private int _skipRetryPending;
     private DateTimeOffset _lastSkipRetry = DateTimeOffset.MinValue;
 
@@ -308,7 +271,7 @@ public sealed class UsageStore : INotifyPropertyChanged
     /// 只在门控开着（Windows 探测）时补，30 秒内最多补一次，免得一直落空时来回补取。
     private void RetryAfterSkip(bool viaEvent, bool manual)
     {
-        // Skipped 只会来自 Windows 上的探测；Mac 走 FetchClaude，不补取。
+        // Skipped 只会来自 Windows 上的探测；Mac 不探测，不补取。
         if (!OperatingSystem.IsWindows() || !ClaudeGateEnabled) return;
         var now = Clock();
         if (now - _lastSkipRetry < TimeSpan.FromSeconds(30) && now >= _lastSkipRetry) return;
@@ -371,7 +334,6 @@ public sealed class UsageStore : INotifyPropertyChanged
         if (wantClaude)
         {
             LastAttemptedAt = _refreshStartedAt;
-            _probeAtBeforeRefresh = probeAtBefore;
             _lastClaudeProbeAt = _refreshStartedAt;
         }
         if (wantCodex) CodexAttemptedAt = _refreshStartedAt;
@@ -442,7 +404,6 @@ public sealed class UsageStore : INotifyPropertyChanged
                     if (commitClaude) RecordSuccessfulUpdate(claude: true, claudeResult!, now);
                     if (commitCodex) RecordSuccessfulUpdate(claude: false, codexResult!, now);
                     Loading = false;
-                    if (commitCodex) AutoSwitch(mergedCodex);
                 });
             }
             catch
@@ -466,70 +427,6 @@ public sealed class UsageStore : INotifyPropertyChanged
         KimiUsageStore.Shared.KickRefresh();
     }
 
-    /// AUTO mode of `CodexAccountSwitcher` (the codex-auto borrow, driven by
-    /// the real usage numbers instead of scraped terminal text). Runs on every
-    /// fresh Codex reading: exhausted + enabled + a candidate exists → swap and
-    /// immediately re-poll so the island shows the incoming account's numbers,
-    /// not a stale 100%.
-    ///
-    /// The tried set is what stops an infinite credential-rewrite loop: the
-    /// outgoing account is recorded before each swap, so once every parked
-    /// login has been walked the rotation stops and auth.json is left alone
-    /// until a reading drops back under 100%.
-    private void MaybeAutoSwitchCodex(AppUsage usage)
-    {
-        if (!CodexShown()) return;
-        if (!CodexAccountSwitcher.AutoSwitchEnabled) return;
-        switch (ReadCodexQuota(usage, DateTimeOffset.Now))
-        {
-            case CodexQuotaReading.Unreadable:
-                return;
-            case CodexQuotaReading.Clear:
-                _codexAutoSwitchTried.Clear();
-                _codexAutoSwitchPool = null;
-                return;
-        }
-        var pool = _codexAutoSwitchPool ??= CodexAccountSwitcher.Accounts()
-            .Select(account => account.Label)
-            .ToList();
-        // Retire every label the episode did not start with, so the rotation
-        // can only ever walk the snapshot and always runs out of candidates.
-        foreach (var account in CodexAccountSwitcher.Accounts())
-        {
-            if (!pool.Contains(account.Label, StringComparer.Ordinal))
-            {
-                _codexAutoSwitchTried.Add(account.Label);
-            }
-        }
-        if (CodexAccountSwitcher.ActiveLabel() is { } active) _codexAutoSwitchTried.Add(active);
-        if (CodexAccountSwitcher.RotationCandidate(_codexAutoSwitchTried) is not { } next) return;
-        if (!CodexAccountSwitcher.Activate(next)) return;
-        _codexAutoSwitchTried.Add(next.Label);
-        CodexAutoSwitched = next.Label;
-        Refresh(fetchClaude: false, fetchCodex: true);
-    }
-
-    internal enum CodexQuotaReading
-    {
-        /// Both windows have errors: nothing to go on.
-        Unreadable,
-        /// A readable window is used up.
-        Spent,
-        /// Readable, and nothing is spent.
-        Clear,
-    }
-
-    /// Whether the account has run dry: any window without an error, at its
-    /// reading for `now` (one past its reset counts as reset), is at 100%. A
-    /// window with an error is not read, so the other one decides.
-    internal static CodexQuotaReading ReadCodexQuota(AppUsage usage, DateTimeOffset now)
-    {
-        if (usage.FiveHour.HasError && usage.Weekly.HasError) return CodexQuotaReading.Unreadable;
-        var spent = (!usage.FiveHour.HasError && usage.FiveHour.At(now).UsedPercent >= 1)
-            || (!usage.Weekly.HasError && usage.Weekly.At(now).UsedPercent >= 1);
-        return spent ? CodexQuotaReading.Spent : CodexQuotaReading.Clear;
-    }
-
     /// True when both windows have errors and zero values — nothing useful
     /// to show, so we keep whatever we had before.
     private static bool IsErrorOnly(AppUsage usage) =>
@@ -541,9 +438,9 @@ public sealed class UsageStore : INotifyPropertyChanged
         usage.FiveHour.Error is ClaudeUsageProbe.NoSubscriptionMessage or ClaudeUsageProbe.NoAccountMessage
         && usage.Weekly.Error == usage.FiveHour.Error;
 
-    /// 页脚的“Claude stale”：没订阅、没账号、没装 Claude Code 都不是取数失败。
+    /// 页脚的“Claude stale”：没订阅、没账号、没装 Claude Code、Mac 上未启用都不是取数失败。
     private static bool ClaudeFailed(AppUsage usage) =>
-        IsErrorOnly(usage) && !IsNoSubscription(usage) && usage.FiveHour.Error != ClaudeUsageProbe.NotInstalledMessage;
+        IsErrorOnly(usage) && !IsNoSubscription(usage) && usage.FiveHour.Error is not (ClaudeUsageProbe.NotInstalledMessage or ClaudeUsageProbe.MacNotEnabledMessage);
 
     /// 显示一次 Claude 的结果。没有订阅额度时不保留旧数字，显示“—”；其他失败保留快照。
     private void ShowClaude(AppUsage fetched)
@@ -584,8 +481,8 @@ public sealed class UsageStore : INotifyPropertyChanged
         UsageCachePolicy.Merged(existing, fetched);
 
     /// Shows a Codex result fetched for `login`. The numbers held for
-    /// another login are not kept through its failure: after a switch whose
-    /// first fetch fails, the error shows instead of the previous account's
+    /// another login are not kept through its failure: after the login
+    /// changes and its first fetch fails, the error shows instead of the previous account's
     /// quota under the new login.
     private AppUsage CommitCodex(AppUsage fetched, string? login)
     {

@@ -44,7 +44,7 @@ public static class CodexCredentials
 
     internal static string? LoginIn(JsonElement root)
     {
-        if (CodexAccountSwitcher.IdentityIn(root) is { } identity)
+        if (IdentityIn(root) is { } identity)
         {
             return "account:" + identity.AccountId + (identity.UserId is { } user ? "|" + user : "");
         }
@@ -52,6 +52,46 @@ public static class CodexCredentials
         if (Jsonl.GetString(tokens, "access_token") is not { Length: > 0 } token) return null;
         return "token:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
     }
+
+    internal sealed record Identity(string AccountId, string? UserId);
+
+    /// auth.json 里的账号和用户（只读，不写）：account_id 之外还看 id_token / access_token 里的
+    /// chatgpt_account_id、chatgpt_user_id；同一个 Team workspace 的成员 account 相同、user 不同。
+    internal static Identity? IdentityIn(JsonElement root)
+    {
+        try
+        {
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("tokens", out var tokens) ||
+                tokens.ValueKind != JsonValueKind.Object) return null;
+            var account = StringIn(tokens, "account_id");
+            string? user = null, subject = null;
+            foreach (var key in new[] { "id_token", "access_token" })
+            {
+                if (StringIn(tokens, key)?.Split('.') is not { Length: 3 } parts) continue;
+                try
+                {
+                    var payload = parts[1].Replace('-', '+').Replace('_', '/');
+                    payload = payload.PadRight((payload.Length + 3) / 4 * 4, '=');
+                    using var claims = JsonDocument.Parse(Convert.FromBase64String(payload));
+                    subject ??= StringIn(claims.RootElement, "sub");
+                    if (claims.RootElement.TryGetProperty("https://api.openai.com/auth", out var auth))
+                    {
+                        account ??= StringIn(auth, "chatgpt_account_id");
+                        user ??= StringIn(auth, "chatgpt_user_id");
+                    }
+                }
+                catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException) { }
+            }
+            // Email alone is not an identity: one user may have several workspaces.
+            return account is null ? null : new Identity(account, user ?? subject);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return null; }
+    }
+
+    private static string? StringIn(JsonElement element, string key) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(key, out var value) &&
+        value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : null;
 
     /// CurrentLogin 返回值里的账号和用户，用来对上 rollout 的 creator_account_id 和
     /// creator_user_id（同一个 Team workspace 的成员 account 相同、user 不同）。

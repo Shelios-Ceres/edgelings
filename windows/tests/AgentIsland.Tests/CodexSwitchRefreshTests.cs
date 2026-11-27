@@ -4,10 +4,9 @@ using static AgentIsland.Tests.Check;
 
 namespace AgentIsland.Tests;
 
-/// A Codex account switch while a refresh is in flight: the old request must
-/// not land its account's numbers on the new one, and a result for a login
-/// that has changed is dropped without an auto-switch. Claude's half of the
-/// same refresh still commits.
+/// Codex 登录在取数期间变了（用户自己在终端里 codex login）：旧登录的结果不能落到新登录上，
+/// 登录变了的结果直接丢弃；同一轮里 Claude 的那一半照常提交。换号功能已删除，
+/// 只留这些和“登录对不上”相关的检查。
 public static class CodexSwitchRefreshTests
 {
     private static AppUsage Usage(double fiveHour) =>
@@ -16,13 +15,10 @@ public static class CodexSwitchRefreshTests
     public static void RunAll()
     {
         LoginIdentity();
-        SwitchStartsANewRefresh();
         ChangedLoginIsDropped();
         UnchangedLoginCommits();
         NewLoginFailureShowsTheError();
         CachedNumbersKeepTheirLogin();
-        SwitchAsksCodexAlone();
-        SwitchMidRefreshAsksClaudeAgain();
         Console.WriteLine("CodexSwitchRefreshTests GREEN");
     }
 
@@ -59,59 +55,18 @@ public static class CodexSwitchRefreshTests
         return JsonSerializer.Serialize(new { tokens = new { account_id = account, id_token = jwt, access_token = "FAKE-" + generation } });
     }
 
-    private static UsageStore Store(Func<CancellationToken, Task<AppUsage>> codex, Func<string?> login, List<string> log)
-    {
-        var store = new UsageStore(restore: false)
+    private static UsageStore Store(Func<CancellationToken, Task<AppUsage>> codex, Func<string?> login) =>
+        new(restore: false)
         {
             CodexFetcher = codex,
             ClaudeFetcher = _ => Task.FromResult(Usage(0.3)),
             CodexLogin = login,
         };
-        store.AutoSwitch = _ => log.Add("autoswitch");
-        return store;
-    }
-
-    private static void SwitchStartsANewRefresh()
-    {
-        var log = new List<string>();
-        var gates = new List<(CancellationToken Token, TaskCompletionSource<AppUsage> Result)>();
-        var store = Store(token =>
-        {
-            var result = new TaskCompletionSource<AppUsage>(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (gates) gates.Add((token, result));
-            return result.Task;
-        }, () => "account:a", log);
-
-        store.Refresh();
-        WaitFor(() => { lock (gates) return gates.Count == 1; });
-        store.Refresh();
-        Expect(store.Loading, "a plain refresh while one is in flight is still ignored");
-        Thread.Sleep(50);
-        lock (gates) Expect(gates.Count, 1);
-
-        store.RefreshAfterCodexSwitch();
-        WaitFor(() => { lock (gates) return gates.Count == 2; });
-        Expect(gates[0].Token.IsCancellationRequested, "the old request is cancelled");
-        Expect(!gates[1].Token.IsCancellationRequested, "the new one runs");
-
-        // The old account's numbers arrive late: they are dropped.
-        gates[0].Result.SetResult(Usage(0.9));
-        Thread.Sleep(100);
-        Expect(store.Codex == AppUsage.Empty, "the old request's result is not shown");
-        Expect(store.Loading, "and does not end the new refresh");
-
-        gates[1].Result.SetResult(Usage(0.2));
-        store.RefreshTask!.Wait(TimeSpan.FromSeconds(5));
-        WaitFor(() => !store.Loading);
-        Expect(store.Codex.FiveHour.UsedPercent, 0.2);
-        Console.WriteLine("PASS a switch during a refresh cancels it and starts a new one");
-    }
 
     private static void ChangedLoginIsDropped()
     {
-        var log = new List<string>();
         var login = "account:a";
-        var store = Store(_ => Task.FromResult(Usage(1.0)), () => login, log);
+        var store = Store(_ => Task.FromResult(Usage(1.0)), () => login);
         // The login changes after the fetch started, before its result lands.
         store.CodexFetcher = _ =>
         {
@@ -123,28 +78,24 @@ public static class CodexSwitchRefreshTests
         WaitFor(() => !store.Loading);
         Expect(store.Codex == AppUsage.Empty, "Codex's half is dropped");
         Expect(store.Claude.FiveHour.UsedPercent, 0.3);
-        Expect(log.Count, 0);
-        Console.WriteLine("PASS a result for a login that has changed is dropped and does not auto-switch");
+        Console.WriteLine("PASS a result for a login that has changed is dropped");
     }
 
     private static void UnchangedLoginCommits()
     {
-        var log = new List<string>();
-        var store = Store(_ => Task.FromResult(Usage(1.0)), () => "account:a", log);
+        var store = Store(_ => Task.FromResult(Usage(1.0)), () => "account:a");
         store.Refresh();
         store.RefreshTask!.Wait(TimeSpan.FromSeconds(5));
         WaitFor(() => !store.Loading);
         Expect(store.Codex.FiveHour.UsedPercent, 1.0);
-        Expect(log.Count, 1);
-        Console.WriteLine("PASS a result for the same login commits and may auto-switch");
+        Console.WriteLine("PASS a result for the same login commits");
     }
 
     private static void NewLoginFailureShowsTheError()
     {
-        var log = new List<string>();
         var login = "account:a";
         string? savedFor = null;
-        var store = Store(_ => Task.FromResult(Usage(1.0)), () => login, log);
+        var store = Store(_ => Task.FromResult(Usage(1.0)), () => login);
         store.SaveSnapshot = (_, _, _, _, codexLogin) => savedFor = codexLogin;
         RefreshAndWait(store);
         Expect(store.Codex.FiveHour.UsedPercent, 1.0);
@@ -155,7 +106,7 @@ public static class CodexSwitchRefreshTests
         RefreshAndWait(store);
         Expect(store.Codex.FiveHour.UsedPercent == 1.0 && store.Codex.FiveHour.Kept, "a login's own numbers survive its failed fetch");
 
-        // Auto-switch activated account b, whose parked token has expired.
+        // The user signed in as account b, whose token has expired.
         login = "account:b";
         store.CodexFetcher = _ => Task.FromResult(AppUsage.ErrorPair("auth expired — codex login"));
         RefreshAndWait(store);
@@ -163,7 +114,7 @@ public static class CodexSwitchRefreshTests
             "account a's 100% is not shown under account b's login");
         Expect(store.Codex.FiveHour.Error, "auth expired — codex login");
         Expect(store.CodexUpdatedAt is null, "and a's sync time is not b's");
-        Console.WriteLine("PASS after a switch, a failed first fetch shows its error, not the previous account's numbers");
+        Console.WriteLine("PASS after the login changes, a failed first fetch shows its error, not the previous account's numbers");
     }
 
     private static void CachedNumbersKeepTheirLogin()
@@ -180,77 +131,6 @@ public static class CodexSwitchRefreshTests
         Expect(UsageCachePolicy.SameCodexLogin(null, "account:b"), "a snapshot from before logins were saved stays usable");
         Expect(UsageCachePolicy.SameCodexLogin("account:a", null), "an unreadable auth.json is not another login");
         Console.WriteLine("PASS cached Codex numbers carry the login they were fetched for");
-    }
-
-    private static void SwitchAsksCodexAlone()
-    {
-        var claude = 0;
-        var codex = 0;
-        var store = new UsageStore(restore: false)
-        {
-            ClaudeFetcher = _ =>
-            {
-                Interlocked.Increment(ref claude);
-                return Task.FromResult(AppUsage.ErrorPair("rate limited"));
-            },
-            CodexFetcher = _ =>
-            {
-                Interlocked.Increment(ref codex);
-                return Task.FromResult(Usage(0.2));
-            },
-            CodexLogin = () => "account:a",
-        };
-        RefreshAndWait(store);
-        var attempted = store.LastAttemptedAt;
-        var warning = store.RefreshWarning;
-        foreach (var _ in Enumerable.Range(0, 3))
-        {
-            store.RefreshAfterCodexSwitch();
-            Settle(store);
-        }
-        Expect(claude == 1, $"three Codex switches did not ask Anthropic again, got {claude} Claude fetches");
-        Expect(codex == 4, $"each switch fetched Codex, got {codex}");
-        Expect(store.LastAttemptedAt == attempted, "the Claude attempt time (the manual-refresh floor) is Claude's own");
-        Expect(store.RefreshWarning == warning, "Claude's failed fetch still counts toward the warning");
-        Console.WriteLine("PASS a Codex switch fetches Codex alone, so Anthropic keeps its poll cadence");
-    }
-
-    private static void SwitchMidRefreshAsksClaudeAgain()
-    {
-        var claude = 0;
-        var first = new TaskCompletionSource<AppUsage>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var codexCalls = 0;
-        var store = new UsageStore(restore: false)
-        {
-            ClaudeFetcher = _ =>
-            {
-                Interlocked.Increment(ref claude);
-                return Task.FromResult(Usage(0.3));
-            },
-            CodexFetcher = _ => Interlocked.Increment(ref codexCalls) == 1 ? first.Task : Task.FromResult(Usage(0.2)),
-            CodexLogin = () => "account:a",
-        };
-        store.Refresh();
-        WaitFor(() => Volatile.Read(ref codexCalls) == 1);
-        store.RefreshAfterCodexSwitch();
-        Settle(store);
-        first.SetResult(Usage(0.9));
-        Expect(claude == 2, $"the cancelled refresh's Claude half is asked again, got {claude}");
-        Expect(store.Claude.FiveHour.UsedPercent, 0.3);
-
-        // The poll lands while a switch's Codex-only refresh is still out:
-        // it takes over rather than being dropped, so Claude is not skipped.
-        var slow = new TaskCompletionSource<AppUsage>(TaskCreationOptions.RunContinuationsAsynchronously);
-        codexCalls = 0;
-        store.CodexFetcher = _ => Interlocked.Increment(ref codexCalls) == 1 ? slow.Task : Task.FromResult(Usage(0.2));
-        store.RefreshAfterCodexSwitch();
-        WaitFor(() => Volatile.Read(ref codexCalls) == 1);
-        store.Refresh();
-        Settle(store);
-        slow.SetResult(Usage(0.9));
-        Expect(claude == 3, $"the poll during a switch still asked Claude, got {claude}");
-        Expect(store.Codex.FiveHour.UsedPercent, 0.2);
-        Console.WriteLine("PASS a switch that cancels a full refresh still fetches Claude once more, and a poll is never swallowed by a switch");
     }
 
     private static void RefreshAndWait(UsageStore store)

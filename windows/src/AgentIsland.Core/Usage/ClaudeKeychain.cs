@@ -15,14 +15,12 @@ namespace AgentIsland.Usage;
 /// claudeAiOauth with a token pair, and the freshest expiresAt wins when
 /// several accounts have left items behind.
 ///
-/// The rotated refresh token must go back to the SAME item it was read from
-/// (Claude Code reads its own item on its next refresh), keeping every other
-/// field of the stored JSON. Nothing here prints or logs a token or any other
+/// Limen 只读这里：不写钥匙串，也不刷新登录。读取只为描述登录状态和判断终端登录有没有完成。
+/// Nothing here prints or logs a token or any other
 /// part of an item's secret; failures are reported as outcomes only.
 ///
 /// `security` can block for ever behind a keychain authorization dialog, so
-/// each read has a deadline. Updates use Security.framework in process with
-/// interaction disabled, so the item payload never enters a command line.
+/// each read has a deadline.
 internal sealed class ClaudeKeychain
 {
     public const string BaseService = "Claude Code-credentials";
@@ -41,18 +39,6 @@ internal sealed class ClaudeKeychain
             node?[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
     }
 
-    internal enum WriteResult
-    {
-        Written,
-        /// The item no longer holds the refresh token that was sent.
-        Superseded,
-        /// The item is gone and the keychain holds no Claude login at all: a
-        /// sign-out. (A failing `security` looks the same, which is why the
-        /// plain read is tried again before saying so.)
-        Gone,
-        Failed,
-    }
-
     /// Runs `security` with these arguments; stdout on exit 0, else null.
     internal delegate string? SecurityRunner(IReadOnlyList<string> arguments);
 
@@ -63,8 +49,6 @@ internal sealed class ClaudeKeychain
 
     internal const int ItemNotFound = 44;
 
-    internal delegate bool ItemWriter(string service, string account, string json, string? keychain);
-    private readonly ItemWriter _write;
     private readonly SecurityRunnerWithCode _runWithCode;
     // Per thread: a read is one synchronous call, and two callers must not see each other's outcome.
     [ThreadStatic] private static bool _readFailed;
@@ -77,14 +61,13 @@ internal sealed class ClaudeKeychain
 
     /// runner and baseService are seams for tests; keychain names a keychain
     /// file other than the default (a throwaway one in tests).
-    public ClaudeKeychain(SecurityRunner runner, string baseService, string? keychain, ItemWriter? writer = null)
-        : this(WithCode(runner), baseService, keychain, writer)
+    public ClaudeKeychain(SecurityRunner runner, string baseService, string? keychain)
+        : this(WithCode(runner), baseService, keychain)
     {
     }
 
-    public ClaudeKeychain(SecurityRunnerWithCode runner, string baseService, string? keychain, ItemWriter? writer = null)
+    public ClaudeKeychain(SecurityRunnerWithCode runner, string baseService, string? keychain)
     {
-        _write = writer ?? MacKeychainWriter.Update;
         _runWithCode = runner;
         _baseService = baseService;
         _keychain = keychain;
@@ -124,40 +107,6 @@ internal sealed class ClaudeKeychain
         }
         if (hit is not null) _remembered = hit.Service;
         return hit;
-    }
-
-    /// Forget the remembered item so the next read discovers again.
-    public void Forget() => _remembered = null;
-
-    /// Writes the rotated tokens into the item they came from, only while it
-    /// still holds the refresh token that was sent (the Grok rule): if Claude
-    /// Code refreshed first, or the user signed in again as another account,
-    /// the item is left alone.
-    public WriteResult WriteBack(string service, string accessToken, string refreshToken, long expiresAtMs, string sentRefreshToken)
-    {
-        try
-        {
-            if (ReadItem(service) is not { } current) return IsMissing(service) ? WriteResult.Gone : WriteResult.Failed;
-            if (!string.Equals(current.RefreshToken, sentRefreshToken, StringComparison.Ordinal)) return WriteResult.Superseded;
-            var root = current.Root;
-            if (root["claudeAiOauth"] is not JsonObject oauth) return WriteResult.Superseded;
-            oauth["accessToken"] = accessToken;
-            oauth["refreshToken"] = refreshToken;
-            oauth["expiresAt"] = expiresAtMs;
-            return _write(service, current.Account, root.ToJsonString(), _keychain)
-                ? WriteResult.Written : WriteResult.Failed;
-        }
-        catch (Exception)
-        {
-            return WriteResult.Failed;
-        }
-    }
-
-    /// `security` says there is no such item (and not merely that it failed).
-    private bool IsMissing(string service)
-    {
-        _runWithCode(WithKeychain(new List<string> { "find-generic-password", "-s", service }), out var exitCode);
-        return exitCode == ItemNotFound;
     }
 
     /// Cheap local change signal for the re-auth poll: the item's modification

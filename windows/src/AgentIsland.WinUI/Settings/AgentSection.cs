@@ -33,8 +33,6 @@ internal sealed class AgentSection
     private readonly SettingsCard _tokens;
     private readonly TextBlock _tokensText = new();
     private readonly SettingsCard _note;
-    private readonly SettingsCard _account;
-    private readonly TextBlock _accountText = new() { IsTextSelectionEnabled = true };
     private readonly SettingsCard _signIn;
     private readonly Button _signInButton = new();
     private readonly FaceSpinner _signInRing = new() { Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -125,12 +123,6 @@ internal sealed class AgentSection
         Expander.Items.Add(_tokens);
         _note = new SettingsCard { HeaderIcon = Icon("\uE946") };
         Expander.Items.Add(_note);
-        _account = new SettingsCard { Header = L10n.Tr("Account"), HeaderIcon = Icon("\uE77B") };
-        _account.Content = provider == DisplayProvider.Codex
-            ? new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { _accountText, CodexAccounts.Button(root) } }
-            : _accountText;
-        _accountText.VerticalAlignment = VerticalAlignment.Center;
-        Expander.Items.Add(_account);
 
         _signIn = new SettingsCard { Header = L10n.Tr("Sign in"), HeaderIcon = Icon("\uE8D7") };
         if (provider is DisplayProvider.Claude or DisplayProvider.Codex)
@@ -274,8 +266,6 @@ internal sealed class AgentSection
         }
         _note.Visibility = report.Note is null ? Visibility.Collapsed : Visibility.Visible;
         _note.Header = report.Note ?? "";
-        _account.Visibility = report.Account is null && _provider != DisplayProvider.Codex ? Visibility.Collapsed : Visibility.Visible;
-        _accountText.Text = report.Account ?? L10n.Tr("Not saved yet");
 
         _signIn.Description = report.SignInHint;
         var waiting = report.SignIn == SignInOffer.Waiting;

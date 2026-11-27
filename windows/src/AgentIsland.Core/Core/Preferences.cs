@@ -109,6 +109,7 @@ public static class Preferences
         "CursorUsageStore.lastSnapshot.v1",
         "GrokUsageStore.lastSnapshot.v1",
         "GrokUsageFetcher.refused.v1",
+        "codexAutoSwitchWhenExhausted",
     };
 
     /// 一次性清掉已删除的额度缓存键（里面有邮箱）。确实删了东西才写盘。

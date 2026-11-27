@@ -257,8 +257,7 @@ public static class StatusCards
             L10n.TrFormat("{0} this month", month), month);
     }
 
-    /// The account the Codex auto-switcher last
-    /// rotated to; Kimi Code's part of the monthly total it shares with the
+    /// Kimi Code's part of the monthly total it shares with the
     /// Kimi app, and its booster balance.
     public static IReadOnlyList<StatusPhrase> NoteParts(DisplayProvider provider)
     {
@@ -268,8 +267,6 @@ public static class StatusCards
         var interval = TimeSpan.FromSeconds(RefreshIntervalStore.Shared.Seconds);
         parts.AddRange(QuotaAges((ProviderUsage.For(provider), QuotaUpdatedAt(provider), monthEnded), now, interval, AwaitingText(provider)));
         if (provider == DisplayProvider.Kimi) parts.AddRange(KimiNote());
-        if (provider != DisplayProvider.Codex) return parts;
-        if (UsageStore.Shared.CodexAutoSwitched is { } account) parts.Add(Phrase(L10n.TrFormat("Auto-switched to {0}", account)));
         return parts;
     }
 

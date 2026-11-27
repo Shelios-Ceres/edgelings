@@ -35,6 +35,9 @@ public static class ClaudeUsageProbe
     /// 找不到 claude。不是需要登录。
     public const string NotInstalledMessage = "Install Claude Code and sign in once to see quota";
 
+    /// Mac 上 Claude 额度暂未启用：不是故障，也不要求重新登录。
+    public const string MacNotEnabledMessage = "Claude quota is not enabled on Mac yet";
+
     /// 额度接口可用但这次没取到（多半是 token 过期而 Claude Code 自己刷新失败）。
     public const string NoReadingMessage = "No quota this time; sign in again from Claude Code";
 

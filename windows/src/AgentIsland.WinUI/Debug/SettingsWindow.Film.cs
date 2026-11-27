@@ -57,24 +57,6 @@ internal sealed partial class SettingsWindow
                 box.IsDropDownOpen = false;
                 await Task.Delay(400);
             }
-            if (window.Content.XamlRoot is { } root)
-            {
-                var dialog = SettingsUi.Dialog(root);
-                dialog.Title = L10n.Tr("Save current account");
-                dialog.Content = new TextBlock { Text = L10n.Tr("Give this login a name so you can switch back to it later"), TextWrapping = TextWrapping.Wrap };
-                dialog.PrimaryButtonText = L10n.Tr("Save");
-                dialog.CloseButtonText = L10n.Tr("Cancel");
-                var before = UiMoment.Latest;
-                _ = dialog.ShowAsync();
-                if (await PopupPrint.NextMoment(before) is { } open)
-                {
-                    var capture = Around(window, dialog);
-                    await PopupPrint.FilmAsync(Path.Combine(directory, $"m15-open-{name}.png"), open, pixel, capture);
-                    before = UiMoment.Latest;
-                    dialog.Hide();
-                    if (await PopupPrint.NextMoment(before) is { } close) await PopupPrint.FilmAsync(Path.Combine(directory, $"m15-close-{name}.png"), close, pixel, capture);
-                }
-            }
         }
         catch (Exception error)
         {

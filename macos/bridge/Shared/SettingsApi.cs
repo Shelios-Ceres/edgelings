@@ -83,7 +83,6 @@ public static class SettingsApi
                 json.WriteBoolean("shown", shown);
                 json.WriteBoolean("detected", report.Detected);
                 if (report.Plan is { } plan) json.WriteString("plan", plan);
-                if (report.Account is { } account) json.WriteString("account", account);
                 json.WriteString("status", report.Status);
                 if (report.Warning is { } warning) json.WriteString("warning", warning);
                 if (report.Note is { } note) json.WriteString("note", note);
@@ -130,19 +129,6 @@ public static class SettingsApi
             json.WriteBoolean("grokConflict", GrokHooks.Conflicts());
             json.WriteEndObject();
 
-            json.WriteStartObject("codex");
-            json.WriteBoolean("autoSwitch", false); // 自动换号已断开，第 4 批删
-            if (CodexAccountSwitcher.ActiveLabel() is { } active) json.WriteString("active", active);
-            json.WriteStartArray("accounts");
-            foreach (var account in CodexAccountSwitcher.Accounts())
-            {
-                json.WriteStartObject();
-                json.WriteString("label", account.Label);
-                if (account.Email is { } email) json.WriteString("email", email);
-                json.WriteEndObject();
-            }
-            json.WriteEndArray();
-            json.WriteEndObject();
             json.WriteBoolean("kimiMail", true);
         });
     }
@@ -185,12 +171,11 @@ public static class SettingsApi
     }
 
     /// {"method":"agent","action":…,"id":"claude", …}
-    ///   signIn · refresh · hook (on) · codexSwitch (label) · codexSave (label) · codexForget (label) · codexAuto (on)
+    ///   signIn · refresh · hook (on)
     public static string Agent(JsonElement request)
     {
         var action = request.TryGetProperty("action", out var a) ? a.GetString() : null;
         var provider = request.TryGetProperty("id", out var id) ? DisplayProviders.Parse(id.GetString()) : null;
-        var label = request.TryGetProperty("label", out var l) ? l.GetString() : null;
         var on = request.TryGetProperty("on", out var o) && o.ValueKind == JsonValueKind.True;
         string? error = null;
         var done = true;
@@ -204,27 +189,6 @@ public static class SettingsApi
                     : "no hook for this agent";
                 done = error is null;
                 break;
-            case "codexSwitch":
-                if (CodexAccountSwitcher.Accounts().FirstOrDefault(account => account.Label == label) is { } target)
-                {
-                    done = CodexAccountSwitcher.Activate(target);
-                    if (done)
-                    {
-                        UsageStore.Shared.CodexAutoSwitched = null;
-                        UsageStore.Shared.RefreshAfterCodexSwitch();
-                    }
-                }
-                else done = false;
-                break;
-            case "codexSave":
-                var parked = CodexAccountSwitcher.ParkCurrent(string.IsNullOrWhiteSpace(label) ? null : label);
-                done = parked == CodexAccountSwitcher.ParkResult.Saved;
-                if (!done) error = parked == CodexAccountSwitcher.ParkResult.NameTaken ? "name taken" : "failed";
-                break;
-            case "codexForget":
-                if (CodexAccountSwitcher.Accounts().FirstOrDefault(account => account.Label == label) is { } gone) CodexAccountSwitcher.Forget(gone);
-                break;
-            case "codexAuto": break; // 自动换号已断开，第 4 批删
             default: return Json.Write(json => json.WriteString("error", $"unknown action '{action}'"));
         }
         return Json.Write(json =>

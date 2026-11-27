@@ -22,7 +22,7 @@ public static class HiddenProviderQuotaTests
 
     private static void BothHiddenMakesZeroCalls()
     {
-        int claude = 0, codex = 0, loginReads = 0, autoSwitches = 0, kicks = 0;
+        int claude = 0, codex = 0, loginReads = 0, kicks = 0;
         var store = new UsageStore(restore: false)
         {
             ClaudeShown = () => false,
@@ -30,13 +30,12 @@ public static class HiddenProviderQuotaTests
             ClaudeFetcher = _ => { Interlocked.Increment(ref claude); return Task.FromResult(Usage(0.2)); },
             CodexFetcher = _ => { Interlocked.Increment(ref codex); return Task.FromResult(Usage(0.3)); },
             CodexLogin = () => { Interlocked.Increment(ref loginReads); return "account:a"; },
-            AutoSwitch = _ => Interlocked.Increment(ref autoSwitches),
             BeforeRefresh = () => Interlocked.Increment(ref kicks),
         };
         store.Refresh();
         Expect(!store.Loading, "nothing enters Loading when both providers are hidden");
-        Expect(claude == 0 && codex == 0 && loginReads == 0 && autoSwitches == 0,
-            $"expected zero quota calls, got claude={claude}, codex={codex}, login={loginReads}, autoSwitch={autoSwitches}");
+        Expect(claude == 0 && codex == 0 && loginReads == 0,
+            $"expected zero quota calls, got claude={claude}, codex={codex}, login={loginReads}");
         Expect(kicks == 1, "shown guest stores still receive the poll tick");
         Expect(store.LastAttemptedAt is null && store.CodexAttemptedAt is null, "neither provider records an attempt while hidden");
         Console.WriteLine("PASS hidden Claude and Codex make zero quota, login or auto-switch calls");
@@ -72,7 +71,7 @@ public static class HiddenProviderQuotaTests
 
     private static void HiddenCodexSkipsOpenAiAndLoginRead()
     {
-        int claude = 0, codex = 0, loginReads = 0, autoSwitches = 0;
+        int claude = 0, codex = 0, loginReads = 0;
         var codexShown = false;
         var store = new UsageStore(restore: false)
         {
@@ -81,20 +80,19 @@ public static class HiddenProviderQuotaTests
             ClaudeFetcher = _ => { Interlocked.Increment(ref claude); return Task.FromResult(Usage(0.5)); },
             CodexFetcher = _ => { Interlocked.Increment(ref codex); return Task.FromResult(Usage(1.0)); },
             CodexLogin = () => { Interlocked.Increment(ref loginReads); return "account:a"; },
-            AutoSwitch = _ => Interlocked.Increment(ref autoSwitches),
         };
         store.Refresh();
         Settle(store);
-        Expect(claude == 1 && codex == 0 && loginReads == 0 && autoSwitches == 0,
-            $"hidden Codex stayed completely off, got claude={claude}, codex={codex}, login={loginReads}, auto={autoSwitches}");
+        Expect(claude == 1 && codex == 0 && loginReads == 0,
+            $"hidden Codex stayed completely off, got claude={claude}, codex={codex}, login={loginReads}");
         Expect(store.Claude.FiveHour.UsedPercent, 0.5);
 
         codexShown = true;
         store.Refresh(fetchClaude: false, fetchCodex: true);
         Settle(store);
-        Expect(claude == 1 && codex == 1 && loginReads >= 1 && autoSwitches == 1,
+        Expect(claude == 1 && codex == 1 && loginReads >= 1,
             $"showing Codex fetches Codex alone without re-polling Anthropic, got claude={claude}, codex={codex}");
-        Console.WriteLine("PASS hidden Codex skips OpenAI, auth.json reads and auto-switching until shown");
+        Console.WriteLine("PASS hidden Codex skips the rollout read and auth.json reads until shown");
     }
 
     private static void HidingAllInFlightAbortsRequest()
@@ -128,7 +126,6 @@ public static class HiddenProviderQuotaTests
     private static void HidingOneInFlightDropsItsHalf()
     {
         var codexShown = true;
-        var autoSwitches = 0;
         var gate = new TaskCompletionSource<AppUsage>(TaskCreationOptions.RunContinuationsAsynchronously);
         var store = new UsageStore(restore: false)
         {
@@ -137,7 +134,6 @@ public static class HiddenProviderQuotaTests
             ClaudeFetcher = _ => Task.FromResult(Usage(0.35)),
             CodexFetcher = _ => gate.Task,
             CodexLogin = () => "account:a",
-            AutoSwitch = _ => Interlocked.Increment(ref autoSwitches),
         };
         store.Refresh();
         WaitFor(() => store.Loading);
@@ -150,7 +146,6 @@ public static class HiddenProviderQuotaTests
         Settle(store);
         Expect(store.Claude.FiveHour.UsedPercent, 0.35);
         Expect(store.Codex == AppUsage.Empty, "Codex was hidden before commit, so its result is dropped");
-        Expect(autoSwitches == 0, "and hidden Codex does not auto-switch");
         Console.WriteLine("PASS hiding one provider mid-refresh keeps the shown peer and drops the hidden half");
     }
 

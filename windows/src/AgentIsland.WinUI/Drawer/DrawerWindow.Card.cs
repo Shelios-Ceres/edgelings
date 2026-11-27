@@ -70,7 +70,6 @@ internal sealed partial class DrawerWindow
             {
                 new StatusPhrase(L10n.TrFormat("Quota updated {0}", Formatting.RelativeAgo(TimeSpan.FromMinutes(12), L10n.IsChinese)), Array.Empty<string>()),
                 new StatusPhrase(L10n.TrFormat("{0} reset cards", "2"), new[] { "2" }),
-                new StatusPhrase(L10n.TrFormat("Auto-switched to {0}", "dev.account+work@example.com"), Array.Empty<string>()),
                 new StatusPhrase("Open Kimi Code once to sync its plan usage; the CLI's sign-in only lasts fifteen minutes", Array.Empty<string>()),
             },
         };

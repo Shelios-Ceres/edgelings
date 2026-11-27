@@ -2,7 +2,7 @@
 // agent's mark or face, its name and plan, its status, arrows and a Shown
 // switch; then rows, each with a leading icon, a title over a description, and
 // its control on the right: the Look tiles, one row per quota window, Tokens,
-// a note, the account, Sign in and the optional permission prompts.
+// a note, Sign in and the optional permission prompts.
 import SwiftUI
 import AppKit
 
@@ -122,14 +122,6 @@ struct AgentCard: View {
             }
             if let warning = agent.warning, !warning.isEmpty {
                 IconRow(store: store, glyph: "E946", symbol: "info.circle", title: warning) { EmptyView() }
-            }
-            if agent.id == "codex" || agent.account != nil {
-                IconRow(store: store, glyph: "E77B", symbol: "person.crop.circle", title: store.t("Account")) {
-                    HStack(spacing: 10) {
-                        SkinText(pixel: store.skin == .pixel, text: agent.account ?? store.t("Not saved yet"), pixelSize: 12, size: 12, weight: .regular, color: palette.color("Text2"))
-                        if agent.id == "codex" { codexMenu }
-                    }
-                }
             }
             if agent.id == "claude" || agent.id == "codex" {
                 IconRow(store: store, glyph: "E8D7", symbol: "key", title: store.t("Sign in"), subtitle: agent.signInHint) {
@@ -251,53 +243,6 @@ struct AgentCard: View {
                          color: warn ? palette.color("Critical") : palette.color("Text2"))
                     .frame(minWidth: kit.pixel ? 64 : 40, alignment: .trailing)
             }
-        }
-    }
-
-    private var codexMenu: some View {
-        let codex = store.settings?.codex
-        return Group {
-            if RenderFlags.offscreen {
-                KitMenu(store: store, options: [store.t("Switch")], selected: 0, singleChevron: true) { _ in }
-            } else {
-                KitMenuButton(store: store, title: store.t("Switch"), build: { menu in
-                    if codex?.accounts.isEmpty ?? true { menu.note(store.t("No saved accounts yet")) }
-                    for account in codex?.accounts ?? [] {
-                        menu.item(account.label + (account.email.map { "  (\($0))" } ?? ""), checked: account.label == codex?.active) {
-                            store.send("agent", ["action": "codexSwitch", "id": "codex", "label": account.label])
-                        }
-                    }
-                    menu.separator()
-                    menu.item(store.t("Save current account…")) { saveAccount() }
-                    // 自动换号已断开，开关和风险提示先藏起来，第 4 批删
-                    if !(codex?.accounts.isEmpty ?? true) {
-                        menu.submenu(store.t("Remove saved account")) { sub in
-                            for account in codex?.accounts ?? [] {
-                                sub.item(account.label) { store.send("agent", ["action": "codexForget", "id": "codex", "label": account.label]) }
-                            }
-                        }
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        SkinText(pixel: store.skin == .pixel, text: store.t("Switch"), pixelSize: 13, size: 13, color: store.palette.color("Text"))
-                        if store.skin == .pixel { PixelIcon(name: "down", ink: store.palette.color("Text2"), cell: 2).frame(width: 20, height: 20) }
-                        else { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundColor(store.palette.color("Text2")) }
-                    }
-                }
-            }
-        }
-    }
-
-    private func saveAccount() {
-        let alert = NSAlert()
-        alert.messageText = store.t("Save current account…")
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.placeholderString = "work / personal"
-        alert.accessoryView = field
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn {
-            store.send("agent", ["action": "codexSave", "id": "codex", "label": field.stringValue])
         }
     }
 

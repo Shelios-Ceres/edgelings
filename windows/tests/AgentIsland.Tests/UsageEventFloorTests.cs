@@ -17,7 +17,6 @@ public static class UsageEventFloorTests
         Run("a refresh of only Codex leaves the make-up to fetch Claude", PartialRefreshKeepsTheMakeUp);
         Run("stopping the store cancels the make-up", StopCancelsTheMakeUp);
         Run("a request stuck in flight is superseded by the make-up when the floor ends", MakeUpWithARequestStuck);
-        Run("Codex auto-switching is off until the user turns it on", AutoSwitchDefaultsOff);
         Console.WriteLine("UsageEventFloorTests GREEN");
     }
 
@@ -199,11 +198,6 @@ public static class UsageEventFloorTests
         Rig.Until(() => rig.Claude == 2);
         Expect(rig.Claude == 2, $"when the floor ends the make-up supersedes the stuck request, got {rig.Claude}");
         rig.Settle();
-    }
-
-    private static void AutoSwitchDefaultsOff()
-    {
-        Expect(!CodexAccountSwitcher.AutoSwitchEnabled, "a fresh install does not rotate logins");
     }
 
     private static void Run(string name, Action test) { test(); Console.WriteLine($"PASS usage event floor: {name}"); }

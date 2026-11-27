@@ -19,7 +19,6 @@ public sealed record AgentReport(
     DisplayProvider Provider,
     bool Detected,
     string? Plan,
-    string? Account,
     string Status,
     string? Warning,
     IReadOnlyList<StatusMeter> Meters,
@@ -39,7 +38,6 @@ public static class AgentReports
             provider,
             detected,
             detected ? Plan(provider) : null,
-            detected ? Account(provider) : null,
             detected ? Status(provider) : L10n.Tr(Missing(provider)),
             warnings.Count > 0 ? string.Join(" · ", warnings) : null,
             detected ? StatusCards.Meters(provider) : Array.Empty<StatusMeter>(),
@@ -78,12 +76,6 @@ public static class AgentReports
         DisplayProvider.Claude => UsageStore.Shared.Claude.Plan?.ToUpperInvariant(),
         DisplayProvider.Codex => UsageStore.Shared.Codex.Plan?.ToUpperInvariant(),
         DisplayProvider.Kimi => KimiUsageStore.Shared.PlanBadge,
-        _ => null,
-    };
-
-    private static string? Account(DisplayProvider provider) => provider switch
-    {
-        DisplayProvider.Codex => CodexAccountSwitcher.ActiveLabel(),
         _ => null,
     };
 
@@ -140,10 +132,7 @@ public static class AgentReports
         {
             case DisplayProvider.Claude:
                 if (store.ClaudeReauthInProgress) return SignInOffer.Waiting;
-                var claude = store.Claude;
-                return ClaudeCredentials.IsAuthRecoverableError(claude.FiveHour.Error)
-                    || ClaudeCredentials.IsAuthRecoverableError(claude.Weekly.Error)
-                    || !ProviderVisibilityStore.Shared.ClaudeDetected
+                return !ProviderVisibilityStore.Shared.ClaudeDetected
                     ? SignInOffer.Available
                     : SignInOffer.None;
             case DisplayProvider.Codex:

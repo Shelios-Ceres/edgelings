@@ -244,18 +244,8 @@ struct KitMenuBuilder {
         item.state = checked ? .on : .off
     }
 
-    func note(_ title: String) {
-        titled(title).isEnabled = false
-    }
-
     func separator() {
         menu.addItem(.separator())
-    }
-
-    func submenu(_ title: String, _ fill: (KitMenuBuilder) -> Void) {
-        let sub = KitMenuBuilder(font: font)
-        fill(sub)
-        titled(title).submenu = sub.menu
     }
 }
 
