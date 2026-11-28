@@ -35,6 +35,8 @@ public static class SessionMetricsTests
                 ("a log is read from its tail, then only what is appended; a torn last line waits", IncrementalRead),
                 ("a rewritten shorter log is read afresh", Rewritten),
                 ("the store recomputes a session at most every five seconds", Throttle),
+                ("a system clock set backwards does not freeze the readings", ClockRewind),
+                ("lines of one message without a requestId are counted once", NoRequestId),
                 ("only working sessions of Claude, Codex and Kimi are read", WorkingOnly),
                 ("card rows carry metrics on running main rows only, and the key holds presence, not numbers", RowsCarryMetrics),
             };
@@ -333,7 +335,7 @@ public static class SessionMetricsTests
 
     private static void Throttle(string dir)
     {
-        var clock = T0;
+        var clock = TimeSpan.Zero;
         var store = new SessionMetricsStore(() => clock);
         var path = Write(dir, ThreeRequests());
         var session = Session("a", path);
@@ -341,21 +343,41 @@ public static class SessionMetricsTests
         Expect(store.Snapshot()[session.Id].CachePercent, 90);
         // 追加一个全不命中的请求（命中 0/1000），两秒后问：还是旧的。
         Append(path, Api(12), Asst("4", 14, 1000, 100, 0, 0), Api(15), Asst("5", 17, 1000, 100, 0, 0));
-        clock = T0.AddSeconds(2);
+        clock = TimeSpan.FromSeconds(2);
         Expect(!store.Refresh(new[] { session }), "within five seconds nothing is read");
         Expect(store.Snapshot()[session.Id].CachePercent, 90);
-        clock = T0.AddSeconds(5);
+        clock = TimeSpan.FromSeconds(5);
         Expect(store.Refresh(new[] { session }), "five seconds on, it is read again");
         // 最近 5 次：请求 2（190/200）、3（270/300）、4（0/1000）、5（0/1000），和请求 1（80/100）→ 540/2600 = 20%。
         Expect(store.Snapshot()[session.Id].CachePercent, 20);
         // 又过 5 秒没有新内容：读了，读数没变，不算变化。
-        clock = T0.AddSeconds(10);
+        clock = TimeSpan.FromSeconds(10);
         Expect(!store.Refresh(new[] { session }), "nothing new");
+    }
+
+    private static void ClockRewind(string dir)
+    {
+        var clock = TimeSpan.FromMinutes(10);
+        var store = new SessionMetricsStore(() => clock);
+        var path = Write(dir, ThreeRequests());
+        var session = Session("a", path);
+        store.Refresh(new[] { session });
+        Append(path, Api(12), Asst("4", 14, 1000, 100, 0, 0), Api(15), Asst("5", 17, 1000, 100, 0, 0));
+        clock = TimeSpan.FromMinutes(1);
+        Expect(store.Refresh(new[] { session }), "the clock went back: it is still read");
+        Expect(store.Snapshot()[session.Id].CachePercent, 20);
+    }
+
+    private static void NoRequestId(string dir)
+    {
+        string Old(string line) => line.Replace("\"requestId\":\"req_a\",", "");
+        var path = Write(dir, Api(0), Old(Asst("a", 2, 100, 50, 100, 0, stop: null)), Old(Asst("a", 3, 100, 100, 100, 0, stop: "end_turn")));
+        Expect(Claude(path)!.Requests, 1);
     }
 
     private static void WorkingOnly(string dir)
     {
-        var store = new SessionMetricsStore(() => T0);
+        var store = new SessionMetricsStore(() => TimeSpan.Zero);
         var path = Write(dir, ThreeRequests());
         var sessions = new[]
         {

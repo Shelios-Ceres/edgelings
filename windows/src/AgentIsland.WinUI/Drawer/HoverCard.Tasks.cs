@@ -89,6 +89,8 @@ internal sealed partial class HoverCard
             }
             // 短词也放不下：指标挪到第 3 行，卡关闭前不再挪回来。
             _metricsBelow.Add(row.Id);
+            // 上面按变窄的宽度量时记下的“要用短词”不作数：第 3 行有整行宽度，重新按整行量。
+            _shortened.Remove(row.Id);
         }
         var said = Activity(row, room, withObject: false).Text;
         said.Margin = new Thickness(Mark, 0, 0, 0);

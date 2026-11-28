@@ -30,6 +30,8 @@ internal sealed partial class DrawerWindow
             // finished turns for whether they ended on an error.
             var lookAround = _clock.Elapsed.TotalSeconds - _presenceAt >= 1;
             var sessions = monitor.Sessions;
+            // 缓存率和速度只有卡上才显示：卡关着不读日志（卡打开时 OpenCard 会立刻补读一次）。
+            var cardOpen = _card.IsOpen;
             var (readings, presence, metricsChanged) = await Task.Run(() =>
             {
                 return (jobs
@@ -39,7 +41,7 @@ internal sealed partial class DrawerWindow
                         : null))
                     .ToList(), lookAround ? AgentPresences.Now() : null,
                     // 缓存率和速度也在这里读（本机日志尾部，每个会话最多 5 秒一次），不占 UI 线程。
-                    SessionMetricsStore.Shared.Refresh(sessions));
+                    cardOpen && SessionMetricsStore.Shared.Refresh(sessions));
             });
             if (_closed) return;
             var seconds = _clock.Elapsed.TotalSeconds;

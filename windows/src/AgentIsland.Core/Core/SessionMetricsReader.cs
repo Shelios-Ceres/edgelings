@@ -85,8 +85,9 @@ internal sealed class ClaudeMetricsParser : MetricsParser
         var complete = Jsonl.GetString(message, "stop_reason") is { Length: > 0 };
         var messageId = Jsonl.GetString(message, "id");
         var requestId = Jsonl.GetString(root, "requestId");
-        var key = messageId is { Length: > 0 } && requestId is { Length: > 0 }
-            ? $"{messageId}:{requestId}"
+        // 没有 requestId 的老日志：message id 本身就是同一个响应的所有行共用的，用它去重；两个都没有才按形状。
+        var key = messageId is { Length: > 0 }
+            ? requestId is { Length: > 0 } ? $"{messageId}:{requestId}" : $"{messageId}:"
             : $"shape:{at.ToUnixTimeMilliseconds()}|{input}|{output}|{read}|{creation}";
         var hit = read ?? 0;
         var total = input + hit + (creation ?? 0);

@@ -22,6 +22,23 @@ internal sealed partial class DrawerWindow
         if (only is null) Hush();
         else only.Bubble?.Hide(animated: false);
         ShowCard();
+        ReadMetricsNow();
+    }
+
+    /// 卡关着时 Poll 不读日志；卡一打开就在后台补读一次，读数有了再刷新卡
+    /// （第一帧先按已有的读数画，没有就先不写指标）。
+    private async void ReadMetricsNow()
+    {
+        try
+        {
+            var sessions = ActivityMonitor.Shared.Sessions;
+            var changed = await Task.Run(() => SessionMetricsStore.Shared.Refresh(sessions));
+            if (changed && !_closed) RefreshCard();
+        }
+        catch (Exception error)
+        {
+            CrashLog.Write(error, "Drawer metrics");
+        }
     }
 
     // 上次因为缓存率和速度刷新卡的时刻（秒，_clock）。
