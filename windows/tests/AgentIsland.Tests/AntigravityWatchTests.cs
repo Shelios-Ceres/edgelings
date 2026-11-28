@@ -42,6 +42,10 @@ public static class AntigravityWatchTests
             ("the db is opened for reading only and left unchanged", ReadOnlyOpen),
             ("a closed WAL db is read without creating -shm, -wal or -journal", ClosedWalDbLeavesNoFiles),
             ("a db another connection holds open in WAL mode is read, with its newest rows", HeldWalDb),
+            ("program running: shared open reads the newest rows from the WAL", ProgramRunningReadsWal),
+            ("program not running: a stale -shm is not touched and the db is opened immutable", StaleShmNotTouched),
+            ("program running but no -shm: the closed WAL db is opened immutable and no files appear", RunningWithoutShmStaysImmutable),
+            ("directory name maps to the desktop app or agy; unseen or unknown gives null", ProgramRunningMapping),
         };
         foreach (var (name, test) in tests)
         {
@@ -111,8 +115,14 @@ public static class AntigravityWatchTests
         public string Agy => Path.Combine(Root, "home", ".gemini", "antigravity");
         public string Db => Path.Combine(Agy, "conversation_summaries.db");
 
+        private readonly Func<string, bool?> _previousRunning = SessionScanner.AntigravityProgramRunning;
+
+        /// 程序在不在跑的答案：null 是判断不了（退回看 -shm），测试里默认这样，不受本机进程影响。
+        public bool? Running { get; set; }
+
         public World()
         {
+            SessionScanner.AntigravityProgramRunning = _ => Running;
             IslandPaths.RootOverride = Root;
             Directory.CreateDirectory(Agy);
             SessionScanner.ClearTurnCache();
@@ -189,6 +199,7 @@ public static class AntigravityWatchTests
 
         public void Dispose()
         {
+            SessionScanner.AntigravityProgramRunning = _previousRunning;
             IslandPaths.RootOverride = _previous;
             SqliteConnection.ClearAllPools();
             SessionScanner.ClearTurnCache();
@@ -453,6 +464,96 @@ public static class AntigravityWatchTests
         Expect(rows.ContainsKey(Parent), "the closed db is still read");
         Expect(string.Join(",", Listing()), string.Join(",", before));
         Expect(File.GetLastWriteTimeUtc(world.Db), stamp);
+    }
+
+    /// 应用的做法：一个写连接一直开着，WAL 模式，改动留在 -wal 里不合并回主文件。
+    private static SqliteConnection HoldWal(World world, string status)
+    {
+        var writer = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = world.Db, Pooling = false }.ToString());
+        writer.Open();
+        foreach (var text in new[]
+        {
+            "PRAGMA journal_mode=WAL", "PRAGMA wal_autocheckpoint=0",
+            $"UPDATE conversation_summaries SET status = '{status}', not_fully_idle = 1 WHERE conversation_id = '{Parent}'",
+        })
+        {
+            using var command = writer.CreateCommand();
+            command.CommandText = text;
+            command.ExecuteNonQuery();
+        }
+        return writer;
+    }
+
+    private static void ProgramRunningReadsWal()
+    {
+        using var world = new World();
+        world.CreateDb((Parent, Idle, 0, 0, "", ""));
+        using var writer = HoldWal(world, Running);
+        Expect(new FileInfo(world.Db + "-wal").Length > 0, "the new row state is only in the wal");
+        world.Running = true;
+        Expect(SessionScanner.AntigravityRows(world.Agy)[Parent].Status, Running);
+    }
+
+    private static void StaleShmNotTouched()
+    {
+        using var world = new World();
+        world.CreateDb((Parent, Idle, 0, 0, "", ""));
+        CloseAsWal(world);
+        // 程序已经退出，只留下旧 -shm（内容不重要，immutable 不会去读它）。
+        var shm = world.Db + "-shm";
+        File.WriteAllBytes(shm, new byte[32768]);
+        var old = DateTime.UtcNow.AddDays(-3);
+        File.SetLastWriteTimeUtc(shm, old);
+        string[] Listing() => Directory.GetFiles(world.Agy).Select(Path.GetFileName).Order().ToArray()!;
+        var before = Listing();
+        var dbStamp = File.GetLastWriteTimeUtc(world.Db);
+        world.Running = false;
+        Expect(SessionScanner.AntigravityRows(world.Agy).ContainsKey(Parent), "the db is still read");
+        Expect(SessionScanner.AntigravityRows(world.Agy)[Parent].Status, Idle);
+        Expect(File.GetLastWriteTimeUtc(shm), old);
+        Expect(new FileInfo(shm).Length, 32768L);
+        Expect(File.GetLastWriteTimeUtc(world.Db), dbStamp);
+        Expect(string.Join(",", Listing()), string.Join(",", before));
+    }
+
+    private static void CloseAsWal(World world)
+    {
+        using (var writer = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = world.Db, Pooling = false }.ToString()))
+        {
+            writer.Open();
+            using var command = writer.CreateCommand();
+            command.CommandText = "PRAGMA journal_mode=WAL";
+            command.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+    }
+
+    private static void RunningWithoutShmStaysImmutable()
+    {
+        using var world = new World();
+        world.CreateDb((Parent, Running, 1, 0, "", ""));
+        CloseAsWal(world);
+        string[] Listing() => Directory.GetFiles(world.Agy).Select(Path.GetFileName).Order().ToArray()!;
+        var before = Listing();
+        Expect(!before.Any(name => name!.EndsWith("-shm") || name.EndsWith("-wal")), "closed: only the db is left");
+        world.Running = true;
+        Expect(SessionScanner.AntigravityRows(world.Agy).ContainsKey(Parent), "the db is still read");
+        Expect(string.Join(",", Listing()), string.Join(",", before));
+    }
+
+    private static void ProgramRunningMapping()
+    {
+        var seen = new HashSet<AgentSurface> { AgentSurface.AntigravityApp };
+        var none = new HashSet<AgentSurface>();
+        Expect(SessionScanner.ProgramRunningFor("antigravity", true, none, seen), (bool?)true);
+        Expect(SessionScanner.ProgramRunningFor("antigravity-ide", true, none, seen), (bool?)true);
+        Expect(SessionScanner.ProgramRunningFor("antigravity-cli", true, none, seen), (bool?)false);
+        var agy = new HashSet<AgentSurface> { AgentSurface.AgyCli };
+        Expect(SessionScanner.ProgramRunningFor("antigravity-cli", true, none, agy), (bool?)true);
+        Expect(SessionScanner.ProgramRunningFor("antigravity", true, none, agy), (bool?)false);
+        Expect(SessionScanner.ProgramRunningFor("antigravity", false, none, seen), (bool?)null);
+        Expect(SessionScanner.ProgramRunningFor("antigravity-cli", true, new HashSet<AgentSurface> { AgentSurface.AgyCli }, agy), (bool?)null);
+        Expect(SessionScanner.ProgramRunningFor("antigravity", true, new HashSet<AgentSurface> { AgentSurface.AgyCli }, none), (bool?)false);
     }
 
     private static void HeldWalDb()

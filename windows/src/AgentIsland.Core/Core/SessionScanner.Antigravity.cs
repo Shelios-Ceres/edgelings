@@ -335,10 +335,13 @@ public static partial class SessionScanner
 
     /// `conversation_summaries.db` 每个会话一行，是 Antigravity 放在 `brain/` 旁边的 SQLite 索引。
     /// 只读、共享方式打开，不加锁、不写，也不留连接池（Pooling=False，用完即放开文件句柄）。
-    /// db 是 WAL 模式：-shm 文件只在应用持有 db 时存在。没有 -shm（应用关了）时，普通只读打开会在
-    /// 应用的数据目录里新建 -shm 和 -wal，所以直接用 immutable URI（完全不看 WAL，不写任何文件）。
-    /// 这样做是安全的：正常关闭的 db 已经合并完，读到旧的最多是标题不够新（此时状态也是旧的，
-    /// 但会话记录自己的时间会让它读成 Idle）。有 -shm（应用开着）时用普通只读共享打开，能读到 WAL 里的新行。
+    /// db 是 WAL 模式：应用持有 db 时普通只读打开能读到 WAL 里的新行，但会碰 -shm（改它的修改时间）；
+    /// 应用关了时普通只读打开还可能新建 -shm 和 -wal。所以按“这个数据目录对应的程序在不在跑”选打开方式：
+    /// 在跑 → 只读共享打开；没在跑 → immutable URI（完全不看 WAL，不碰任何文件）。
+    /// 不能看 -shm 是否存在：程序异常退出会留下旧 -shm，用它判断会每次扫描都去碰它。
+    /// immutable 读不到 -wal 里还没合并的行，可以接受：程序下次运行会自己合并，
+    /// 此时标题和状态顶多旧一点（会话记录自己的时间会让它读成 Idle）。
+    /// 对应程序还判断不了（第一次进程扫描前、读不到进程表）时，退回旧办法：有 -shm 就共享打开。
     /// 完全读不了的 db 得到空结果，只按各会话记录判断。
     internal static Dictionary<string, AntigravityRow> AntigravityRows(string root)
     {
@@ -346,8 +349,27 @@ public static partial class SessionScanner
         if (!File.Exists(dbPath)) return new(StringComparer.Ordinal);
         var immutable = $"Data Source=file:{Uri.EscapeDataString(dbPath).Replace("%5C", "/").Replace("%3A", ":")}?immutable=1;Mode=ReadOnly;Pooling=False";
         var shared = $"Data Source={dbPath};Mode=ReadOnly;Pooling=False";
-        if (!File.Exists(dbPath + "-shm")) return AntigravityRowsAt(immutable) ?? new(StringComparer.Ordinal);
+        var hasShm = File.Exists(dbPath + "-shm");
+        var running = (AntigravityProgramRunning(Path.GetFileName(root)) ?? true) && hasShm;
+        if (!running) return AntigravityRowsAt(immutable) ?? new(StringComparer.Ordinal);
         return AntigravityRowsAt(shared) ?? AntigravityRowsAt(immutable) ?? new(StringComparer.Ordinal);
+    }
+
+    /// 数据目录名 → 对应程序在不在跑；null 表示判断不了。测试缝：测试里换成固定答案。
+    /// antigravity 和 antigravity-ide 是桌面应用（改过名的两代目录），antigravity-cli 是 agy CLI。
+    /// 用的是进程扫描已经防抖好的结果（AgentSurfaces.Shared），这里不枚举进程。
+    internal static Func<string, bool?> AntigravityProgramRunning { get; set; } = rootName =>
+    {
+        var tracker = AgentSurfaces.Shared;
+        return ProgramRunningFor(rootName, tracker.Seen, tracker.Unknown, tracker.Current);
+    };
+
+    internal static bool? ProgramRunningFor(
+        string rootName, bool seen, IReadOnlySet<AgentSurface> unknown, IReadOnlySet<AgentSurface> current)
+    {
+        var surface = rootName == "antigravity-cli" ? AgentSurface.AgyCli : AgentSurface.AntigravityApp;
+        if (!seen || unknown.Contains(surface)) return null;
+        return current.Contains(surface);
     }
 
     private const string AntigravityWideQuery =
